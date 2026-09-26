@@ -2935,6 +2935,19 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
         }
     }
 
+    private EmergencyLocationDispatcher mEmergencyLocationDispatcher;
+
+    private void notifyEmergencyLocation(String action, int phoneId, int subId,
+            EmergencyNumber number) {
+        if (number == null || !validatePhoneId(phoneId)) return;
+        synchronized (mRecords) {
+            if (mEmergencyLocationDispatcher == null) {
+                mEmergencyLocationDispatcher = new EmergencyLocationDispatcher(mContext, mHandler);
+            }
+            mEmergencyLocationDispatcher.notify(action, phoneId, subId, number.getNumber());
+        }
+    }
+
     @Override
     public void notifyOutgoingEmergencyCall(int phoneId, int subId,
             EmergencyNumber emergencyNumber) {
@@ -2958,6 +2971,7 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
             }
         }
         handleRemoveListLocked();
+        notifyEmergencyLocation(EmergencyLocationDispatcher.CALL, phoneId, subId, emergencyNumber);
     }
 
     @Override
@@ -2984,6 +2998,7 @@ public class TelephonyRegistry extends ITelephonyRegistry.Stub {
             }
             handleRemoveListLocked();
         }
+        notifyEmergencyLocation(EmergencyLocationDispatcher.SMS, phoneId, subId, emergencyNumber);
     }
 
     @Override
