@@ -34,8 +34,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.indication
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -73,6 +75,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
@@ -107,8 +110,14 @@ import com.android.systemui.qs.shared.ui.QuickSettings
 import com.android.systemui.qs.ui.composable.QuickSettingsTheme
 import com.android.systemui.qs.ui.compose.borderOnFocus
 import com.android.systemui.res.R
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.shade.TallyKeyDefaults
+import com.android.systemui.tally.shade.TallyLamp
+import com.android.systemui.tally.shade.TallyLampForm
+import com.android.systemui.tally.shade.tallyTextStyle
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
+import org.diamaneos.tally.R as TallyR
 
 @Composable
 fun ContentScope.FooterActionsWithAnimatedVisibility(
@@ -387,6 +396,20 @@ private fun IconButton(
     modifier: Modifier = Modifier,
 ) {
     val colors = buttonColorsForModel(model)
+    if (TallyShell.isEnabled) {
+        // Tally: a 48 dp key, set apart from its neighbours as the text key is.
+        CircleExpandable(
+            color = colors.background,
+            onClick = model.onClick,
+            modifier = modifier.padding(horizontal = 4.dp),
+            useModifierBasedImplementation = useModifierBasedExpandable,
+        ) {
+            Box(Modifier.size(FooterButtonHeight), contentAlignment = Alignment.Center) {
+                FooterIcon(model.icon, Modifier.size(TallyKeyDefaults.iconSize), colors.icon)
+            }
+        }
+        return
+    }
     CircleExpandable(
         color = colors.background,
         onClick = model.onClick,
@@ -427,6 +450,19 @@ private fun NumberButton(
     val interactionSource = remember { MutableInteractionSource() }
 
     val colors = numberButtonColors()
+    if (TallyShell.isEnabled) {
+        TallyNumberKey(
+            number,
+            contentDescription,
+            showNewDot,
+            onClick,
+            interactionSource,
+            useModifierBasedExpandable,
+            colors,
+            modifier,
+        )
+        return
+    }
     CircleExpandable(
         color = colors.background,
         onClick = onClick,
@@ -461,6 +497,55 @@ private fun NumberButton(
     }
 }
 
+/** Tally's key for the number of active apps: the count and a live lamp, in an outlined key. */
+@Composable
+private fun TallyNumberKey(
+    number: Int,
+    contentDescription: String,
+    showNewDot: Boolean,
+    onClick: (Expandable) -> Unit,
+    interactionSource: MutableInteractionSource,
+    useModifierBasedExpandable: Boolean,
+    colors: TextButtonColors,
+    modifier: Modifier = Modifier,
+) {
+    // As the stock number button, the ripple is drawn here, under the new changes dot.
+    CircleExpandable(
+        color = colors.background,
+        onClick = onClick,
+        interactionSource = interactionSource,
+        modifier = modifier.padding(horizontal = 4.dp),
+        useModifierBasedImplementation = useModifierBasedExpandable,
+    ) {
+        Box(Modifier.height(FooterButtonHeight)) {
+            Row(
+                Modifier.fillMaxHeight()
+                    .clip(RoundedCornerShape(TallyKeyDefaults.radius))
+                    .indication(interactionSource, LocalIndication.current)
+                    .padding(horizontal = TallyKeyDefaults.sidePadding),
+                horizontalArrangement = Arrangement.spacedBy(TallyKeyDefaults.iconGap),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    number.toString(),
+                    modifier = Modifier.semantics { this.contentDescription = contentDescription },
+                    style =
+                        tallyTextStyle(
+                            TallyR.style.TextAppearance_Tally_Readout,
+                            TallyR.dimen.tally_type_readout_line_height,
+                        ),
+                    color = colors.content,
+                )
+                // Apps running in the background are live.
+                TallyLamp(TallyLampForm.LIVE, dimensionResource(TallyR.dimen.tally_lamp_size_small))
+            }
+            if (showNewDot) {
+                NewChangesDot(Modifier.align(Alignment.BottomEnd))
+            }
+        }
+    }
+}
+
 @Composable
 private fun CircleExpandable(
     color: Color,
@@ -472,17 +557,21 @@ private fun CircleExpandable(
     useModifierBasedImplementation: Boolean,
     content: @Composable (Expandable) -> Unit,
 ) {
+    // Tally: keys with the key radius and a hairline, not circles.
+    val tally = TallyShell.isEnabled
+    val cornerSize = if (tally) CornerSize(TallyKeyDefaults.radius) else CornerSize(percent = 50)
     Expandable(
         color = color,
         contentColor = contentColor,
-        borderStroke = borderStroke,
-        shape = CircleShape,
+        borderStroke = if (tally) TallyKeyDefaults.border() else borderStroke,
+        shape = if (tally) RoundedCornerShape(cornerSize) else CircleShape,
         onClick = onClick,
         interactionSource = interactionSource,
         modifier =
             modifier.borderOnFocus(
-                color = MaterialTheme.colorScheme.secondary,
-                cornerSize = CornerSize(percent = 50),
+                color =
+                    if (tally) TallyKeyDefaults.focusColor else MaterialTheme.colorScheme.secondary,
+                cornerSize = cornerSize,
             ),
         useModifierBasedImplementation = useModifierBasedImplementation,
         content = content,
@@ -561,16 +650,26 @@ private fun TextButtonContent(
     showChevron: Boolean = false,
 ) {
     val contentColor = textButtonColors().content
+    val tally = TallyShell.isEnabled
     Row(
-        modifier.padding(horizontal = dimensionResource(R.dimen.qs_footer_padding)),
+        modifier.padding(
+            horizontal =
+                if (tally) TallyKeyDefaults.sidePadding
+                else dimensionResource(R.dimen.qs_footer_padding)
+        ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, Modifier.padding(end = 12.dp).size(20.dp), contentColor)
+        Icon(
+            icon,
+            Modifier.padding(end = if (tally) TallyKeyDefaults.iconGap else 12.dp).size(20.dp),
+            contentColor,
+        )
 
         Text(
             text,
             Modifier.weight(1f),
-            style = MaterialTheme.typography.labelLarge,
+            style =
+                if (tally) TallyKeyDefaults.labelStyle() else MaterialTheme.typography.labelLarge,
             letterSpacing = 0.em,
             color = contentColor,
             maxLines = 1,
@@ -626,7 +725,9 @@ private fun Modifier.animatedScaledHeight(scale: () -> Float): Modifier {
 @Composable
 @ReadOnlyComposable
 private fun textButtonColors(): TextButtonColors {
-    return if (notificationShadeBlur()) {
+    return if (TallyShell.isEnabled) {
+        FooterActionsDefaults.tallyTextButtonColors()
+    } else if (notificationShadeBlur()) {
         FooterActionsDefaults.blurTextButtonColors()
     } else {
         FooterActionsDefaults.textButtonColors()
@@ -636,7 +737,9 @@ private fun textButtonColors(): TextButtonColors {
 @Composable
 @ReadOnlyComposable
 private fun numberButtonColors(): TextButtonColors {
-    return if (notificationShadeBlur()) {
+    return if (TallyShell.isEnabled) {
+        FooterActionsDefaults.tallyTextButtonColors()
+    } else if (notificationShadeBlur()) {
         FooterActionsDefaults.blurTextButtonColors()
     } else {
         FooterActionsDefaults.numberButtonColors()
@@ -646,7 +749,18 @@ private fun numberButtonColors(): TextButtonColors {
 @Composable
 @ReadOnlyComposable
 private fun buttonColorsForModel(footerAction: FooterActionsButtonViewModel): ButtonColors {
-    return if (notificationShadeBlur()) {
+    return if (TallyShell.isEnabled) {
+        // Tally: outlined keys in ink; the user switcher's avatar keeps its own colours.
+        ButtonColors(
+            icon =
+                if (footerAction is FooterActionsButtonViewModel.UserSwitcherViewModel) {
+                    Color.Unspecified
+                } else {
+                    TallyKeyDefaults.contentColor
+                },
+            background = Color.Transparent,
+        )
+    } else if (notificationShadeBlur()) {
         when (footerAction) {
             is FooterActionsButtonViewModel.PowerActionViewModel ->
                 FooterActionsDefaults.activeButtonColors()
@@ -674,7 +788,19 @@ private data class TextButtonColors(
 private object FooterActionsDefaults {
     const val FOOTER_TEXT_MINIMUM_SCALE_Y = .2f
     const val FOOTER_TEXT_FADE_DURATION_MILLIS = 83
-    val FooterButtonHeight = 40.dp
+    val FooterButtonHeight: Dp
+        @Composable
+        @ReadOnlyComposable
+        get() = if (TallyShell.isEnabled) TallyKeyDefaults.height else 40.dp
+
+    @Composable
+    @ReadOnlyComposable
+    fun tallyTextButtonColors(): TextButtonColors =
+        TextButtonColors(
+            content = TallyKeyDefaults.contentColor,
+            background = Color.Transparent,
+            border = TallyKeyDefaults.border(),
+        )
 
     @Composable
     @ReadOnlyComposable
