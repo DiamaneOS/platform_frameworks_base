@@ -1,0 +1,212 @@
+/*
+ * Copyright (C) 2026 The DiamaneOS Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.android.systemui.tally.lamp
+
+import android.animation.ValueAnimator
+import android.content.Context
+import android.content.res.Resources
+import android.graphics.Canvas
+import android.graphics.ColorFilter
+import android.graphics.PixelFormat
+import android.graphics.drawable.Drawable
+import android.os.SystemClock
+import android.view.animation.AnimationUtils
+
+/**
+ * The animated Tally lamp as a drawable, for views ([TallyLampView] wraps one). It draws the lamp
+ * at [lampSizePx], centred in its bounds on whole pixels; its intrinsic size is the lamp plus the
+ * live lamp's ring of light ([haloReachPx] on each side), so every state fits the same box.
+ *
+ * It animates only while its host shows it: frames come through the drawable callback (a view's
+ * choreographer) after each frame it draws, so a lamp that is not drawn schedules nothing, and one
+ * that is still schedules nothing at all. The host must pass its visibility to [setVisible], as
+ * views do for their background, image and compound drawables. Changes made while the lamp is not
+ * shown, or before its first frame, are at once.
+ */
+class TallyLampDrawable(context: Context) : Drawable() {
+    private var spec = TallyLampSpec.from(context.resources)
+    private val geometry = TallyLampGeometry()
+    private val motion = TallyLampMotion()
+    private val painter = TallyLampPainter()
+    private val frame = Runnable { onFrame() }
+    private var drawAlpha = 255
+    private var sizePx = 0
+    private var drawnSinceShown = false
+    private var framePending = false
+    private var lastDrawMillis = 0L
+
+    /** The lamp's colours; the theme's by default. */
+    var colors: TallyLampColors = TallyLampColors.theme(context)
+        set(value) {
+            if (field == value) return
+            field = value
+            invalidateSelf()
+        }
+
+    /**
+     * Whether a lit state shows at once instead of igniting; null (the default) for the colours'
+     * choice, which is at once for sensor lamps. Only a sensor lamp's disappearance may animate.
+     */
+    var instantAppear: Boolean? = null
+
+    /** The state the lamp shows or is moving to. */
+    val state: TallyLampState
+        get() = motion.state ?: TallyLampState.OFF
+
+    /** The lamp's diameter in pixels. */
+    val lampSizePx: Int
+        get() = sizePx
+
+    /** How far the live lamp's ring of light reaches past the lamp on each side, in pixels. */
+    val haloReachPx: Int
+        get() = geometry.reachPx
+
+    init {
+        motion.setSpec(spec)
+        setLampSizePx(context.resources.getDimensionPixelSize(TallyLampSize.DEFAULT.sizeRes))
+        motion.setState(
+            TallyLampState.OFF,
+            nowMillis = AnimationUtils.currentAnimationTimeMillis(),
+            durationScale = 0f,
+            animate = false,
+            instantAppear = true,
+            requestedSinceMillis = TallyLampState.SINCE_FIRST_SHOWN,
+        )
+    }
+
+    /**
+     * Shows [state]. A requested lamp's dashes turn from [requestedSinceMillis], the uptime
+     * (`SystemClock.uptimeMillis`) at which the request started, so a lamp shown again later goes
+     * on where it was; by default from when this lamp first shows the request.
+     */
+    @JvmOverloads
+    fun setState(
+        state: TallyLampState,
+        requestedSinceMillis: Long = TallyLampState.SINCE_FIRST_SHOWN,
+    ) {
+        val previous = motion.state
+        motion.setState(
+            state,
+            nowMillis = AnimationUtils.currentAnimationTimeMillis(),
+            durationScale = ValueAnimator.getDurationScale(),
+            animate = isVisible && drawnSinceShown,
+            instantAppear = instantAppear ?: colors.sensor,
+            requestedSinceMillis = requestedSinceMillis,
+        )
+        if (state != previous || state == TallyLampState.REQUESTED) invalidateSelf()
+    }
+
+    /** Sets the lamp's diameter; the host lays out again for the new [getIntrinsicWidth]. */
+    fun setLampSizePx(px: Int) {
+        if (px == sizePx) return
+        sizePx = px
+        geometry.set(spec, px.toFloat())
+        motion.setLiveFill(geometry.liveFill)
+        invalidateSelf()
+    }
+
+    /** Reads the tokens again, after a density change. Set the size again after this. */
+    fun reloadResources(resources: Resources) {
+        spec = TallyLampSpec.from(resources)
+        motion.setSpec(spec)
+        geometry.set(spec, sizePx.toFloat())
+        motion.setLiveFill(geometry.liveFill)
+        invalidateSelf()
+    }
+
+    override fun draw(canvas: Canvas) {
+        val b = bounds
+        if (b.isEmpty) return
+        val now = AnimationUtils.currentAnimationTimeMillis()
+        val durationScale = ValueAnimator.getDurationScale()
+        motion.advance(now, durationScale)
+        // Whole pixels for the lamp's box, so that its ring stays sharp.
+        val left = b.left + (b.width() - sizePx) / 2
+        val top = b.top + (b.height() - sizePx) / 2
+        painter.draw(
+            canvas,
+            left + sizePx / 2f,
+            top + sizePx / 2f,
+            spec,
+            geometry,
+            colors,
+            motion,
+            drawAlpha,
+        )
+        lastDrawMillis = now
+        drawnSinceShown = true
+        if (isVisible && motion.needsFrame(now, durationScale)) scheduleFrame()
+    }
+
+    override fun setVisible(visible: Boolean, restart: Boolean): Boolean {
+        val changed = super.setVisible(visible, restart)
+        if (!visible) {
+            drawnSinceShown = false
+            if (framePending) {
+                framePending = false
+                unscheduleSelf(frame)
+            }
+        } else if (changed) {
+            invalidateSelf()
+        }
+        return changed
+    }
+
+    override fun jumpToCurrentState() {
+        motion.jumpToTargets()
+        invalidateSelf()
+    }
+
+    override fun getIntrinsicWidth(): Int = sizePx + 2 * haloReachPx
+
+    override fun getIntrinsicHeight(): Int = sizePx + 2 * haloReachPx
+
+    override fun setAlpha(alpha: Int) {
+        if (drawAlpha == alpha) return
+        drawAlpha = alpha
+        invalidateSelf()
+    }
+
+    override fun getAlpha(): Int = drawAlpha
+
+    override fun setColorFilter(colorFilter: ColorFilter?) {
+        painter.setColorFilter(colorFilter)
+        invalidateSelf()
+    }
+
+    @Suppress("DeprecatedCallableAddReplaceWith")
+    @Deprecated("Deprecated in android.graphics.drawable.Drawable")
+    override fun getOpacity(): Int = PixelFormat.TRANSLUCENT
+
+    private fun scheduleFrame() {
+        if (framePending || callback == null) return
+        framePending = true
+        // The next frame: a view's choreographer runs it before that frame draws.
+        scheduleSelf(frame, SystemClock.uptimeMillis())
+    }
+
+    private fun onFrame() {
+        framePending = false
+        if (!isVisible) return
+        if (motion.shouldRedraw(AnimationUtils.currentAnimationTimeMillis(), lastDrawMillis)) {
+            invalidateSelf()
+        } else {
+            // Only turning, and a frame drawn less than a lamp frame ago: look again next frame.
+            scheduleFrame()
+        }
+    }
+}
