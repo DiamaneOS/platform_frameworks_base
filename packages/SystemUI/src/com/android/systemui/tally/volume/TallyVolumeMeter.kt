@@ -66,11 +66,11 @@ import androidx.compose.ui.unit.sp
 import com.android.systemui.common.shared.model.Icon
 import com.android.systemui.common.ui.compose.Icon
 import com.android.systemui.res.R
+import de.diamaneos.tally.R as TallyR
 import java.text.NumberFormat
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
-import org.diamaneos.tally.R as TallyR
 
 /**
  * Tally's volume meter (the prototype's `.vol-meter`), drawn as the track of the volume dialog's

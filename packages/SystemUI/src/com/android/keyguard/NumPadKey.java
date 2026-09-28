@@ -137,7 +137,7 @@ public class NumPadKey extends ViewGroup implements NumPadAnimationListener, Num
         if (TallyShell.isEnabled()) {
             // Tally: the digits in Sofia Sans at the regular weight; only the typeface changes.
             mDigitText.setTypeface(TallyBouncerType.typeface(context,
-                    org.diamaneos.tally.R.style.TextAppearance_Tally_Body));
+                    de.diamaneos.tally.R.style.TextAppearance_Tally_Body));
         } else if (bouncerUiRevamp2()) {
             mDigitText.setTypeface(
                     Typeface.create(FontStyles.GSF_LABEL_SMALL_EMPHASIZED, Typeface.NORMAL));

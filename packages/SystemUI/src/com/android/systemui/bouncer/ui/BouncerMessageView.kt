@@ -28,7 +28,7 @@ import com.android.systemui.FontStyles
 import com.android.systemui.res.R
 import com.android.systemui.tally.TallyShell
 import com.android.systemui.tally.lock.TallyBouncerType
-import org.diamaneos.tally.R as TallyR
+import de.diamaneos.tally.R as TallyR
 
 class BouncerMessageView : LinearLayout {
     constructor(context: Context?) : super(context)

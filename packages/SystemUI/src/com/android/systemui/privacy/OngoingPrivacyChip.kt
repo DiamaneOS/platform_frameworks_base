@@ -30,7 +30,7 @@ import com.android.systemui.res.R
 import com.android.systemui.tally.TallyShell
 import com.android.systemui.tally.privacy.TallyChipDrawable
 import com.android.systemui.tally.privacy.TallyIndicatorColors
-import org.diamaneos.tally.R as TallyR
+import de.diamaneos.tally.R as TallyR
 
 class OngoingPrivacyChip
 @JvmOverloads

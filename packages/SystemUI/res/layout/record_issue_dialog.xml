@@ -72,7 +72,7 @@
             android:importantForAccessibility="no"/>
 
         <Switch
-            android:featureFlag="!org.diamaneos.systemui.tally_shell"
+            android:featureFlag="!de.diamaneos.systemui.tally_shell"
             android:id="@+id/screenrecord_switch"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -84,7 +84,7 @@
 
         <!-- Tally: in place of the switch above while the Tally flag is on. -->
         <com.android.settingslib.widget.TallyFrameworkSwitch
-            android:featureFlag="org.diamaneos.systemui.tally_shell"
+            android:featureFlag="de.diamaneos.systemui.tally_shell"
             android:id="@+id/screenrecord_switch"
             android:paddingHorizontal="@dimen/settingslib_tally_focus_ring_reach"
             android:layout_width="wrap_content"
@@ -126,7 +126,7 @@
             android:importantForAccessibility="no"/>
 
         <Switch
-            android:featureFlag="!org.diamaneos.systemui.tally_shell"
+            android:featureFlag="!de.diamaneos.systemui.tally_shell"
             android:id="@+id/bugreport_switch"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -138,7 +138,7 @@
 
         <!-- Tally: in place of the switch above while the Tally flag is on. -->
         <com.android.settingslib.widget.TallyFrameworkSwitch
-            android:featureFlag="org.diamaneos.systemui.tally_shell"
+            android:featureFlag="de.diamaneos.systemui.tally_shell"
             android:id="@+id/bugreport_switch"
             android:paddingHorizontal="@dimen/settingslib_tally_focus_ring_reach"
             android:layout_width="wrap_content"

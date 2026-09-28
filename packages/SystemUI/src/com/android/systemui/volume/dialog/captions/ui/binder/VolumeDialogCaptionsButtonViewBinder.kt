@@ -31,11 +31,11 @@ import com.android.systemui.volume.dialog.captions.ui.viewmodel.VolumeDialogCapt
 import com.android.systemui.volume.dialog.dagger.scope.VolumeDialogScope
 import com.android.systemui.volume.dialog.ui.binder.ViewBinder
 import com.android.systemui.volume.dialog.ui.viewmodel.VolumeDialogViewModel
+import de.diamaneos.tally.R as TallyR
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.withIndex
-import org.diamaneos.tally.R as TallyR
 
 /** Binds the captions button view. */
 @VolumeDialogScope

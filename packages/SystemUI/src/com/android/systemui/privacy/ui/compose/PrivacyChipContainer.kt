@@ -54,7 +54,7 @@ import com.android.systemui.privacy.ui.compose.PrivacyChipContainer.Dimensions.r
 import com.android.systemui.res.R
 import com.android.systemui.tally.TallyShell
 import com.android.systemui.tally.privacy.TallySensorChip
-import org.diamaneos.tally.R as TallyR
+import de.diamaneos.tally.R as TallyR
 
 /**
  * Privacy chip container.

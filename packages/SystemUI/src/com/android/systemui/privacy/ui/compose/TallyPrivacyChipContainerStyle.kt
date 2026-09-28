@@ -23,7 +23,7 @@ import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.text.TextStyle
 import com.android.systemui.tally.TallyShell
 import com.android.systemui.tally.shade.tallyTextStyle
-import org.diamaneos.tally.R as TallyR
+import de.diamaneos.tally.R as TallyR
 
 /**
  * Tally's look for the shade header's grouped privacy container: a tonal key (with the key radius
