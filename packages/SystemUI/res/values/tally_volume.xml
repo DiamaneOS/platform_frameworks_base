@@ -20,4 +20,6 @@
     <!-- The shadow under the panel: the prototype's one ambient shadow (0 2 8 dp, 12 % black),
          as elevation -->
     <dimen name="tally_volume_panel_elevation">2dp</dimen>
+    <!-- Between the level readout and the meter (the prototype's panel gap) -->
+    <dimen name="tally_volume_readout_gap">6dp</dimen>
 </resources>
