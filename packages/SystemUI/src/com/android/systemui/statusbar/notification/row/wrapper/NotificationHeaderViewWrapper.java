@@ -52,7 +52,7 @@ import com.android.systemui.statusbar.notification.TransformState;
 import com.android.systemui.statusbar.notification.row.ExpandableNotificationRow;
 import com.android.systemui.statusbar.notification.shared.NotificationAddXOnHoverToDismiss;
 import com.android.systemui.statusbar.notification.shared.NotificationXButtonClipFix;
-import com.android.systemui.tally.shade.TallyLampForm;
+import com.android.systemui.tally.lamp.TallyLampState;
 import com.android.systemui.tally.shade.TallyLiveCards;
 
 import java.util.Stack;
@@ -317,7 +317,7 @@ public class NotificationHeaderViewWrapper extends NotificationViewWrapper imple
     public void setTallyLiveLamp(boolean live) {
         if (mAppNameText != null) {
             TallyLiveCards.bindLamp(mRow.getContext(), mAppNameText,
-                    live ? TallyLampForm.LIVE : null, /* atEnd= */ true);
+                    live ? TallyLampState.LIVE : null, /* atEnd= */ true);
         }
     }
 

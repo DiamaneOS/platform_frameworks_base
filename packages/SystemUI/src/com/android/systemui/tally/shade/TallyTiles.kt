@@ -72,7 +72,6 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.semantics.Role
@@ -99,7 +98,13 @@ import com.android.systemui.qs.panels.ui.viewmodel.AccessibilityUiState
 import com.android.systemui.qs.panels.ui.viewmodel.TileUiState
 import com.android.systemui.qs.pipeline.shared.TileSpec
 import com.android.systemui.qs.tileimpl.SubtitleArrayMapping
+import com.android.systemui.qs.tiles.CameraToggleTile
+import com.android.systemui.qs.tiles.MicrophoneToggleTile
 import com.android.systemui.qs.ui.compose.borderOnFocus
+import com.android.systemui.tally.lamp.TallyLamp
+import com.android.systemui.tally.lamp.TallyLampDefaults
+import com.android.systemui.tally.lamp.TallyLampSize
+import com.android.systemui.tally.lamp.TallyLampState
 import kotlin.math.max
 import kotlinx.coroutines.delay
 import org.diamaneos.tally.R as TallyR
@@ -133,7 +138,7 @@ object TallyTileDefaults {
     @Composable
     fun colors(uiState: TileUiState): TileColors {
         val palette = tallyTilePalette()
-        return if (uiState.tallyLampForm().isLit) {
+        return if (uiState.tallyLampState().isLit) {
             TileColors(
                 background = palette.lamp,
                 iconBackground = Color.Transparent,
@@ -157,12 +162,12 @@ object TallyTileDefaults {
  * The lamp a tile shows: unavailable (with the reason in its words), requested while the system is
  * still switching it, on when active, else off. Tiles have no truthful source for live or failed.
  */
-fun TileUiState.tallyLampForm(): TallyLampForm =
+fun TileUiState.tallyLampState(): TallyLampState =
     when {
-        visualState == Tile.STATE_UNAVAILABLE -> TallyLampForm.UNAVAILABLE
-        isTransient -> TallyLampForm.REQUESTED
-        visualState == Tile.STATE_ACTIVE -> TallyLampForm.ON
-        else -> TallyLampForm.OFF
+        visualState == Tile.STATE_UNAVAILABLE -> TallyLampState.UNAVAILABLE
+        isTransient -> TallyLampState.REQUESTED
+        visualState == Tile.STATE_ACTIVE -> TallyLampState.ON
+        else -> TallyLampState.OFF
     }
 
 /**
@@ -186,24 +191,26 @@ fun TallyTileContent(
     modifier: Modifier = Modifier,
     bounceScale: () -> Float = { 1f },
 ) {
-    val form = uiState.tallyLampForm()
+    val state = uiState.tallyLampState()
+    val instantLamp = spec.isSensorAccess()
     val palette = tallyTilePalette()
-    val wipe = rememberWipe(form.isLit)
+    val wipe = rememberWipe(state.isLit)
     // The content takes the lit colours once the field has lit. Until then, and while it drains,
     // it keeps the unlit colours and the lit part of the field shows it in the colour for text on
     // the lamp, as the prototype's two layers do.
     val fieldLit by remember(wipe) { derivedStateOf { wipe.value >= 1f } }
-    val lit = form.isLit && fieldLit
+    val lit = state.isLit && fieldLit
     val edgeWidth = dimensionResource(TallyR.dimen.tally_stroke_lit_edge)
     Box(modifier.fillMaxSize().litField({ wipe.value }, lit, shape, palette, edgeWidth)) {
         if (iconOnly) {
-            KeycapContent(form, lit, iconProvider, palette, bounceScale)
+            KeycapContent(state, lit, instantLamp, iconProvider, palette, bounceScale)
         } else {
             LargeContent(
                 uiState,
                 spec,
-                form,
+                state,
                 lit,
+                instantLamp,
                 iconProvider,
                 toggleClick,
                 onLongClick,
@@ -215,16 +222,37 @@ fun TallyTileContent(
     }
 }
 
-/** The size of a tile's lamp: 14 dp, 16 dp from 200 % text. */
+/**
+ * A tile's lamp, the shell's animated lamp: 14 dp, 16 dp from 200 % text, in the colour for text on
+ * the lamp once the tile's field has lit. A requested tile's dashes turn three times and then rest,
+ * while the tile's own words ("Turning on…") still say that it is switching.
+ *
+ * @param instantAppear the lamp lights at once instead of igniting, as sensor lamps do. It is part
+ *   of the lamp's parameters, so it is in place before any state the lamp shows.
+ */
 @Composable
-fun tallyTileLampSize(): Dp =
-    dimensionResource(
-        if (LocalDensity.current.fontScale >= LARGE_LAMP_FONT_SCALE) {
-            TallyR.dimen.tally_lamp_size_xlarge
-        } else {
-            TallyR.dimen.tally_lamp_size_large
-        }
+private fun TileLamp(
+    state: TallyLampState,
+    lit: Boolean,
+    instantAppear: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    TallyLamp(
+        state = state,
+        modifier = modifier,
+        size = TallyLampDefaults.size(TallyLampSize.LARGE, growsWithText = true),
+        colors = if (lit) TallyLampDefaults.onLitFieldColors() else TallyLampDefaults.colors(),
+        instantAppear = instantAppear,
     )
+}
+
+/**
+ * Whether the tile controls a sensor's access (camera or microphone), whose lamp lights at once, as
+ * a sensor lamp does. It keeps the tile's colours: lit means that access is allowed, not that the
+ * sensor is in use, which only the privacy indicators say, in the sensor colour.
+ */
+private fun TileSpec.isSensorAccess(): Boolean =
+    spec == CameraToggleTile.TILE_SPEC || spec == MicrophoneToggleTile.TILE_SPEC
 
 @Immutable
 internal class TallyTilePalette(
@@ -345,23 +373,24 @@ private fun Modifier.litField(
 /** A keycap: the lamp in its corner and the icon, set a little off centre away from the lamp. */
 @Composable
 private fun BoxScope.KeycapContent(
-    form: TallyLampForm,
+    state: TallyLampState,
     lit: Boolean,
+    instantLamp: Boolean,
     iconProvider: Context.() -> Icon,
     palette: TallyTilePalette,
     bounceScale: () -> Float,
 ) {
-    TallyLamp(
-        form,
-        tallyTileLampSize(),
+    TileLamp(
+        state,
+        lit,
+        instantLamp,
         Modifier.align(Alignment.TopStart)
             .padding(start = KEYCAP_LAMP_INSET, top = KEYCAP_LAMP_INSET),
-        onLitField = lit,
     )
     val iconSize = dimensionResource(TallyR.dimen.tally_icon_size)
     SmallTileContent(
         iconProvider = iconProvider,
-        color = iconColor(form, lit, palette),
+        color = iconColor(state, lit, palette),
         size = { iconSize },
         modifier =
             Modifier.align(Alignment.Center)
@@ -375,8 +404,9 @@ private fun BoxScope.KeycapContent(
 private fun LargeContent(
     uiState: TileUiState,
     spec: TileSpec,
-    form: TallyLampForm,
+    state: TallyLampState,
     lit: Boolean,
+    instantLamp: Boolean,
     iconProvider: Context.() -> Icon,
     toggleClick: (() -> Unit)?,
     onLongClick: (() -> Unit)?,
@@ -401,7 +431,7 @@ private fun LargeContent(
             verticalArrangement = Arrangement.Center,
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TallyLamp(form, tallyTileLampSize(), onLitField = lit)
+                TileLamp(state, lit, instantLamp)
                 Spacer(Modifier.width(gap))
                 TileText(
                     text = uiState.label,
@@ -420,7 +450,7 @@ private fun LargeContent(
                     Spacer(Modifier.width(gap))
                     SmallTileContent(
                         iconProvider = iconProvider,
-                        color = iconColor(form, lit, palette),
+                        color = iconColor(state, lit, palette),
                         size = { LARGE_ICON_SIZE },
                     )
                 }
@@ -452,7 +482,7 @@ private fun LargeContent(
             ToggleKey(
                 lit = lit,
                 iconProvider = iconProvider,
-                iconColor = iconColor(form, lit, palette),
+                iconColor = iconColor(state, lit, palette),
                 palette = palette,
                 toggleClick = toggleClick,
                 onLongClick = onLongClick,
@@ -593,10 +623,10 @@ private fun secondaryText(uiState: TileUiState, spec: TileSpec): String {
     }
 }
 
-private fun iconColor(form: TallyLampForm, lit: Boolean, palette: TallyTilePalette): Color =
+private fun iconColor(state: TallyLampState, lit: Boolean, palette: TallyTilePalette): Color =
     when {
         lit -> palette.onLamp
-        form == TallyLampForm.UNAVAILABLE -> palette.muted
+        state == TallyLampState.UNAVAILABLE -> palette.muted
         else -> palette.ink
     }
 
@@ -611,7 +641,6 @@ private val LARGE_ICON_SIZE = 20.dp
 private val LINE_GAP = 2.dp
 private val LABEL_LINE = TallyR.dimen.tally_type_label_line_height
 private val CAPTION_LINE = TallyR.dimen.tally_type_caption_line_height
-private const val LARGE_LAMP_FONT_SCALE = 2f
 private const val LIGHT_DELAY_MILLIS = 50L
 private const val WIPE_THRESHOLD = 0.002f
 private const val PERCENT = 100
