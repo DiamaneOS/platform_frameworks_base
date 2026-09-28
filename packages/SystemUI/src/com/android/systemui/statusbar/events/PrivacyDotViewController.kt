@@ -31,6 +31,7 @@ import com.android.app.animation.Interpolators
 import com.android.app.displaylib.PerDisplayRepository
 import com.android.app.tracing.coroutines.launchTraced as launch
 import com.android.internal.annotations.GuardedBy
+import com.android.internal.annotations.VisibleForTesting
 import com.android.systemui.ScreenDecorationsThread
 import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.dagger.qualifiers.Application
@@ -156,6 +157,23 @@ constructor(
     private val lock = Object()
     private var cancelRunnable: Runnable? = null
 
+    /**
+     * Tally: whether the area under the dot is dark (dark until known: the safe variant), and
+     * whether screen capture alone is in use. They only pick the dot's colours, so they stay out of
+     * [nextViewState]: every write there restarts the 100 ms wait before a state is applied, and
+     * the area follows what apps control (the status bar's look, the lock wallpaper), so it must
+     * never hold back the dot's show or hide. A change recolours the dot shown now.
+     */
+    @VisibleForTesting
+    @Volatile
+    var tallyAreaDark = true
+        private set
+
+    @VisibleForTesting
+    @Volatile
+    var tallyCaptureOnly = false
+        private set
+
     private val views: Sequence<View>
         get() = if (!this::tl.isInitialized) sequenceOf() else sequenceOf(tl, tr, br, bl)
 
@@ -203,9 +221,8 @@ constructor(
         if (TallyShell.isEnabled && tallyIndicatorArea != null) {
             scope.launch {
                 tallyIndicatorArea.get().isOverlayAreaDark.collect { isAreaDark ->
-                    synchronized(lock) {
-                        nextViewState = nextViewState.copy(tallyAreaDark = isAreaDark)
-                    }
+                    tallyAreaDark = isAreaDark
+                    uiExecutor.execute { recolorTallyDot() }
                 }
             }
         }
@@ -618,7 +635,7 @@ constructor(
         val shouldShow = state.shouldShowDot()
         if (TallyShell.isEnabled) {
             if (shouldShow && state.designatedCorner != null) {
-                updateTallyDot(state.designatedCorner, state)
+                updateTallyDot(state.designatedCorner)
             }
         } else if (locationIndicatorsEnabled()) {
             if (shouldShow && state.designatedCorner != null) {
@@ -656,20 +673,29 @@ constructor(
      * screen capture alone. A dot made for another density is made again.
      */
     @UiThread
-    private fun updateTallyDot(corner: View, state: ViewState) {
+    private fun updateTallyDot(corner: View) {
         val dotView = corner.findViewById<ImageView>(R.id.privacy_dot) ?: return
         val context = dotView.context
         val sizePx = dotView.resources.getDimensionPixelSize(TallyR.dimen.tally_privacy_dot_size)
         val drawable =
             (dotView.drawable as? TallyPrivacyDotDrawable)?.takeIf { it.dotSizePx == sizePx }
                 ?: TallyPrivacyDotDrawable(context, sizePx).also { dotView.setImageDrawable(it) }
+        val isAreaDark = tallyAreaDark
         drawable.setColors(
-            if (state.tallyCaptureOnly) {
-                TallyIndicatorColors.capture(context, state.tallyAreaDark)
+            if (tallyCaptureOnly) {
+                TallyIndicatorColors.capture(context, isAreaDark)
             } else {
-                TallyIndicatorColors.sensor(context, state.tallyAreaDark)
+                TallyIndicatorColors.sensor(context, isAreaDark)
             }
         )
+    }
+
+    /** Tally: recolours the dot shown now, if any, for [tallyAreaDark] and [tallyCaptureOnly]. */
+    @UiThread
+    private fun recolorTallyDot() {
+        val state = currentViewState
+        val corner = state.designatedCorner ?: return
+        if (state.shouldShowDot()) updateTallyDot(corner)
     }
 
     private val systemStatusAnimationCallback: SystemStatusAnimationCallback =
@@ -696,18 +722,14 @@ constructor(
                                 contentDescription = contentDescription,
                             )
                     }
-                    if (TallyShell.isEnabled) {
-                        // Tally: screen capture alone takes the capture colour, and a sensor in use
-                        // wins. The items come only with location indicators on (as in this
-                        // build): without them the dot keeps the sensor colour.
-                        nextViewState =
-                            nextViewState.copy(
-                                tallyCaptureOnly =
-                                    TallyIndicatorColors.isCaptureOnly(
-                                        privacyItems?.map { it.privacyType }
-                                    )
-                            )
-                    }
+                }
+                if (TallyShell.isEnabled) {
+                    // Tally: screen capture alone takes the capture colour, and a sensor in use
+                    // wins. The items come only with location indicators on (as in this build):
+                    // without them the dot keeps the sensor colour.
+                    tallyCaptureOnly =
+                        TallyIndicatorColors.isCaptureOnly(privacyItems?.map { it.privacyType })
+                    uiExecutor.execute { recolorTallyDot() }
                 }
 
                 return null
@@ -804,10 +826,6 @@ data class ViewState(
     val corner: PrivacyDotCorner? = null,
     val designatedCorner: View? = null,
     val contentDescription: String? = null,
-    /** Tally: whether the area under the dot is dark. Dark until known: the safe variant. */
-    val tallyAreaDark: Boolean = true,
-    /** Tally: whether screen capture alone is in use, which takes the capture colour. */
-    val tallyCaptureOnly: Boolean = false,
 ) {
     fun shouldShowDot(): Boolean {
         return systemPrivacyEventIsActive &&
