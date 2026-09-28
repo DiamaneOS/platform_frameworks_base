@@ -41,6 +41,11 @@ import com.android.systemui.common.ui.compose.Icon
 import com.android.systemui.haptics.slider.SliderHapticFeedbackFilter
 import com.android.systemui.haptics.slider.compose.ui.SliderHapticsViewModel
 import com.android.systemui.res.R
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.volume.TallyVolumeMeter
+import com.android.systemui.tally.volume.TallyVolumeMeterDefaults
+import com.android.systemui.tally.volume.TallyVolumeMeterThumb
+import com.android.systemui.tally.volume.rememberTallyVolumeReadout
 import com.android.systemui.volume.dialog.domain.interactor.ExpandedAudioTileDetailsFeatureInteractor
 import com.android.systemui.volume.dialog.sliders.dagger.VolumeDialogSliderScope
 import com.android.systemui.volume.dialog.sliders.ui.compose.SliderTrack
@@ -48,6 +53,7 @@ import com.android.systemui.volume.dialog.sliders.ui.viewmodel.VolumeDialogOvers
 import com.android.systemui.volume.dialog.sliders.ui.viewmodel.VolumeDialogSliderViewModel
 import com.android.systemui.volume.haptics.ui.VolumeHapticsConfigsProvider
 import com.android.systemui.volume.ui.compose.slider.AccessibilityParams
+import com.android.systemui.volume.ui.compose.slider.DefaultAnimationSpec
 import com.android.systemui.volume.ui.compose.slider.Haptics
 import com.android.systemui.volume.ui.compose.slider.Slider
 import com.android.systemui.volume.ui.compose.slider.SliderIcon
@@ -123,6 +129,17 @@ private fun VolumeDialogSlider(
     val collectedSliderStateModel by viewModel.state.collectAsStateWithLifecycle(null)
     val sliderStateModel = collectedSliderStateModel ?: return
     val interactionSource = remember { MutableInteractionSource() }
+    // Tally: the vertical slider is drawn as Tally's meter, with its level above it.
+    val isTallyMeter = TallyShell.isEnabled && isVolumeDialogVertical
+    val tallyReadout = if (isTallyMeter) rememberTallyVolumeReadout() else null
+    val sliderModifier =
+        if (tallyReadout != null) {
+            modifier.then(
+                tallyReadout.modifier(sliderStateModel.value, !sliderStateModel.isDisabled)
+            )
+        } else {
+            modifier
+        }
 
     LaunchedEffect(interactionSource) {
         interactionSource.interactions.collect {
@@ -151,6 +168,8 @@ private fun VolumeDialogSlider(
         isVertical = isVolumeDialogVertical,
         colors = colors,
         interactionSource = interactionSource,
+        animationSpec =
+            if (isTallyMeter) TallyVolumeMeterDefaults.animationSpec() else DefaultAnimationSpec,
         haptics =
             Haptics.Enabled(
                 hapticsViewModelFactory = hapticsViewModelFactory,
@@ -165,6 +184,10 @@ private fun VolumeDialogSlider(
             ),
         stepDistance = 1f,
         track = { sliderState ->
+            if (isTallyMeter) {
+                TallyVolumeMeter(sliderState, sliderStateModel.icon, !sliderStateModel.isDisabled)
+                return@Slider
+            }
             SliderTrack(
                 sliderState,
                 colors = colors,
@@ -198,6 +221,10 @@ private fun VolumeDialogSlider(
             )
         },
         thumb = { sliderState, interactions ->
+            if (isTallyMeter) {
+                TallyVolumeMeterThumb()
+                return@Slider
+            }
             SliderDefaults.Thumb(
                 sliderState = sliderState,
                 interactionSource = interactions,
@@ -208,7 +235,7 @@ private fun VolumeDialogSlider(
         },
         accessibilityParams = AccessibilityParams(contentDescription = sliderStateModel.label),
         modifier =
-            modifier.pointerInput(Unit) {
+            sliderModifier.pointerInput(Unit) {
                 coroutineScope {
                     val currentContext = currentCoroutineContext()
                     awaitPointerEventScope {
