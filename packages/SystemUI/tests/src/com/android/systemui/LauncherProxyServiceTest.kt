@@ -59,6 +59,7 @@ import com.android.systemui.shade.display.StatusBarTouchShadeDisplayPolicy
 import com.android.systemui.shade.display.domain.interactor.ShadeExpansionTargetDisplayInteractor
 import com.android.systemui.shade.domain.interactor.ShadeModeInteractor
 import com.android.systemui.shared.recents.ILauncherProxy
+import com.android.systemui.shared.recents.IStoppableAppsListener
 import com.android.systemui.shared.system.QuickStepContract.SYSUI_STATE_NAVIGATION_BAR_DISABLED
 import com.android.systemui.shared.system.QuickStepContract.SYSUI_STATE_WAKEFULNESS_MASK
 import com.android.systemui.shared.system.QuickStepContract.WAKEFULNESS_ASLEEP
@@ -67,6 +68,8 @@ import com.android.systemui.shared.system.QuickStepContract.WAKEFULNESS_GOING_TO
 import com.android.systemui.shared.system.QuickStepContract.WAKEFULNESS_WAKING
 import com.android.systemui.statusbar.CommandQueue
 import com.android.systemui.statusbar.NotificationShadeWindowController
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.recents.TallyRecentsStop
 import com.android.systemui.unfold.progress.UnfoldTransitionProgressForwarder
 import com.android.systemui.user.domain.interactor.HeadlessSystemUserModeFake
 import com.android.systemui.util.mockito.mock
@@ -81,6 +84,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.After
+import org.junit.Assume.assumeFalse
+import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -98,6 +103,7 @@ import org.mockito.Mockito.mock
 import org.mockito.Mockito.spy
 import org.mockito.Mockito.times
 import org.mockito.Mockito.verify
+import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
 import org.mockito.MockitoAnnotations
 import org.mockito.kotlin.anyOrNull
@@ -157,6 +163,7 @@ class LauncherProxyServiceTest : SysuiTestCase() {
     private lateinit var desktopState: FakeDesktopState
     private val fakeHeadlessSystemUserMode = HeadlessSystemUserModeFake()
     @Mock private lateinit var shadeModeInteractor: ShadeModeInteractor
+    @Mock private lateinit var tallyRecentsStop: TallyRecentsStop
 
     @Before
     fun setUp() {
@@ -464,6 +471,28 @@ class LauncherProxyServiceTest : SysuiTestCase() {
                 .setExpansionIntentForNotificationElement(eq(event.displayId))
         }
 
+    @Test
+    fun stoppableApps_withTally_goToTallyRecentsStopWithTheCallersUid() {
+        assumeTrue(TallyShell.isEnabled)
+        val listener = mock<IStoppableAppsListener>()
+
+        subject.mSysUiProxy.setStoppableAppsListener(listener)
+        subject.mSysUiProxy.stopApp("pkg", 10)
+
+        verify(tallyRecentsStop).setListener(listener, Binder.getCallingUid())
+        verify(tallyRecentsStop).stopApp("pkg", 10, Binder.getCallingUid())
+    }
+
+    @Test
+    fun stoppableApps_withoutTally_doNothing() {
+        assumeFalse(TallyShell.isEnabled)
+
+        subject.mSysUiProxy.setStoppableAppsListener(mock<IStoppableAppsListener>())
+        subject.mSysUiProxy.stopApp("pkg", 0)
+
+        verifyNoInteractions(tallyRecentsStop)
+    }
+
     private fun createLauncherProxyService(ctx: Context): LauncherProxyService {
         whenever(navBarController.canCreateNavBarOrTaskBar(anyInt())).thenReturn(true)
         return LauncherProxyService(
@@ -497,6 +526,7 @@ class LauncherProxyServiceTest : SysuiTestCase() {
             desktopState,
             fakeHeadlessSystemUserMode,
             shadeModeInteractor,
+            { tallyRecentsStop },
         )
     }
 }

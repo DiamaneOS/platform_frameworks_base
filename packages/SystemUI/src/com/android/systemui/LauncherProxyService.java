@@ -118,6 +118,7 @@ import com.android.systemui.shade.display.StatusBarTouchShadeDisplayPolicy;
 import com.android.systemui.shade.display.domain.interactor.ShadeExpansionTargetDisplayInteractor;
 import com.android.systemui.shade.domain.interactor.ShadeModeInteractor;
 import com.android.systemui.shared.recents.ILauncherProxy;
+import com.android.systemui.shared.recents.IStoppableAppsListener;
 import com.android.systemui.shared.recents.ISystemUiProxy;
 import com.android.systemui.shared.system.QuickStepContract;
 import com.android.systemui.shared.system.QuickStepContract.SystemUiStateFlags;
@@ -127,6 +128,8 @@ import com.android.systemui.statusbar.CommandQueue;
 import com.android.systemui.statusbar.NotificationShadeWindowController;
 import com.android.systemui.statusbar.phone.StatusBarWindowCallback;
 import com.android.systemui.statusbar.policy.CallbackController;
+import com.android.systemui.tally.TallyShell;
+import com.android.systemui.tally.recents.TallyRecentsStop;
 import com.android.systemui.unfold.progress.UnfoldTransitionProgressForwarder;
 import com.android.systemui.user.domain.interactor.HeadlessSystemUserMode;
 import com.android.wm.shell.back.BackAnimation;
@@ -198,6 +201,7 @@ public class LauncherProxyService implements CallbackController<LauncherProxyLis
 
     private final DesktopState mDesktopState;
     private final ShadeModeInteractor mShadeModeInteractor;
+    private final Lazy<TallyRecentsStop> mTallyRecentsStop;
 
     private ILauncherProxy mLauncherProxy;
     private int mConnectionBackoffAttempts;
@@ -496,6 +500,26 @@ public class LauncherProxyService implements CallbackController<LauncherProxyLis
                     mCommandQueue.toggleQuickSettingsPanel());
         }
 
+        @Override
+        public void setStoppableAppsListener(IStoppableAppsListener listener) {
+            if (!TallyShell.isEnabled()) {
+                return;
+            }
+            final int callingUid = Binder.getCallingUid();
+            verifyCallerAndClearCallingIdentity("setStoppableAppsListener", () ->
+                    mTallyRecentsStop.get().setListener(listener, callingUid));
+        }
+
+        @Override
+        public void stopApp(String packageName, int userId) {
+            if (!TallyShell.isEnabled()) {
+                return;
+            }
+            final int callingUid = Binder.getCallingUid();
+            verifyCallerAndClearCallingIdentity("stopApp", () ->
+                    mTallyRecentsStop.get().stopApp(packageName, userId, callingUid));
+        }
+
         private boolean verifyCaller(String reason) {
             final int callerId = Binder.getCallingUserHandle().getIdentifier();
             if (callerId != mCurrentBoundedUserId || mLauncherProxy == null) {
@@ -753,7 +777,8 @@ public class LauncherProxyService implements CallbackController<LauncherProxyLis
             DisplayRepository displayRepository,
             DesktopState desktopState,
             HeadlessSystemUserMode headlessSystemUserMode,
-            ShadeModeInteractor shadeModeInteractor
+            ShadeModeInteractor shadeModeInteractor,
+            Lazy<TallyRecentsStop> tallyRecentsStop
     ) {
         mHeadlessSystemUserMode = headlessSystemUserMode;
         // b/241601880: This component should only be running for primary users or
@@ -798,6 +823,7 @@ public class LauncherProxyService implements CallbackController<LauncherProxyLis
         mBackAnimation = backAnimation.orElse(null);
         mDesktopState = desktopState;
         mShadeModeInteractor = shadeModeInteractor;
+        mTallyRecentsStop = tallyRecentsStop;
 
         if (!KeyguardWmStateRefactor.isEnabled()) {
             mSysuiUnlockAnimationController = sysuiUnlockAnimationController;
