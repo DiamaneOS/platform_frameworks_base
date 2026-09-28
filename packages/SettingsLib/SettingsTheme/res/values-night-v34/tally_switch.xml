@@ -5,7 +5,7 @@
 
   Generated from the Tally token spec (design/tokens/tokens.json in the DiamaneOS design
   repository) by design/tokens/generate.py. Do not edit: change the spec and regenerate.
-  Spec: tokens.json sha256 2b0dac529d1db3d68b24fa7d6815802d2c9fc56c844e296bedf81de1929bed0c
+  Spec: tokens.json sha256 6b284c5d150020815d22b6758bb41154647ce24453e23005e8f2097c7e401a21
 -->
 <resources>
     <!-- Export settingslib-switch, dark theme: the colours that bind another role in values-night; everything else is in res/values-v34/tally_switch.xml -->
