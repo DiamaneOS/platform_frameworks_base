@@ -50,6 +50,10 @@ import com.android.systemui.statusbar.layout.StatusBarContentInsetsChangedListen
 import com.android.systemui.statusbar.layout.StatusBarContentInsetsProvider
 import com.android.systemui.statusbar.policy.ConfigurationController
 import com.android.systemui.statusbar.quickactions.av.domain.interactor.AvControlsChipInteractor
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.privacy.TallyIndicatorArea
+import com.android.systemui.tally.privacy.TallyIndicatorColors
+import com.android.systemui.tally.privacy.TallyPrivacyDotDrawable
 import com.android.systemui.util.concurrency.DelayableExecutor
 import com.android.systemui.util.leak.RotationUtils
 import com.android.systemui.util.leak.RotationUtils.ROTATION_LANDSCAPE
@@ -67,6 +71,7 @@ import java.util.concurrent.Executor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
+import org.diamaneos.tally.R as TallyR
 
 /**
  * Understands how to keep the persistent privacy dot in the corner of the screen in
@@ -130,6 +135,7 @@ constructor(
     @ScreenDecorationsThread val uiExecutor: DelayableExecutor,
     @Assisted private val displayId: Int,
     private val shadeDisplaysInteractor: Lazy<ShadeDisplaysInteractor>?,
+    private val tallyIndicatorArea: Lazy<TallyIndicatorArea>? = null,
 ) : PrivacyDotViewController {
     private lateinit var tl: View
     private lateinit var tr: View
@@ -193,6 +199,15 @@ constructor(
         contentInsetsProvider.addCallback(insetsChangedListener)
         configurationController.addCallback(configurationListener)
         stateController.addCallback(statusBarStateListener)
+        if (TallyShell.isEnabled && tallyIndicatorArea != null) {
+            scope.launch {
+                tallyIndicatorArea.get().isOverlayAreaDark.collect { isAreaDark ->
+                    synchronized(lock) {
+                        nextViewState = nextViewState.copy(tallyAreaDark = isAreaDark)
+                    }
+                }
+            }
+        }
         scope.launch {
             avControlsChipInteractor?.isShowingAvChip?.collect { shouldSuppress ->
                 synchronized(lock) {
@@ -588,7 +603,11 @@ constructor(
     @UiThread
     override fun updateDotView(state: ViewState) {
         val shouldShow = state.shouldShowDot()
-        if (locationIndicatorsEnabled()) {
+        if (TallyShell.isEnabled) {
+            if (shouldShow && state.designatedCorner != null) {
+                updateTallyDot(state.designatedCorner, state.tallyAreaDark)
+            }
+        } else if (locationIndicatorsEnabled()) {
             if (shouldShow && state.designatedCorner != null) {
                 val dot = state.designatedCorner
                 val privacyDotView = dot.findViewById<ImageView>(R.id.privacy_dot)
@@ -610,11 +629,28 @@ constructor(
         }
         if (shouldShow != currentViewState.shouldShowDot()) {
             if (shouldShow && state.designatedCorner != null) {
-                showDotView(state.designatedCorner, true)
+                // Tally: a lamp appears at once; only its disappearance animates.
+                showDotView(state.designatedCorner, animate = !TallyShell.isEnabled)
             } else if (!shouldShow && state.designatedCorner != null) {
                 hideDotView(state.designatedCorner, true)
             }
         }
+    }
+
+    /**
+     * Tally: the dot is a 16 dp live lamp on a backing, in the sensor colours for the area under
+     * it, whatever the privacy items (location only included).
+     */
+    @UiThread
+    private fun updateTallyDot(corner: View, isAreaDark: Boolean) {
+        val dotView = corner.findViewById<ImageView>(R.id.privacy_dot) ?: return
+        val drawable =
+            dotView.drawable as? TallyPrivacyDotDrawable
+                ?: TallyPrivacyDotDrawable(
+                        dotView.resources.getDimensionPixelSize(TallyR.dimen.tally_privacy_dot_size)
+                    )
+                    .also { dotView.setImageDrawable(it) }
+        drawable.setColors(TallyIndicatorColors.sensor(dotView.context, isAreaDark))
     }
 
     private val systemStatusAnimationCallback: SystemStatusAnimationCallback =
@@ -737,6 +773,8 @@ data class ViewState(
     val corner: PrivacyDotCorner? = null,
     val designatedCorner: View? = null,
     val contentDescription: String? = null,
+    /** Tally: whether the area under the dot is dark. Dark until known: the safe variant. */
+    val tallyAreaDark: Boolean = true,
 ) {
     fun shouldShowDot(): Boolean {
         return systemPrivacyEventIsActive &&
