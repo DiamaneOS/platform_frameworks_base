@@ -64,7 +64,8 @@ public record ThemeConfig(
                 /* hardcodedFallback */ new ThemeSettings.Builder()
                         .setThemeStyle(ThemeStyle.TONAL_SPOT)
                         .setColorSource(FieldColorSource.VALUE_PRESET)
-                        .setSeedColors(Color.valueOf(0xFF1B6EF3))
+                        // Sodium, the DiamaneOS seed; stock uses Google blue (0xFF1B6EF3).
+                        .setSeedColors(Color.valueOf(0xFFFBA700))
                         .build(),
                 /* canSwitchToHeadlessSystemUser */ context.getResources()
                         .getBoolean(R.bool.config_canSwitchToHeadlessSystemUser));
