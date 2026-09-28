@@ -27,15 +27,18 @@ import android.os.SystemClock
 import android.view.animation.AnimationUtils
 
 /**
- * The animated Tally lamp as a drawable, for views ([TallyLampView] wraps one). It draws the lamp
- * at [lampSizePx], centred in its bounds on whole pixels; its intrinsic size is the lamp plus the
- * live lamp's ring of light ([haloReachPx] on each side), so every state fits the same box.
+ * The animated Tally lamp as a drawable, for views: [TallyLampView] wraps one, and it works as an
+ * image or a compound drawable (`setCompoundDrawablesRelativeWithIntrinsicBounds`). It draws the
+ * lamp at [lampSizePx], centred in its bounds on whole pixels; its intrinsic size is the lamp plus
+ * the live lamp's ring of light ([haloReachPx] on each side), so every state fits the same box.
+ * With smaller bounds the ring of light draws past them, which is fine where the host does not
+ * clip.
  *
- * It animates only while its host shows it: frames come through the drawable callback (a view's
- * choreographer) after each frame it draws, so a lamp that is not drawn schedules nothing, and one
- * that is still schedules nothing at all. The host must pass its visibility to [setVisible], as
- * views do for their background, image and compound drawables. Changes made while the lamp is not
- * shown, or before its first frame, are at once.
+ * It asks its host (the drawable callback: a view's choreographer) for the next frame only after
+ * drawing one that still moves, so a lamp that is not drawn schedules nothing, and one that is
+ * still schedules nothing at all. Hosts that pass their visibility to [setVisible] (images,
+ * backgrounds, [TallyLampView]) also drop a frame already asked for. Changes made while the lamp is
+ * hidden, or before its first frame, are at once.
  */
 class TallyLampDrawable(context: Context) : Drawable() {
     private var resources = context.resources
@@ -44,11 +47,14 @@ class TallyLampDrawable(context: Context) : Drawable() {
     private val motion = TallyLampMotion()
     private val painter = TallyLampPainter()
     private val frame = Runnable { onFrame() }
+    private val still = Runnable { onStill() }
     private var drawAlpha = 255
     private var sizePx = 0
     private var drawnSinceShown = false
     private var framePending = false
     private var lastDrawMillis = 0L
+    private var stillPending = false
+    private var stillNotified = false
 
     /** The lamp's colours; the theme's by default. */
     var colors: TallyLampColors = TallyLampColors.theme(context)
@@ -63,6 +69,18 @@ class TallyLampDrawable(context: Context) : Drawable() {
      * choice, which is at once for sensor lamps. Only a sensor lamp's disappearance may animate.
      */
     var instantAppear: Boolean? = null
+
+    /**
+     * Runs once per request, on the main thread, when the lamp has been requested for
+     * `tally_lamp_requested_still_ms` (5 s): the moment its words change to "Still trying…". The
+     * dashes are still by then (three whole turns). It goes through the host's choreographer, so it
+     * runs while the host is attached (shown or not), or as soon as it is attached again.
+     */
+    var onRequestedStill: Runnable? = null
+        set(value) {
+            field = value
+            updateStill()
+        }
 
     /** The state the lamp shows or is moving to. */
     val state: TallyLampState
@@ -100,6 +118,7 @@ class TallyLampDrawable(context: Context) : Drawable() {
         requestedSinceMillis: Long = TallyLampState.SINCE_FIRST_SHOWN,
     ) {
         val previous = motion.state
+        val previousStart = motion.requestedStartMillis
         motion.setState(
             state,
             nowMillis = AnimationUtils.currentAnimationTimeMillis(),
@@ -108,7 +127,16 @@ class TallyLampDrawable(context: Context) : Drawable() {
             instantAppear = instantAppear ?: colors.sensor,
             requestedSinceMillis = requestedSinceMillis,
         )
-        if (state != previous || state == TallyLampState.REQUESTED) invalidateSelf()
+        if (state != previous || motion.requestedStartMillis != previousStart) {
+            // Another state or request (with its own "Still trying…").
+            stillNotified = false
+            if (stillPending) {
+                stillPending = false
+                unscheduleSelf(still)
+            }
+            invalidateSelf()
+        }
+        updateStill()
     }
 
     /** Draws the lamp at a token size; the host lays out again for the new size. */
@@ -157,6 +185,8 @@ class TallyLampDrawable(context: Context) : Drawable() {
         lastDrawMillis = now
         drawnSinceShown = true
         if (isVisible && motion.needsFrame(now, durationScale)) scheduleFrame()
+        // A host that took the lamp after its state was set gets the request's timer now.
+        updateStill()
     }
 
     override fun setVisible(visible: Boolean, restart: Boolean): Boolean {
@@ -215,5 +245,32 @@ class TallyLampDrawable(context: Context) : Drawable() {
             // Only turning, and a frame drawn less than a lamp frame ago: look again next frame.
             scheduleFrame()
         }
+    }
+
+    private fun updateStill() {
+        val wanted =
+            onRequestedStill != null && motion.state == TallyLampState.REQUESTED && !stillNotified
+        if (!wanted) {
+            if (stillPending) {
+                stillPending = false
+                unscheduleSelf(still)
+            }
+            return
+        }
+        if (stillPending || callback == null) return
+        stillPending = true
+        scheduleSelf(still, motion.requestedStillAtMillis)
+    }
+
+    private fun onStill() {
+        stillPending = false
+        if (motion.state != TallyLampState.REQUESTED || stillNotified) return
+        if (SystemClock.uptimeMillis() < motion.requestedStillAtMillis) {
+            // A choreographer runs delayed work up to a frame early: wait for the moment.
+            updateStill()
+            return
+        }
+        stillNotified = true
+        onRequestedStill?.run()
     }
 }

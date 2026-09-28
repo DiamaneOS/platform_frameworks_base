@@ -60,16 +60,24 @@ internal class TallyLampMotion {
     val springsMoving: Boolean
         get() = fillSpring.moving || haloSpring.moving
 
+    /** When the current (or last) request started. */
+    var requestedStartMillis = 0L
+        private set
+
+    /** When the current request is still: its words say "Still trying…" from then (5 s in). */
+    val requestedStillAtMillis: Long
+        get() = requestedStartMillis + stillMillis
+
     private val fillSpring = Spring()
     private val haloSpring = Spring()
     private var liveFill = 1f
-    private var requestedStartMillis = 0L
 
     private var igniteFraction = 0f
     private var stiffness = 1f
     private var dampingRatio = 1f
     private var turnMillis = 1L
     private var turningMillis = 0L
+    private var stillMillis = 0L
     private var turnFrameMillis = 0L
 
     fun setSpec(spec: TallyLampSpec) {
@@ -78,6 +86,7 @@ internal class TallyLampMotion {
         dampingRatio = spec.fillDampingRatio
         turnMillis = spec.requestedTurnMillis
         turningMillis = spec.requestedTurningMillis
+        stillMillis = spec.requestedStillMillis
         turnFrameMillis = spec.turnFrameMillis
     }
 
