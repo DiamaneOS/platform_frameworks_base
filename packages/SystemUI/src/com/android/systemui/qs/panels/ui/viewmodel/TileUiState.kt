@@ -29,6 +29,7 @@ import com.android.systemui.plugins.qs.QSTile
 import com.android.systemui.qs.tileimpl.QSTileImpl.DrawableIconWithRes
 import com.android.systemui.qs.tileimpl.SubtitleArrayMapping
 import com.android.systemui.res.R
+import com.android.systemui.tally.TallyShell
 import java.util.function.Supplier
 
 /**
@@ -69,6 +70,8 @@ data class TileUiState(
     val handlesToggleClick: Boolean,
     val sideDrawable: Drawable?,
     val accessibilityUiState: AccessibilityUiState,
+    /** Tally: the tile is still switching (turning on, connecting), shown as a requested lamp. */
+    val isTransient: Boolean = false,
 ) {
     val isToggleable: Boolean
         get() = accessibilityUiState.toggleableState != null
@@ -142,6 +145,7 @@ fun QSTile.State.toUiState(resources: Resources): TileUiState {
                     .getString(R.string.accessibility_tile_disabled_by_policy_action_description)
                     .takeIf { disabledByPolicy },
             ),
+        isTransient = TallyShell.isEnabled && isTransient,
     )
 }
 

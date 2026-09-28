@@ -107,6 +107,9 @@ import com.android.systemui.qs.tileimpl.QSTileImpl
 import com.android.systemui.qs.ui.composable.QuickSettingsShade
 import com.android.systemui.qs.ui.compose.borderOnFocus
 import com.android.systemui.res.R
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.shade.TallyTileContent
+import com.android.systemui.tally.shade.TallyTileDefaults
 import kotlinx.coroutines.CoroutineScope
 import platform.test.motion.compose.values.MotionTestValueKey
 import platform.test.motion.compose.values.motionTestValues
@@ -169,14 +172,24 @@ fun ContentScope.Tile(
                 tile.state.collect { value = it.toIconProvider() }
             }
 
-        val colors = TileDefaults.getColorForState(uiState, iconOnly)
+        val colors =
+            if (TallyShell.isEnabled) {
+                TallyTileDefaults.colors(uiState)
+            } else {
+                TileDefaults.getColorForState(uiState, iconOnly)
+            }
         val hapticsViewModel: TileHapticsViewModel =
             rememberViewModel(traceName = "TileHapticsViewModel") {
                 tileHapticsViewModelFactory.create(tile)
             }
 
         // TODO(b/361789146): Draw the shapes instead of clipping
-        val tileShape by TileDefaults.animateTileShapeAsState(uiState)
+        val tileShape by
+            if (TallyShell.isEnabled) {
+                TallyTileDefaults.rememberShape(iconOnly)
+            } else {
+                TileDefaults.animateTileShapeAsState(uiState)
+            }
         val animatedColor by animateColorAsState(colors.background, label = "QSTileBackgroundColor")
         val isDualTarget = uiState.handlesToggleClick
         val interactionSource = remember { MutableInteractionSource() }
@@ -309,7 +322,32 @@ fun ContentScope.Tile(
                     modifier = contentRevealModifier,
                 ) {
                     val iconProvider: Context.() -> Icon = { getTileIcon(icon = icon) }
-                    if (iconOnly) {
+                    if (TallyShell.isEnabled) {
+                        TallyTileContent(
+                            uiState = uiState,
+                            spec = tile.spec,
+                            iconOnly = iconOnly,
+                            shape = tileShape,
+                            iconProvider = iconProvider,
+                            toggleClick =
+                                {
+                                        hapticsViewModel.setTileInteractionState(
+                                            TileHapticsViewModel.TileInteractionState.CLICKED
+                                        )
+                                        tile.toggleClick()
+                                    }
+                                    .takeIf { isDualTarget && !iconOnly },
+                            onLongClick = longClick,
+                            isVisible = isVisible,
+                            bounceScale = {
+                                if (iconOnly) {
+                                    currentBounceableInfo.bounceable.iconBounceScale
+                                } else {
+                                    currentBounceableInfo.bounceable.textBounceScale
+                                }
+                            },
+                        )
+                    } else if (iconOnly) {
                         SmallTileContent(
                             iconProvider = iconProvider,
                             color = colors.icon,
