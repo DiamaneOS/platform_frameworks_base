@@ -124,7 +124,11 @@ import com.android.systemui.statusbar.systemstatusicons.domain.interactor.System
 import com.android.systemui.statusbar.systemstatusicons.ui.compose.SystemStatusIcons
 import com.android.systemui.statusbar.systemstatusicons.ui.viewmodel.SystemStatusIconsViewModel
 import com.android.systemui.statusbar.ui.viewmodel.StatusBarRegionSamplingViewModel
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.privacy.ProvideTallyStatusBarArea
+import com.android.systemui.tally.privacy.TallyIndicatorArea
 import com.android.systemui.util.boundsOnScreen
+import dagger.Lazy
 import javax.inject.Inject
 import kotlin.math.abs
 import kotlinx.coroutines.DisposableHandle
@@ -149,9 +153,11 @@ constructor(
     @DisplayAware private val headlineViewModelFactory: HeadlineViewModel.Factory,
     private val statusBarRegionSamplingViewModelFactory: StatusBarRegionSamplingViewModel.Factory,
     private val shadeWindowRootView: WindowRootView,
+    private val tallyIndicatorArea: Lazy<TallyIndicatorArea>? = null,
 ) {
     fun create(root: ViewGroup, andThen: (ViewGroup) -> Unit): ComposeView {
         val composeView = ComposeView(root.context)
+        val tallyArea = if (TallyShell.isEnabled) tallyIndicatorArea?.get() else null
         composeView.apply {
             setContent {
                 PlatformTheme {
@@ -174,6 +180,7 @@ constructor(
                             statusBarRegionSamplingViewModelFactory,
                         onViewCreated = andThen,
                         modifier = Modifier.sysUiResTagContainer(),
+                        tallyIndicatorArea = tallyArea,
                     )
                 }
             }
@@ -212,6 +219,7 @@ fun StatusBarRoot(
     statusBarRegionSamplingViewModelFactory: StatusBarRegionSamplingViewModel.Factory,
     onViewCreated: (ViewGroup) -> Unit,
     modifier: Modifier = Modifier,
+    tallyIndicatorArea: TallyIndicatorArea? = null,
 ) {
     val displayId = parent.context.displayId
     val statusBarViewModel =
@@ -269,6 +277,7 @@ fun StatusBarRoot(
                     iconViewStore = iconViewStore,
                     appHandlesViewModel = appHandlesViewModel,
                     context = context,
+                    tallyIndicatorArea = tallyIndicatorArea,
                 )
 
                 touchableExclusionRegionDisposableHandle =
@@ -397,6 +406,7 @@ private fun addStartSideComposable(
     iconViewStore: NotificationIconContainerViewBinder.IconViewStore?,
     appHandlesViewModel: AppHandlesViewModel,
     context: Context,
+    tallyIndicatorArea: TallyIndicatorArea? = null,
 ) {
     val startSideExceptHeadsUp =
         phoneStatusBarView.requireViewById<LinearLayout>(R.id.status_bar_start_side_except_heads_up)
@@ -511,15 +521,18 @@ private fun addStartSideComposable(
 
                 val chipsVisibilityModel = statusBarViewModel.ongoingActivityChips
                 if (chipsVisibilityModel.areChipsAllowed) {
-                    OngoingActivityChips(
-                        chips = chipsVisibilityModel.chips,
-                        iconViewStore = iconViewStore,
-                        onChipBoundsChanged = statusBarViewModel::onChipBoundsChanged,
-                        // TODO(b/393581408): Now that we always enforce a max width on the chips,
-                        //  we should be able to convert the chips to a LazyRow and get some
-                        //  animations for free.
-                        modifier = Modifier.sysUiResTagContainer().widthIn(max = chipsMaxWidth),
-                    )
+                    // Tally: the capture chips take their colours from the area under them.
+                    ProvideTallyStatusBarArea(tallyIndicatorArea) {
+                        OngoingActivityChips(
+                            chips = chipsVisibilityModel.chips,
+                            iconViewStore = iconViewStore,
+                            onChipBoundsChanged = statusBarViewModel::onChipBoundsChanged,
+                            // TODO(b/393581408): Now that we always enforce a max width on the
+                            //  chips, we should be able to convert the chips to a LazyRow and get
+                            //  some animations for free.
+                            modifier = Modifier.sysUiResTagContainer().widthIn(max = chipsMaxWidth),
+                        )
+                    }
                 }
             }
         }

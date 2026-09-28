@@ -25,6 +25,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.heightIn
@@ -62,6 +63,11 @@ import com.android.systemui.statusbar.chips.StatusBarChipsReturnAnimations
 import com.android.systemui.statusbar.chips.ui.model.ColorsModel
 import com.android.systemui.statusbar.chips.ui.model.OngoingActivityChipModel
 import com.android.systemui.statusbar.notification.icon.ui.viewbinder.NotificationIconContainerViewBinder
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.privacy.LocalTallyStatusBarAreaDark
+import com.android.systemui.tally.privacy.TallyIndicatorColors
+import com.android.systemui.tally.privacy.tallyIndicatorEdge
+import org.diamaneos.tally.R as TallyR
 
 @Composable
 fun OngoingActivityChip(
@@ -69,6 +75,21 @@ fun OngoingActivityChip(
     iconViewStore: NotificationIconContainerViewBinder.IconViewStore?,
     modifier: Modifier = Modifier,
 ) {
+    // Tally: the capture chips (screen recording, casting, sharing) take the capture colours for
+    // the area under them, with an edge just outside, and Tally's padding and radius.
+    val tallyColors =
+        if (TallyShell.isEnabled && model.colors is ColorsModel.Red) {
+            TallyIndicatorColors.capture(LocalContext.current, LocalTallyStatusBarAreaDark.current)
+        } else {
+            null
+        }
+    val chipModel =
+        if (tallyColors != null) {
+            model.copy(colors = ColorsModel.Custom(tallyColors.fill, tallyColors.onFill))
+        } else {
+            model
+        }
+
     val contentDescription =
         when (val icon = model.icon) {
             is OngoingActivityChipModel.ChipIcon.StatusBarNotificationIcon ->
@@ -78,7 +99,7 @@ fun OngoingActivityChip(
         }
 
     val borderStroke =
-        model.colors.outline(LocalContext.current)?.let {
+        chipModel.colors.outline(LocalContext.current)?.let {
             BorderStroke(dimensionResource(R.dimen.ongoing_activity_chip_outline_width), Color(it))
         }
 
@@ -109,10 +130,15 @@ fun OngoingActivityChip(
                 chipSidePaddingTotal
         }
 
+    val cornerRadius =
+        if (tallyColors != null) {
+            dimensionResource(id = TallyR.dimen.tally_radius_s)
+        } else {
+            dimensionResource(id = R.dimen.ongoing_activity_chip_corner_radius)
+        }
     Expandable(
-        color = Color(model.colors.background(LocalContext.current).defaultColor),
-        shape =
-            RoundedCornerShape(dimensionResource(id = R.dimen.ongoing_activity_chip_corner_radius)),
+        color = Color(chipModel.colors.background(LocalContext.current).defaultColor),
+        shape = RoundedCornerShape(cornerRadius),
         modifier =
             modifier
                 .wrapContentSize()
@@ -158,7 +184,13 @@ fun OngoingActivityChip(
         defaultMinSize = false,
         transitionControllerFactory = model.transitionManager?.controllerFactory,
     ) {
-        ChipBody(model, iconViewStore, minWidth = minWidth)
+        ChipBody(
+            chipModel,
+            iconViewStore,
+            minWidth = minWidth,
+            tallyEdge = tallyColors?.let { Color(it.edge) },
+            cornerRadius = cornerRadius,
+        )
     }
 }
 
@@ -168,27 +200,49 @@ private fun ChipBody(
     iconViewStore: NotificationIconContainerViewBinder.IconViewStore?,
     minWidth: Dp,
     modifier: Modifier = Modifier,
+    tallyEdge: Color? = null,
+    cornerRadius: Dp = 0.dp,
 ) {
+    // Tally: the capture chips' edge, drawn just outside the chip, and their own padding.
+    val tallyEdgeModifier =
+        if (tallyEdge != null) Modifier.tallyIndicatorEdge(tallyEdge, cornerRadius) else Modifier
+    val tallyPadding =
+        if (tallyEdge != null) {
+            PaddingValues(
+                start = dimensionResource(TallyR.dimen.tally_capture_chip_padding_start),
+                end = dimensionResource(TallyR.dimen.tally_capture_chip_padding_end),
+            )
+        } else {
+            null
+        }
     Row(
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
         modifier =
             modifier
+                .then(tallyEdgeModifier)
                 .heightIn(min = dimensionResource(R.dimen.ongoing_appops_chip_height))
                 // Set the minWidth here as well as on the Expandable so that the content within
                 // this row is still centered correctly horizontally
                 .widthIn(min = minWidth)
-                .padding(
-                    // Always keep start & end padding the same so that if the text has to hide for
-                    // some reason, the content is still centered
-                    horizontal =
-                        if (model.icon?.hasEmbeddedPadding == true) {
-                            dimensionResource(
-                                R.dimen.ongoing_activity_chip_side_padding_for_embedded_padding_icon
-                            )
-                        } else {
-                            6.dp
-                        }
+                .then(
+                    if (tallyPadding != null) {
+                        Modifier.padding(tallyPadding)
+                    } else {
+                        Modifier.padding(
+                            // Always keep start & end padding the same so that if the text has to
+                            // hide for some reason, the content is still centered
+                            horizontal =
+                                if (model.icon?.hasEmbeddedPadding == true) {
+                                    dimensionResource(
+                                        R.dimen
+                                            .ongoing_activity_chip_side_padding_for_embedded_padding_icon
+                                    )
+                                } else {
+                                    6.dp
+                                }
+                        )
+                    }
                 ),
     ) {
         model.icon?.let {
