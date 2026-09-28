@@ -79,6 +79,7 @@ constructor(
     @VolumeDialog private val viewBinders: List<@JvmSuppressWildcards ViewBinder>,
 ) {
 
+    private val isOnLeft: Boolean = context.resources.getBoolean(R.bool.config_volumeDialogOnLeft)
     private val halfOpenedOffsetPx: Float =
         context.resources.getDimensionPixelSize(R.dimen.volume_dialog_half_opened_offset).toFloat()
     private val mainSliderVerticalMargin: Int by lazy {
@@ -121,7 +122,12 @@ constructor(
             )
             true
         }
-        animateVisibility(root, dialog, viewModel.dialogVisibilityModel)
+        animateVisibility(
+            root,
+            dialog,
+            viewModel.dialogVisibilityModel,
+            slideFromLeft = isOnLeft && isVolumeDialogVertical,
+        )
 
         viewModel.dialogTitle
             .filter { it.isNotEmpty() }
@@ -187,8 +193,9 @@ constructor(
         view: View,
         dialog: Dialog,
         visibilityModel: Flow<VolumeDialogVisibilityModel>,
+        slideFromLeft: Boolean,
     ) {
-        view.applyAnimationProgress(FRACTION_HIDE)
+        view.applyAnimationProgress(FRACTION_HIDE, slideFromLeft)
         val animationValueHolder = FloatValueHolder(FRACTION_HIDE)
         val animation: SpringAnimation =
             SpringAnimation(animationValueHolder)
@@ -198,7 +205,9 @@ constructor(
                         .setDampingRatio(SPRING_DAMPING_RATIO)
                 )
                 .setMinimumVisibleChange(ANIMATION_MINIMUM_VISIBLE_CHANGE)
-                .addUpdateListener { _, value, _ -> view.applyAnimationProgress(value) }
+                .addUpdateListener { _, value, _ ->
+                    view.applyAnimationProgress(value, slideFromLeft)
+                }
         var junkListener: DynamicAnimation.OnAnimationUpdateListener? = null
 
         visibilityModel
@@ -232,10 +241,11 @@ constructor(
 
     /**
      * @param fraction in range [0, 1]. 0 corresponds to the dialog being hidden and 1 - visible.
+     * @param slideFromLeft whether the dialog is on the left edge and slides in from there.
      */
-    private fun View.applyAnimationProgress(fraction: Float) {
+    private fun View.applyAnimationProgress(fraction: Float, slideFromLeft: Boolean) {
         alpha = ceil(fraction)
-        translationX = lerp(width, 0, fraction).toFloat()
+        translationX = lerp(if (slideFromLeft) -width else width, 0, fraction).toFloat()
     }
 
     private suspend fun View.applyVerticalOffset(offsetPx: Float, shouldAnimate: Boolean) {

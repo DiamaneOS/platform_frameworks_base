@@ -23,7 +23,9 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.widget.FrameLayout
 import androidx.activity.ComponentDialog
+import androidx.core.view.updateLayoutParams
 import com.android.app.tracing.coroutines.coroutineScopeTraced
 import com.android.systemui.dagger.qualifiers.Application
 import com.android.systemui.lifecycle.repeatWhenAttached
@@ -50,6 +52,10 @@ constructor(
         fun create(isVolumeDialogVertical: Boolean): VolumeDialog
     }
 
+    /** Whether the volume buttons are on the left, so the vertical dialog goes on the left. */
+    private val isOnLeft =
+        isVolumeDialogVertical && context.resources.getBoolean(R.bool.config_volumeDialogOnLeft)
+
     init {
         with(window!!) {
             addFlags(
@@ -68,7 +74,7 @@ constructor(
                 }
             if (isVolumeDialogVertical) {
                 setLayout(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT)
-                setGravity(Gravity.END)
+                setGravity(if (isOnLeft) Gravity.LEFT else Gravity.END)
             } else {
                 setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 setGravity(Gravity.TOP or Gravity.END)
@@ -82,8 +88,21 @@ constructor(
         super.onCreate(savedInstanceState)
         if (isVolumeDialogVertical) {
             setContentView(R.layout.volume_dialog)
+            // The layout uses start and end constraints. Fix its direction to the side of the
+            // volume buttons, so that the dialog does not flip with the locale.
+            val root = requireViewById<View>(R.id.volume_dialog)
+            root.layoutDirection =
+                if (isOnLeft) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
+            if (isOnLeft) {
+                // volume_dialog.xml pins the root to the right of the window (layout_gravity
+                // "right") for windows wider than the dialog, e.g. with 3-button navigation.
+                root.updateLayoutParams<FrameLayout.LayoutParams> { gravity = Gravity.LEFT }
+            }
         } else {
             setContentView(R.layout.volume_dialog_horizontal)
+            // The ringer drawer uses start and end constraints; keep it expanding to the left.
+            requireViewById<View>(R.id.volume_ringer_drawer).layoutDirection =
+                View.LAYOUT_DIRECTION_LTR
         }
         requireViewById<View>(R.id.volume_dialog).repeatWhenAttached {
             coroutineScopeTraced("[Volume]dialog") {
