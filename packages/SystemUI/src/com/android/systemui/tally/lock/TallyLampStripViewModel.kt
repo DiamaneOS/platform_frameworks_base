@@ -62,7 +62,7 @@ data class TallyStripItem(
     val lamp: TallyLampState?,
     /** What a screen reader says for the item: stock SystemUI's words, joined by the view. */
     val description: List<TallyWords>,
-    /** The alarm's time, when the stock lock screen would show it. */
+    /** The alarm's time (the alarm item shows only when the stock lock screen shows the alarm). */
     val alarmTime: String? = null,
     /** The battery level (0 to 100) and charging state, for the battery readout. */
     val batteryLevel: Int = 0,
@@ -107,8 +107,8 @@ data class TallyAodItem(
  * items (the privacy chip's, with its holds), Wi-Fi, Bluetooth, the next alarm, Do Not Disturb
  * (shown as Calm) and the battery. It adds no source of its own and shows nothing the stock lock
  * screen does not: sensors say only "Camera in use" or "Microphone in use", the Wi-Fi and Bluetooth
- * items carry no network or device names, and the alarm's time shows only within the stock lock
- * screen's 12 hours (KeyguardSliceProvider).
+ * items carry no network or device names, and the alarm shows only within the stock lock screen's
+ * 12 hours (KeyguardSliceProvider).
  *
  * For the always-on display it gives only what the stock always-on date line (KeyguardSliceProvider
  * on the keyguard slice) showed besides the date: the next alarm's time within those 12 hours, Do
@@ -213,23 +213,18 @@ constructor(
 
     private val alarm: Flow<TallyStripItem?> =
         combine(nextAlarm, minutes) { info, now ->
-            if (info == null) return@combine null
-            // As the stock lock screen: the time shows only when the alarm is 12 hours away or
-            // less, in the user's 12 or 24 hour format and without AM or PM.
-            val soon = info.triggerTime <= now + TimeUnit.HOURS.toMillis(ALARM_HOURS)
-            val time =
-                if (!soon) null
-                else {
-                    val is24 = DateFormat.is24HourFormat(context, userTracker.userId)
-                    DateFormat.format(if (is24) "HH:mm" else "h:mm", info.triggerTime).toString()
-                }
+            // As the stock lock screen (KeyguardSliceProvider): the alarm shows only when it rings
+            // 12 hours from now or sooner, and then with its time, in the user's 12 or 24 hour
+            // format and without AM or PM. A later alarm shows nothing.
+            if (info == null || info.triggerTime > now + TimeUnit.HOURS.toMillis(ALARM_HOURS)) {
+                return@combine null
+            }
+            val is24 = DateFormat.is24HourFormat(context, userTracker.userId)
+            val time = DateFormat.format(if (is24) "HH:mm" else "h:mm", info.triggerTime).toString()
             TallyStripItem(
                 TallyStripItem.Kind.ALARM,
                 TallyLampState.ON,
-                listOf(
-                    if (time == null) TallyWords(R.string.status_bar_alarm)
-                    else TallyWords(R.string.accessibility_quick_settings_alarm, time)
-                ),
+                listOf(TallyWords(R.string.accessibility_quick_settings_alarm, time)),
                 alarmTime = time,
             )
         }
