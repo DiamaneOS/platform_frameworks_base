@@ -42,11 +42,25 @@
             android:importantForAccessibility="yes"/>
 
         <Switch
+            android:featureFlag="!org.diamaneos.systemui.tally_shell"
             android:layout_width="wrap_content"
             android:minWidth="48dp"
             android:layout_height="48dp"
             android:layout_gravity="end"
             android:id="@+id/screenrecord_audio_switch"
+            android:contentDescription="@string/screenrecord_audio_label"
+            style="@style/ScreenRecord.Switch"
+            android:importantForAccessibility="yes" />
+
+        <!-- Tally: in place of the switch above while the Tally flag is on. -->
+        <com.android.settingslib.widget.TallyFrameworkSwitch
+            android:featureFlag="org.diamaneos.systemui.tally_shell"
+            android:layout_width="wrap_content"
+            android:minWidth="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="end"
+            android:id="@+id/screenrecord_audio_switch"
+            android:paddingHorizontal="@dimen/settingslib_tally_focus_ring_reach"
             android:contentDescription="@string/screenrecord_audio_label"
             style="@style/ScreenRecord.Switch"
             android:importantForAccessibility="yes" />
@@ -77,10 +91,23 @@
             android:contentDescription="@string/screenrecord_taps_label"/>
 
         <Switch
+            android:featureFlag="!org.diamaneos.systemui.tally_shell"
             android:layout_width="wrap_content"
             android:minWidth="48dp"
             android:layout_height="48dp"
             android:id="@+id/screenrecord_taps_switch"
+            android:contentDescription="@string/screenrecord_taps_label"
+            style="@style/ScreenRecord.Switch"
+            android:importantForAccessibility="yes" />
+
+        <!-- Tally: in place of the switch above while the Tally flag is on. -->
+        <com.android.settingslib.widget.TallyFrameworkSwitch
+            android:featureFlag="org.diamaneos.systemui.tally_shell"
+            android:layout_width="wrap_content"
+            android:minWidth="48dp"
+            android:layout_height="48dp"
+            android:id="@+id/screenrecord_taps_switch"
+            android:paddingHorizontal="@dimen/settingslib_tally_focus_ring_reach"
             android:contentDescription="@string/screenrecord_taps_label"
             style="@style/ScreenRecord.Switch"
             android:importantForAccessibility="yes" />
