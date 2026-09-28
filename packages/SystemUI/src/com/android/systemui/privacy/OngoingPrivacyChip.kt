@@ -27,6 +27,10 @@ import androidx.annotation.VisibleForTesting
 import com.android.settingslib.Utils
 import com.android.systemui.Flags
 import com.android.systemui.res.R
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.privacy.TallyChipDrawable
+import com.android.systemui.tally.privacy.TallyIndicatorColors
+import org.diamaneos.tally.R as TallyR
 
 class OngoingPrivacyChip
 @JvmOverloads
@@ -42,6 +46,15 @@ constructor(
     private var iconSize = 0
     private var iconColor = 0
     private var chipDrawable: GradientDrawable? = null
+    private var tallyBackground: TallyChipDrawable? = null
+
+    /** Tally: whether the area under the chip is dark, which picks its colour variant. */
+    var tallyAreaDark = true
+        set(value) {
+            if (field == value) return
+            field = value
+            if (TallyShell.isEnabled) applyTallyColors()
+        }
 
     @VisibleForTesting val iconsContainer: LinearLayout
     override val launchableContentView
@@ -141,7 +154,9 @@ constructor(
         iconsContainer.setPaddingRelative(padding, 0, padding, 0)
         iconsContainer.minimumWidth =
             context.resources.getDimensionPixelSize(R.dimen.ongoing_appops_chip_min_width)
-        if (locationIndicatorsEnabled()) {
+        if (TallyShell.isEnabled) {
+            updateTallyResources()
+        } else if (locationIndicatorsEnabled()) {
             if (chipDrawable == null) {
                 chipDrawable =
                     context.getDrawable(R.drawable.statusbar_privacy_chip_bg)?.mutate()
@@ -154,6 +169,37 @@ constructor(
             }
         } else {
             iconsContainer.background = context.getDrawable(R.drawable.statusbar_privacy_chip_bg)
+        }
+    }
+
+    /**
+     * Tally: the sensor colours for the area under the chip, with an edge just outside it, and
+     * Tally's padding and radius. The height and icon size stay the stock ones set above.
+     */
+    private fun updateTallyResources() {
+        val res = context.resources
+        iconMargin = res.getDimensionPixelSize(TallyR.dimen.tally_privacy_chip_gap)
+        val padding = res.getDimensionPixelSize(TallyR.dimen.tally_privacy_chip_padding_horizontal)
+        iconsContainer.setPaddingRelative(padding, 0, padding, 0)
+        val background =
+            TallyChipDrawable(
+                cornerRadius = res.getDimension(TallyR.dimen.tally_radius_s),
+                edgeWidth = TallyIndicatorColors.dpToPx(res, TallyIndicatorColors.EDGE_WIDTH_DP),
+            )
+        tallyBackground = background
+        iconsContainer.background = background
+        // The edge is drawn outside the icons container: this frame must not clip it.
+        clipChildren = false
+        clipToPadding = false
+        applyTallyColors()
+    }
+
+    private fun applyTallyColors() {
+        val colors = TallyIndicatorColors.sensor(context, tallyAreaDark)
+        tallyBackground?.setColors(colors)
+        iconColor = colors.onFill
+        for (i in 0 until iconsContainer.childCount) {
+            (iconsContainer.getChildAt(i) as? ImageView)?.drawable?.setTint(iconColor)
         }
     }
 
