@@ -245,7 +245,14 @@ constructor(
                 addUpdateListener { updateAnimatedViewBoundsWidth(animatedValue as Int) }
             }
 
-        val keyFrame1Height = dotSize * 2
+        // Tally: twice Tally's 16 dp dot is taller than the chip, so the keyframe is at most the
+        // chip's own height and the chip never stretches on its way into the dot.
+        val keyFrame1Height =
+            if (TallyShell.isEnabled) {
+                minOf(dotSize * 2, chipBounds.height())
+            } else {
+                dotSize * 2
+            }
         val chipVerticalCenter = chipBounds.top + chipBounds.height() / 2
         val height1 =
             ValueAnimator.ofInt(chipBounds.height(), keyFrame1Height).apply {
