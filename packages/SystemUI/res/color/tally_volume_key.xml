@@ -1,5 +1,6 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-  ~ Copyright (C) 2024 The Android Open Source Project
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ~ Copyright (C) 2026 The DiamaneOS Project
   ~
   ~ Licensed under the Apache License, Version 2.0 (the "License");
   ~ you may not use this file except in compliance with the License.
@@ -11,13 +12,12 @@
   ~ distributed under the License is distributed on an "AS IS" BASIS,
   ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
   ~ See the License for the specific language governing permissions and
-  ~ limitations under the License.
+  ~ limitations under the License
   -->
-<inset xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:androidprv="http://schemas.android.com/apk/prv/res/android"
-    android:inset="@dimen/volume_dialog_ringer_button_inset">
-    <shape android:shape="rectangle">
-        <corners android:radius="@dimen/volume_dialog_background_square_corner_radius" />
-        <solid android:color="@color/volume_dialog_button" />
-    </shape>
-</inset>
+
+<!-- A Tally volume key that is not lit: no fill. It is the lamp colour at no alpha rather than
+     transparent black, so a key that lights or goes out fades in the lamp colour instead of
+     passing through a dark tint. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:color="@color/tally_lamp" android:alpha="0" />
+</selector>

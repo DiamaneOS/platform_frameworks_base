@@ -16,6 +16,8 @@
 
 package com.android.systemui.volume.dialog.dagger.module
 
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.volume.TallyVolumePanelViewBinder
 import com.android.systemui.volume.dialog.captions.ui.binder.VolumeDialogCaptionsButtonViewBinder
 import com.android.systemui.volume.dialog.dagger.scope.VolumeDialog
 import com.android.systemui.volume.dialog.ringer.data.repository.VolumeDialogRingerFeedbackRepository
@@ -28,6 +30,7 @@ import com.android.systemui.volume.dialog.ui.binder.ViewBinder
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
+import javax.inject.Provider
 
 /** Dagger module for volume dialog code in the volume package */
 @Module(subcomponents = [VolumeDialogSliderComponent::class])
@@ -47,12 +50,14 @@ interface VolumeDialogModule {
             ringerViewBinder: VolumeDialogRingerViewBinder,
             settingsButtonViewBinder: VolumeDialogSettingsButtonViewBinder,
             captionsButtonViewBinder: VolumeDialogCaptionsButtonViewBinder,
+            tallyPanelViewBinder: Provider<TallyVolumePanelViewBinder>,
         ): List<ViewBinder> =
-            listOf(
+            listOfNotNull(
                 slidersViewBinder,
                 ringerViewBinder,
                 settingsButtonViewBinder,
                 captionsButtonViewBinder,
+                if (TallyShell.isEnabled) tallyPanelViewBinder.get() else null,
             )
     }
 }
