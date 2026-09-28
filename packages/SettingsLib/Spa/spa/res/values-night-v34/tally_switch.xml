@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPDX-License-Identifier: Apache-2.0
+  Copyright 2026 The DiamaneOS Project
+
+  Generated from the Tally token spec (design/tokens/tokens.json in the DiamaneOS design
+  repository) by design/tokens/generate.py. Do not edit: change the spec and regenerate.
+  Spec: tokens.json sha256 17c7a32318d548ba331e9741c74f8e8a8abc8109d40767e7d8e96216c074721f
+-->
+<resources>
+    <!-- Export settingslib-switch, dark theme: the colours that bind another role in values-night; everything else is in res/values-v34/tally_switch.xml -->
+    <!-- from tally_surface_high, dark theme -->
+    <color name="settingslib_tally_surface_high">@android:color/system_surface_container_high_dark</color>
+    <!-- from tally_outline, dark theme -->
+    <color name="settingslib_tally_outline">@android:color/system_outline_dark</color>
+    <!-- from tally_lamp_outline, dark theme -->
+    <color name="settingslib_tally_lamp_outline">@android:color/system_primary_fixed_dim</color>
+    <!-- from tally_accent, dark theme -->
+    <color name="settingslib_tally_accent">@android:color/system_accent1_200</color>
+    <!-- from tally_surface, dark theme -->
+    <color name="settingslib_tally_surface">@android:color/system_surface_container_low_dark</color>
+    <!-- from tally_outline_variant, dark theme -->
+    <color name="settingslib_tally_outline_variant">@android:color/system_outline_variant_dark</color>
+    <!-- from tally_ink, dark theme -->
+    <color name="settingslib_tally_ink">@android:color/system_on_surface_dark</color>
+    <!-- from tally_ink_muted, dark theme -->
+    <color name="settingslib_tally_ink_muted">@android:color/system_on_surface_variant_dark</color>
+</resources>
