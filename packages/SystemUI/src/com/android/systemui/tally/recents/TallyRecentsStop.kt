@@ -24,7 +24,9 @@ import android.os.IBinder
 import android.os.RemoteException
 import android.os.UserHandle
 import android.util.Log
+import androidx.annotation.MainThread
 import androidx.annotation.WorkerThread
+import com.android.systemui.LauncherProxyService
 import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.dagger.qualifiers.Application
 import com.android.systemui.dagger.qualifiers.LongRunning
@@ -34,6 +36,7 @@ import com.android.systemui.settings.UserTracker
 import com.android.systemui.shared.recents.IStoppableAppsListener
 import com.android.systemui.statusbar.policy.KeyguardStateController
 import com.android.systemui.tally.TallyShell
+import dagger.Lazy
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
@@ -61,6 +64,7 @@ constructor(
     private val packageManager: PackageManager,
     private val userTracker: UserTracker,
     private val keyguardStateController: KeyguardStateController,
+    private val launcherProxyService: Lazy<LauncherProxyService>,
     @Main private val mainExecutor: Executor,
     @LongRunning private val workExecutor: Executor,
 ) {
@@ -76,6 +80,16 @@ constructor(
     private var listenerDeath: IBinder.DeathRecipient? = null
     private var listenerUserId = UserHandle.USER_NULL
     private var reported: Set<TallyStoppableApp>? = null
+
+    // Main thread only.
+    private var watchingConnection = false
+    private val connectionListener =
+        object : LauncherProxyService.LauncherProxyListener {
+            override fun onConnectionChanged(isConnected: Boolean) {
+                // SystemUI let go of Launcher: its listener must not outlive that binding.
+                if (!isConnected) workExecutor.execute { clearListener() }
+            }
+        }
 
     private val reportPending = AtomicBoolean(false)
     // Runs on Active apps' background thread: only hands the report over to workExecutor.
@@ -155,7 +169,15 @@ constructor(
         listenerUserId = userId
         fgsManagerController.init()
         fgsManagerController.addOnStoppableAppsChangedListener(onStoppableAppsChanged)
+        mainExecutor.execute { watchConnection() }
         report()
+    }
+
+    @MainThread
+    private fun watchConnection() {
+        if (watchingConnection) return
+        watchingConnection = true
+        launcherProxyService.get().addCallback(connectionListener)
     }
 
     @WorkerThread

@@ -210,9 +210,9 @@ interface ISystemUiProxy {
     /**
      * Sets the listener that learns which apps Recents may offer to stop, or removes it (null).
      * SystemUI tells it the current set at once and again whenever the set changes, only while the
-     * caller is the current user's recents app and only while the Tally shell is on. Setting the
-     * listener again (for example when Recents opens) makes SystemUI check every app's policy and
-     * tell the whole set again.
+     * caller is the current user's recents app and only while the Tally shell is on. SystemUI drops
+     * the listener when it lets go of Launcher. Setting the listener again (for example when
+     * Recents opens) makes SystemUI check every app's policy and tell the whole set again.
      */
     oneway void setStoppableAppsListener(IStoppableAppsListener listener) = 1000;
 
