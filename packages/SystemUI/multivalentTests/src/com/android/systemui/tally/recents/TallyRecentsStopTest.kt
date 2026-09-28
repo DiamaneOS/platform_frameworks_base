@@ -195,6 +195,22 @@ class TallyRecentsStopTest : SysuiTestCase() {
     }
 
     @Test
+    fun reports_runOnTheirOwnThread_notOnActiveApps() {
+        underTest.setListener(listener, RECENTS_UID)
+        runAll()
+
+        startFgs("pkg", 0)
+        fgsExecutor.runAllReady()
+
+        // Active apps' thread only handed the report over; the report and its reads come after.
+        assertThat(reports).containsExactly(emptySet<TallyStoppableApp>())
+        workExecutor.runAllReady()
+        assertThat(reports)
+            .containsExactly(emptySet<TallyStoppableApp>(), setOf(TallyStoppableApp("pkg", 0)))
+            .inOrder()
+    }
+
+    @Test
     fun setListener_null_removesTheListener() {
         underTest.setListener(listener, RECENTS_UID)
         runAll()
