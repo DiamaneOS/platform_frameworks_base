@@ -67,11 +67,13 @@ import com.android.systemui.shade.domain.interactor.shadeModeInteractor
 import com.android.systemui.shade.shared.model.ShadeMode
 import com.android.systemui.statusbar.CommandQueue
 import com.android.systemui.statusbar.gesture.StatusBarLongPressGestureDetector
+import com.android.systemui.statusbar.layout.StatusBarContentInsetsChangedListener
 import com.android.systemui.statusbar.layout.mockStatusBarContentInsetsProvider
 import com.android.systemui.statusbar.policy.Clock
 import com.android.systemui.statusbar.policy.mockStatusBarConfigurationController
 import com.android.systemui.statusbar.window.StatusBarWindowControllerStore
 import com.android.systemui.statusbar.window.StatusBarWindowStateController
+import com.android.systemui.tally.TallyShell
 import com.android.systemui.testKosmos
 import com.android.systemui.unfold.util.ScopedUnfoldTransitionProgressProvider
 import com.android.systemui.user.ui.viewmodel.StatusBarUserChipViewModel
@@ -238,6 +240,37 @@ class PhoneStatusBarViewControllerTest(flags: FlagsParameterization) : SysuiTest
         controller.onViewDetached()
 
         assertThat(fakeDarkIconDispatcher.receivers).isEmpty()
+    }
+
+    @Test
+    fun tally_insetsChanged_viewAppliesTheNewInsets() {
+        Assume.assumeTrue(TallyShell.isEnabled)
+        attachToWindow(view)
+        controller = createAndInitController(view)
+        val listener = argumentCaptor<StatusBarContentInsetsChangedListener>()
+        verify(statusBarContentInsetsProvider).addCallback(listener.capture())
+
+        // WHEN the insets change sides, as after a layout direction change
+        whenever(statusBarContentInsetsProvider.getStatusBarContentInsetsForCurrentRotation())
+            .thenReturn(Insets.of(/* left= */ 96, /* top= */ 0, /* right= */ 72, /* bottom= */ 0))
+        listener.lastValue.onStatusBarContentInsetsChanged()
+
+        // THEN the view applies them
+        assertThat(view.paddingLeft).isEqualTo(96)
+        assertThat(view.paddingRight).isEqualTo(72)
+    }
+
+    @Test
+    fun tally_onViewDetached_stopsFollowingTheInsets() {
+        Assume.assumeTrue(TallyShell.isEnabled)
+        attachToWindow(view)
+        controller = createAndInitController(view)
+        val listener = argumentCaptor<StatusBarContentInsetsChangedListener>()
+        verify(statusBarContentInsetsProvider).addCallback(listener.capture())
+
+        controller.onViewDetached()
+
+        verify(statusBarContentInsetsProvider).removeCallback(listener.lastValue)
     }
 
     @Test
