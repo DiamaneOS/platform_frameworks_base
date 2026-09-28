@@ -58,6 +58,11 @@ public class PhoneStatusBarView extends FrameLayout {
     @Nullable
     private View mCutoutSpace;
     @Nullable
+    private View mTallyStartSide;
+    @Nullable
+    private View mTallyEndSide;
+    private int mTallyCutoutSpaceLeft = -1;
+    @Nullable
     private DisplayCutout mDisplayCutout;
     @Nullable
     private Rect mDisplaySize;
@@ -122,6 +127,10 @@ public class PhoneStatusBarView extends FrameLayout {
     public void onFinishInflate() {
         super.onFinishInflate();
         mCutoutSpace = findViewById(R.id.cutout_space_view);
+        if (TallyShell.isEnabled()) {
+            mTallyStartSide = findViewById(R.id.status_bar_start_side_container);
+            mTallyEndSide = findViewById(R.id.status_bar_end_side_container);
+        }
 
         updateResources();
     }
@@ -169,6 +178,14 @@ public class PhoneStatusBarView extends FrameLayout {
             requestLayout();
         }
         return super.onApplyWindowInsets(insets);
+    }
+
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        if (TallyShell.isEnabled()) {
+            tallyPlaceSides();
+        }
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
     }
 
     /**
@@ -370,23 +387,51 @@ public class PhoneStatusBarView extends FrameLayout {
         lp.width = bounds.width();
         lp.height = bounds.height();
         if (TallyShell.isEnabled()) {
-            lp.width += tallyInsetAsymmetry();
+            mTallyCutoutSpaceLeft = bounds.left;
         }
     }
 
     /**
      * Tally's privacy dot needs more room at the end of the status bar than the rounded corner
-     * needs at the start, so the content insets differ by this much. The cutout space is centred
-     * in the content, which puts it half of that off the cutout; widening it by all of it brings
-     * its edge on the dot's side back to the cutout's edge, where stock's even insets put it, and
-     * keeps its other edge clear of the cutout.
+     * needs at the start, so the content is off the display's centre, and stock's even split
+     * between the two sides would leave the cutout space off the cutout. With Tally the side left
+     * of the cutout (the start side, or the end side in RTL) is sized to end where the space
+     * starts, at the cutout, and the side right of it keeps its weight and takes the rest: the
+     * start side keeps stock's room and the end side starts at the cutout's edge, as in stock.
+     * Without the space, the sides share the content evenly, as in stock. This runs as the view
+     * measures, once the layout direction and the padding (the insets) are settled.
      */
-    private int tallyInsetAsymmetry() {
-        if (mInsetsFetcher == null) {
-            return 0;
+    private void tallyPlaceSides() {
+        if (mCutoutSpace == null || mTallyStartSide == null || mTallyEndSide == null) {
+            return;
         }
-        Insets insets = mInsetsFetcher.fetchInsets();
-        return Math.abs(insets.left - insets.right);
+        boolean changed;
+        if (mCutoutSpace.getVisibility() == View.VISIBLE && mTallyCutoutSpaceLeft >= 0) {
+            boolean rtl = getLayoutDirection() == View.LAYOUT_DIRECTION_RTL;
+            // status_bar_contents starts after this view's padding and its own.
+            int contentLeft = getPaddingLeft() + getResources().getDimensionPixelSize(
+                    rtl ? R.dimen.status_bar_padding_end : R.dimen.status_bar_padding_start);
+            int leftWidth = Math.max(0, mTallyCutoutSpaceLeft - contentLeft);
+            changed = tallySetSide(rtl ? mTallyEndSide : mTallyStartSide, leftWidth, 0f)
+                    | tallySetSide(rtl ? mTallyStartSide : mTallyEndSide, 0, 1f);
+        } else {
+            changed = tallySetSide(mTallyStartSide, 0, 1f) | tallySetSide(mTallyEndSide, 0, 1f);
+        }
+        if (changed) {
+            // status_bar_contents sizes the sides: it must measure again, even at the same size.
+            ((View) mTallyStartSide.getParent()).forceLayout();
+        }
+    }
+
+    /** Sets a side's width and weight (stock's are 0 and 1); returns whether they changed. */
+    private static boolean tallySetSide(View side, int width, float weight) {
+        LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) side.getLayoutParams();
+        if (lp.width == width && lp.weight == weight) {
+            return false;
+        }
+        lp.width = width;
+        lp.weight = weight;
+        return true;
     }
 
     private void updateSafeInsets() {
