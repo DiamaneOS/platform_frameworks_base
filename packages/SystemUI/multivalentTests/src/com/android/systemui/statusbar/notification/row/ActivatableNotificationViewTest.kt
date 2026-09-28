@@ -37,8 +37,10 @@ import com.android.systemui.res.R
 import com.android.systemui.statusbar.notification.FakeShadowView
 import com.android.systemui.statusbar.notification.NotificationUtils
 import com.android.systemui.statusbar.notification.SourceType
+import com.android.systemui.tally.TallyShell
 import com.android.systemui.util.mockito.mock
 import com.google.common.truth.Truth.assertThat
+import org.diamaneos.tally.R as TallyR
 import org.junit.Before
 import org.junit.Ignore
 import org.junit.Test
@@ -102,6 +104,13 @@ class ActivatableNotificationViewTest : SysuiTestCase() {
             mContext.getColor(com.android.internal.R.color.materialColorSurfaceContainerHigh)
         mOpaqueColor = mContext.getColor(com.android.internal.R.color.materialColorSurfaceContainer)
         mSurfaceEffectColor = SurfaceEffectColors.surfaceEffect1(mContext)
+        if (TallyShell.isEnabled) {
+            // Tally: every notification is an opaque card in the surface colour.
+            val surface = mContext.getColor(TallyR.color.tally_surface)
+            mNormalColor = surface
+            mOpaqueColor = surface
+            mSurfaceEffectColor = surface
+        }
     }
 
     @Test
