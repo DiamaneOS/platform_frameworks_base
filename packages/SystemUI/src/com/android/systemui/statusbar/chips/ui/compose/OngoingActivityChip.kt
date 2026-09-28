@@ -48,6 +48,7 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -66,6 +67,7 @@ import com.android.systemui.statusbar.notification.icon.ui.viewbinder.Notificati
 import com.android.systemui.tally.TallyShell
 import com.android.systemui.tally.privacy.LocalTallyStatusBarAreaDark
 import com.android.systemui.tally.privacy.TallyIndicatorColors
+import com.android.systemui.tally.privacy.tallyCaptureChipTextStyle
 import com.android.systemui.tally.privacy.tallyIndicatorEdge
 import org.diamaneos.tally.R as TallyR
 
@@ -76,13 +78,14 @@ fun OngoingActivityChip(
     modifier: Modifier = Modifier,
 ) {
     // Tally: the capture chips (screen recording, casting, sharing) take the capture colours for
-    // the area under them, with an edge just outside, and Tally's padding and radius.
+    // the area under them, with an edge just outside, Tally's padding and radius, and Tally's type.
     val tallyColors =
         if (TallyShell.isEnabled && model.colors is ColorsModel.Red) {
             TallyIndicatorColors.capture(LocalContext.current, LocalTallyStatusBarAreaDark.current)
         } else {
             null
         }
+    val tallyTextStyle = if (tallyColors != null) tallyCaptureChipTextStyle() else null
     val chipModel =
         if (tallyColors != null) {
             model.copy(colors = ColorsModel.Custom(tallyColors.fill, tallyColors.onFill))
@@ -190,6 +193,7 @@ fun OngoingActivityChip(
             minWidth = minWidth,
             tallyEdge = tallyColors?.let { Color(it.edge) },
             cornerRadius = cornerRadius,
+            tallyTextStyle = tallyTextStyle,
         )
     }
 }
@@ -202,6 +206,7 @@ private fun ChipBody(
     modifier: Modifier = Modifier,
     tallyEdge: Color? = null,
     cornerRadius: Dp = 0.dp,
+    tallyTextStyle: TextStyle? = null,
 ) {
     // Tally: the capture chips' edge, drawn just outside the chip, and their own padding.
     val tallyEdgeModifier =
@@ -256,6 +261,7 @@ private fun ChipBody(
                 icon = model.icon,
                 colors = model.colors,
                 modifier = Modifier.sysuiResTag(STATUS_BAR_CHIP_CONTENT_ID),
+                tallyTextStyle = tallyTextStyle,
             )
         }
 

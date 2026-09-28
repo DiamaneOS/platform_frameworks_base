@@ -16,6 +16,9 @@
 
 package com.android.systemui.tally.privacy
 
+import android.content.Context
+import android.util.TypedValue
+import androidx.annotation.StyleRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement.spacedBy
 import androidx.compose.foundation.layout.Row
@@ -40,11 +43,19 @@ import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathFillType
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.DeviceFontFamilyName
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.android.systemui.privacy.PrivacyType
 import com.android.systemui.res.R
 import com.android.systemui.tally.TallyShell
@@ -139,3 +150,75 @@ fun TallySensorChip(
         }
     }
 }
+
+/**
+ * The capture chips' text: Tally's capture chip type (`TextAppearance.Tally.CaptureChip`, Sofia
+ * Sans at 14 sp, weight 600, tabular figures), read from the token style. It stays in sp, so it
+ * follows the text size as stock's chip text does.
+ */
+@Composable
+fun tallyCaptureChipTextStyle(): TextStyle {
+    val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    return remember(context, configuration) {
+        readTextAppearance(context, TallyR.style.TextAppearance_Tally_CaptureChip)
+    }
+}
+
+// Sorted, as obtainStyledAttributes requires.
+private val TEXT_APPEARANCE_ATTRS =
+    intArrayOf(
+            android.R.attr.textSize,
+            android.R.attr.fontFamily,
+            android.R.attr.fontFeatureSettings,
+            android.R.attr.textFontWeight,
+        )
+        .apply { sort() }
+
+/** The size (in sp), family, weight and font features of a text appearance, for Compose. */
+private fun readTextAppearance(context: Context, @StyleRes appearance: Int): TextStyle {
+    val attrs = context.obtainStyledAttributes(appearance, TEXT_APPEARANCE_ATTRS)
+    try {
+        val size = TypedValue()
+        attrs.getValue(TEXT_APPEARANCE_ATTRS.indexOf(android.R.attr.textSize), size)
+        val weight =
+            attrs.getInt(
+                TEXT_APPEARANCE_ATTRS.indexOf(android.R.attr.textFontWeight),
+                NORMAL_WEIGHT,
+            )
+        val family = attrs.getString(TEXT_APPEARANCE_ATTRS.indexOf(android.R.attr.fontFamily))
+        return TextStyle(
+            fontFamily = family?.let { deviceFontFamily(it, weight) },
+            fontWeight = FontWeight(weight),
+            fontSize =
+                if (
+                    size.type == TypedValue.TYPE_DIMENSION &&
+                        size.complexUnit == TypedValue.COMPLEX_UNIT_SP
+                ) {
+                    TypedValue.complexToFloat(size.data).sp
+                } else {
+                    TextUnit.Unspecified
+                },
+            fontFeatureSettings =
+                attrs.getString(TEXT_APPEARANCE_ATTRS.indexOf(android.R.attr.fontFeatureSettings)),
+        )
+    } finally {
+        attrs.recycle()
+    }
+}
+
+/**
+ * The system font family [name] at [weight], and at [weight] + 300 for Bold text, so that neither
+ * is synthesised. A family that is not installed falls back to the default font.
+ */
+private fun deviceFontFamily(name: String, weight: Int): FontFamily {
+    val bold = minOf(weight + BOLD_TEXT_WEIGHT_ADJUSTMENT, MAX_FONT_WEIGHT)
+    return FontFamily(
+        Font(DeviceFontFamilyName(name), FontWeight(weight)),
+        Font(DeviceFontFamilyName(name), FontWeight(bold)),
+    )
+}
+
+private const val NORMAL_WEIGHT = 400
+private const val BOLD_TEXT_WEIGHT_ADJUSTMENT = 300
+private const val MAX_FONT_WEIGHT = 1000
