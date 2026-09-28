@@ -17,6 +17,7 @@
 package com.android.systemui.tally.lock
 
 import android.content.Context
+import android.view.View
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.android.app.tracing.coroutines.launchTraced as launch
@@ -71,7 +72,12 @@ object TallyLampStripViewBinder {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
                     launch("$TAG#items") { viewModel.items.collect { view.setItems(it) } }
                     launch("$TAG#dozeAmount") {
-                        keyguardInteractor.dozeAmount.collect { view.alpha = 1f - it }
+                        keyguardInteractor.dozeAmount.collect {
+                            view.alpha = 1f - it
+                            // Faded out, the strip is not drawn, so its lamps stop, and screen
+                            // readers skip it; it keeps its place in the layout.
+                            view.visibility = if (it < 1f) View.VISIBLE else View.INVISIBLE
+                        }
                     }
                 }
             }

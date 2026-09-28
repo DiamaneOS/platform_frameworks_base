@@ -27,15 +27,19 @@ import android.widget.TextView
 import com.android.settingslib.graph.ThemedBatteryDrawable
 import com.android.systemui.privacy.PrivacyType
 import com.android.systemui.res.R
+import com.android.systemui.tally.lamp.TallyLampColors
+import com.android.systemui.tally.lamp.TallyLampSize
+import com.android.systemui.tally.lamp.TallyLampState
+import com.android.systemui.tally.lamp.TallyLampView
 import java.text.NumberFormat
 import kotlin.math.max
 import kotlin.math.roundToInt
 import org.diamaneos.tally.R as TallyR
 
 /**
- * The lock screen's lamp strip: one quiet row under the clock, with no boxes, a lamp and an icon
- * per item and words only for the alarm time and the battery. A screen reader hears each item's
- * words from its description.
+ * The lock screen's lamp strip: one quiet row under the clock, with no boxes, a lamp (the shared
+ * animated Tally lamp) and an icon per item and words only for the alarm time and the battery. A
+ * screen reader hears each item's words from its description.
  *
  * When the row does not fit (both sensors in use, large text) it gives way in steps, measured on
  * every layout, as the prototype's declutter rule has it: first the alarm's time goes, then Wi-Fi,
@@ -110,7 +114,7 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
         }
         if (!unbounded && rowWidth(visible, gap) > available) {
             visible.forEach {
-                if (it.kind.foldsWhenOff && it.lamp == TallyLamp.OFF) it.folded = true
+                if (it.kind.foldsWhenOff && it.lamp == TallyLampState.OFF) it.folded = true
             }
             visible = visible.filter { !it.folded }
         }
@@ -218,7 +222,10 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
     /** One item: its lamp, its icon and, for the alarm and the battery, its words. */
     private class ItemView(context: Context, val kind: TallyStripItem.Kind) : ViewGroup(context) {
         private val lampView =
-            ImageView(context).apply { importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO }
+            TallyLampView(context).apply {
+                importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
+                setLampSize(TallyLampSize.DEFAULT)
+            }
         private val iconView =
             ImageView(context).apply {
                 importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -235,12 +242,12 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
         /** Set by the strip before it measures this item; not a layout request of its own. */
         var showWords = true
         var folded = false
-        var lamp: TallyLamp? = null
+        var lamp: TallyLampState? = null
             private set
 
         init {
             importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
-            // The lamp's drawable reaches a little past the item, for the live lamp's halo.
+            // The lamp reaches a little past the item, for the live lamp's ring of light.
             clipChildren = false
             clipToPadding = false
             addView(lampView)
@@ -263,24 +270,20 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
                     else context.getString(it.res, it.arg)
                 }
 
-            val lampForm = item.lamp
-            lampView.visibility = if (lampForm == null) GONE else VISIBLE
-            if (lampForm != null) {
+            val lampState = item.lamp
+            lampView.visibility = if (lampState == null) GONE else VISIBLE
+            if (lampState != null) {
                 val sensor =
                     kind == TallyStripItem.Kind.CAMERA || kind == TallyStripItem.Kind.MICROPHONE
-                val (drawable, tint) =
-                    when {
-                        sensor ->
-                            TallyR.drawable.tally_lamp_live_plain_12 to TallyR.color.tally_sensor
-                        lampForm == TallyLamp.OFF ->
-                            TallyR.drawable.tally_lamp_off_12 to TallyR.color.tally_ink_muted
-                        lampForm == TallyLamp.REQUESTED ->
-                            TallyR.drawable.tally_lamp_requested_12 to null
-                        lampForm == TallyLamp.LIVE -> TallyR.drawable.tally_lamp_live_12 to null
-                        else -> TallyR.drawable.tally_lamp_on_12 to null
-                    }
-                lampView.setImageDrawable(wall.getDrawable(drawable))
-                lampView.imageTintList = tint?.let { ColorStateList.valueOf(wall.getColor(it)) }
+                // The shared animated lamp: a sensor lamp in the sensor colour lights at once;
+                // the others take the lamp colours of the wallpaper's theme, with the strip's
+                // muted off ring, and ignite or turn as their state changes.
+                lampView.colors =
+                    if (sensor) TallyLampColors.sensor(wall)
+                    else
+                        TallyLampColors.theme(wall)
+                            .copy(off = wall.getColor(TallyR.color.tally_ink_muted))
+                lampView.setState(lampState)
             }
 
             iconView.imageTintList = ColorStateList.valueOf(ink)
@@ -310,16 +313,16 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
         }
 
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-            val lampBox = px(LAMP_BOX_DP)
             val icon = px(ICON_DP)
             val exact = { size: Int -> MeasureSpec.makeMeasureSpec(size, MeasureSpec.EXACTLY) }
-            lampView.measure(exact(lampBox), exact(lampBox))
-            iconView.measure(exact(icon), exact(icon))
             val unspecified = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
+            // The lamp and its ring of light, at least the token box, on whole pixels.
+            lampView.measure(unspecified, unspecified)
+            iconView.measure(exact(icon), exact(icon))
             wordsView.measure(unspecified, unspecified)
 
             var width = 0
-            if (lampView.visibility != GONE) width += px(LAMP_DP) + px(LAMP_ICON_GAP_DP)
+            if (lampView.visibility != GONE) width += lampView.lampSizePx + px(LAMP_ICON_GAP_DP)
             width += icon
             if (hasWords()) width += px(ICON_WORDS_GAP_DP) + wordsView.measuredWidth
             val height = max(px(ROW_MIN_HEIGHT_DP), max(icon, wordsView.measuredHeight))
@@ -337,11 +340,10 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
                 view.layout(left, top, left + viewWidth, top + viewHeight)
             }
             if (lampView.visibility != GONE) {
-                // The lamp's drawable is its box, the lamp plus its halo's reach, centred on the
-                // lamp's own size.
-                val lampBox = lampView.measuredWidth
-                place(lampView, x - (lampBox - px(LAMP_DP)) / 2, lampBox, lampBox)
-                x += px(LAMP_DP) + px(LAMP_ICON_GAP_DP)
+                // The view reaches haloReachPx past the lamp on each side: the lamp sits at x.
+                val reach = lampView.haloReachPx
+                place(lampView, x - reach, lampView.measuredWidth, lampView.measuredHeight)
+                x += lampView.lampSizePx + px(LAMP_ICON_GAP_DP)
             }
             place(iconView, x, iconView.measuredWidth, iconView.measuredHeight)
             x += iconView.measuredWidth
@@ -376,8 +378,6 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
     private companion object {
         /** The prototype's strip (shell.js, app.css): gaps, lamp, icon and row sizes in dp. */
         const val ITEM_GAP_DP = 18f
-        const val LAMP_DP = 12f
-        const val LAMP_BOX_DP = 17f
         const val LAMP_ICON_GAP_DP = 4f
         const val ICON_DP = 18f
         const val ICON_WORDS_GAP_DP = 5f
