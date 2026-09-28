@@ -172,7 +172,8 @@ object TallyVolumeMeterDefaults {
 /**
  * The level readout above the meter (the prototype's `.vol-val`): the level as a number, in Tally's
  * readout type, centred over the slider. It is drawn, not a node, so screen readers keep hearing
- * only the stock slider, which already says the level.
+ * only the stock slider, which already says the level. Where the slider is short (landscape), the
+ * meter keeps the room and the number is left out.
  */
 @Stable
 class TallyVolumeReadout
@@ -181,20 +182,26 @@ internal constructor(
     private val style: TextStyle,
     private val color: Color,
     private val gapPx: Int,
+    private val minMeterPx: Int,
     private val format: NumberFormat,
 ) {
     /** Draws [level] rounded above whatever it modifies, which moves down to make room. */
     fun modifier(level: Float, isEnabled: Boolean): Modifier {
         val text = measurer.measure(format.format(level.roundToInt()), style)
-        val top = text.size.height + gapPx
+        val room = text.size.height + gapPx
+        var isShown = true
         return Modifier.drawBehind {
-                drawText(
-                    text,
-                    color = if (isEnabled) color else color.copy(alpha = DISABLED_ALPHA),
-                    topLeft = Offset((size.width - text.size.width) / 2f, 0f),
-                )
+                if (isShown) {
+                    drawText(
+                        text,
+                        color = if (isEnabled) color else color.copy(alpha = DISABLED_ALPHA),
+                        topLeft = Offset((size.width - text.size.width) / 2f, 0f),
+                    )
+                }
             }
             .layout { measurable, constraints ->
+                isShown = constraints.maxHeight - room >= minMeterPx
+                val top = if (isShown) room else 0
                 val placeable = measurable.measure(constraints.offset(vertical = -top))
                 layout(placeable.width, placeable.height + top) { placeable.place(0, top) }
             }
@@ -215,6 +222,7 @@ fun rememberTallyVolumeReadout(): TallyVolumeReadout {
             style = readoutStyle(context),
             color = color,
             gapPx = with(density) { gap.roundToPx() },
+            minMeterPx = with(density) { MIN_METER_UNDER_READOUT.roundToPx() },
             format = NumberFormat.getIntegerInstance(),
         )
     }
@@ -283,6 +291,8 @@ private const val STEP_ALPHA = 0.18f
 private val TICK_HEIGHT: Dp = 4.dp
 /** Hairlines closer than this (streams with many steps) would read as a texture, not steps. */
 private val MIN_STEP_SPACING: Dp = 4.dp
+/** The readout shows only if the meter under it keeps at least half its full 240 dp. */
+private val MIN_METER_UNDER_READOUT: Dp = 120.dp
 /** The stream's icon, centred in a 48 dp square at the foot of the meter. */
 private val ICON_SIZE: Dp = 20.dp
 private val ICON_INSET: Dp = 14.dp
