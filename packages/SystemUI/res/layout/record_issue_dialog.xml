@@ -72,7 +72,21 @@
             android:importantForAccessibility="no"/>
 
         <Switch
+            android:featureFlag="!org.diamaneos.systemui.tally_shell"
             android:id="@+id/screenrecord_switch"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:layout_gravity="fill_vertical"
+            style="@style/ScreenRecord.Switch"
+            android:layout_weight="0"
+            android:contentDescription="@string/quick_settings_screen_record_label" />
+
+        <!-- Tally: in place of the switch above while the Tally flag is on. -->
+        <com.android.settingslib.widget.TallyFrameworkSwitch
+            android:featureFlag="org.diamaneos.systemui.tally_shell"
+            android:id="@+id/screenrecord_switch"
+            android:paddingHorizontal="@dimen/settingslib_tally_focus_ring_reach"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:gravity="center"
@@ -112,7 +126,21 @@
             android:importantForAccessibility="no"/>
 
         <Switch
+            android:featureFlag="!org.diamaneos.systemui.tally_shell"
             android:id="@+id/bugreport_switch"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:layout_gravity="fill_vertical"
+            android:layout_weight="0"
+            style="@style/ScreenRecord.Switch"
+            android:contentDescription="@string/qs_record_issue_bug_report" />
+
+        <!-- Tally: in place of the switch above while the Tally flag is on. -->
+        <com.android.settingslib.widget.TallyFrameworkSwitch
+            android:featureFlag="org.diamaneos.systemui.tally_shell"
+            android:id="@+id/bugreport_switch"
+            android:paddingHorizontal="@dimen/settingslib_tally_focus_ring_reach"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:gravity="center"
