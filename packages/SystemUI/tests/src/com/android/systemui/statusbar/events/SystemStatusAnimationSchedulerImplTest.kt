@@ -50,6 +50,8 @@ import com.android.systemui.statusbar.events.shared.model.SystemEventAnimationSt
 import com.android.systemui.statusbar.layout.StatusBarContentInsetsProvider
 import com.android.systemui.statusbar.window.StatusBarWindowController
 import com.android.systemui.statusbar.window.StatusBarWindowControllerStore
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.privacy.TallyChipDrawable
 import com.android.systemui.util.concurrency.FakeExecutor
 import com.android.systemui.util.time.FakeSystemClock
 import kotlinx.coroutines.CoroutineScope
@@ -58,6 +60,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -533,10 +536,15 @@ class SystemStatusAnimationSchedulerImplTest(flags: FlagsParameterization) : Sys
         systemStatusAnimationScheduler.onStatusEvent(fakePrivacyEvent)
         fastForwardAnimationToState(ShowingPersistentDot)
         assertEquals(ShowingPersistentDot, systemStatusAnimationScheduler.animationState.value)
-        assertEquals(
-            mContext.getColor(R.color.privacy_chip_location_only_background),
-            (privacyChip.iconsContainer.background as GradientDrawable).color?.defaultColor,
-        )
+        // Tally draws every privacy chip in its sensor colour: location alone has no colour.
+        if (TallyShell.isEnabled) {
+            assertTrue(privacyChip.iconsContainer.background is TallyChipDrawable)
+        } else {
+            assertEquals(
+                mContext.getColor(R.color.privacy_chip_location_only_background),
+                (privacyChip.iconsContainer.background as GradientDrawable).color?.defaultColor,
+            )
+        }
 
         // Show another privacy item.
         val cameraPrivacyItems =
@@ -551,10 +559,14 @@ class SystemStatusAnimationSchedulerImplTest(flags: FlagsParameterization) : Sys
             .onSystemStatusAnimationTransitionToPersistentDot(any(), captor.capture())
         assertEquals(locationPrivacyItems, captor.allValues[0])
         assertEquals(cameraPrivacyItems, captor.allValues[1])
-        assertEquals(
-            mContext.getColor(R.color.privacy_chip_background),
-            (privacyChip.iconsContainer.background as GradientDrawable).color?.defaultColor,
-        )
+        if (TallyShell.isEnabled) {
+            assertTrue(privacyChip.iconsContainer.background is TallyChipDrawable)
+        } else {
+            assertEquals(
+                mContext.getColor(R.color.privacy_chip_background),
+                (privacyChip.iconsContainer.background as GradientDrawable).color?.defaultColor,
+            )
+        }
     }
 
     @Test
