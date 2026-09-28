@@ -54,6 +54,7 @@ import com.android.systemui.dagger.qualifiers.Main;
 import com.android.systemui.flags.FeatureFlags;
 import com.android.systemui.res.R;
 import com.android.systemui.statusbar.policy.DevicePostureController;
+import com.android.systemui.tally.TallyShell;
 import com.android.systemui.user.domain.interactor.SelectedUserInteractor;
 import com.android.systemui.util.concurrency.DelayableExecutor;
 import com.android.systemui.util.wrapper.LockPatternCheckerWrapper;
@@ -161,8 +162,11 @@ public class KeyguardPasswordViewController
         mShowImeAtScreenOn = resources.getBoolean(R.bool.kg_show_ime_at_screen_on);
         mPasswordEntry = mView.findViewById(mView.getPasswordTextViewId());
         mDefaultPasswordFieldBackground = mPasswordEntry.getBackground();
-        mFocusedPasswordFieldBackground = getResources().getDrawable(
-                R.drawable.bouncer_password_view_background);
+        // Tally: with a keyboard connected the field stays the Tally field, which draws its own
+        // focus.
+        mFocusedPasswordFieldBackground = getResources().getDrawable(TallyShell.isEnabled()
+                ? R.drawable.tally_bouncer_password_field
+                : R.drawable.bouncer_password_view_background);
         mSwitchImeButton = mView.findViewById(R.id.switch_ime_button);
     }
 

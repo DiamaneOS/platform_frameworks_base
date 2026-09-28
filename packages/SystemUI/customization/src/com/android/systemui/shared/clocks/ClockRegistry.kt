@@ -40,6 +40,7 @@ import com.android.systemui.plugins.keyguard.ui.clocks.ClockPickerConfig
 import com.android.systemui.plugins.keyguard.ui.clocks.ClockProvider
 import com.android.systemui.plugins.keyguard.ui.clocks.ClockProviderPlugin
 import com.android.systemui.plugins.keyguard.ui.clocks.ClockSettings
+import com.android.systemui.shared.clocks.tally.TallyClocks
 import com.android.systemui.util.ThreadAssert
 import java.io.PrintWriter
 import java.util.concurrent.ConcurrentHashMap
@@ -92,7 +93,9 @@ open class ClockRegistry(
     val bgDispatcher: CoroutineDispatcher,
     val handleAllUsers: Boolean,
     defaultClockProvider: ClockProvider,
-    private val fallbackClockId: ClockId = DEFAULT_CLOCK_ID,
+    // DiamaneOS: the Tally clock while Tally is on, for registries that do not pass their own
+    // (Wallpaper & style's), so they agree with SystemUI's.
+    private val fallbackClockId: ClockId = TallyClocks.fallbackClockId,
     val clockBuffers: ClockMessageBuffers? = null,
     val keepAllLoaded: Boolean,
     subTag: String,

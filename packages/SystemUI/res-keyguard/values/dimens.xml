@@ -37,9 +37,27 @@
 
     <!-- height for the keyguard password input field -->
     <dimen name="keyguard_password_field_height">56dp</dimen>
+    <!-- Tally: the prototype's 56 dp box plus 3 dp on each side for its focus ring
+         (tally_bouncer_password_field) -->
+    <dimen xmlns:android="http://schemas.android.com/apk/res/android"
+        name="keyguard_password_field_height"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">62dp</dimen>
 
     <!-- width for the keyguard password input field -->
     <dimen name="keyguard_password_field_width">276dp</dimen>
+
+    <!-- Corner radius of the PIN field's outline when it shows one
+         (bouncer_pin_view_focused_background) -->
+    <dimen name="kg_bouncer_field_corner_radius">16dp</dimen>
+    <dimen xmlns:android="http://schemas.android.com/apk/res/android"
+        name="kg_bouncer_field_corner_radius"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">@dimen/tally_radius_s</dimen>
+
+    <!-- Corner radius of the bouncer's eSIM key (kg_bouncer_secondary_button) -->
+    <dimen name="kg_bouncer_button_corner_radius">24dp</dimen>
+    <dimen xmlns:android="http://schemas.android.com/apk/res/android"
+        name="kg_bouncer_button_corner_radius"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">@dimen/tally_radius_s</dimen>
 
     <!-- Height of the sliding KeyguardSecurityContainer
          (includes 2x keyguard_security_view_top_margin) -->

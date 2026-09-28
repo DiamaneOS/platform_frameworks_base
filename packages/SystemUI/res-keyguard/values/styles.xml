@@ -25,6 +25,13 @@
         <item name="android:fontFamily">@*android:string/config_bodyFontFamily</item>
         <item name="android:textColor">@color/materialColorOnSurface</item>
     </style>
+    <!-- Tally: the same text in Sofia Sans at the regular weight, from the Tally body type -->
+    <style name="Keyguard.TextView" parent="@android:style/Widget.DeviceDefault.TextView"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">
+        <item name="android:textAppearance">@style/TextAppearance.Tally.Body</item>
+        <item name="android:textSize">@dimen/kg_status_line_font_size</item>
+        <item name="android:textColor">@color/materialColorOnSurface</item>
+    </style>
     <style name="Keyguard.Bouncer.PrimaryMessage" parent="Theme.SystemUI">
         <item name="android:textSize">18sp</item>
         <item name="android:lineHeight">24dp</item>
@@ -50,6 +57,16 @@
         <item name="android:fontFamily">@*android:string/config_headlineFontFamily</item>
         <item name="android:paddingLeft">26dp</item>
         <item name="android:paddingRight">26dp</item>
+        <item name="android:stateListAnimator">@null</item>
+    </style>
+    <!-- Tally: the prototype's outlined key, in the ink colour and the Tally label type -->
+    <style name="Keyguard.TextView.EmergencyButton" parent="Theme.SystemUI"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">
+        <item name="android:textAppearance">@style/TextAppearance.Tally.Label</item>
+        <item name="android:textColor">@color/tally_ink</item>
+        <item name="android:background">@drawable/tally_bouncer_outlined_key</item>
+        <item name="android:paddingLeft">@dimen/tally_key_padding_horizontal</item>
+        <item name="android:paddingRight">@dimen/tally_key_padding_horizontal</item>
         <item name="android:stateListAnimator">@null</item>
     </style>
     <style name="NumPadKey" parent="Theme.SystemUI">
@@ -121,6 +138,17 @@
         <item name="android:textColor">?android:attr/textColorPrimary</item>
         <item name="android:colorControlNormal">?android:attr/textColorPrimary</item>
         <item name="android:colorControlActivated">?android:attr/textColorPrimary</item>
+    </style>
+
+    <!-- Tally: the password field is an outlined box with the key radius -->
+    <style name="PasswordTheme" parent="Theme.SystemUI"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">
+        <item name="android:textColor">?android:attr/textColorPrimary</item>
+        <item name="android:colorControlNormal">?android:attr/textColorPrimary</item>
+        <item name="android:colorControlActivated">?android:attr/textColorPrimary</item>
+        <item name="android:editTextBackground">@drawable/tally_bouncer_password_field</item>
+        <!-- the password field's text (its layout sets this appearance) in Sofia Sans -->
+        <item name="android:textAppearanceMedium">@style/TextAppearance.Tally.Item</item>
     </style>
 
     <style name="Theme.SystemUI.KeyguardPresentation">

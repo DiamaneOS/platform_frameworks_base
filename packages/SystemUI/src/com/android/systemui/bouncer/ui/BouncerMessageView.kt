@@ -26,6 +26,9 @@ import com.android.keyguard.KeyguardMessageAreaController
 import com.android.systemui.Flags
 import com.android.systemui.FontStyles
 import com.android.systemui.res.R
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.lock.TallyBouncerType
+import org.diamaneos.tally.R as TallyR
 
 class BouncerMessageView : LinearLayout {
     constructor(context: Context?) : super(context)
@@ -46,7 +49,17 @@ class BouncerMessageView : LinearLayout {
         primaryMessageView = findViewById(R.id.bouncer_primary_message_area)
         secondaryMessageView = findViewById(R.id.bouncer_secondary_message_area)
 
-        if (Flags.bouncerUiRevamp2()) {
+        if (TallyShell.isEnabled) {
+            // Tally: the title and the message in Sofia Sans; only the typeface changes.
+            primaryMessageView?.apply {
+                typeface =
+                    TallyBouncerType.typeface(context, TallyR.style.TextAppearance_Tally_Title)
+            }
+            secondaryMessageView?.apply {
+                typeface =
+                    TallyBouncerType.typeface(context, TallyR.style.TextAppearance_Tally_Body)
+            }
+        } else if (Flags.bouncerUiRevamp2()) {
             primaryMessageView?.apply {
                 typeface = Typeface.create(FontStyles.GSF_TITLE_LARGE_EMPHASIZED, Typeface.NORMAL)
             }

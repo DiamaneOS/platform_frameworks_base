@@ -39,9 +39,12 @@ import com.android.systemui.res.R as SysuiR
 import com.android.systemui.scene.shared.flag.SceneContainerFlag
 import com.android.systemui.shade.ShadeDisplayAware
 import com.android.systemui.shade.domain.interactor.ShadeModeInteractor
+import com.android.systemui.shared.clocks.tally.TallyClocks
+import com.android.systemui.shared.clocks.tally.TallyClocks.TALLY_CLOCK_ID
 import com.android.systemui.statusbar.notification.icon.ui.viewmodel.NotificationIconContainerAlwaysOnDisplayViewModel
 import com.android.systemui.statusbar.policy.domain.interactor.ZenModeInteractor
 import com.android.systemui.statusbar.ui.SystemBarUtilsProxy
+import com.android.systemui.tally.TallyShell
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -173,8 +176,7 @@ constructor(
                     context.resources.getDimensionPixelSize(
                         SysuiR.dimen.keyguard_split_shade_top_margin
                     ),
-                clockTopMargin =
-                    context.resources.getDimensionPixelSize(SysuiR.dimen.keyguard_clock_top_margin),
+                clockTopMargin = clockTopMargin(),
                 statusViewMarginHorizontal =
                     context.resources.getDimensionPixelSize(
                         clocksR.dimen.status_view_margin_horizontal
@@ -182,6 +184,14 @@ constructor(
             )
             .getSmallClockTopPadding()
     }
+
+    /** Tally: the Tally clock's own top margin under the status bar; other clocks keep stock's. */
+    private fun clockTopMargin(): Int =
+        if (TallyShell.isEnabled && currentClock.value?.config?.id == TALLY_CLOCK_ID) {
+            TallyClocks.topMarginPx(context.resources)
+        } else {
+            context.resources.getDimensionPixelSize(SysuiR.dimen.keyguard_clock_top_margin)
+        }
 
     val smallClockTopMargin =
         combine(

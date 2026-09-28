@@ -42,6 +42,7 @@ import com.android.systemui.Flags;
 import com.android.systemui.bouncer.shared.constants.PinBouncerConstants.Animation;
 import com.android.systemui.bouncer.shared.constants.PinBouncerConstants.Color;
 import com.android.systemui.bouncer.ui.BouncerColors;
+import com.android.systemui.tally.TallyShell;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -67,6 +68,8 @@ class NumPadAnimator {
     private int mStyle;
     private float mStartRadius;
     private float mEndRadius;
+    // Tally: the key radius, see onLayout.
+    private final float mTallyKeyRadius;
     private int mHeight;
     private int mWidth;
     private final HardwareLayerResetListener mHardwareLayerResetListener =
@@ -90,6 +93,9 @@ class NumPadAnimator {
         mDigitTextView = digitTextView;
         mImageButton = buttonImage;
         mAnimatable = animatable;
+        mTallyKeyRadius = TallyShell.isEnabled()
+                ? context.getResources().getDimension(org.diamaneos.tally.R.dimen.tally_radius_s)
+                : 0f;
 
         reloadColors(context);
     }
@@ -144,8 +150,15 @@ class NumPadAnimator {
         boolean shouldUpdateHeight = height != mHeight;
         mWidth = width;
         mHeight = height;
-        mStartRadius = height / 2f;
-        mEndRadius = height / 4f;
+        if (TallyShell.isEnabled()) {
+            // Tally: a key is a rounded rectangle with the key radius, at rest and pressed. Only
+            // the shape changes; the press, enable and disable animations run as before.
+            mStartRadius = mTallyKeyRadius;
+            mEndRadius = mTallyKeyRadius;
+        } else {
+            mStartRadius = height / 2f;
+            mEndRadius = height / 4f;
+        }
         mExpandAnimator.setFloatValues(mStartRadius, mEndRadius);
         mContractAnimator.setFloatValues(mEndRadius, mStartRadius);
         // Set initial corner radius.

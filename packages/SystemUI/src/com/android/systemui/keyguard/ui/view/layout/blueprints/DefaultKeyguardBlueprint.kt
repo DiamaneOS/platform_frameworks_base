@@ -36,6 +36,9 @@ import com.android.systemui.keyguard.ui.view.layout.sections.KeyguardSectionsMod
 import com.android.systemui.keyguard.ui.view.layout.sections.KeyguardSectionsModule.Companion.KEYGUARD_BATTERY_CHARGING_SECTION
 import com.android.systemui.keyguard.ui.view.layout.sections.KeyguardSliceViewSection
 import com.android.systemui.keyguard.ui.view.layout.sections.SmartspaceSection
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.lock.TallyLockSection
+import dagger.Lazy
 import java.util.Optional
 import javax.inject.Inject
 import javax.inject.Named
@@ -68,6 +71,7 @@ constructor(
     clockSection: ClockSection,
     smartspaceSection: SmartspaceSection,
     keyguardSliceViewSection: KeyguardSliceViewSection,
+    tallyLockSection: Lazy<TallyLockSection>,
     udfpsAccessibilityOverlaySection: DefaultUdfpsAccessibilityOverlaySection,
 ) : KeyguardBlueprint {
     override val id: String = DEFAULT
@@ -87,7 +91,8 @@ constructor(
             smartspaceSection,
             aodBurnInSection,
             clockSection,
-            keyguardSliceViewSection,
+            // Tally: the lamp strip takes the slice's place (its date is in the Tally clock).
+            if (TallyShell.isEnabled) tallyLockSection.get() else keyguardSliceViewSection,
             defaultDeviceEntrySection,
             udfpsAccessibilityOverlaySection, // Add LAST: Intentionally has z-order above others
         )

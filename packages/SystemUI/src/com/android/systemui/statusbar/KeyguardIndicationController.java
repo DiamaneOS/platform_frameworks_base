@@ -128,6 +128,9 @@ import com.android.systemui.statusbar.phone.KeyguardBypassController;
 import com.android.systemui.statusbar.phone.KeyguardIndicationTextView;
 import com.android.systemui.statusbar.phone.StatusBarKeyguardViewManager;
 import com.android.systemui.statusbar.policy.KeyguardStateController;
+import com.android.systemui.tally.TallyShell;
+import com.android.systemui.tally.lock.TallySideFpsHintCounter;
+import com.android.systemui.tally.lock.TallyWallTheme;
 import com.android.systemui.user.domain.interactor.UserLogoutInteractor;
 import com.android.systemui.util.AlarmTimeout;
 import com.android.systemui.util.concurrency.DelayableExecutor;
@@ -215,6 +218,9 @@ public class KeyguardIndicationController {
     private CharSequence mBiometricMessage;
     private CharSequence mBiometricMessageFollowUp;
     private BiometricSourceType mBiometricMessageSource;
+    // Tally: the side fingerprint sensor's hint, see maybeShowSideFpsHint.
+    private final TallySideFpsHintCounter mSideFpsHintCounter;
+    private CharSequence mSideFpsHint;
     private ColorStateList mInitialTextColorState;
     private boolean mVisible;
     private boolean mOrganizationOwnedDevice;
@@ -286,6 +292,9 @@ public class KeyguardIndicationController {
                 hideBiometricMessageDelayed(DEFAULT_HIDE_DELAY_MS);
                 mBiometricErrorMessageToShowOnScreenOn = null;
             }
+            if (TallyShell.isEnabled()) {
+                maybeShowSideFpsHint();
+            }
         }
     };
     private boolean mFaceLockedOutThisAuthSession;
@@ -337,7 +346,8 @@ public class KeyguardIndicationController {
             DeviceEntryFingerprintAuthInteractor deviceEntryFingerprintAuthInteractor,
             DeviceEntryFaceAuthInteractor deviceEntryFaceAuthInteractor,
             UserLogoutInteractor userLogoutInteractor,
-            Lazy<SecureLockDeviceInteractor> secureLockDeviceInteractor
+            Lazy<SecureLockDeviceInteractor> secureLockDeviceInteractor,
+            TallySideFpsHintCounter sideFpsHintCounter
     ) {
         mContext = context;
         mBroadcastDispatcher = broadcastDispatcher;
@@ -372,6 +382,7 @@ public class KeyguardIndicationController {
         mDeviceEntryFaceAuthInteractor = deviceEntryFaceAuthInteractor;
         mUserLogoutInteractor = userLogoutInteractor;
         mSecureLockDeviceInteractor = secureLockDeviceInteractor;
+        mSideFpsHintCounter = sideFpsHintCounter;
 
         mFaceAcquiredMessageDeferral = faceHelpMessageDeferral.create();
 
@@ -768,7 +779,7 @@ public class KeyguardIndicationController {
                             .setMessage(mBiometricMessage)
                             .setForceAccessibilityLiveRegionAssertive()
                             .setMinVisibilityMillis(IMPORTANT_MSG_MIN_DURATION)
-                            .setTextColor(getInitialTextColorState())
+                            .setTextColor(getBiometricMessageTextColor())
                             .build(),
                     true
             );
@@ -1128,6 +1139,9 @@ public class KeyguardIndicationController {
             mBiometricMessageSource = biometricSourceType;
         }
 
+        if (TallyShell.isEnabled()) {
+            hideSideFpsHint();
+        }
         mHandler.removeMessages(MSG_SHOW_ACTION_TO_UNLOCK);
         hideBiometricMessageDelayed(
                 !TextUtils.isEmpty(mBiometricMessage)
@@ -1787,6 +1801,63 @@ public class KeyguardIndicationController {
     protected void showTrustGrantedMessage(boolean dismissKeyguard, @Nullable String message) {
         mTrustGrantedIndication = message;
         updateDeviceEntryIndication(false);
+    }
+
+    /**
+     * Tally: a fingerprint message on the lock screen means the touch did not unlock (not
+     * recognized, a help message, too many attempts), so it takes the error colour of the theme
+     * the lock wallpaper calls for. Every other message keeps the stock colour.
+     */
+    private ColorStateList getBiometricMessageTextColor() {
+        if (TallyShell.isEnabled() && mBiometricMessageSource == FINGERPRINT) {
+            return ColorStateList.valueOf(TallyWallTheme.context(mContext,
+                    TallyWallTheme.isLightWallpaper(mContext))
+                    .getColor(org.diamaneos.tally.R.color.tally_error));
+        }
+        return getInitialTextColorState();
+    }
+
+    /**
+     * Tally: on a user's first few wakes, counted per user across restarts, says for a few seconds
+     * where the side fingerprint sensor is, in stock's words. Only when the fingerprint can unlock
+     * the lock screen and nothing else is being said: in lockdown, when the credential is required
+     * (after a restart, a timeout or an admin lock), after a lockout, while a trust agent keeps the
+     * device unlocked or on a managed device, whose disclosure it would cover, it stays away.
+     */
+    private void maybeShowSideFpsHint() {
+        final int userId = getCurrentUser();
+        // The count is read in the background, so it is ready by the first wake that may show
+        // the hint; until then the hint stays away.
+        mSideFpsHintCounter.prefetch(userId);
+        if (!mVisible
+                || mDozing
+                || mOrganizationOwnedDevice
+                || !mKeyguardStateController.isShowing()
+                || mKeyguardStateController.isOccluded()
+                || mStatusBarKeyguardViewManager == null
+                || mStatusBarKeyguardViewManager.isBouncerShowing()
+                || !mAuthController.isSfpsEnrolled(userId)
+                || !canUnlockWithFingerprint()
+                || mKeyguardUpdateMonitor.getUserHasTrust(userId)
+                || !TextUtils.isEmpty(mBiometricMessage)
+                || !TextUtils.isEmpty(mTransientIndication)
+                || !mSideFpsHintCounter.hasWakesLeft(userId, mContext.getResources().getInteger(
+                        org.diamaneos.tally.R.integer.tally_fp_hint_wakes))) {
+            return;
+        }
+        mSideFpsHintCounter.countWake(userId);
+        mSideFpsHint = mContext.getString(R.string.fingerprint_dialog_touch_sensor);
+        showTransientIndication(mSideFpsHint);
+        hideTransientIndicationDelayed(mContext.getResources().getInteger(
+                org.diamaneos.tally.R.integer.tally_fp_hint_ms));
+    }
+
+    /** Tally: takes the fingerprint hint away, so that a biometric message shows at once. */
+    private void hideSideFpsHint() {
+        if (mSideFpsHint != null && mSideFpsHint == mTransientIndication) {
+            hideTransientIndication();
+        }
+        mSideFpsHint = null;
     }
 
     private void handleFaceLockoutError(String errString) {
