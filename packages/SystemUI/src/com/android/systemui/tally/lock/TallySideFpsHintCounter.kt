@@ -18,6 +18,8 @@ package com.android.systemui.tally.lock
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
+import androidx.annotation.VisibleForTesting
 import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.dagger.qualifiers.Background
 import com.android.systemui.settings.UserFileManager
@@ -45,11 +47,23 @@ constructor(
 ) {
     private val wakesShown = ConcurrentHashMap<Int, Int>()
 
-    /** Reads [userId]'s count in the background if it is not read yet. */
+    /**
+     * Reads [userId]'s count in the background if it is not read yet. A count that cannot be read
+     * (a value of another type under the key, a file that cannot be opened) leaves the user out, so
+     * the hint stays away, and never throws on the background thread, which would take SystemUI
+     * down.
+     */
     fun prefetch(userId: Int) {
         if (wakesShown.containsKey(userId)) return
         bgExecutor.execute {
-            wakesShown.putIfAbsent(userId, prefs(userId).getInt(KEY_WAKES_SHOWN, 0))
+            val shown =
+                try {
+                    prefs(userId).getInt(KEY_WAKES_SHOWN, 0)
+                } catch (e: RuntimeException) {
+                    Log.w(TAG, "Cannot read the fingerprint hint count of user $userId", e)
+                    return@execute
+                }
+            wakesShown.putIfAbsent(userId, shown)
         }
     }
 
@@ -59,17 +73,28 @@ constructor(
         return shown < maxWakes
     }
 
-    /** Counts one more wake with the hint for [userId], written in the background. */
+    /**
+     * Counts one more wake with the hint for [userId], written in the background; a count that
+     * cannot be written stays counted in memory and never throws on the background thread.
+     */
     fun countWake(userId: Int) {
         val shown = (wakesShown[userId] ?: return) + 1
         wakesShown[userId] = shown
-        bgExecutor.execute { prefs(userId).edit().putInt(KEY_WAKES_SHOWN, shown).apply() }
+        bgExecutor.execute {
+            try {
+                prefs(userId).edit().putInt(KEY_WAKES_SHOWN, shown).apply()
+            } catch (e: RuntimeException) {
+                Log.w(TAG, "Cannot write the fingerprint hint count of user $userId", e)
+            }
+        }
     }
 
     private fun prefs(userId: Int): SharedPreferences =
         userFileManager.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE, userId)
 
-    private companion object {
+    @VisibleForTesting
+    internal companion object {
+        const val TAG = "TallySideFpsHintCounter"
         const val FILE_NAME = "tally_lock_screen"
         const val KEY_WAKES_SHOWN = "side_fps_hint_wakes_shown"
     }
