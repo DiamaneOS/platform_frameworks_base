@@ -90,7 +90,6 @@ import com.android.systemui.util.kotlin.JavaAdapter;
 import com.android.systemui.util.settings.SecureSettings;
 
 import com.google.ux.material.libmonet.dynamiccolor.DynamicColor;
-import com.google.ux.material.libmonet.dynamiccolor.MaterialDynamicColors;
 
 import kotlinx.coroutines.flow.Flow;
 import kotlinx.coroutines.flow.StateFlow;
@@ -729,7 +728,6 @@ public class ThemeOverlayController implements CoreStartable, Dumpable {
             Resources res = userHandle.isSystem()
                     ? mResources : mContext.createContextAsUser(userHandle, 0).getResources();
             Resources.Theme theme = mContext.getTheme();
-            MaterialDynamicColors dynamicColors = new MaterialDynamicColors();
             if (!(res.getColor(android.R.color.system_accent1_500, theme)
                     == mColorScheme.getAccent1().getS500()
                     && res.getColor(android.R.color.system_accent2_500, theme)
@@ -741,18 +739,15 @@ public class ThemeOverlayController implements CoreStartable, Dumpable {
                     && res.getColor(android.R.color.system_neutral2_500, theme)
                     == mColorScheme.getNeutral2().getS500()
                     && res.getColor(android.R.color.system_outline_variant_dark, theme)
-                    == dynamicColors.outlineVariant().getArgb(mDarkColorScheme.getMaterialScheme())
+                    == mDarkColorScheme.getMaterialScheme().getOutlineVariant()
                     && res.getColor(android.R.color.system_outline_variant_light, theme)
-                    == dynamicColors.outlineVariant().getArgb(mLightColorScheme.getMaterialScheme())
+                    == mLightColorScheme.getMaterialScheme().getOutlineVariant()
                     && res.getColor(android.R.color.system_primary_container_dark, theme)
-                    == dynamicColors.primaryContainer().getArgb(
-                    mDarkColorScheme.getMaterialScheme())
+                    == mDarkColorScheme.getMaterialScheme().getPrimaryContainer()
                     && res.getColor(android.R.color.system_primary_container_light, theme)
-                    == dynamicColors.primaryContainer().getArgb(
-                    mLightColorScheme.getMaterialScheme())
+                    == mLightColorScheme.getMaterialScheme().getPrimaryContainer()
                     && res.getColor(android.R.color.system_primary_fixed, theme)
-                    == dynamicColors.primaryFixed().getArgb(
-                    mLightColorScheme.getMaterialScheme()))) {
+                    == mLightColorScheme.getMaterialScheme().getPrimaryFixed())) {
                 return false;
             }
         }
