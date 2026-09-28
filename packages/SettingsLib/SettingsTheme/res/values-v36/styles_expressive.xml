@@ -339,7 +339,20 @@
         <item name="trackTint">@color/settingslib_expressive_color_switch_track</item>
     </style>
 
-    <style name="SettingslibMainSwitchStyle.Expressive" parent="SettingslibSwitchStyle.Expressive">
+    <!-- The Tally switch as a MaterialSwitch: the same thumb and track as Switch.SettingsLib,
+         coloured by their own state lists, so no tint, track decoration or thumb icon. The
+         expressive theme and the main switch bar use it; SettingslibSwitchStyle.Expressive
+         stays as it was for layouts that name it directly. -->
+    <style name="SettingslibSwitchStyle.Tally" parent="SettingslibSwitchStyle.Expressive">
+        <item name="android:thumb">@drawable/settingslib_tally_switch_thumb</item>
+        <item name="thumbTint">@null</item>
+        <item name="thumbIcon">@null</item>
+        <item name="track">@drawable/settingslib_tally_switch_track</item>
+        <item name="trackTint">@null</item>
+        <item name="trackDecoration">@null</item>
+    </style>
+
+    <style name="SettingslibMainSwitchStyle.Expressive" parent="SettingslibSwitchStyle.Tally">
         <item name="android:layout_gravity">center</item>
     </style>
 

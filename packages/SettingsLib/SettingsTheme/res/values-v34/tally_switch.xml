@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPDX-License-Identifier: Apache-2.0
+  Copyright 2026 The DiamaneOS Project
+
+  Generated from the Tally token spec (design/tokens/tokens.json in the DiamaneOS design
+  repository) by design/tokens/generate.py. Do not edit: change the spec and regenerate.
+  Spec: tokens.json sha256 2b0dac529d1db3d68b24fa7d6815802d2c9fc56c844e296bedf81de1929bed0c
+-->
+<resources>
+    <!-- Export settingslib-switch: SettingsLib's SettingsTheme in the frameworks_base fork (packages/SettingsLib/SettingsTheme): the Tally switch's colours and geometry for the switch drawables there, as literal values, because SettingsLib's modules are built into mainline APEXes and do not link tallytokens; -v34 because the colour roles exist from API 34 -->
+    <!-- from tally_surface_high -->
+    <color name="settingslib_tally_surface_high">@android:color/system_surface_container_high_light</color>
+    <!-- from tally_outline -->
+    <color name="settingslib_tally_outline">@android:color/system_outline_light</color>
+    <!-- from tally_lamp -->
+    <color name="settingslib_tally_lamp">@android:color/system_primary_fixed_dim</color>
+    <!-- from tally_on_lamp -->
+    <color name="settingslib_tally_on_lamp">@android:color/system_accent1_900</color>
+    <!-- from tally_switch_width -->
+    <dimen name="settingslib_tally_switch_width">52dp</dimen>
+    <!-- from tally_switch_height -->
+    <dimen name="settingslib_tally_switch_height">32dp</dimen>
+    <!-- from tally_stroke_control -->
+    <dimen name="settingslib_tally_switch_border_width">2dp</dimen>
+    <!-- tally_radius_s - tally_stroke_control / 2 = 7 dp: the radius of the border's centre line, so the switch's outer corners have tally_radius_s and the border's inner corners that less the border width, as the prototype's CSS border-radius draws them -->
+    <dimen name="settingslib_tally_switch_border_radius">7dp</dimen>
+    <!-- tally_stroke_control / 2 = 1 dp: an enabled switch's fill ends under the middle of its opaque border, so no fill colour shows at the anti-aliased outer edge -->
+    <dimen name="settingslib_tally_switch_fill_inset">1dp</dimen>
+    <!-- tally_radius_s - tally_stroke_control = 6 dp: the border's inner corners: a disabled switch's fill stops at the border's inner edge, since both are see-through then and must not overlap -->
+    <dimen name="settingslib_tally_switch_inner_radius">6dp</dimen>
+    <!-- from tally_switch_thumb -->
+    <dimen name="settingslib_tally_switch_thumb_size">24dp</dimen>
+    <!-- from tally_radius_xs -->
+    <dimen name="settingslib_tally_switch_thumb_radius">4dp</dimen>
+    <!-- (tally_switch_height - tally_switch_thumb) / 2 = 4 dp: the thumb's distance from the switch's edges: the border and a gap as wide, as in the prototype -->
+    <dimen name="settingslib_tally_switch_thumb_inset">4dp</dimen>
+    <!-- (tally_switch_thumb + tally_switch_height - tally_switch_width) / 2 = 2 dp: the thumb drawable's padding on each side: Switch and SwitchCompat measure the thumb without it, so the switch comes out tally_switch_width wide and the thumb travels width minus height, 20 dp as in the prototype -->
+    <dimen name="settingslib_tally_switch_thumb_padding">2dp</dimen>
+    <!-- tally_switch_height - tally_switch_width / 2 = 6 dp: the track's padding on each side: less the thumb padding, it keeps the thumb one thumb inset from the ends, in Switch, SwitchCompat and MaterialSwitch alike -->
+    <dimen name="settingslib_tally_switch_track_padding">6dp</dimen>
+</resources>
