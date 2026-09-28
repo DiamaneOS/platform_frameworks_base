@@ -19,6 +19,7 @@ package com.android.systemui.tally.lock
 import android.app.AlarmManager
 import android.bluetooth.BluetoothAdapter
 import android.content.Context
+import android.media.MediaMetadata
 import android.text.format.DateFormat
 import androidx.annotation.StringRes
 import com.android.settingslib.AccessibilityContentDescriptions
@@ -26,6 +27,7 @@ import com.android.settingslib.R as SettingsLibR
 import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.dagger.qualifiers.Application
 import com.android.systemui.keyguard.domain.interactor.KeyguardInteractor
+import com.android.systemui.media.NotificationMediaManager
 import com.android.systemui.privacy.PrivacyType
 import com.android.systemui.res.R
 import com.android.systemui.settings.UserTracker
@@ -82,12 +84,36 @@ data class TallyStripItem(
 }
 
 /**
+ * One item of the always-on display's strip: what the stock always-on date line showed besides the
+ * date, and nothing more.
+ */
+data class TallyAodItem(
+    val kind: Kind,
+    /** The item's words: the alarm's time, or the playing media's title and artist. */
+    val words: String?,
+    /** What a screen reader says for the item, when not its words: stock SystemUI's words. */
+    val description: TallyWords?,
+) {
+    /** The items in the always-on strip's order. */
+    enum class Kind {
+        ALARM,
+        CALM,
+        MEDIA,
+    }
+}
+
+/**
  * The lamp strip's state, from the controllers and interactors SystemUI already has: the privacy
  * items (the privacy chip's, with its holds), Wi-Fi, Bluetooth, the next alarm, Do Not Disturb
  * (shown as Calm) and the battery. It adds no source of its own and shows nothing the stock lock
  * screen does not: sensors say only "Camera in use" or "Microphone in use", the Wi-Fi and Bluetooth
  * items carry no network or device names, and the alarm's time shows only within the stock lock
  * screen's 12 hours (KeyguardSliceProvider).
+ *
+ * For the always-on display it gives only what the stock always-on date line (KeyguardSliceProvider
+ * on the keyguard slice) showed besides the date: the next alarm's time within those 12 hours, Do
+ * Not Disturb while it is on, and the title and artist of media that is playing, from the same
+ * NotificationMediaManager.
  */
 @SysUISingleton
 class TallyLampStripViewModel
@@ -103,6 +129,7 @@ constructor(
     private val userTracker: UserTracker,
     private val systemClock: SystemClock,
     keyguardInteractor: KeyguardInteractor,
+    private val mediaManager: NotificationMediaManager,
 ) {
     private val sensorsInUse: Flow<Set<PrivacyType>> =
         privacyChipInteractor.privacyItems
@@ -178,13 +205,14 @@ constructor(
 
     /**
      * The time once a minute, and at each always-on display tick, which comes when the device wakes
-     * to update the always-on display, where a plain delay may not run: for the date line.
+     * to update the always-on display, where a plain delay may not run: for the date line and the
+     * alarm's window.
      */
     val minutes: Flow<Long> =
         merge(minuteTicks, keyguardInteractor.dozeTimeTick.map { systemClock.currentTimeMillis() })
 
     private val alarm: Flow<TallyStripItem?> =
-        combine(nextAlarm, minuteTicks) { info, now ->
+        combine(nextAlarm, minutes) { info, now ->
             if (info == null) return@combine null
             // As the stock lock screen: the time shows only when the alarm is 12 hours away or
             // less, in the user's 12 or 24 hour format and without AM or PM.
@@ -237,6 +265,58 @@ constructor(
             }
             .distinctUntilChanged()
 
+    /**
+     * The title and artist of the media that is playing, as KeyguardSliceProvider takes them for
+     * the stock always-on date line: none unless playing, stock's "No title" for an empty title.
+     */
+    private val playingMedia: Flow<String?> =
+        conflatedCallbackFlow {
+                val listener =
+                    object : NotificationMediaManager.MediaListener {
+                        override fun onPrimaryMetadataOrStateChanged(
+                            metadata: MediaMetadata?,
+                            state: Int,
+                        ) {
+                            trySend(mediaWords(metadata, state))
+                        }
+                    }
+                mediaManager.addCallback(listener)
+                awaitClose { mediaManager.removeCallback(listener) }
+            }
+            .distinctUntilChanged()
+
+    /** The items the always-on display shows, in the always-on strip's order. */
+    val aodItems: Flow<List<TallyAodItem>> =
+        combine(alarm, zenModeInteractor.isZenModeEnabled, playingMedia) { alarm, dnd, media ->
+                listOfNotNull(
+                    alarm?.alarmTime?.let {
+                        TallyAodItem(
+                            TallyAodItem.Kind.ALARM,
+                            it,
+                            TallyWords(R.string.accessibility_quick_settings_alarm, it),
+                        )
+                    },
+                    if (!dnd) null
+                    else
+                        TallyAodItem(
+                            TallyAodItem.Kind.CALM,
+                            null,
+                            TallyWords(R.string.accessibility_quick_settings_dnd),
+                        ),
+                    media?.let { TallyAodItem(TallyAodItem.Kind.MEDIA, it, null) },
+                )
+            }
+            .distinctUntilChanged()
+
+    private fun mediaWords(metadata: MediaMetadata?, state: Int): String? {
+        if (metadata == null || !NotificationMediaManager.isPlayingState(state)) return null
+        val title =
+            metadata.getText(MediaMetadata.METADATA_KEY_TITLE)?.takeIf { it.isNotEmpty() }
+                ?: context.getString(R.string.music_controls_no_title)
+        val artist = metadata.getText(MediaMetadata.METADATA_KEY_ARTIST)
+        return if (artist.isNullOrEmpty()) title.toString() else "$title$MEDIA_SEPARATOR$artist"
+    }
+
     private fun bluetoothItem(): TallyStripItem? {
         if (!bluetoothController.isBluetoothSupported) return null
         val (lamp, words) =
@@ -259,6 +339,9 @@ constructor(
     }
 
     private companion object {
+        /** Between the media's title and its artist, as the prototype joins a name and a value. */
+        const val MEDIA_SEPARATOR = " · "
+
         /** KeyguardSliceProvider.ALARM_VISIBILITY_HOURS: the stock lock screen's alarm window. */
         const val ALARM_HOURS = 12L
         val MINUTE_MILLIS = TimeUnit.MINUTES.toMillis(1)
