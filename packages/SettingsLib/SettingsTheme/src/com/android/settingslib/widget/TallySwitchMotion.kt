@@ -36,7 +36,7 @@ import kotlin.math.sqrt
  * Times are nanoseconds of one clock (the frame clock); the thumb is in dp from its start and the
  * wipe from 0 (dark) to 1 (lit). Nothing is allocated after construction.
  */
-internal class TallySwitchMotion {
+class TallySwitchMotion {
     /** The thumb's distance from its start, in dp. */
     val thumb: Float
         get() = thumbSpring.value
