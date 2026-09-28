@@ -20,6 +20,8 @@
     <!-- The shadow under the panel: the prototype's one ambient shadow (0 2 8 dp, 12 % black),
          as elevation -->
     <dimen name="tally_volume_panel_elevation">2dp</dimen>
+    <!-- How far the panel slides as it comes and goes (the prototype's 72 dp) -->
+    <dimen name="tally_volume_panel_travel">72dp</dimen>
     <!-- Between the level readout and the meter (the prototype's panel gap) -->
     <dimen name="tally_volume_readout_gap">6dp</dimen>
 </resources>
