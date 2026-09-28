@@ -25,15 +25,18 @@ import com.android.systemui.keyguard.ui.viewmodel.AodBurnInViewModel
 import com.android.systemui.lifecycle.repeatWhenAttached
 import com.android.systemui.statusbar.policy.ConfigurationController
 import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.flow.combine
 
 /** Binds the always-on display's strip to its view model. */
 object TallyAodStripViewBinder {
     private const val TAG = "TallyAodStripViewBinder"
 
     /**
-     * Shows the always-on items only as the device dozes: the strip fades in as the lamp strip
-     * fades out, is invisible (not drawn, not read out) while the device is awake, and moves with
-     * the clock for burn-in protection, as the stock always-on date line did.
+     * Shows the always-on items only while the device dozes (KeyguardInteractor.isDozing, the flag
+     * stock's always-on date line used): the strip fades in with the doze amount as the lamp strip
+     * fades out, is invisible (not drawn, not read out) whenever the device is not dozing, even
+     * with the doze amount up, and moves with the clock for burn-in protection, as the stock
+     * always-on date line did.
      */
     @JvmStatic
     fun bind(
@@ -60,11 +63,16 @@ object TallyAodStripViewBinder {
             view.repeatWhenAttached {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
                     launch("$TAG#items") { viewModel.aodItems.collect { view.setItems(it) } }
-                    launch("$TAG#dozeAmount") {
-                        keyguardInteractor.dozeAmount.collect {
-                            view.alpha = it
-                            view.visibility = if (it > 0f) View.VISIBLE else View.INVISIBLE
-                        }
+                    launch("$TAG#dozing") {
+                        combine(keyguardInteractor.isDozing, keyguardInteractor.dozeAmount) {
+                                dozing,
+                                amount ->
+                                alwaysOnAlpha(dozing, amount)
+                            }
+                            .collect {
+                                view.alpha = it
+                                view.visibility = if (it > 0f) View.VISIBLE else View.INVISIBLE
+                            }
                     }
                     launch("$TAG#burnIn") {
                         aodBurnInViewModel.movement.collect {
@@ -80,4 +88,9 @@ object TallyAodStripViewBinder {
             configurationController.removeCallback(configurationListener)
         }
     }
+
+    /** The always-on strip's alpha: the doze amount while the device dozes, else none. */
+    @JvmStatic
+    fun alwaysOnAlpha(isDozing: Boolean, dozeAmount: Float): Float =
+        if (isDozing) dozeAmount else 0f
 }
