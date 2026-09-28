@@ -929,6 +929,13 @@
     <style name="MediaPlayer.Subtitle" parent="MediaPlayer">
         <item name="android:textColor">@color/media_on_background</item>
     </style>
+    <!-- Tally: the artist in the muted colour, under the title in ink -->
+    <style xmlns:android="http://schemas.android.com/apk/res/android"
+        name="MediaPlayer.Subtitle"
+        parent="MediaPlayer"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">
+        <item name="android:textColor">@color/tally_ink_muted</item>
+    </style>
 
     <style name="MediaPlayer.ScrubbingTime">
         <item name="android:fontFamily">@*android:string/config_headlineFontFamily</item>

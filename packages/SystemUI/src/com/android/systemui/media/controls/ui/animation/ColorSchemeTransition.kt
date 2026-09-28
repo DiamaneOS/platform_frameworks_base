@@ -31,6 +31,8 @@ import com.android.systemui.monet.ColorScheme
 import com.android.systemui.surfaceeffects.view.loadingeffect.LoadingEffect
 import com.android.systemui.surfaceeffects.view.ripple.MultiRippleController
 import com.android.systemui.surfaceeffects.view.turbulencenoise.TurbulenceNoiseController
+import com.android.systemui.tally.TallyShell
+import org.diamaneos.tally.R as TallyR
 
 /**
  * A [ColorTransition] is an object that updates the colors of views each time [updateColorScheme]
@@ -126,11 +128,26 @@ internal constructor(
             com.android.systemui.res.R.dimen.qs_media_button_stroke_width
         )
 
+    // Tally: the media card is a neutral card and gets no colour scheme from its artwork, so these
+    // defaults are its colours: the surface, tonal keys with ink on them and the outline.
+    private val tally = TallyShell.isEnabled
+
     // Defaults may be briefly visible before loading a new player's colors
-    private val backgroundDefault = context.getColor(R.color.system_on_surface_light)
-    private val primaryDefault = context.getColor(R.color.system_primary_dark)
-    private val onPrimaryDefault = context.getColor(R.color.system_on_primary_dark)
-    private val outlineDefault = context.getColor(R.color.system_outline_dark)
+    private val backgroundDefault =
+        context.getColor(if (tally) TallyR.color.tally_surface else R.color.system_on_surface_light)
+    private val primaryDefault =
+        context.getColor(
+            if (tally) TallyR.color.tally_surface_high else R.color.system_primary_dark
+        )
+    private val onPrimaryDefault =
+        context.getColor(if (tally) TallyR.color.tally_ink else R.color.system_on_primary_dark)
+    private val outlineDefault =
+        context.getColor(if (tally) TallyR.color.tally_outline else R.color.system_outline_dark)
+
+    private val pressColor by lazy { context.getColorStateList(TallyR.color.tally_press) }
+    private val lampInkColor by lazy {
+        ColorStateList.valueOf(context.getColor(TallyR.color.tally_lamp_ink))
+    }
 
     private val backgroundColor: AnimatingColorTransition by lazy {
         animatingColorTransitionFactory(backgroundDefault, ::backgroundFromScheme) { color ->
@@ -146,6 +163,12 @@ internal constructor(
             (mediaViewHolder.seamlessButton.background as? RippleDrawable)?.let {
                 it.setColor(primaryColorList)
                 it.effectColor = primaryColorList
+            }
+            if (tally) {
+                // Tally: the output key's press shows in the press colour, not the key's own, and
+                // the progress fills in the lamp colour on the tonal track.
+                (mediaViewHolder.seamlessButton.background as? RippleDrawable)?.setColor(pressColor)
+                mediaViewHolder.seekBar.progressTintList = lampInkColor
             }
             mediaViewHolder.seekBar.progressBackgroundTintList = primaryColorList
         }
@@ -177,12 +200,13 @@ internal constructor(
         return onPrimaryColor.targetColor
     }
 
+    // Tally: the app icon and touch effects are in ink, as the keys are tonal.
     fun getAppIconColor(): Int {
-        return primaryColor.targetColor
+        return if (tally) onPrimaryColor.targetColor else primaryColor.targetColor
     }
 
     fun getSurfaceEffectColor(): Int {
-        return primaryColor.targetColor
+        return if (tally) onPrimaryColor.targetColor else primaryColor.targetColor
     }
 
     fun getGutsTextColor(): Int {
