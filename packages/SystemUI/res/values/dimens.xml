@@ -2246,7 +2246,16 @@
         android:featureFlag="org.diamaneos.systemui.tally_shell">@dimen/tally_volume_panel_elevation</dimen>
     <dimen name="volume_dialog_button_size">48dp</dimen>
     <dimen name="volume_dialog_slider_width">52dp</dimen>
+    <!-- Tally: the meter is 48 dp wide -->
+    <dimen xmlns:android="http://schemas.android.com/apk/res/android"
+        name="volume_dialog_slider_width"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">48dp</dimen>
     <dimen name="volume_dialog_slider_height">254dp</dimen>
+    <!-- Tally: the level readout (20 sp and a 6 dp gap), the slider's 4 dp of thumb room and a
+         240 dp meter -->
+    <dimen xmlns:android="http://schemas.android.com/apk/res/android"
+        name="volume_dialog_slider_height"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">270dp</dimen>
 
     <dimen name="volume_dialog_horizontal_height">56dp</dimen>
     <dimen name="volume_dialog_horizontal_background_corner_radius">28dp</dimen>
