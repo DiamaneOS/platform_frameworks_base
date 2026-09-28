@@ -57,6 +57,8 @@ import com.android.systemui.screencapture.common.ui.viewmodel.DisplaysViewModel
 import com.android.systemui.screencapture.common.ui.viewmodel.RecentTasksViewModel
 import com.android.systemui.screencapture.common.ui.viewmodel.TargetsViewModel
 import com.android.systemui.screencapture.sharescreen.ui.viewmodel.ScreenCaptureShareScreenViewModel
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.switches.TallySwitch
 
 @Composable
 fun ShareContentSelector(shareScreenViewModel: ScreenCaptureShareScreenViewModel) {
@@ -198,25 +200,36 @@ private fun AudioSwitch(targetsViewModel: TargetsViewModel) {
             style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.width(420.dp),
         )
-        Switch(
-            checked = checked,
-            onCheckedChange = targetsViewModel::setCaptureAudio,
-            modifier =
-                Modifier.height(20.dp).width(52.dp).semantics {
-                    this.contentDescription = audioSwitchA11yDescription
-                },
-            thumbContent =
-                if (checked) {
-                    {
-                        Icon(
-                            imageVector = Icons.Filled.Check,
-                            contentDescription = null,
-                            modifier = Modifier.size(SwitchDefaults.IconSize),
-                        )
-                    }
-                } else {
-                    null
-                },
-        )
+        if (TallyShell.isEnabled) {
+            TallySwitch(
+                checked = checked,
+                onCheckedChange = targetsViewModel::setCaptureAudio,
+                modifier =
+                    Modifier.height(20.dp).width(52.dp).semantics {
+                        this.contentDescription = audioSwitchA11yDescription
+                    },
+            )
+        } else {
+            Switch(
+                checked = checked,
+                onCheckedChange = targetsViewModel::setCaptureAudio,
+                modifier =
+                    Modifier.height(20.dp).width(52.dp).semantics {
+                        this.contentDescription = audioSwitchA11yDescription
+                    },
+                thumbContent =
+                    if (checked) {
+                        {
+                            Icon(
+                                imageVector = Icons.Filled.Check,
+                                contentDescription = null,
+                                modifier = Modifier.size(SwitchDefaults.IconSize),
+                            )
+                        }
+                    } else {
+                        null
+                    },
+            )
+        }
     }
 }
