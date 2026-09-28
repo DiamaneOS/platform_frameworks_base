@@ -37,6 +37,7 @@ import com.android.systemui.settings.UserTracker
 import com.android.systemui.shade.domain.interactor.FakeShadeDialogContextInteractor
 import com.android.systemui.shared.recents.IStoppableAppsListener
 import com.android.systemui.statusbar.phone.SystemUIDialog
+import com.android.systemui.statusbar.policy.KeyguardStateController
 import com.android.systemui.tally.TallyShell
 import com.android.systemui.util.DeviceConfigProxyFake
 import com.android.systemui.util.concurrency.FakeExecutor
@@ -63,7 +64,9 @@ import org.mockito.kotlin.whenever
 class TallyRecentsStopTest : SysuiTestCase() {
 
     private val systemClock = FakeSystemClock()
-    private val backgroundExecutor = FakeExecutor(systemClock)
+    private val mainExecutor = FakeExecutor(systemClock)
+    private val fgsExecutor = FakeExecutor(systemClock)
+    private val workExecutor = FakeExecutor(systemClock)
     private val userProfiles = mutableListOf<UserInfo>()
     private val reports = mutableListOf<Set<TallyStoppableApp>>()
     private val listener =
@@ -81,6 +84,7 @@ class TallyRecentsStopTest : SysuiTestCase() {
     private val broadcastDispatcher = mock<BroadcastDispatcher>()
     private val dumpManager = mock<DumpManager>()
     private val systemUIDialogFactory = mock<SystemUIDialog.Factory>()
+    private val keyguardStateController = mock<KeyguardStateController>()
 
     private lateinit var fgsObserver: IForegroundServiceObserver
     private lateinit var userTrackerCallback: UserTracker.Callback
@@ -102,8 +106,8 @@ class TallyRecentsStopTest : SysuiTestCase() {
         val fmc =
             FgsManagerControllerImpl(
                 context.resources,
-                FakeExecutor(systemClock),
-                backgroundExecutor,
+                mainExecutor,
+                fgsExecutor,
                 systemClock,
                 activityManager,
                 jobScheduler,
@@ -125,7 +129,16 @@ class TallyRecentsStopTest : SysuiTestCase() {
             argumentCaptor<UserTracker.Callback>()
                 .apply { verify(userTracker).addCallback(capture(), any()) }
                 .firstValue
-        underTest = TallyRecentsStop(context, fmc, packageManager, userTracker, backgroundExecutor)
+        underTest =
+            TallyRecentsStop(
+                context,
+                fmc,
+                packageManager,
+                userTracker,
+                keyguardStateController,
+                mainExecutor,
+                workExecutor,
+            )
         setUserProfiles(0, 10)
     }
 
@@ -135,7 +148,7 @@ class TallyRecentsStopTest : SysuiTestCase() {
         startFgs("work", 10)
 
         underTest.setListener(listener, RECENTS_UID)
-        backgroundExecutor.runAllReady()
+        runAll()
 
         assertThat(reports)
             .containsExactly(setOf(TallyStoppableApp("pkg", 0), TallyStoppableApp("work", 10)))
@@ -146,9 +159,9 @@ class TallyRecentsStopTest : SysuiTestCase() {
         startFgs("pkg", 0)
 
         underTest.setListener(listener, UserHandle.getUid(0, OTHER_APP_ID))
-        backgroundExecutor.runAllReady()
+        runAll()
         startFgs("pkg2", 0)
-        backgroundExecutor.runAllReady()
+        runAll()
 
         assertThat(reports).isEmpty()
     }
@@ -158,7 +171,7 @@ class TallyRecentsStopTest : SysuiTestCase() {
         startFgs("pkg", 0)
 
         underTest.setListener(listener, UserHandle.getUid(11, RECENTS_APP_ID))
-        backgroundExecutor.runAllReady()
+        runAll()
 
         assertThat(reports).isEmpty()
     }
@@ -166,14 +179,14 @@ class TallyRecentsStopTest : SysuiTestCase() {
     @Test
     fun listener_hearsEachChangeOnce() {
         underTest.setListener(listener, RECENTS_UID)
-        backgroundExecutor.runAllReady()
+        runAll()
 
         val token = startFgs("pkg", 0)
-        backgroundExecutor.runAllReady()
+        runAll()
         fgsObserver.onForegroundStateChanged(Binder(), "pkg", 0, true)
-        backgroundExecutor.runAllReady()
+        runAll()
         fgsObserver.onForegroundStateChanged(token, "pkg", 0, false)
-        backgroundExecutor.runAllReady()
+        runAll()
 
         assertThat(reports)
             .containsExactly(emptySet<TallyStoppableApp>(), setOf(TallyStoppableApp("pkg", 0)))
@@ -183,12 +196,12 @@ class TallyRecentsStopTest : SysuiTestCase() {
     @Test
     fun setListener_null_removesTheListener() {
         underTest.setListener(listener, RECENTS_UID)
-        backgroundExecutor.runAllReady()
+        runAll()
 
         underTest.setListener(null, RECENTS_UID)
-        backgroundExecutor.runAllReady()
+        runAll()
         startFgs("pkg", 0)
-        backgroundExecutor.runAllReady()
+        runAll()
 
         assertThat(reports).containsExactly(emptySet<TallyStoppableApp>())
     }
@@ -197,11 +210,11 @@ class TallyRecentsStopTest : SysuiTestCase() {
     fun userSwitch_dropsTheListener() {
         startFgs("pkg", 0)
         underTest.setListener(listener, RECENTS_UID)
-        backgroundExecutor.runAllReady()
+        runAll()
 
         setUserProfiles(11)
         startFgs("pkg", 11)
-        backgroundExecutor.runAllReady()
+        runAll()
 
         assertThat(reports).containsExactly(setOf(TallyStoppableApp("pkg", 0)))
     }
@@ -209,10 +222,11 @@ class TallyRecentsStopTest : SysuiTestCase() {
     @Test
     fun stopApp_fromRecents_stopsAnAppActiveAppsOffersToStop() {
         startFgs("pkg", 0)
-        backgroundExecutor.runAllReady()
+        runAll()
 
         underTest.stopApp("pkg", 0, RECENTS_UID)
-        backgroundExecutor.runNextReady()
+        mainExecutor.runNextReady()
+        workExecutor.runNextReady()
 
         verify(activityManager).stopAppForUser("pkg", 0)
     }
@@ -221,14 +235,14 @@ class TallyRecentsStopTest : SysuiTestCase() {
     fun stopApp_refused_bringsTheListenerUpToDate() {
         startFgs("pkg", 0)
         underTest.setListener(listener, RECENTS_UID)
-        backgroundExecutor.runAllReady()
+        runAll()
         // The app became the default dialer while its service kept running.
         doReturn(REASON_ROLE_DIALER)
             .whenever(activityManager)
             .getBackgroundRestrictionExemptionReason(UserHandle.getUid(0, APP_ID))
 
         underTest.stopApp("pkg", 0, RECENTS_UID)
-        backgroundExecutor.runAllReady()
+        runAll()
 
         verify(activityManager, never()).stopAppForUser(anyString(), anyInt())
         assertThat(reports)
@@ -240,10 +254,10 @@ class TallyRecentsStopTest : SysuiTestCase() {
     fun setListener_again_hearsTheWholeSetAgain() {
         startFgs("pkg", 0)
         underTest.setListener(listener, RECENTS_UID)
-        backgroundExecutor.runAllReady()
+        runAll()
 
         underTest.setListener(listener, RECENTS_UID)
-        backgroundExecutor.runAllReady()
+        runAll()
 
         assertThat(reports)
             .containsExactly(setOf(TallyStoppableApp("pkg", 0)), setOf(TallyStoppableApp("pkg", 0)))
@@ -252,10 +266,10 @@ class TallyRecentsStopTest : SysuiTestCase() {
     @Test
     fun stopApp_fromAnotherApp_doesNothing() {
         startFgs("pkg", 0)
-        backgroundExecutor.runAllReady()
+        runAll()
 
         underTest.stopApp("pkg", 0, UserHandle.getUid(0, OTHER_APP_ID))
-        backgroundExecutor.runAllReady()
+        runAll()
 
         verify(activityManager, never()).stopAppForUser(anyString(), anyInt())
     }
@@ -263,10 +277,10 @@ class TallyRecentsStopTest : SysuiTestCase() {
     @Test
     fun stopApp_fromRecentsOfAnotherUser_doesNothing() {
         startFgs("pkg", 0)
-        backgroundExecutor.runAllReady()
+        runAll()
 
         underTest.stopApp("pkg", 0, UserHandle.getUid(11, RECENTS_APP_ID))
-        backgroundExecutor.runAllReady()
+        runAll()
 
         verify(activityManager, never()).stopAppForUser(anyString(), anyInt())
     }
@@ -274,10 +288,10 @@ class TallyRecentsStopTest : SysuiTestCase() {
     @Test
     fun stopApp_forAnotherUser_doesNothing() {
         startFgs("pkg", 11)
-        backgroundExecutor.runAllReady()
+        runAll()
 
         underTest.stopApp("pkg", 11, RECENTS_UID)
-        backgroundExecutor.runAllReady()
+        runAll()
 
         verify(activityManager, never()).stopAppForUser(anyString(), anyInt())
     }
@@ -285,12 +299,12 @@ class TallyRecentsStopTest : SysuiTestCase() {
     @Test
     fun stopApp_forProfileThatUserTrackerNoLongerLists_doesNothing() {
         startFgs("work", 10)
-        backgroundExecutor.runAllReady()
+        runAll()
         // The profile is gone for UserTracker; FgsManagerController has not heard of it yet.
         userProfiles.removeIf { it.id == 10 }
 
         underTest.stopApp("work", 10, RECENTS_UID)
-        backgroundExecutor.runAllReady()
+        runAll()
 
         verify(activityManager, never()).stopAppForUser(anyString(), anyInt())
     }
@@ -301,17 +315,78 @@ class TallyRecentsStopTest : SysuiTestCase() {
         userProfiles.removeIf { it.id == 10 }
 
         underTest.setListener(listener, RECENTS_UID)
-        backgroundExecutor.runAllReady()
+        runAll()
 
         assertThat(reports).containsExactly(emptySet<TallyStoppableApp>())
     }
 
     @Test
-    fun stopApp_withoutPackage_doesNothing() {
-        underTest.stopApp(null, 0, RECENTS_UID)
-        backgroundExecutor.runAllReady()
+    fun stopApp_whileLocked_doesNothing() {
+        startFgs("pkg", 0)
+        runAll()
+        whenever(keyguardStateController.isShowing).thenReturn(true)
+
+        underTest.stopApp("pkg", 0, RECENTS_UID)
+        runAll()
 
         verify(activityManager, never()).stopAppForUser(anyString(), anyInt())
+    }
+
+    @Test
+    fun stopApp_whileOccluded_doesNothing() {
+        // The secure camera, the emergency dialer or a ringing alarm over the lock screen.
+        startFgs("pkg", 0)
+        runAll()
+        whenever(keyguardStateController.isShowing).thenReturn(true)
+        whenever(keyguardStateController.isOccluded).thenReturn(true)
+
+        underTest.stopApp("pkg", 0, RECENTS_UID)
+        runAll()
+
+        verify(activityManager, never()).stopAppForUser(anyString(), anyInt())
+    }
+
+    @Test
+    fun stopApp_whileDozing_doesNothing() {
+        // The always-on display over a lock screen that needs no credential: showing, not locked.
+        startFgs("pkg", 0)
+        runAll()
+        whenever(keyguardStateController.isShowing).thenReturn(true)
+        whenever(keyguardStateController.isUnlocked).thenReturn(true)
+
+        underTest.stopApp("pkg", 0, RECENTS_UID)
+        runAll()
+
+        verify(activityManager, never()).stopAppForUser(anyString(), anyInt())
+    }
+
+    @Test
+    fun stopApp_askedWhileLocked_staysRefusedAfterUnlock() {
+        startFgs("pkg", 0)
+        runAll()
+        whenever(keyguardStateController.isShowing).thenReturn(true)
+
+        underTest.stopApp("pkg", 0, RECENTS_UID)
+        mainExecutor.runAllReady()
+        whenever(keyguardStateController.isShowing).thenReturn(false)
+        runAll()
+
+        verify(activityManager, never()).stopAppForUser(anyString(), anyInt())
+    }
+
+    @Test
+    fun stopApp_withoutPackage_doesNothing() {
+        underTest.stopApp(null, 0, RECENTS_UID)
+        runAll()
+
+        verify(activityManager, never()).stopAppForUser(anyString(), anyInt())
+    }
+
+    /** Runs everything posted to the three threads, including what they post to each other. */
+    private fun runAll() {
+        while (
+            mainExecutor.runAllReady() + fgsExecutor.runAllReady() + workExecutor.runAllReady() > 0
+        ) {}
     }
 
     private fun setUserProfiles(current: Int, vararg profiles: Int) {
