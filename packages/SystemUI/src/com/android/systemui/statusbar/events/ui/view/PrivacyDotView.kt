@@ -20,16 +20,20 @@ import android.content.Context
 import android.graphics.Rect
 import android.graphics.Region
 import android.util.AttributeSet
+import android.view.View
 import android.widget.FrameLayout
 import androidx.core.graphics.toRegion
 import androidx.core.view.isVisible
 import com.android.systemui.Flags
 import com.android.systemui.RegionInterceptingFrameLayout.RegionInterceptableView
+import com.android.systemui.res.R
+import com.android.systemui.tally.TallyShell
 
 class PrivacyDotView(context: Context, attrs: AttributeSet) :
     FrameLayout(context, attrs), RegionInterceptableView {
 
     private val boundsRect = Rect()
+    private val dotRect = Rect()
 
     override fun shouldInterceptTouch(): Boolean =
         Flags.statusBarScreenDecorTouchHandlingFix() && isVisible
@@ -37,6 +41,20 @@ class PrivacyDotView(context: Context, attrs: AttributeSet) :
     override fun getInterceptRegion(): Region {
         boundsRect.setEmpty()
         getBoundsOnScreen(boundsRect)
+        if (TallyShell.isEnabled) {
+            // Tally: only the dot's own column. This container reaches from the end of the status
+            // bar content to the display's edge, wider than stock's around Tally's larger dot and
+            // its margin; the dot's column is narrower than stock's container on any device, and
+            // it still holds the whole dot for accessibility, which these touches are taken for.
+            findViewById<View>(R.id.privacy_dot)?.let { dot ->
+                dotRect.setEmpty()
+                dot.getBoundsOnScreen(dotRect)
+                if (!dotRect.isEmpty) {
+                    boundsRect.left = dotRect.left
+                    boundsRect.right = dotRect.right
+                }
+            }
+        }
         return boundsRect.toRegion()
     }
 }
