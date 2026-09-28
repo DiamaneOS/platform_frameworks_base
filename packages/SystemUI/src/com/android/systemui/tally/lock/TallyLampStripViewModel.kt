@@ -17,7 +17,6 @@
 package com.android.systemui.tally.lock
 
 import android.app.AlarmManager
-import android.bluetooth.BluetoothAdapter
 import android.content.Context
 import android.media.MediaMetadata
 import android.text.format.DateFormat
@@ -312,25 +311,32 @@ constructor(
         return if (artist.isNullOrEmpty()) title.toString() else "$title$MEDIA_SEPARATOR$artist"
     }
 
+    /**
+     * Lit only when stock's status bar, which the lock screen shows, shows its Bluetooth icon
+     * (PhoneStatusBarPolicy.updateBluetooth): Bluetooth on and a device connected whose audio is
+     * active or which is not an audio-only device. Otherwise the lamp is off and the words say only
+     * "Bluetooth", so the strip never tells whether Bluetooth is on, off or turning on.
+     */
     private fun bluetoothItem(): TallyStripItem? {
         if (!bluetoothController.isBluetoothSupported) return null
-        val (lamp, words) =
-            when {
-                bluetoothController.isBluetoothConnected ->
-                    TallyLampState.LIVE to
-                        listOf(TallyWords(R.string.accessibility_bluetooth_connected))
-                bluetoothController.isBluetoothEnabled ->
-                    TallyLampState.ON to
-                        listOf(TallyWords(R.string.accessibility_quick_settings_bluetooth_on))
-                bluetoothController.bluetoothState == BluetoothAdapter.STATE_TURNING_ON ->
-                    TallyLampState.REQUESTED to
-                        listOf(
-                            TallyWords(R.string.quick_settings_bluetooth_label),
-                            TallyWords(R.string.quick_settings_bluetooth_secondary_label_transient),
-                        )
-                else -> TallyLampState.OFF to listOf(TallyWords(R.string.bt_is_off))
-            }
-        return TallyStripItem(TallyStripItem.Kind.BLUETOOTH, lamp, words)
+        val connected =
+            bluetoothController.isBluetoothEnabled &&
+                bluetoothController.isBluetoothConnected &&
+                (bluetoothController.isBluetoothAudioActive ||
+                    !bluetoothController.isBluetoothAudioProfileOnly)
+        return if (connected) {
+            TallyStripItem(
+                TallyStripItem.Kind.BLUETOOTH,
+                TallyLampState.LIVE,
+                listOf(TallyWords(R.string.accessibility_bluetooth_connected)),
+            )
+        } else {
+            TallyStripItem(
+                TallyStripItem.Kind.BLUETOOTH,
+                TallyLampState.OFF,
+                listOf(TallyWords(R.string.accessibility_quick_settings_bluetooth)),
+            )
+        }
     }
 
     private companion object {
