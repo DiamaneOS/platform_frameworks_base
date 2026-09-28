@@ -35,6 +35,7 @@ import com.android.systemui.statusbar.pipeline.wifi.shared.model.WifiNetworkMode
 import com.android.systemui.statusbar.policy.BluetoothController
 import com.android.systemui.statusbar.policy.NextAlarmController
 import com.android.systemui.statusbar.policy.domain.interactor.ZenModeInteractor
+import com.android.systemui.tally.lamp.TallyLampState
 import com.android.systemui.util.time.SystemClock
 import com.android.systemui.utils.coroutines.flow.conflatedCallbackFlow
 import java.util.concurrent.TimeUnit
@@ -47,22 +48,14 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 
-/** The forms a lamp on the strip takes (the Tally lamp forms the strip uses). */
-enum class TallyLamp {
-    OFF,
-    REQUESTED,
-    ON,
-    LIVE,
-}
-
 /** A string resource with an optional format argument, resolved by the view. */
 data class TallyWords(@StringRes val res: Int, val arg: Any? = null)
 
 /** One item of the lock screen's lamp strip. */
 data class TallyStripItem(
     val kind: Kind,
-    /** The lamp's form, or null for the battery, which is a readout without a lamp. */
-    val lamp: TallyLamp?,
+    /** The lamp's state, or null for the battery, which is a readout without a lamp. */
+    val lamp: TallyLampState?,
     /** What a screen reader says for the item: stock SystemUI's words, joined by the view. */
     val description: List<TallyWords>,
     /** The alarm's time, when the stock lock screen would show it. */
@@ -118,7 +111,7 @@ constructor(
             if (PrivacyType.TYPE_CAMERA !in types) return@map null
             TallyStripItem(
                 TallyStripItem.Kind.CAMERA,
-                TallyLamp.LIVE,
+                TallyLampState.LIVE,
                 listOf(TallyWords(R.string.accessibility_camera_in_use)),
             )
         }
@@ -128,7 +121,7 @@ constructor(
             if (PrivacyType.TYPE_MICROPHONE !in types) return@map null
             TallyStripItem(
                 TallyStripItem.Kind.MICROPHONE,
-                TallyLamp.LIVE,
+                TallyLampState.LIVE,
                 listOf(TallyWords(R.string.accessibility_microphone_in_use)),
             )
         }
@@ -142,7 +135,8 @@ constructor(
                         AccessibilityContentDescriptions.WIFI_CONNECTION_STRENGTH[network.level]
                     else -> AccessibilityContentDescriptions.WIFI_NO_CONNECTION
                 }
-            val lamp = if (network is WifiNetworkModel.Active) TallyLamp.ON else TallyLamp.OFF
+            val lamp =
+                if (network is WifiNetworkModel.Active) TallyLampState.ON else TallyLampState.OFF
             TallyStripItem(TallyStripItem.Kind.WIFI, lamp, listOf(TallyWords(words)))
         }
 
@@ -193,7 +187,7 @@ constructor(
                 }
             TallyStripItem(
                 TallyStripItem.Kind.ALARM,
-                TallyLamp.ON,
+                TallyLampState.ON,
                 listOf(
                     if (time == null) TallyWords(R.string.status_bar_alarm)
                     else TallyWords(R.string.accessibility_quick_settings_alarm, time)
@@ -206,7 +200,7 @@ constructor(
         zenModeInteractor.isZenModeEnabled.map { on ->
             TallyStripItem(
                 TallyStripItem.Kind.CALM,
-                if (on) TallyLamp.ON else TallyLamp.OFF,
+                if (on) TallyLampState.ON else TallyLampState.OFF,
                 listOf(TallyWords(if (on) R.string.dnd_is_on else R.string.dnd_is_off)),
             )
         }
@@ -238,17 +232,18 @@ constructor(
         val (lamp, words) =
             when {
                 bluetoothController.isBluetoothConnected ->
-                    TallyLamp.LIVE to listOf(TallyWords(R.string.accessibility_bluetooth_connected))
+                    TallyLampState.LIVE to
+                        listOf(TallyWords(R.string.accessibility_bluetooth_connected))
                 bluetoothController.isBluetoothEnabled ->
-                    TallyLamp.ON to
+                    TallyLampState.ON to
                         listOf(TallyWords(R.string.accessibility_quick_settings_bluetooth_on))
                 bluetoothController.bluetoothState == BluetoothAdapter.STATE_TURNING_ON ->
-                    TallyLamp.REQUESTED to
+                    TallyLampState.REQUESTED to
                         listOf(
                             TallyWords(R.string.quick_settings_bluetooth_label),
                             TallyWords(R.string.quick_settings_bluetooth_secondary_label_transient),
                         )
-                else -> TallyLamp.OFF to listOf(TallyWords(R.string.bt_is_off))
+                else -> TallyLampState.OFF to listOf(TallyWords(R.string.bt_is_off))
             }
         return TallyStripItem(TallyStripItem.Kind.BLUETOOTH, lamp, words)
     }
