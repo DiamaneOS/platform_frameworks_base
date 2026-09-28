@@ -491,6 +491,26 @@ class PhoneStatusBarViewTest : SysuiTestCase() {
     }
 
     @Test
+    fun tally_insetsReapplied_paddingAndSidesFollowThem() {
+        assumeTrue(TallyShell.isEnabled)
+        var insets = Insets.of(/* left= */ 72, /* top= */ 0, /* right= */ 96, /* bottom= */ 0)
+        attachFp6Like { insets }
+
+        // As after a layout direction change: the privacy dot's room is on the other side.
+        insets = Insets.of(/* left= */ 96, /* top= */ 0, /* right= */ 72, /* bottom= */ 0)
+        view.tallyReapplyInsets()
+        view.measure(exactly(1116), exactly(144))
+        view.layout(0, 0, 1116, 144)
+
+        assertThat(view.paddingLeft).isEqualTo(96)
+        assertThat(view.paddingRight).isEqualTo(72)
+        assertThat(contents.left + startSide.left).isEqualTo(96 + 12)
+        assertThat(contents.left + startSide.right).isEqualTo(528)
+        assertThat(contents.left + endSide.left).isEqualTo(588)
+        assertThat(contents.left + endSide.right).isEqualTo(1116 - 72 - 6)
+    }
+
+    @Test
     fun onTouchEvent_downEventNotHandledIfOutsideTouchableRegion_whenFlagEnabled() {
         val touchableRegion = Region.obtain().apply { set(0, 0, 200, 200) }
         view.updateTouchableRegion(touchableRegion)
@@ -590,12 +610,14 @@ class PhoneStatusBarViewTest : SysuiTestCase() {
     private val cutoutSpace: View
         get() = view.requireViewById(R.id.cutout_space_view)
 
+    private fun attachFp6Like(insets: Insets) = attachFp6Like { insets }
+
     /**
      * Attaches, measures and lays out the view on an FP6-like display at density 3: 1116 px wide,
-     * with a 60 px cutout at the top centre, and the given insets. The content's padding is 12 px
-     * at the start and 6 px at the end, so that the two can be told apart.
+     * with a 60 px cutout at the top centre, and the insets the fetcher gives. The content's
+     * padding is 12 px at the start and 6 px at the end, so that the two can be told apart.
      */
-    private fun attachFp6Like(insets: Insets) {
+    private fun attachFp6Like(insets: () -> Insets) {
         val cutout =
             DisplayCutout(Insets.of(0, 110, 0, 0), null, Rect(528, 0, 588, 110), null, null)
         whenever(view.rootWindowInsets)
@@ -607,7 +629,7 @@ class PhoneStatusBarViewTest : SysuiTestCase() {
         }
         view.updateResources()
         view.setHasCornerCutoutFetcher { false }
-        view.setInsetsFetcher { insets }
+        view.setInsetsFetcher { insets() }
 
         view.onAttachedToWindow()
         view.measure(exactly(1116), exactly(144))
