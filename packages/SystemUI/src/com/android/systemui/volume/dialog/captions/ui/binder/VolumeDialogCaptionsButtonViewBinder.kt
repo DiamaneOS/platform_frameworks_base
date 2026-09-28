@@ -24,6 +24,7 @@ import com.android.app.tracing.coroutines.launchTraced
 import com.android.systemui.Flags
 import com.android.systemui.dagger.qualifiers.Background
 import com.android.systemui.res.R
+import com.android.systemui.tally.TallyShell
 import com.android.systemui.volume.CaptionsToggleImageButton
 import com.android.systemui.volume.Events
 import com.android.systemui.volume.dialog.captions.ui.viewmodel.VolumeDialogCaptionsButtonViewModel
@@ -34,6 +35,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.withIndex
+import org.diamaneos.tally.R as TallyR
 
 /** Binds the captions button view. */
 @VolumeDialogScope
@@ -80,7 +82,14 @@ constructor(
 
                     setColorFilter(
                         captionsButton.context.getColor(
-                            if (isEnabled) {
+                            if (TallyShell.isEnabled) {
+                                // Tally: lit while captions are on, ink on the panel when off.
+                                if (isEnabled) {
+                                    TallyR.color.tally_on_lamp
+                                } else {
+                                    TallyR.color.tally_ink
+                                }
+                            } else if (isEnabled) {
                                 com.android.internal.R.color.materialColorOnPrimary
                             } else {
                                 com.android.internal.R.color.materialColorOnSurface
