@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ~ Copyright (C) 2026 The DiamaneOS Project
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~      http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License
+  -->
+
+<!-- A small key in the Tally power menu (the prototype's .pm-s): the action's icon over its word,
+     for the actions that are not about the phone's power or lock (screenshot, bug report). -->
+<com.android.systemui.globalactions.GlobalActionsItem
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="0dp"
+    android:layout_height="wrap_content"
+    android:layout_weight="1"
+    android:background="@drawable/tally_power_menu_key_background"
+    android:gravity="center"
+    android:minHeight="@dimen/tally_power_menu_key_height"
+    android:orientation="vertical"
+    android:paddingHorizontal="@dimen/tally_space_xs"
+    android:paddingVertical="@dimen/tally_space_s">
+
+    <ImageView
+        android:id="@*android:id/icon"
+        android:layout_width="@dimen/tally_icon_size"
+        android:layout_height="@dimen/tally_icon_size"
+        android:layout_marginBottom="@dimen/tally_power_menu_key_gap"
+        android:scaleType="centerInside"
+        android:tint="@color/tally_ink" />
+
+    <TextView
+        android:id="@*android:id/message"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:ellipsize="end"
+        android:gravity="center"
+        android:lineHeight="@dimen/tally_type_caption_line_height"
+        android:maxLines="2"
+        android:textAppearance="@style/TextAppearance.Tally.Caption"
+        android:textColor="@color/tally_ink" />
+</com.android.systemui.globalactions.GlobalActionsItem>
