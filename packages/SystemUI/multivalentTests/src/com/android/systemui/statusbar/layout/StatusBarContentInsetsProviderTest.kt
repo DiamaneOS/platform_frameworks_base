@@ -31,6 +31,7 @@ import com.android.systemui.dump.DumpManager
 import com.android.systemui.statusbar.commandline.CommandRegistry
 import com.android.systemui.statusbar.data.repository.StatusBarConfigurationController
 import com.android.systemui.statusbar.phone.ConfigurationControllerImpl
+import com.android.systemui.tally.TallyShell
 import com.android.systemui.util.leak.RotationUtils
 import com.android.systemui.util.leak.RotationUtils.ROTATION_LANDSCAPE
 import com.android.systemui.util.leak.RotationUtils.ROTATION_NONE
@@ -39,6 +40,8 @@ import com.android.systemui.util.leak.RotationUtils.ROTATION_UPSIDE_DOWN
 import com.android.systemui.util.leak.RotationUtils.Rotation
 import com.google.common.truth.Truth.assertThat
 import com.google.common.truth.Truth.assertWithMessage
+import java.util.Locale
+import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -1223,6 +1226,46 @@ class StatusBarContentInsetsProviderTest : SysuiTestCase() {
         configurationController.notifyThemeChanged()
 
         assertThat(listener.triggered).isFalse()
+    }
+
+    @Test
+    fun tally_onLayoutDirectionChanged_afterStart_listenerNotifiedAndInsetsSwapSides() {
+        assumeTrue(TallyShell.isEnabled)
+        configuration.windowConfiguration.setMaxBounds(Rect(0, 0, 1080, 2160))
+        configuration.setLayoutDirection(Locale.US)
+        configurationController.onConfigurationChanged(configuration)
+        val provider =
+            StatusBarContentInsetsProviderImpl(
+                contextMock,
+                configurationController,
+                mock<DumpManager>(),
+                mock<CommandRegistry>(),
+                mock<SysUICutoutProvider>(),
+                Display.DEFAULT_DISPLAY,
+            )
+        val listener =
+            object : StatusBarContentInsetsChangedListener {
+                var triggered = false
+
+                override fun onStatusBarContentInsetsChanged() {
+                    triggered = true
+                }
+            }
+        provider.start()
+        provider.addCallback(listener)
+        val ltrInsets = provider.getStatusBarContentInsetsForRotation(ROTATION_NONE)
+        // Tally's privacy dot needs more room at the end than the rounded corner at the start.
+        assumeTrue(ltrInsets.left != ltrInsets.right)
+
+        // WHEN the layout direction changes at run time
+        configuration.setLayoutDirection(Locale.forLanguageTag("ar"))
+        configurationController.onConfigurationChanged(configuration)
+
+        // THEN the listener is notified, and the dot's room is at the new end
+        assertThat(listener.triggered).isTrue()
+        val rtlInsets = provider.getStatusBarContentInsetsForRotation(ROTATION_NONE)
+        assertThat(rtlInsets.left).isEqualTo(ltrInsets.right)
+        assertThat(rtlInsets.right).isEqualTo(ltrInsets.left)
     }
 
     @Test
