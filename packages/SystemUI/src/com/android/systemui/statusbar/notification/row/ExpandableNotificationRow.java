@@ -142,6 +142,7 @@ import com.android.systemui.statusbar.policy.InflatedSmartReplyState;
 import com.android.systemui.statusbar.policy.RemoteInputView;
 import com.android.systemui.statusbar.policy.SmartReplyConstants;
 import com.android.systemui.statusbar.policy.dagger.RemoteInputViewSubcomponent;
+import com.android.systemui.tally.TallyShell;
 import com.android.systemui.util.Compile;
 import com.android.systemui.util.DumpUtilsKt;
 import com.android.systemui.util.ListenerSet;
@@ -1316,9 +1317,22 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
         if (notificationRowTransparency()) {
             updateBackgroundTint();
         }
+        if (TallyShell.isEnabled()) {
+            updateTallyHeadsUpEdge();
+        }
         setChronometerRunning(mLastChronometerRunning);
         if (isAboveShelf() != wasAboveShelf) {
             mAboveShelfChangedListener.onAboveShelfStateChanged(!wasAboveShelf);
+        }
+    }
+
+    /**
+     * Tally: a heads-up floating over the screen, or on its way out, has the stronger edge of the
+     * prototype's heads-up; in the shade and on the lock screen it is a card like the others.
+     */
+    private void updateTallyHeadsUpEdge() {
+        if (mBackgroundNormal != null) {
+            mBackgroundNormal.setTallyHeadsUpEdge(isPinned() || mHeadsupDisappearRunning);
         }
     }
 
@@ -1872,6 +1886,9 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
         }
         if (notificationRowTransparency()) {
             updateBackgroundTint();
+        }
+        if (TallyShell.isEnabled()) {
+            updateTallyHeadsUpEdge();
         }
     }
 
