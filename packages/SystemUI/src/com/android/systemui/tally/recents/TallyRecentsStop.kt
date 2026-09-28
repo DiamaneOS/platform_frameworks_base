@@ -27,7 +27,7 @@ import android.util.Log
 import androidx.annotation.WorkerThread
 import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.dagger.qualifiers.Application
-import com.android.systemui.dagger.qualifiers.Background
+import com.android.systemui.dagger.qualifiers.LongRunning
 import com.android.systemui.dagger.qualifiers.Main
 import com.android.systemui.qs.FgsManagerControllerImpl
 import com.android.systemui.settings.UserTracker
@@ -47,8 +47,10 @@ import javax.inject.Inject
  * the dialog's own policy in [FgsManagerControllerImpl], which checks the app again, so Launcher
  * needs no new permission and never stops an app itself. Only the current user's recents app is
  * heard, and only about the current user and its profiles. Like the dialog, which opens only once
- * the keyguard is gone, Stop does nothing while the lock screen shows. The work runs on the
- * background thread.
+ * the keyguard is gone, Stop does nothing while the lock screen shows.
+ *
+ * The work, with its reads of every app's policy, runs on SystemUI's long-running thread, not on
+ * the background thread that the privacy indicators and Active apps itself use.
  */
 @SysUISingleton
 class TallyRecentsStop
@@ -60,7 +62,7 @@ constructor(
     private val userTracker: UserTracker,
     private val keyguardStateController: KeyguardStateController,
     @Main private val mainExecutor: Executor,
-    @Background private val backgroundExecutor: Executor,
+    @LongRunning private val workExecutor: Executor,
 ) {
     private val recentsPackage: String? by lazy {
         ComponentName.unflattenFromString(
@@ -69,16 +71,17 @@ constructor(
             ?.packageName
     }
 
-    // Background thread only.
+    // workExecutor's thread only.
     private var listener: IStoppableAppsListener? = null
     private var listenerDeath: IBinder.DeathRecipient? = null
     private var listenerUserId = UserHandle.USER_NULL
     private var reported: Set<TallyStoppableApp>? = null
 
     private val reportPending = AtomicBoolean(false)
+    // Runs on Active apps' background thread: only hands the report over to workExecutor.
     private val onStoppableAppsChanged = Runnable {
         if (reportPending.compareAndSet(false, true)) {
-            backgroundExecutor.execute {
+            workExecutor.execute {
                 reportPending.set(false)
                 report()
             }
@@ -88,7 +91,7 @@ constructor(
     /** Sets the listener of the recents app with [callingUid], or removes it (null). */
     fun setListener(listener: IStoppableAppsListener?, callingUid: Int) {
         if (TallyShell.isUnexpectedlyInLegacyMode()) return
-        backgroundExecutor.execute {
+        workExecutor.execute {
             if (!isCurrentRecentsApp(callingUid)) return@execute
             clearListener()
             if (listener != null) addListener(listener, UserHandle.getUserId(callingUid))
@@ -104,7 +107,7 @@ constructor(
         // The keyguard state changes on the main thread: read it there, when Recents asks.
         mainExecutor.execute {
             val keyguardShowing = keyguardStateController.isShowing
-            backgroundExecutor.execute { stop(packageName, userId, callingUid, keyguardShowing) }
+            workExecutor.execute { stop(packageName, userId, callingUid, keyguardShowing) }
         }
     }
 
@@ -140,7 +143,7 @@ constructor(
         }
         val death =
             IBinder.DeathRecipient {
-                backgroundExecutor.execute { if (listener?.asBinder() === binder) clearListener() }
+                workExecutor.execute { if (listener?.asBinder() === binder) clearListener() }
             }
         try {
             binder.linkToDeath(death, 0)
