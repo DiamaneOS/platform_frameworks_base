@@ -16,11 +16,22 @@
 
 package com.android.systemui.tally.privacy
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement.spacedBy
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
@@ -29,9 +40,15 @@ import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathFillType
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.dimensionResource
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.android.systemui.privacy.PrivacyType
+import com.android.systemui.res.R
 import com.android.systemui.tally.TallyShell
+import org.diamaneos.tally.R as TallyR
 
 /**
  * Whether the status bar area under the chips in the status bar is dark, provided around them by
@@ -75,4 +92,47 @@ fun Modifier.tallyIndicatorEdge(color: Color, cornerRadius: Dp): Modifier = draw
             )
         }
     onDrawBehind { drawPath(ring, color) }
+}
+
+/**
+ * Tally's privacy chip in the shade header: one chip in the sensor colours for the area under it,
+ * with an icon for each type in use, at the stock chip's height and icon size (which follow the
+ * text size).
+ */
+@Composable
+fun TallySensorChip(
+    privacyTypes: Set<PrivacyType>,
+    isAreaDark: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val types = remember(privacyTypes) { privacyTypes.sorted() }
+    if (types.isEmpty()) return
+    val context = LocalContext.current
+    val colors = remember(context, isAreaDark) { TallyIndicatorColors.sensor(context, isAreaDark) }
+    val radius = dimensionResource(TallyR.dimen.tally_radius_s)
+    val iconSize = dimensionResource(R.dimen.ongoing_appops_chip_icon_size)
+    Row(
+        modifier =
+            modifier
+                .height(dimensionResource(R.dimen.ongoing_appops_chip_height))
+                .tallyIndicatorEdge(Color(colors.edge), radius)
+                .background(Color(colors.fill), RoundedCornerShape(radius))
+                .padding(
+                    horizontal =
+                        dimensionResource(TallyR.dimen.tally_privacy_chip_padding_horizontal)
+                ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = spacedBy(dimensionResource(TallyR.dimen.tally_privacy_chip_gap)),
+    ) {
+        types.forEach { type ->
+            key(type.nameId) {
+                Icon(
+                    painter = painterResource(type.iconId),
+                    contentDescription = null,
+                    tint = Color(colors.onFill),
+                    modifier = Modifier.size(iconSize),
+                )
+            }
+        }
+    }
 }
