@@ -45,6 +45,7 @@ import com.android.systemui.statusbar.commandline.CommandRegistry
 import com.android.systemui.statusbar.data.repository.StatusBarConfigurationController
 import com.android.systemui.statusbar.policy.CallbackController
 import com.android.systemui.statusbar.policy.ConfigurationController
+import com.android.systemui.tally.TallyShell
 import com.android.systemui.util.leak.RotationUtils.ROTATION_LANDSCAPE
 import com.android.systemui.util.leak.RotationUtils.ROTATION_NONE
 import com.android.systemui.util.leak.RotationUtils.ROTATION_SEASCAPE
@@ -56,6 +57,7 @@ import java.io.PrintWriter
 import java.lang.Math.max
 import java.util.concurrent.CopyOnWriteArraySet
 import javax.inject.Inject
+import org.diamaneos.tally.R as TallyR
 
 /**
  * Encapsulates logic that can solve for the left/right insets required for the status bar contents.
@@ -239,7 +241,7 @@ constructor(
 
         val rotatedResources = getResourcesForRotation(rotation, context)
 
-        val dotWidth = rotatedResources.getDimensionPixelSize(R.dimen.ongoing_appops_dot_diameter)
+        val dotWidth = rotatedResources.privacyDotWidth()
         val chipWidth =
             rotatedResources.getDimensionPixelSize(R.dimen.ongoing_appops_chip_max_width)
 
@@ -326,14 +328,8 @@ constructor(
                     R.dimen.status_bar_padding_without_rounded_corners
                 )
             }
-        val minDotPadding =
-            if (isPrivacyDotEnabled)
-                rotatedResources.getDimensionPixelSize(R.dimen.ongoing_appops_dot_min_padding)
-            else 0
-        val dotWidth =
-            if (isPrivacyDotEnabled)
-                rotatedResources.getDimensionPixelSize(R.dimen.ongoing_appops_dot_diameter)
-            else 0
+        val minDotPadding = if (isPrivacyDotEnabled) rotatedResources.privacyDotMinPadding() else 0
+        val dotWidth = if (isPrivacyDotEnabled) rotatedResources.privacyDotWidth() else 0
 
         val minLeft: Int
         val minRight: Int
@@ -441,6 +437,28 @@ interface StatusBarContentInsetsChangedListener {
 
 private const val TAG = "StatusBarInsetsProvider"
 private const val MAX_CACHE_SIZE = 16
+
+/**
+ * The room the privacy dot needs at the end of the status bar content. Tally's dot is 16 dp and
+ * sits 16 dp from the display's edge, as in the prototype, so it needs both; stock's 6 dp dot needs
+ * its minimum padding.
+ */
+private fun Resources.privacyDotMinPadding(): Int =
+    if (TallyShell.isEnabled) {
+        getDimensionPixelSize(TallyR.dimen.tally_privacy_dot_margin) + privacyDotWidth()
+    } else {
+        getDimensionPixelSize(R.dimen.ongoing_appops_dot_min_padding)
+    }
+
+/** The privacy dot's width: Tally's 16 dp dot or stock's 6 dp one. */
+private fun Resources.privacyDotWidth(): Int =
+    getDimensionPixelSize(
+        if (TallyShell.isEnabled) {
+            TallyR.dimen.tally_privacy_dot_size
+        } else {
+            R.dimen.ongoing_appops_dot_diameter
+        }
+    )
 
 private fun getRotationZeroDisplayBounds(bounds: Rect, @Rotation exactRotation: Int): Rect {
     if (exactRotation == ROTATION_NONE || exactRotation == ROTATION_UPSIDE_DOWN) {

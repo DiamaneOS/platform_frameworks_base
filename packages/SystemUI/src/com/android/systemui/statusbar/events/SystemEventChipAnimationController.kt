@@ -107,6 +107,14 @@ constructor(
                 R.dimen.ongoing_appops_dot_diameter
             }
         )
+
+    /**
+     * Tally: how far past the status bar content the chips end. They end where the privacy dot's
+     * outer edge is, 16 dp from the display's edge as in the prototype, so the privacy chip shrinks
+     * into the dot where it stands. Stock chips end with the content and then move onto the dot.
+     */
+    @VisibleForTesting val chipEndShift = if (TallyShell.isEnabled) dotSize else 0
+
     // Use during animation so that multiple animators can update the drawing rect
     private var animRect = Rect()
 
@@ -131,7 +139,8 @@ constructor(
                 animationWindowView.addView(
                     it.view,
                     layoutParamsDefault(
-                        if (animationWindowView.isLayoutRtl) insets.left else insets.right
+                        (if (animationWindowView.isLayoutRtl) insets.left else insets.right) -
+                            chipEndShift
                     ),
                 )
                 it.view.alpha = 0f
@@ -260,8 +269,9 @@ constructor(
 
         // Move the chip view to overlap exactly with the privacy dot. The chip displays by default
         // exactly adjacent to the dot, so we can just move over by the diameter of the dot itself
+        // (Tally's chip already ends where the dot does, so it does not move)
         val moveOut =
-            ValueAnimator.ofInt(0, dotSize).apply {
+            ValueAnimator.ofInt(0, dotSize - chipEndShift).apply {
                 startDelay = 3.frames
                 duration = 11.frames
                 interpolator = STATUS_CHIP_MOVE_TO_DOT
@@ -384,12 +394,12 @@ constructor(
 
         when (animationDirection) {
             LEFT -> {
-                chipRight = contentArea.right
-                chipLeft = contentArea.right - chip.chipWidth
+                chipRight = contentArea.right + chipEndShift
+                chipLeft = contentArea.right + chipEndShift - chip.chipWidth
             }
             else /* RIGHT */ -> {
-                chipLeft = contentArea.left
-                chipRight = contentArea.left + chip.chipWidth
+                chipLeft = contentArea.left - chipEndShift
+                chipRight = contentArea.left - chipEndShift + chip.chipWidth
             }
         }
         chipBounds = Rect(chipLeft, chipTop, chipRight, chipBottom)
