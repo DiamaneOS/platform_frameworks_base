@@ -205,6 +205,9 @@
     <color name="media_seamless_border">?android:attr/colorAccent</color>
     <color name="media_paging_indicator">@color/material_dynamic_neutral_variant80</color>
     <color name="media_on_background">#FFFFFF</color>
+    <!-- Tally: the media card is a neutral card, so its words and icons are in ink -->
+    <color name="media_on_background"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">@color/tally_ink</color>
     <color name="media_outlined_button_background">#4D000000</color> <!-- 30% -->
 
     <!-- media output dialog-->
