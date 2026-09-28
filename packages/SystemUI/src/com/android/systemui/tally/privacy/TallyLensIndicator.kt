@@ -18,7 +18,9 @@ package com.android.systemui.tally.privacy
 
 import android.content.Context
 import android.graphics.Rect
+import android.graphics.RectF
 import android.util.DisplayMetrics
+import android.util.DisplayUtils
 import android.util.Log
 import android.view.DisplayCutout
 import android.view.DisplayInfo
@@ -33,6 +35,7 @@ import com.android.systemui.dagger.qualifiers.Main
 import com.android.systemui.privacy.PrivacyItem
 import com.android.systemui.privacy.PrivacyItemController
 import com.android.systemui.privacy.PrivacyType
+import com.android.systemui.res.R
 import com.android.systemui.settings.DisplayTracker
 import com.android.systemui.tally.TallyShell
 import java.io.PrintWriter
@@ -51,6 +54,10 @@ import kotlinx.coroutines.CoroutineScope
  * at least [TallyLensGeometry.CLEARANCE_DP] dp outside the display cutout. The window takes no
  * touch, so it never blocks the status bar or the app under it, and it is there only while
  * something is lit or fading out.
+ *
+ * A device overlay can set the lens as a circle (`tally_lens_center_x`, `tally_lens_center_y` and
+ * `tally_lens_radius`, in the cutout path's pixels): the ring then keeps clear of it too, and the
+ * lamp sits level with its centre. Without it the lens is inferred from the cutout's shape.
  */
 @SysUISingleton
 class TallyLensIndicator
@@ -73,6 +80,25 @@ constructor(
     private var geometryComputed = false
     private var geometryKey: GeometryKey? = null
     private var geometry: TallyLensGeometry? = null
+
+    /**
+     * The lens circle a device overlay sets: its centre's x from the display's horizontal centre,
+     * its centre's y and its radius, in pixels of the display's highest resolution in its natural
+     * orientation, as the cutout path. Null when the radius is not set.
+     */
+    private val lensConfig: FloatArray? by lazy {
+        val res = context.resources
+        val radius = res.getDimension(R.dimen.tally_lens_radius)
+        if (radius > 0f) {
+            floatArrayOf(
+                res.getDimension(R.dimen.tally_lens_center_x),
+                res.getDimension(R.dimen.tally_lens_center_y),
+                radius,
+            )
+        } else {
+            null
+        }
+    }
 
     // PrivacyItemController keeps its callbacks as weak references: this field holds this one.
     private val privacyItemsCallback =
@@ -167,12 +193,43 @@ constructor(
         val cutout = info.displayCutout ?: return null
         val cutoutBounds = Rect()
         cutout.boundingRects.forEach { cutoutBounds.union(it) }
+        // As ScreenDecorations scales the corners: the highest resolution against the size now.
+        val maxMode = DisplayUtils.getMaximumResolutionDisplayMode(info.supportedModes)
         return GeometryKey(
             rotation = info.rotation,
             cutoutBounds = cutoutBounds,
             displayBounds = Rect(0, 0, info.logicalWidth, info.logicalHeight),
             densityDpi = info.logicalDensityDpi,
             cutout = cutout,
+            naturalWidth = info.naturalWidth,
+            naturalHeight = info.naturalHeight,
+            physicalWidth = maxMode?.physicalWidth ?: info.naturalWidth,
+            physicalRatio =
+                if (maxMode != null) {
+                    DisplayUtils.getPhysicalPixelDisplaySizeRatio(
+                        maxMode.physicalWidth,
+                        maxMode.physicalHeight,
+                        info.naturalWidth,
+                        info.naturalHeight,
+                    )
+                } else {
+                    1f
+                },
+        )
+    }
+
+    /** The lens circle the device sets, on the display now, or null when it sets none. */
+    private fun lensCircle(key: GeometryKey): RectF? {
+        val (x, y, radius) = lensConfig ?: return null
+        return TallyLensGeometry.lensCircle(
+            x,
+            y,
+            radius,
+            key.physicalWidth,
+            key.physicalRatio,
+            key.naturalWidth,
+            key.naturalHeight,
+            key.rotation,
         )
     }
 
@@ -187,6 +244,7 @@ constructor(
                     key.displayBounds,
                     key.rotation,
                     key.densityDpi.toFloat() / DisplayMetrics.DENSITY_DEFAULT,
+                    lensCircle(key),
                 )
             } else {
                 null
@@ -214,6 +272,7 @@ constructor(
         pw.println("$TAG: cameraInUse=$cameraInUse locationInUse=$locationInUse")
         pw.println("  isAreaDark=$isAreaDark windowAdded=${view != null}")
         pw.println("  windowBounds=${geometry?.windowBounds} hasLamp=${geometry?.hasLamp}")
+        pw.println("  lensConfig=${lensConfig?.contentToString() ?: "inferred from the cutout"}")
     }
 
     /** What the geometry depends on; the cutout itself is compared through its bounds. */
@@ -223,13 +282,19 @@ constructor(
         val displayBounds: Rect,
         val densityDpi: Int,
         val cutout: DisplayCutout,
+        val naturalWidth: Int,
+        val naturalHeight: Int,
+        val physicalWidth: Int,
+        val physicalRatio: Float,
     ) {
         override fun equals(other: Any?): Boolean =
             other is GeometryKey &&
                 rotation == other.rotation &&
                 cutoutBounds == other.cutoutBounds &&
                 displayBounds == other.displayBounds &&
-                densityDpi == other.densityDpi
+                densityDpi == other.densityDpi &&
+                physicalWidth == other.physicalWidth &&
+                physicalRatio == other.physicalRatio
 
         override fun hashCode(): Int =
             ((rotation * 31 + cutoutBounds.hashCode()) * 31 + displayBounds.hashCode()) * 31 +
