@@ -30,6 +30,7 @@ import com.android.internal.util.EmergencyAffordanceManager;
 import com.android.systemui.Flags;
 import com.android.systemui.FontStyles;
 import com.android.systemui.bouncer.shared.constants.KeyguardBouncerConstants;
+import com.android.systemui.tally.TallyShell;
 
 /**
  * This class implements a smart emergency button that updates itself based
@@ -74,7 +75,9 @@ public class EmergencyButton extends Button {
                 return false;
             });
         }
-        if (Flags.bouncerUiRevamp2()) {
+        // Tally: the flagged style Keyguard.TextView.EmergencyButton draws the outlined key with
+        // its type and text colour, which this stock restyling would fill and override.
+        if (Flags.bouncerUiRevamp2() && !TallyShell.isEnabled()) {
             setTypeface(Typeface.create(FontStyles.GSF_TITLE_MEDIUM, Typeface.NORMAL));
             Drawable background = getBackground();
             int bgColor = mContext.getColor(KeyguardBouncerConstants.Color.actionButtonBg);

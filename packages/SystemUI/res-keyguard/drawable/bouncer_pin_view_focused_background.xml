@@ -16,7 +16,7 @@
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_focused="true">
         <shape android:shape="rectangle">
-            <corners android:radius="16dp" />
+            <corners android:radius="@dimen/kg_bouncer_field_corner_radius" />
             <!--By default this outline will not show hence 0 width.
              width is set programmatically when needed and is gated by the flag:
              com.android.systemui.Flags.pinInputFieldStyledFocusState-->
