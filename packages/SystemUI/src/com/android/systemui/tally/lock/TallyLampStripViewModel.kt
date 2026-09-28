@@ -25,6 +25,7 @@ import com.android.settingslib.AccessibilityContentDescriptions
 import com.android.settingslib.R as SettingsLibR
 import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.dagger.qualifiers.Application
+import com.android.systemui.keyguard.domain.interactor.KeyguardInteractor
 import com.android.systemui.privacy.PrivacyType
 import com.android.systemui.res.R
 import com.android.systemui.settings.UserTracker
@@ -47,6 +48,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 
 /** A string resource with an optional format argument, resolved by the view. */
 data class TallyWords(@StringRes val res: Int, val arg: Any? = null)
@@ -100,6 +102,7 @@ constructor(
     batteryInteractor: BatteryInteractor,
     private val userTracker: UserTracker,
     private val systemClock: SystemClock,
+    keyguardInteractor: KeyguardInteractor,
 ) {
     private val sensorsInUse: Flow<Set<PrivacyType>> =
         privacyChipInteractor.privacyItems
@@ -172,6 +175,13 @@ constructor(
             delay(MINUTE_MILLIS - now % MINUTE_MILLIS)
         }
     }
+
+    /**
+     * The time once a minute, and at each always-on display tick, which comes when the device wakes
+     * to update the always-on display, where a plain delay may not run: for the date line.
+     */
+    val minutes: Flow<Long> =
+        merge(minuteTicks, keyguardInteractor.dozeTimeTick.map { systemClock.currentTimeMillis() })
 
     private val alarm: Flow<TallyStripItem?> =
         combine(nextAlarm, minuteTicks) { info, now ->

@@ -17,12 +17,15 @@
 package com.android.systemui.shared.clocks.tally
 
 import android.content.res.Resources
+import android.icu.text.DateFormat
+import android.icu.text.DisplayContext
 import android.util.TypedValue
 import com.android.systemui.customization.R as CustomizationR
 import com.android.systemui.plugins.keyguard.ui.clocks.ClockId
 import com.android.systemui.plugins.keyguard.ui.clocks.ClockMetadata
 import com.android.systemui.plugins.keyguard.ui.clocks.ClockPickerConfig
 import com.android.systemui.shared.clocks.DEFAULT_CLOCK_ID
+import java.util.Locale
 import kotlin.math.roundToInt
 import org.diamaneos.systemui.Flags
 
@@ -66,6 +69,20 @@ object TallyClocks {
                 resources.displayMetrics,
             )
             .roundToInt()
+
+    /**
+     * The Tally lock date, the prototype's "Friday 26 September" in the user's locale, as the Tally
+     * clock shows it above the time and SystemUI's Tally lock screen under other clocks.
+     */
+    @JvmStatic
+    fun dateFormat(locale: Locale): DateFormat =
+        DateFormat.getInstanceForSkeleton(DATE_SKELETON, locale).apply {
+            // As the stock lock screen date (KeyguardSliceProvider).
+            setContext(DisplayContext.CAPITALIZATION_FOR_BEGINNING_OF_SENTENCE)
+        }
+
+    /** Full weekday, day and full month. */
+    private const val DATE_SKELETON = "EEEEMMMMd"
 
     /** The clock a registry shows when the user never picked one: the Tally clock while on. */
     val fallbackClockId: ClockId
