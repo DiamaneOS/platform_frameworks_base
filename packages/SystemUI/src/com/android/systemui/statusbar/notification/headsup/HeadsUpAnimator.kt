@@ -19,7 +19,10 @@ package com.android.systemui.statusbar.notification.headsup
 import android.content.Context
 import com.android.internal.policy.SystemBarUtils
 import com.android.systemui.res.R
+import com.android.systemui.statusbar.notification.stack.AnimationProperties
 import com.android.systemui.statusbar.ui.SystemBarUtilsProxy
+import com.android.systemui.tally.TallyShell
+import org.diamaneos.tally.R as TallyR
 
 /**
  * A class shared between [StackScrollAlgorithm] and [StackStateAnimator] to ensure all heads up
@@ -34,6 +37,13 @@ class HeadsUpAnimator(context: Context, private val systemBarUtilsProxy: SystemB
 
     private var headsUpAppearStartAboveScreen = context.fetchHeadsUpAppearStartAboveScreen()
     private var statusBarHeight = fetchStatusBarHeight(context)
+
+    // Tally: how a heads-up slides (isTallySlide), read with the other resources.
+    private var tallySlideMargin = context.fetchTallySlideMargin()
+    private var tallySpringStiffness = context.fetchFloat(TallyR.dimen.tally_spring_stone_stiffness)
+    private var tallySpringDampingRatio =
+        context.fetchFloat(TallyR.dimen.tally_spring_stone_damping_ratio)
+    private var tallyImpulse = context.fetchFloat(TallyR.dimen.tally_motion_tap_impulse)
 
     /**
      * Returns the Y translation for a heads-up notification animation.
@@ -58,15 +68,49 @@ class HeadsUpAnimator(context: Context, private val systemBarUtilsProxy: SystemB
         return -stackTopMargin - headsUpAppearStartAboveScreen
     }
 
+    /**
+     * Tally: whether a heads-up appears and goes away as Tally's does, sliding in whole from above
+     * the screen and back out above it on the stone spring, neither revealed nor faded: at the top
+     * of the screen, when its notification has no status bar chip. One that comes from the bottom,
+     * or whose chip it must not cover, moves as stock's.
+     */
+    fun isTallySlide(isHeadsUpFromBottom: Boolean, hasStatusBarChip: Boolean): Boolean =
+        TallyShell.isEnabled && !isHeadsUpFromBottom && !hasStatusBarChip
+
+    /**
+     * Tally: the Y translation a sliding heads-up [height] tall starts from or ends at, with the
+     * whole card and its shadow above the top of the screen.
+     */
+    fun getTallySlideYTranslation(height: Int): Int = -stackTopMargin - height - tallySlideMargin
+
+    /**
+     * Tally: moves the views of the animation [properties] describes on the stone spring, each
+     * starting with a tap's push unless it is already moving, as the prototype's heads-up does.
+     */
+    fun applyTallySpring(properties: AnimationProperties) {
+        properties.setCustomSpring(tallySpringStiffness, tallySpringDampingRatio, tallyImpulse)
+    }
+
     /** Should be invoked when resource values may have changed. */
     fun updateResources(context: Context) {
         headsUpAppearStartAboveScreen = context.fetchHeadsUpAppearStartAboveScreen()
         statusBarHeight = fetchStatusBarHeight(context)
+        tallySlideMargin = context.fetchTallySlideMargin()
+        tallySpringStiffness = context.fetchFloat(TallyR.dimen.tally_spring_stone_stiffness)
+        tallySpringDampingRatio = context.fetchFloat(TallyR.dimen.tally_spring_stone_damping_ratio)
+        tallyImpulse = context.fetchFloat(TallyR.dimen.tally_motion_tap_impulse)
     }
 
     private fun Context.fetchHeadsUpAppearStartAboveScreen(): Int {
         return this.resources.getDimensionPixelSize(R.dimen.heads_up_appear_y_above_screen)
     }
+
+    // Tally: the gap between the status bar and a heads-up, here between the screen's top and a
+    // heads-up about to slide in, which keeps its shadow out of view too.
+    private fun Context.fetchTallySlideMargin(): Int =
+        resources.getDimensionPixelSize(R.dimen.heads_up_status_bar_padding)
+
+    private fun Context.fetchFloat(id: Int): Float = resources.getFloat(id)
 
     private fun fetchStatusBarHeight(context: Context): Int {
         return systemBarUtilsProxy?.getStatusBarHeight()
