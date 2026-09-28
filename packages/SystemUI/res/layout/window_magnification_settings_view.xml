@@ -136,6 +136,7 @@
                     android:layout_gravity="center_vertical" />
 
                 <com.google.android.material.materialswitch.MaterialSwitch
+                    android:featureFlag="!org.diamaneos.systemui.tally_shell"
                     android:id="@+id/magnifier_horizontal_lock_switch"
                     android:layout_gravity="right|center_vertical"
                     android:layout_width="wrap_content"
@@ -144,6 +145,19 @@
                     android:focusable="true"
                     android:theme="@style/Theme.Material3.DynamicColors.DayNight"
                     style="@style/SettingslibSwitchStyle.Expressive" />
+
+                <!-- Tally: in place of the switch above while the Tally flag is on. -->
+                <com.android.settingslib.widget.TallySwitch
+                    android:featureFlag="org.diamaneos.systemui.tally_shell"
+                    android:id="@+id/magnifier_horizontal_lock_switch"
+                    android:paddingHorizontal="@dimen/settingslib_tally_focus_ring_reach"
+                    android:layout_gravity="right|center_vertical"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:theme="@style/Theme.Material3.DynamicColors.DayNight"
+                    style="@style/SettingslibSwitchStyle.Tally" />
 
             </LinearLayout>
 
@@ -168,6 +182,7 @@
                     android:layout_gravity="center_vertical" />
 
                 <com.google.android.material.materialswitch.MaterialSwitch
+                    android:featureFlag="!org.diamaneos.systemui.tally_shell"
                     android:id="@+id/magnifier_keyboard_switch"
                     android:layout_gravity="right|center_vertical"
                     android:layout_width="wrap_content"
@@ -176,6 +191,19 @@
                     android:focusable="true"
                     android:theme="@style/Theme.Material3.DynamicColors.DayNight"
                     style="@style/SettingslibSwitchStyle.Expressive" />
+
+                <!-- Tally: in place of the switch above while the Tally flag is on. -->
+                <com.android.settingslib.widget.TallySwitch
+                    android:featureFlag="org.diamaneos.systemui.tally_shell"
+                    android:id="@+id/magnifier_keyboard_switch"
+                    android:paddingHorizontal="@dimen/settingslib_tally_focus_ring_reach"
+                    android:layout_gravity="right|center_vertical"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:theme="@style/Theme.Material3.DynamicColors.DayNight"
+                    style="@style/SettingslibSwitchStyle.Tally" />
 
             </LinearLayout>
 
@@ -200,6 +228,7 @@
                     android:layout_gravity="center_vertical" />
 
                 <com.google.android.material.materialswitch.MaterialSwitch
+                    android:featureFlag="!org.diamaneos.systemui.tally_shell"
                     android:id="@+id/magnifier_typing_switch"
                     android:layout_gravity="right|center_vertical"
                     android:layout_width="wrap_content"
@@ -208,6 +237,19 @@
                     android:focusable="true"
                     android:theme="@style/Theme.Material3.DynamicColors.DayNight"
                     style="@style/SettingslibSwitchStyle.Expressive" />
+
+                <!-- Tally: in place of the switch above while the Tally flag is on. -->
+                <com.android.settingslib.widget.TallySwitch
+                    android:featureFlag="org.diamaneos.systemui.tally_shell"
+                    android:id="@+id/magnifier_typing_switch"
+                    android:paddingHorizontal="@dimen/settingslib_tally_focus_ring_reach"
+                    android:layout_gravity="right|center_vertical"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:theme="@style/Theme.Material3.DynamicColors.DayNight"
+                    style="@style/SettingslibSwitchStyle.Tally" />
 
             </LinearLayout>
 
