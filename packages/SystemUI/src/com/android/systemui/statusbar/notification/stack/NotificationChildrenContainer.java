@@ -60,6 +60,7 @@ import com.android.systemui.statusbar.notification.row.ui.viewmodel.BundleHeader
 import com.android.systemui.statusbar.notification.row.wrapper.BundleHeaderViewWrapper;
 import com.android.systemui.statusbar.notification.row.wrapper.NotificationHeaderViewWrapper;
 import com.android.systemui.statusbar.notification.row.wrapper.NotificationViewWrapper;
+import com.android.systemui.tally.TallyShell;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -656,6 +657,11 @@ public class NotificationChildrenContainer extends ViewGroup
     private View inflateDivider() {
         View divider = LayoutInflater.from(mContext).inflate(
                 R.layout.notification_children_divider, this, false);
+        if (TallyShell.isEnabled()) {
+            // Tally: dividers inside a card are hairlines in the outline variant.
+            divider.setBackgroundColor(
+                    mContext.getColor(org.diamaneos.tally.R.color.tally_outline_variant));
+        }
         divider.setAlpha(0f);
         return divider;
     }
