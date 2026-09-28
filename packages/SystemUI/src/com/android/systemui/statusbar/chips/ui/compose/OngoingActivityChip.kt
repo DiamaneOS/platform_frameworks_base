@@ -25,7 +25,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.heightIn
@@ -208,17 +207,22 @@ private fun ChipBody(
     cornerRadius: Dp = 0.dp,
     tallyTextStyle: TextStyle? = null,
 ) {
-    // Tally: the capture chips' edge, drawn just outside the chip, and their own padding.
+    // Tally: the capture chips' edge, drawn just outside the chip, and their own padding. As
+    // stock, both sides take the same padding, so the icon stays centred when the text hides; the
+    // rest of the end padding goes after the text, next to an icon, and hides with it.
     val tallyEdgeModifier =
         if (tallyEdge != null) Modifier.tallyIndicatorEdge(tallyEdge, cornerRadius) else Modifier
-    val tallyPadding =
+    val tallySidePadding =
         if (tallyEdge != null) {
-            PaddingValues(
-                start = dimensionResource(TallyR.dimen.tally_capture_chip_padding_start),
-                end = dimensionResource(TallyR.dimen.tally_capture_chip_padding_end),
-            )
+            dimensionResource(TallyR.dimen.tally_capture_chip_padding_start)
         } else {
             null
+        }
+    val tallyTextEndPadding =
+        if (tallySidePadding != null && model.icon != null) {
+            dimensionResource(TallyR.dimen.tally_capture_chip_padding_end) - tallySidePadding
+        } else {
+            0.dp
         }
     Row(
         horizontalArrangement = Arrangement.Center,
@@ -231,8 +235,8 @@ private fun ChipBody(
                 // this row is still centered correctly horizontally
                 .widthIn(min = minWidth)
                 .then(
-                    if (tallyPadding != null) {
-                        Modifier.padding(tallyPadding)
+                    if (tallySidePadding != null) {
+                        Modifier.padding(horizontal = tallySidePadding)
                     } else {
                         Modifier.padding(
                             // Always keep start & end padding the same so that if the text has to
@@ -262,6 +266,7 @@ private fun ChipBody(
                 colors = model.colors,
                 modifier = Modifier.sysuiResTag(STATUS_BAR_CHIP_CONTENT_ID),
                 tallyTextStyle = tallyTextStyle,
+                tallyTextEndPadding = tallyTextEndPadding,
             )
         }
 
