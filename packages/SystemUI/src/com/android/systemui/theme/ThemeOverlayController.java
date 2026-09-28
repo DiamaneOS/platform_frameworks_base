@@ -21,7 +21,7 @@ import static android.util.TypedValue.TYPE_INT_COLOR_ARGB8;
 import static com.android.systemui.Flags.hardwareColorStyles;
 import static com.android.systemui.Flags.themeOverlayControllerWakefulnessDeprecation;
 import static com.android.systemui.keyguard.WakefulnessLifecycle.WAKEFULNESS_ASLEEP;
-import static com.android.systemui.monet.ColorScheme.GOOGLE_BLUE;
+import static com.android.systemui.monet.ColorScheme.SODIUM;
 import static com.android.systemui.theme.ThemeOverlayApplier.COLOR_SOURCE_HOME;
 import static com.android.systemui.theme.ThemeOverlayApplier.COLOR_SOURCE_LOCK;
 import static com.android.systemui.theme.ThemeOverlayApplier.COLOR_SOURCE_PRESET;
@@ -936,7 +936,7 @@ public class ThemeOverlayController implements CoreStartable, Dumpable {
         Pair<Integer, String> styleAndSource = getHardwareColorSetting();
 
         // Last fallback color
-        Color defaultSeedColor = Color.valueOf(GOOGLE_BLUE);
+        Color defaultSeedColor = Color.valueOf(SODIUM);
 
         // defaultColor will come from wallpaper or be parsed from a string
         boolean isWallpaper = styleAndSource.second.equals(COLOR_SOURCE_HOME);
