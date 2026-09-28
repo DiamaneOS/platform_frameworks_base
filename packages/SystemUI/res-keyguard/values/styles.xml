@@ -59,6 +59,16 @@
         <item name="android:paddingRight">26dp</item>
         <item name="android:stateListAnimator">@null</item>
     </style>
+    <!-- Tally: the prototype's outlined key, in the ink colour and the Tally label type -->
+    <style name="Keyguard.TextView.EmergencyButton" parent="Theme.SystemUI"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">
+        <item name="android:textAppearance">@style/TextAppearance.Tally.Label</item>
+        <item name="android:textColor">@color/tally_ink</item>
+        <item name="android:background">@drawable/tally_bouncer_outlined_key</item>
+        <item name="android:paddingLeft">@dimen/tally_key_padding_horizontal</item>
+        <item name="android:paddingRight">@dimen/tally_key_padding_horizontal</item>
+        <item name="android:stateListAnimator">@null</item>
+    </style>
     <style name="NumPadKey" parent="Theme.SystemUI">
       <!-- Studio can't directly reference ?androidprv:attr/colorSurface here, so this value
            is resolved in {@link NumPadAnimator}. -->
