@@ -210,6 +210,14 @@ constructor(
         notifyInsetsChanged()
     }
 
+    override fun onLayoutDirectionChanged(isLayoutRtl: Boolean) {
+        // Tally's privacy dot needs more room than the rounded corner, at the end of the status
+        // bar, so the insets change sides with the layout direction, which the cache keys omit.
+        if (TallyShell.isEnabled) {
+            clearCachedInsets()
+        }
+    }
+
     private fun clearCachedInsets() {
         insetsCache.evictAll()
         notifyInsetsChanged()
