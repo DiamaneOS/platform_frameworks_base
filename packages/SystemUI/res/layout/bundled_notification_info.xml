@@ -181,6 +181,7 @@
                         android:lineSpacingExtra="4sp" />
                 </LinearLayout>
             <com.google.android.material.materialswitch.MaterialSwitch
+                    android:featureFlag="!org.diamaneos.systemui.tally_shell"
                     android:theme="@style/Theme.Material3.DynamicColors.DayNight"
                     android:id="@+id/feature_toggle"
                     android:filterTouchesWhenObscured="false"
@@ -192,6 +193,21 @@
                     android:gravity="end|center_vertical"
                     android:layout_alignParentEnd="true"
                     style="@style/SettingslibSwitchStyle.Expressive"/>
+
+            <!-- Tally: in place of the switch above while the Tally flag is on. -->
+            <com.android.settingslib.widget.TallySwitch
+                    android:featureFlag="org.diamaneos.systemui.tally_shell"
+                    android:theme="@style/Theme.Material3.DynamicColors.DayNight"
+                    android:id="@+id/feature_toggle"
+                    android:filterTouchesWhenObscured="false"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:padding="8dp"
+                    android:layout_height="48dp"
+                    android:layout_width="wrap_content"
+                    android:gravity="end|center_vertical"
+                    android:layout_alignParentEnd="true"
+                    style="@style/SettingslibSwitchStyle.Tally"/>
         </RelativeLayout>
         <RelativeLayout
             android:id="@+id/bottom_buttons"
