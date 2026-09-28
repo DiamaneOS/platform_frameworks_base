@@ -158,7 +158,6 @@ object TallyGlobalActions {
         private val stiffness = menu.resources.getFloat(TallyR.dimen.tally_spring_stone_stiffness)
         private val impulse =
             menu.resources.getFloat(TallyR.dimen.tally_motion_tap_impulse) * sqrt(stiffness)
-        private var layerType = menu.layerType
         private val spring =
             SpringAnimation(position)
                 .setSpring(
@@ -170,7 +169,6 @@ object TallyGlobalActions {
                 )
                 .setMinimumVisibleChange(MIN_VISIBLE_CHANGE)
                 .addUpdateListener { _, value, _ -> apply(value) }
-                .addEndListener { _, _, _, _ -> menu.setLayerType(layerType, null) }
 
         init {
             apply(HIDDEN)
@@ -192,9 +190,8 @@ object TallyGlobalActions {
                     }
                 )
             }
+            // No hardware layer, unlike stock: it would clip the sheet's shadow as it moves.
             if (!spring.isRunning) {
-                layerType = menu.layerType
-                menu.setLayerType(View.LAYER_TYPE_HARDWARE, null)
                 spring.setStartVelocity(if (target > position.value) impulse else -impulse)
             }
             spring.animateToFinalPosition(target)
