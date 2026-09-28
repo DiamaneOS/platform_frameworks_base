@@ -430,8 +430,15 @@ constructor(
             newCorner?.apply {
                 clearAnimation()
                 visibility = View.VISIBLE
-                alpha = 0f
-                animate().alpha(1.0f).setDuration(300).start()
+                if (TallyShell.isEnabled) {
+                    // Tally: a lamp appears at once, after a rotation too. A fade-out still
+                    // running would hide the dot again as it ends.
+                    animate().cancel()
+                    alpha = 1f
+                } else {
+                    alpha = 0f
+                    animate().alpha(1.0f).setDuration(300).start()
+                }
             }
         }
     }
