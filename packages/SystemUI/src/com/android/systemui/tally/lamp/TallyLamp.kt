@@ -80,9 +80,15 @@ fun TallyLamp(
 
 /** Sizes and colours for [TallyLamp]. */
 object TallyLampDefaults {
-    /** A token lamp size. */
+    /**
+     * A token lamp size. With [growsWithText] it grows from 200 % text as tile lamps do
+     * ([TallyLampSize.forFontScale]).
+     */
     @Composable
-    fun size(size: TallyLampSize = TallyLampSize.DEFAULT): Dp = dimensionResource(size.sizeRes)
+    fun size(size: TallyLampSize = TallyLampSize.DEFAULT, growsWithText: Boolean = false): Dp {
+        val token = if (growsWithText) size.forFontScale(LocalDensity.current.fontScale) else size
+        return dimensionResource(token.sizeRes)
+    }
 
     /** The theme's lamp ([TallyLampColors.theme]). */
     @Composable
