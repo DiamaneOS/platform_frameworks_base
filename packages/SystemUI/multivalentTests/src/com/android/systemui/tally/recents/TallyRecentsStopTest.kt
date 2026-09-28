@@ -29,6 +29,7 @@ import android.os.UserHandle
 import android.testing.TestableLooper
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.SmallTest
+import com.android.systemui.LauncherProxyService
 import com.android.systemui.SysuiTestCase
 import com.android.systemui.animation.DialogTransitionAnimator
 import com.android.systemui.broadcast.BroadcastDispatcher
@@ -86,6 +87,7 @@ class TallyRecentsStopTest : SysuiTestCase() {
     private val dumpManager = mock<DumpManager>()
     private val systemUIDialogFactory = mock<SystemUIDialog.Factory>()
     private val keyguardStateController = mock<KeyguardStateController>()
+    private val launcherProxyService = mock<LauncherProxyService>()
 
     private lateinit var fgsObserver: IForegroundServiceObserver
     private lateinit var userTrackerCallback: UserTracker.Callback
@@ -137,6 +139,7 @@ class TallyRecentsStopTest : SysuiTestCase() {
                 packageManager,
                 userTracker,
                 keyguardStateController,
+                { launcherProxyService },
                 mainExecutor,
                 workExecutor,
             )
@@ -208,6 +211,23 @@ class TallyRecentsStopTest : SysuiTestCase() {
         assertThat(reports)
             .containsExactly(emptySet<TallyStoppableApp>(), setOf(TallyStoppableApp("pkg", 0)))
             .inOrder()
+    }
+
+    @Test
+    fun launcherDisconnected_dropsTheListener() {
+        underTest.setListener(listener, RECENTS_UID)
+        runAll()
+        val connection =
+            argumentCaptor<LauncherProxyService.LauncherProxyListener>()
+                .apply { verify(launcherProxyService).addCallback(capture()) }
+                .firstValue
+
+        connection.onConnectionChanged(false)
+        runAll()
+        startFgs("pkg", 0)
+        runAll()
+
+        assertThat(reports).containsExactly(emptySet<TallyStoppableApp>())
     }
 
     @Test
