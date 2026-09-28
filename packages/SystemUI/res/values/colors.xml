@@ -72,6 +72,9 @@
     <color name="user_avatar_color_bg">?android:attr/colorBackgroundFloating</color>
     <!-- Color of border for keyguard password input when focused -->
     <color name="bouncer_password_focus_color">@*android:color/system_secondary_light</color>
+    <!-- Tally: the focused field takes the accent -->
+    <color name="bouncer_password_focus_color"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">@color/tally_accent</color>
 
     <!-- Icon color for user avatars in user switcher quick settings -->
     <color name="qs_user_switcher_avatar_icon_color">#3C4043</color>
@@ -286,6 +289,9 @@
     <color name="pin_bouncer_action_button_bg">@color/customColorSurfaceEffect0</color>
     <!-- Bouncer background when blur is not enabled.   -->
     <color name="bouncer_fallback_bg">@android:color/system_accent2_200</color>
+    <!-- Tally: a full-screen shell surface -->
+    <color name="bouncer_fallback_bg"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">@color/tally_background</color>
 
     <array name="screen_record_color_palette">
         <item>#8E3E92</item>
