@@ -2202,12 +2202,23 @@
     <!-- Volume start -->
     <dimen name="volume_dialog_window_width">176dp</dimen>
     <dimen name="volume_dialog_width">60dp</dimen>
+    <!-- Tally: the panel is 56 dp wide, a 48 dp meter and keys with 4 dp either side -->
+    <dimen xmlns:android="http://schemas.android.com/apk/res/android"
+        name="volume_dialog_width"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">56dp</dimen>
 
     <dimen name="volume_dialog_background_corner_radius">30dp</dimen>
     <!-- top margin covers half the ringer button + components spacing -->
     <dimen name="volume_dialog_background_top_margin">-28dp</dimen>
     <dimen name="volume_dialog_background_margin">6dp</dimen>
+    <!-- Tally: keys sit 4 dp inside the panel's edge -->
+    <dimen xmlns:android="http://schemas.android.com/apk/res/android"
+        name="volume_dialog_background_margin"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">@dimen/tally_space_xs</dimen>
     <dimen name="volume_dialog_background_margin_negative">-6dp</dimen>
+    <dimen xmlns:android="http://schemas.android.com/apk/res/android"
+        name="volume_dialog_background_margin_negative"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">-4dp</dimen>
     <dimen name="volume_dialog_background_surface_blur_radius">23dp</dimen>
 
     <dimen name="volume_dialog_window_margin">12dp</dimen>
@@ -2219,6 +2230,20 @@
     </dimen>
     <dimen name="volume_dialog_floating_sliders_horizontal_padding">4dp</dimen>
     <dimen name="volume_dialog_floating_sliders_vertical_padding">10dp</dimen>
+    <!-- Tally: an extra slider is a panel of its own, 4 dp around its meter -->
+    <dimen xmlns:android="http://schemas.android.com/apk/res/android"
+        name="volume_dialog_floating_sliders_vertical_padding"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">@dimen/tally_space_xs</dimen>
+    <!-- The hairline around an extra slider's panel; none in stock -->
+    <dimen name="volume_dialog_floating_slider_edge">0dp</dimen>
+    <dimen xmlns:android="http://schemas.android.com/apk/res/android"
+        name="volume_dialog_floating_slider_edge"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">@dimen/tally_stroke_hairline</dimen>
+    <!-- The shadow under an extra slider's panel; none in stock -->
+    <dimen name="volume_dialog_floating_slider_elevation">0dp</dimen>
+    <dimen xmlns:android="http://schemas.android.com/apk/res/android"
+        name="volume_dialog_floating_slider_elevation"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">@dimen/tally_volume_panel_elevation</dimen>
     <dimen name="volume_dialog_button_size">48dp</dimen>
     <dimen name="volume_dialog_slider_width">52dp</dimen>
     <dimen name="volume_dialog_slider_height">254dp</dimen>
@@ -2241,12 +2266,35 @@
     <dimen name="volume_dialog_half_opened_offset">-128dp</dimen>
     <dimen name="volume_dialog_slider_max_deviation">56dp</dimen>
     <dimen name="volume_dialog_floating_slider_background_corner_radius">20dp</dimen>
+    <!-- Tally: panels take the card radius -->
+    <dimen xmlns:android="http://schemas.android.com/apk/res/android"
+        name="volume_dialog_floating_slider_background_corner_radius"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">@dimen/tally_radius_m</dimen>
 
     <dimen name="volume_dialog_background_square_corner_radius">12dp</dimen>
+    <!-- Tally: keys, not pills -->
+    <dimen xmlns:android="http://schemas.android.com/apk/res/android"
+        name="volume_dialog_background_square_corner_radius"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">@dimen/tally_radius_s</dimen>
 
     <dimen name="volume_dialog_ringer_drawer_button_size">@dimen/volume_dialog_button_size</dimen>
     <dimen name="volume_dialog_ringer_drawer_button_icon_radius">10dp</dimen>
     <dimen name="volume_dialog_ringer_selected_button_background_radius">20dp</dimen>
+    <dimen xmlns:android="http://schemas.android.com/apk/res/android"
+        name="volume_dialog_ringer_selected_button_background_radius"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">@dimen/tally_radius_s</dimen>
+    <!-- How far a key's shape sits inside its 48 dp touch target -->
+    <dimen name="volume_dialog_ringer_button_inset">4dp</dimen>
+    <!-- Tally: a key fills its target -->
+    <dimen xmlns:android="http://schemas.android.com/apk/res/android"
+        name="volume_dialog_ringer_button_inset"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">0dp</dimen>
+    <!-- The edge around a selected key; none in stock -->
+    <dimen name="volume_dialog_ringer_selected_button_edge">0dp</dimen>
+    <!-- Tally: a lit key has the lit edge (in the lamp itself in dark theme) -->
+    <dimen xmlns:android="http://schemas.android.com/apk/res/android"
+        name="volume_dialog_ringer_selected_button_edge"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">@dimen/tally_stroke_lit_edge</dimen>
 
     <dimen name="volume_panel_slice_vertical_padding">8dp</dimen>
     <dimen name="volume_panel_slice_horizontal_padding">24dp</dimen>

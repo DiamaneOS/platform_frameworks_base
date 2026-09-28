@@ -1,5 +1,6 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-  ~ Copyright (C) 2024 The Android Open Source Project
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ~ Copyright (C) 2026 The DiamaneOS Project
   ~
   ~ Licensed under the Apache License, Version 2.0 (the "License");
   ~ you may not use this file except in compliance with the License.
@@ -11,13 +12,12 @@
   ~ distributed under the License is distributed on an "AS IS" BASIS,
   ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
   ~ See the License for the specific language governing permissions and
-  ~ limitations under the License.
+  ~ limitations under the License
   -->
-<inset xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:androidprv="http://schemas.android.com/apk/prv/res/android"
-    android:inset="@dimen/volume_dialog_ringer_button_inset">
-    <shape android:shape="rectangle">
-        <corners android:radius="@dimen/volume_dialog_background_square_corner_radius" />
-        <solid android:color="@color/volume_dialog_button" />
-    </shape>
-</inset>
+
+<!-- Sizes only the Tally volume panel uses (com.android.systemui.tally.volume). -->
+<resources>
+    <!-- The shadow under the panel: the prototype's one ambient shadow (0 2 8 dp, 12 % black),
+         as elevation -->
+    <dimen name="tally_volume_panel_elevation">2dp</dimen>
+</resources>

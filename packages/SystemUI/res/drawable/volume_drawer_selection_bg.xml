@@ -15,12 +15,15 @@
   -->
 <inset xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:androidprv="http://schemas.android.com/apk/prv/res/android"
-    android:inset="4dp">
+    android:inset="@dimen/volume_dialog_ringer_button_inset">
     <shape>
         <corners android:radius="@dimen/volume_dialog_ringer_selected_button_background_radius" />
         <size
             android:width="@dimen/volume_dialog_ringer_drawer_button_size"
             android:height="@dimen/volume_dialog_ringer_drawer_button_size" />
-        <solid android:color="@color/materialColorPrimary" />
+        <solid android:color="@color/volume_dialog_button_selected" />
+        <stroke
+            android:width="@dimen/volume_dialog_ringer_selected_button_edge"
+            android:color="@color/tally_lamp_outline" />
     </shape>
 </inset>

@@ -203,6 +203,25 @@
     <color name="volume_dialog_background_color_above_blur">@android:color/transparent</color>
     <color name="volume_dialog_view_background_blur">@color/customColorSurfaceEffect0</color>
     <color name="volume_dialog_view_background_blur_fallback">@android:color/system_accent1_200</color>
+    <!-- The dialog's surface behind the ringer drawer and the slider -->
+    <color name="volume_dialog_panel">@color/materialColorSurface</color>
+    <!-- Tally: the panel draws one surface around both (TallyVolumePanelViewBinder) -->
+    <color name="volume_dialog_panel"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">@android:color/transparent</color>
+    <!-- The surface of an extra slider -->
+    <color name="volume_dialog_floating_panel">@color/materialColorSurface</color>
+    <color name="volume_dialog_floating_panel"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">@color/tally_surface</color>
+    <!-- A ringer mode key that is not selected, and the captions key when off -->
+    <color name="volume_dialog_button">@color/materialColorSurfaceContainerHighest</color>
+    <!-- Tally: no fill (the lamp colour at no alpha, so a key lights by fading in) -->
+    <color name="volume_dialog_button"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">@color/tally_volume_key</color>
+    <!-- The selected ringer mode key, and the captions key when on -->
+    <color name="volume_dialog_button_selected">@color/materialColorPrimary</color>
+    <!-- Tally: a lit key -->
+    <color name="volume_dialog_button_selected"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">@color/tally_lamp</color>
 
     <!-- media -->
     <color name="media_seamless_border">?android:attr/colorAccent</color>
