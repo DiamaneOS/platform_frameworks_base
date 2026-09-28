@@ -3364,6 +3364,10 @@
 
     <!-- ClockId to use when none is set by user -->
     <string name="lockscreen_clock_id_fallback" translatable="false">DEFAULT</string>
+    <!-- Tally: the Tally lock clock (TallyClocks.TALLY_CLOCK_ID in the shared clock library) -->
+    <string xmlns:android="http://schemas.android.com/apk/res/android"
+        name="lockscreen_clock_id_fallback" translatable="false"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">TALLY</string>
 
     <!-- SysUI Tuner: Format string for describing launching an app [CHAR LIMIT=60] -->
     <string name="tuner_launch_app">Launch <xliff:g id="app" example="Settings">%1$s</xliff:g></string>
