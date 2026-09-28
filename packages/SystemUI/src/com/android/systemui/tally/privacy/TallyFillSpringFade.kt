@@ -18,12 +18,12 @@ package com.android.systemui.tally.privacy
 
 import android.animation.TimeInterpolator
 import android.content.res.Resources
+import de.diamaneos.tally.R as TallyR
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.sin
 import kotlin.math.sqrt
-import org.diamaneos.tally.R as TallyR
 
 /**
  * A privacy indicator going out on the prototype's fill spring (`tally_spring_fill_*`), as the

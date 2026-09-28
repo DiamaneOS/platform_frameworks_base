@@ -41,7 +41,7 @@ android_library {
         "kotlinx_coroutines",
         "monet",
         // DiamaneOS: the Tally lock clock (shared/clocks/tally) reads the Tally flag and tokens.
-        "org_diamaneos_systemui_flags_lib",
+        "de_diamaneos_systemui_flags_lib",
         "tallytokens",
     ],
     libs: [

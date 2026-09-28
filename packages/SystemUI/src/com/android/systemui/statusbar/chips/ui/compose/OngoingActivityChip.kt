@@ -67,7 +67,7 @@ import com.android.systemui.tally.TallyShell
 import com.android.systemui.tally.privacy.LocalTallyStatusBarAreaDark
 import com.android.systemui.tally.privacy.TallyIndicatorColors
 import com.android.systemui.tally.privacy.tallyCaptureChipTextStyle
-import org.diamaneos.tally.R as TallyR
+import de.diamaneos.tally.R as TallyR
 
 @Composable
 fun OngoingActivityChip(

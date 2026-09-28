@@ -30,10 +30,10 @@ import com.android.systemui.tally.lamp.TallyLampColors
 import com.android.systemui.tally.lamp.TallyLampSize
 import com.android.systemui.tally.lamp.TallyLampState
 import com.android.systemui.tally.lamp.TallyLampView
+import de.diamaneos.tally.R as TallyR
 import java.text.NumberFormat
 import kotlin.math.max
 import kotlin.math.roundToInt
-import org.diamaneos.tally.R as TallyR
 
 /**
  * The lock screen's lamp strip: one quiet row under the clock, with no boxes, a lamp (the shared

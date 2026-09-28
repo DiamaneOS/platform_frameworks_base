@@ -36,10 +36,10 @@ import com.android.systemui.tally.TallyShell
 import com.android.systemui.volume.dialog.dagger.scope.VolumeDialogScope
 import com.android.systemui.volume.dialog.domain.interactor.ExpandedAudioTileDetailsFeatureInteractor
 import com.android.systemui.volume.dialog.ui.binder.ViewBinder
+import de.diamaneos.tally.R as TallyR
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.awaitCancellation
-import org.diamaneos.tally.R as TallyR
 
 /**
  * Draws the vertical volume dialog as Tally's volume panel (the prototype's `.vol`): one surface

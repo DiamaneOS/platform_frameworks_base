@@ -80,7 +80,7 @@
                     android:textAppearance="@style/TextAppearance.TileDetailsEntryTitle" />
 
                 <com.google.android.material.materialswitch.MaterialSwitch
-                    android:featureFlag="!org.diamaneos.systemui.tally_shell"
+                    android:featureFlag="!de.diamaneos.systemui.tally_shell"
                     android:id="@+id/bluetooth_toggle"
                     android:scaleX="0.77"
                     android:scaleY="0.77"
@@ -97,7 +97,7 @@
 
                 <!-- Tally: in place of the switch above while the Tally flag is on. -->
                 <com.android.settingslib.widget.TallySwitch
-                    android:featureFlag="org.diamaneos.systemui.tally_shell"
+                    android:featureFlag="de.diamaneos.systemui.tally_shell"
                     android:id="@+id/bluetooth_toggle"
                     android:paddingHorizontal="@dimen/settingslib_tally_focus_ring_reach"
                     android:layout_width="wrap_content"
@@ -144,7 +144,7 @@
                     android:textAppearance="@style/TextAppearance.TileDetailsEntryTitle" />
 
                 <com.google.android.material.materialswitch.MaterialSwitch
-                    android:featureFlag="!org.diamaneos.systemui.tally_shell"
+                    android:featureFlag="!de.diamaneos.systemui.tally_shell"
                     android:id="@+id/bluetooth_auto_on_toggle"
                     android:scaleX="0.77"
                     android:scaleY="0.77"
@@ -161,7 +161,7 @@
 
                 <!-- Tally: in place of the switch above while the Tally flag is on. -->
                 <com.android.settingslib.widget.TallySwitch
-                    android:featureFlag="org.diamaneos.systemui.tally_shell"
+                    android:featureFlag="de.diamaneos.systemui.tally_shell"
                     android:id="@+id/bluetooth_auto_on_toggle"
                     android:paddingHorizontal="@dimen/settingslib_tally_focus_ring_reach"
                     android:layout_width="wrap_content"

@@ -18,7 +18,7 @@ package com.android.systemui.tally
 
 import com.android.systemui.flags.FlagToken
 import com.android.systemui.flags.RefactorFlagUtils
-import org.diamaneos.systemui.Flags
+import de.diamaneos.systemui.Flags
 
 /**
  * Helper for reading or using the Tally shell flag state. All Tally code in SystemUI asks here

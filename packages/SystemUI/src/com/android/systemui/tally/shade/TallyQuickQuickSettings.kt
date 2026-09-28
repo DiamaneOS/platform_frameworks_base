@@ -38,9 +38,9 @@ import com.android.systemui.qs.panels.ui.compose.infinitegrid.Tile
 import com.android.systemui.qs.panels.ui.viewmodel.BounceableTileViewModel
 import com.android.systemui.qs.panels.ui.viewmodel.QuickQuickSettingsViewModel
 import com.android.systemui.qs.shared.ui.QuickSettings.Elements.toElementKey
+import de.diamaneos.tally.R as TallyR
 import kotlin.math.max
 import kotlin.math.min
-import org.diamaneos.tally.R as TallyR
 
 /**
  * The first pull's tiles in Tally: one row of keycaps (52 dp, 22 % corners) in the user's tile

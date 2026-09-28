@@ -160,7 +160,7 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
     protected void updateColors() {
         if (TallyShell.isEnabled()) {
             // Tally: every notification is an opaque card in the surface colour.
-            mNormalColor = mContext.getColor(org.diamaneos.tally.R.color.tally_surface);
+            mNormalColor = mContext.getColor(de.diamaneos.tally.R.color.tally_surface);
             mOpaqueColor = mNormalColor;
         } else if (notificationRowTransparency()) {
             mNormalColor = SurfaceEffectColors.surfaceEffect1(getContext());

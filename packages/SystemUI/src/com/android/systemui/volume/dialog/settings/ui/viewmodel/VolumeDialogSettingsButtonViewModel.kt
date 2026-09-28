@@ -46,6 +46,7 @@ import com.android.systemui.volume.dialog.ui.VolumeDialogUiEvent
 import com.android.systemui.volume.panel.component.mediaoutput.domain.interactor.MediaDeviceSessionInteractor
 import com.android.systemui.volume.panel.component.mediaoutput.domain.interactor.MediaOutputInteractor
 import com.android.systemui.volume.panel.shared.model.filterData
+import de.diamaneos.tally.R as TallyR
 import javax.inject.Inject
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.resume
@@ -66,7 +67,6 @@ import kotlinx.coroutines.flow.runningFold
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.transform
 import kotlinx.coroutines.suspendCancellableCoroutine
-import org.diamaneos.tally.R as TallyR
 
 class VolumeDialogSettingsButtonViewModel
 @Inject

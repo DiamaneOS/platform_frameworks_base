@@ -431,7 +431,7 @@ android_library {
         "android.app.flags-aconfig",
         "android.net.platform.flags-aconfig",
         "com_android_systemui_flags",
-        "org_diamaneos_systemui_flags",
+        "de_diamaneos_systemui_flags",
         "uilatencystats_flags",
     ],
 }
@@ -507,7 +507,7 @@ android_library {
         "SettingsLib",
         "com_android_server_accessibility_flags_lib",
         "com_android_systemui_flags_lib",
-        "org_diamaneos_systemui_flags_lib",
+        "de_diamaneos_systemui_flags_lib",
         "//frameworks/libs/systemui:com_android_systemui_shared_flags_lib",
         "androidx.core_core-ktx",
         "androidx.viewpager2_viewpager2",

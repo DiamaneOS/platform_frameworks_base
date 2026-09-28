@@ -40,7 +40,7 @@ import com.android.systemui.statusbar.notification.SourceType
 import com.android.systemui.tally.TallyShell
 import com.android.systemui.util.mockito.mock
 import com.google.common.truth.Truth.assertThat
-import org.diamaneos.tally.R as TallyR
+import de.diamaneos.tally.R as TallyR
 import org.junit.Before
 import org.junit.Ignore
 import org.junit.Test

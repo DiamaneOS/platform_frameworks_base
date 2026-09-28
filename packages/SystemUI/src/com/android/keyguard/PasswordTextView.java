@@ -139,7 +139,7 @@ public class PasswordTextView extends BasePasswordTextView {
         if (TallyShell.isEnabled()) {
             // Tally: a typed digit, while it shows before turning into a dot, in Sofia Sans.
             mDrawPaint.setTypeface(TallyBouncerType.typeface(context,
-                    org.diamaneos.tally.R.style.TextAppearance_Tally_Body));
+                    de.diamaneos.tally.R.style.TextAppearance_Tally_Body));
         } else {
             mDrawPaint.setTypeface(Typeface.create(
                     context.getString(com.android.internal.R.string.config_headlineFontFamily), 0));

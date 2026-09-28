@@ -22,6 +22,7 @@ import android.content.res.Resources
 import android.view.View
 import android.view.animation.LinearInterpolator
 import com.android.systemui.res.R
+import de.diamaneos.tally.R as TallyR
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.exp
@@ -29,7 +30,6 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
-import org.diamaneos.tally.R as TallyR
 
 /**
  * How the Tally toast (the prototype's `.toast`) comes and goes. It rises into place

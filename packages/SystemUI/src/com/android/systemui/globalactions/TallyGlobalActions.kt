@@ -30,8 +30,8 @@ import androidx.dynamicanimation.animation.SpringAnimation
 import androidx.dynamicanimation.animation.SpringForce
 import com.android.internal.widget.LockPatternUtils
 import com.android.systemui.res.R
+import de.diamaneos.tally.R as TallyR
 import kotlin.math.sqrt
-import org.diamaneos.tally.R as TallyR
 
 /**
  * Tally's power menu (the prototype's `.pm`) for [GlobalActionsDialogLite]: which item an action

@@ -174,7 +174,7 @@
                         android:layout_gravity="center_vertical"/>
 
                     <FrameLayout
-                        android:featureFlag="!org.diamaneos.systemui.tally_shell"
+                        android:featureFlag="!de.diamaneos.systemui.tally_shell"
                         android:layout_width="@dimen/settingslib_switch_track_width"
                         android:layout_height="48dp"
                         android:layout_gravity="end|center_vertical">
@@ -192,7 +192,7 @@
 
                     <!-- Tally: in place of the switch above while the Tally flag is on. -->
                     <FrameLayout
-                        android:featureFlag="org.diamaneos.systemui.tally_shell"
+                        android:featureFlag="de.diamaneos.systemui.tally_shell"
                         android:layout_width="wrap_content"
                         android:layout_height="48dp"
                         android:layout_gravity="end|center_vertical">
@@ -247,7 +247,7 @@
                     </LinearLayout>
 
                     <FrameLayout
-                        android:featureFlag="!org.diamaneos.systemui.tally_shell"
+                        android:featureFlag="!de.diamaneos.systemui.tally_shell"
                         android:layout_width="@dimen/settingslib_switch_track_width"
                         android:layout_height="48dp"
                         android:layout_marginTop="10dp"
@@ -266,7 +266,7 @@
 
                     <!-- Tally: in place of the switch above while the Tally flag is on. -->
                     <FrameLayout
-                        android:featureFlag="org.diamaneos.systemui.tally_shell"
+                        android:featureFlag="de.diamaneos.systemui.tally_shell"
                         android:layout_width="wrap_content"
                         android:layout_height="48dp"
                         android:layout_marginTop="10dp"

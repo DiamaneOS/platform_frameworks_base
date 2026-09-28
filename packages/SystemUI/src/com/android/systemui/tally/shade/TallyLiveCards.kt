@@ -23,7 +23,7 @@ import com.android.systemui.tally.lamp.TallyLampColors
 import com.android.systemui.tally.lamp.TallyLampDrawable
 import com.android.systemui.tally.lamp.TallyLampSize
 import com.android.systemui.tally.lamp.TallyLampState
-import org.diamaneos.tally.R as TallyR
+import de.diamaneos.tally.R as TallyR
 
 /**
  * Tally's live cards (shade.js `buildLive`): the media card and every ongoing notification (a

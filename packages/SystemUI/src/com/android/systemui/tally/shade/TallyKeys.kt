@@ -45,7 +45,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.android.systemui.qs.ui.compose.borderOnFocus
-import org.diamaneos.tally.R as TallyR
+import de.diamaneos.tally.R as TallyR
 
 /**
  * Tally's outlined keys, as the shade's footer keys (app.css `.fkey`): 48 dp tall with the key

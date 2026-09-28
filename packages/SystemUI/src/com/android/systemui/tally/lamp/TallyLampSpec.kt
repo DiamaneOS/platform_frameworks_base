@@ -17,7 +17,7 @@
 package com.android.systemui.tally.lamp
 
 import android.content.res.Resources
-import org.diamaneos.tally.R as TallyR
+import de.diamaneos.tally.R as TallyR
 
 /**
  * The animated lamp's tokens (the prototype's `T.Lamp` and `T.lampGeo`), read once from the Tally

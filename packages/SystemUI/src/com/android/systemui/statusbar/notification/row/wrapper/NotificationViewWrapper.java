@@ -348,7 +348,7 @@ public abstract class NotificationViewWrapper implements TransformableView {
         }
         // Tally: the card's surface colour.
         return mView.getContext().getColor(TallyShell.isEnabled()
-                ? org.diamaneos.tally.R.color.tally_surface
+                ? de.diamaneos.tally.R.color.tally_surface
                 : com.android.internal.R.color.materialColorSurfaceContainerHigh);
     }
 

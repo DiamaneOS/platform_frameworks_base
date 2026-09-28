@@ -470,7 +470,7 @@
     <!-- Tally: an expanded group stays one card, its children inside it -->
     <bool xmlns:android="http://schemas.android.com/apk/res/android"
         name="config_showGroupNotificationBgWhenExpanded"
-        android:featureFlag="org.diamaneos.systemui.tally_shell">true</bool>
+        android:featureFlag="de.diamaneos.systemui.tally_shell">true</bool>
 
     <!-- Should we vibrate on an icon animation of the shelf. This should only be active if the
      vibrator is capable of subtle vibrations -->

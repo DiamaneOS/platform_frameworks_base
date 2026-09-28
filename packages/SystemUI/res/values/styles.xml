@@ -569,7 +569,7 @@
     <style xmlns:android="http://schemas.android.com/apk/res/android"
         name="Theme.SystemUI.Dialog.QuickSettings"
         parent="@style/Theme.SystemUI.QuickSettings"
-        android:featureFlag="org.diamaneos.systemui.tally_shell">
+        android:featureFlag="de.diamaneos.systemui.tally_shell">
         <item name="android:dialogCornerRadius">@dimen/tally_radius_l</item>
         <item name="android:buttonBarPositiveButtonStyle">@style/Widget.Dialog.Button.QuickSettings</item>
         <item name="android:buttonBarNegativeButtonStyle">@style/Widget.Dialog.Button.QuickSettings</item>
@@ -863,7 +863,7 @@
     <style xmlns:android="http://schemas.android.com/apk/res/android"
         name="TextAppearance.NotificationSectionHeaderLabel"
         parent="@android:style/Widget.DeviceDefault.Button.Borderless"
-        android:featureFlag="org.diamaneos.systemui.tally_shell">
+        android:featureFlag="de.diamaneos.systemui.tally_shell">
         <item name="android:textAppearance">@style/TextAppearance.Tally.Section</item>
         <item name="android:textColor">@color/tally_ink_muted</item>
         <item name="android:lineHeight">@dimen/tally_type_section_line_height</item>
@@ -933,7 +933,7 @@
     <style xmlns:android="http://schemas.android.com/apk/res/android"
         name="MediaPlayer.Subtitle"
         parent="MediaPlayer"
-        android:featureFlag="org.diamaneos.systemui.tally_shell">
+        android:featureFlag="de.diamaneos.systemui.tally_shell">
         <item name="android:textColor">@color/tally_ink_muted</item>
     </style>
 

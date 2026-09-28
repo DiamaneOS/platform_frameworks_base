@@ -40,7 +40,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
-import org.diamaneos.tally.R as TallyR
+import de.diamaneos.tally.R as TallyR
 
 /**
  * A Tally type role for Compose text, read from its text appearance and line height tokens

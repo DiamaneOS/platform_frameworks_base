@@ -32,7 +32,7 @@ import com.android.systemui.surfaceeffects.view.loadingeffect.LoadingEffect
 import com.android.systemui.surfaceeffects.view.ripple.MultiRippleController
 import com.android.systemui.surfaceeffects.view.turbulencenoise.TurbulenceNoiseController
 import com.android.systemui.tally.TallyShell
-import org.diamaneos.tally.R as TallyR
+import de.diamaneos.tally.R as TallyR
 
 /**
  * A [ColorTransition] is an object that updates the colors of views each time [updateColorScheme]

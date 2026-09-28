@@ -1812,7 +1812,7 @@ public class KeyguardIndicationController {
         if (TallyShell.isEnabled() && mBiometricMessageSource == FINGERPRINT) {
             return ColorStateList.valueOf(TallyWallTheme.context(mContext,
                     TallyWallTheme.isLightWallpaper(mContext))
-                    .getColor(org.diamaneos.tally.R.color.tally_error));
+                    .getColor(de.diamaneos.tally.R.color.tally_error));
         }
         return getInitialTextColorState();
     }
@@ -1842,14 +1842,14 @@ public class KeyguardIndicationController {
                 || !TextUtils.isEmpty(mBiometricMessage)
                 || !TextUtils.isEmpty(mTransientIndication)
                 || !mSideFpsHintCounter.hasWakesLeft(userId, mContext.getResources().getInteger(
-                        org.diamaneos.tally.R.integer.tally_fp_hint_wakes))) {
+                        de.diamaneos.tally.R.integer.tally_fp_hint_wakes))) {
             return;
         }
         mSideFpsHintCounter.countWake(userId);
         mSideFpsHint = mContext.getString(R.string.fingerprint_dialog_touch_sensor);
         showTransientIndication(mSideFpsHint);
         hideTransientIndicationDelayed(mContext.getResources().getInteger(
-                org.diamaneos.tally.R.integer.tally_fp_hint_ms));
+                de.diamaneos.tally.R.integer.tally_fp_hint_ms));
     }
 
     /** Tally: takes the fingerprint hint away, so that a biometric message shows at once. */

@@ -42,7 +42,7 @@
             android:importantForAccessibility="yes"/>
 
         <Switch
-            android:featureFlag="!org.diamaneos.systemui.tally_shell"
+            android:featureFlag="!de.diamaneos.systemui.tally_shell"
             android:layout_width="wrap_content"
             android:minWidth="48dp"
             android:layout_height="48dp"
@@ -54,7 +54,7 @@
 
         <!-- Tally: in place of the switch above while the Tally flag is on. -->
         <com.android.settingslib.widget.TallyFrameworkSwitch
-            android:featureFlag="org.diamaneos.systemui.tally_shell"
+            android:featureFlag="de.diamaneos.systemui.tally_shell"
             android:layout_width="wrap_content"
             android:minWidth="48dp"
             android:layout_height="48dp"
@@ -91,7 +91,7 @@
             android:contentDescription="@string/screenrecord_taps_label"/>
 
         <Switch
-            android:featureFlag="!org.diamaneos.systemui.tally_shell"
+            android:featureFlag="!de.diamaneos.systemui.tally_shell"
             android:layout_width="wrap_content"
             android:minWidth="48dp"
             android:layout_height="48dp"
@@ -102,7 +102,7 @@
 
         <!-- Tally: in place of the switch above while the Tally flag is on. -->
         <com.android.settingslib.widget.TallyFrameworkSwitch
-            android:featureFlag="org.diamaneos.systemui.tally_shell"
+            android:featureFlag="de.diamaneos.systemui.tally_shell"
             android:layout_width="wrap_content"
             android:minWidth="48dp"
             android:layout_height="48dp"

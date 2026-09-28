@@ -40,7 +40,7 @@
     <!-- Tally: tiles with words are 64 dp tall, and the grid's rows follow them -->
     <dimen xmlns:android="http://schemas.android.com/apk/res/android"
         name="common_tile_default_tile_height"
-        android:featureFlag="org.diamaneos.systemui.tally_shell">@dimen/tally_tile_height_large</dimen>
+        android:featureFlag="de.diamaneos.systemui.tally_shell">@dimen/tally_tile_height_large</dimen>
     <dimen name="common_tile_default_toggle_target_size">56dp</dimen>
 
     <!-- QS shade overlay brightness bar -->

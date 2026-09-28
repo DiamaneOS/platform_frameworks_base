@@ -59,7 +59,7 @@ import androidx.compose.ui.unit.sp
 import com.android.systemui.privacy.PrivacyType
 import com.android.systemui.res.R
 import com.android.systemui.tally.TallyShell
-import org.diamaneos.tally.R as TallyR
+import de.diamaneos.tally.R as TallyR
 
 /**
  * Whether the status bar area under the chips in the status bar is dark, provided around them by

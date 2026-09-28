@@ -94,7 +94,7 @@ class NumPadAnimator {
         mImageButton = buttonImage;
         mAnimatable = animatable;
         mTallyKeyRadius = TallyShell.isEnabled()
-                ? context.getResources().getDimension(org.diamaneos.tally.R.dimen.tally_radius_s)
+                ? context.getResources().getDimension(de.diamaneos.tally.R.dimen.tally_radius_s)
                 : 0f;
 
         reloadColors(context);

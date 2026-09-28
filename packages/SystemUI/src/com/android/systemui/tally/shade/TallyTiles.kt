@@ -105,9 +105,9 @@ import com.android.systemui.tally.lamp.TallyLamp
 import com.android.systemui.tally.lamp.TallyLampDefaults
 import com.android.systemui.tally.lamp.TallyLampSize
 import com.android.systemui.tally.lamp.TallyLampState
+import de.diamaneos.tally.R as TallyR
 import kotlin.math.max
 import kotlinx.coroutines.delay
-import org.diamaneos.tally.R as TallyR
 
 /**
  * Tally's Quick Settings tiles, as the prototype draws them (shade.js `tileView`, app.css `.tile`):

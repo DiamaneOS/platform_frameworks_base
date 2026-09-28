@@ -74,7 +74,7 @@
     <color name="bouncer_password_focus_color">@*android:color/system_secondary_light</color>
     <!-- Tally: the focused field takes the accent -->
     <color name="bouncer_password_focus_color"
-        android:featureFlag="org.diamaneos.systemui.tally_shell">@color/tally_accent</color>
+        android:featureFlag="de.diamaneos.systemui.tally_shell">@color/tally_accent</color>
 
     <!-- Icon color for user avatars in user switcher quick settings -->
     <color name="qs_user_switcher_avatar_icon_color">#3C4043</color>
@@ -207,21 +207,21 @@
     <color name="volume_dialog_panel">@color/materialColorSurface</color>
     <!-- Tally: the panel draws one surface around both (TallyVolumePanelViewBinder) -->
     <color name="volume_dialog_panel"
-        android:featureFlag="org.diamaneos.systemui.tally_shell">@android:color/transparent</color>
+        android:featureFlag="de.diamaneos.systemui.tally_shell">@android:color/transparent</color>
     <!-- The surface of an extra slider -->
     <color name="volume_dialog_floating_panel">@color/materialColorSurface</color>
     <color name="volume_dialog_floating_panel"
-        android:featureFlag="org.diamaneos.systemui.tally_shell">@color/tally_surface</color>
+        android:featureFlag="de.diamaneos.systemui.tally_shell">@color/tally_surface</color>
     <!-- A ringer mode key that is not selected, and the captions key when off -->
     <color name="volume_dialog_button">@color/materialColorSurfaceContainerHighest</color>
     <!-- Tally: no fill (the lamp colour at no alpha, so a key lights by fading in) -->
     <color name="volume_dialog_button"
-        android:featureFlag="org.diamaneos.systemui.tally_shell">@color/tally_volume_key</color>
+        android:featureFlag="de.diamaneos.systemui.tally_shell">@color/tally_volume_key</color>
     <!-- The selected ringer mode key, and the captions key when on -->
     <color name="volume_dialog_button_selected">@color/materialColorPrimary</color>
     <!-- Tally: a lit key -->
     <color name="volume_dialog_button_selected"
-        android:featureFlag="org.diamaneos.systemui.tally_shell">@color/tally_lamp</color>
+        android:featureFlag="de.diamaneos.systemui.tally_shell">@color/tally_lamp</color>
 
     <!-- media -->
     <color name="media_seamless_border">?android:attr/colorAccent</color>
@@ -229,7 +229,7 @@
     <color name="media_on_background">#FFFFFF</color>
     <!-- Tally: the media card is a neutral card, so its words and icons are in ink -->
     <color name="media_on_background"
-        android:featureFlag="org.diamaneos.systemui.tally_shell">@color/tally_ink</color>
+        android:featureFlag="de.diamaneos.systemui.tally_shell">@color/tally_ink</color>
     <color name="media_outlined_button_background">#4D000000</color> <!-- 30% -->
 
     <!-- media output dialog-->
@@ -313,7 +313,7 @@
     <color name="bouncer_fallback_bg">@android:color/system_accent2_200</color>
     <!-- Tally: a full-screen shell surface -->
     <color name="bouncer_fallback_bg"
-        android:featureFlag="org.diamaneos.systemui.tally_shell">@color/tally_background</color>
+        android:featureFlag="de.diamaneos.systemui.tally_shell">@color/tally_background</color>
 
     <array name="screen_record_color_palette">
         <item>#8E3E92</item>

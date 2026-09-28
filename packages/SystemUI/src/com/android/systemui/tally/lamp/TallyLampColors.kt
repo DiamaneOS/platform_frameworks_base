@@ -20,7 +20,7 @@ import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Color
 import androidx.annotation.ColorInt
-import org.diamaneos.tally.R as TallyR
+import de.diamaneos.tally.R as TallyR
 
 /**
  * The colours of a Tally lamp, one for each part it draws.

@@ -99,7 +99,7 @@ public class NotificationBackgroundView extends View implements Dumpable,
         mDarkColoredStatefulColors = getResources().getColorStateList(
                 R.color.notification_state_color_dark);
         if (TallyShell.isEnabled()) {
-            mNormalColor = mContext.getColor(org.diamaneos.tally.R.color.tally_surface);
+            mNormalColor = mContext.getColor(de.diamaneos.tally.R.color.tally_surface);
         } else if (notificationRowTransparency()) {
             mNormalColor = SurfaceEffectColors.surfaceEffect1(getContext());
         } else  {
@@ -417,10 +417,10 @@ public class NotificationBackgroundView extends View implements Dumpable,
         }
         ((GradientDrawable) getBaseBackgroundLayer().mutate()).setStroke(
                 getResources().getDimensionPixelSize(
-                        org.diamaneos.tally.R.dimen.tally_stroke_hairline),
+                        de.diamaneos.tally.R.dimen.tally_stroke_hairline),
                 mContext.getColor(mTallyHeadsUpEdge
-                        ? org.diamaneos.tally.R.color.tally_outline
-                        : org.diamaneos.tally.R.color.tally_outline_variant));
+                        ? de.diamaneos.tally.R.color.tally_outline
+                        : de.diamaneos.tally.R.color.tally_outline_variant));
         invalidate();
     }
 

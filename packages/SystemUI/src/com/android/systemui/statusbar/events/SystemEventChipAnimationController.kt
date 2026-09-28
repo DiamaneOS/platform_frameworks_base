@@ -42,9 +42,9 @@ import com.android.systemui.tally.privacy.TallyIndicatorArea
 import com.android.systemui.tally.privacy.TallyPrivacyChipBinder
 import com.android.systemui.util.animation.AnimationUtil.Companion.frames
 import dagger.Lazy
+import de.diamaneos.tally.R as TallyR
 import javax.inject.Inject
 import kotlin.math.roundToInt
-import org.diamaneos.tally.R as TallyR
 
 /** Controls the view for system event animations. */
 interface SystemEventChipAnimationController : SystemStatusAnimationCallback {

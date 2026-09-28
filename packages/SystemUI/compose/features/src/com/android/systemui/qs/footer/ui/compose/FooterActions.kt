@@ -117,9 +117,9 @@ import com.android.systemui.tally.lamp.TallyLampSize
 import com.android.systemui.tally.lamp.TallyLampState
 import com.android.systemui.tally.shade.TallyKeyDefaults
 import com.android.systemui.tally.shade.tallyTextStyle
+import de.diamaneos.tally.R as TallyR
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
-import org.diamaneos.tally.R as TallyR
 
 @Composable
 fun ContentScope.FooterActionsWithAnimatedVisibility(

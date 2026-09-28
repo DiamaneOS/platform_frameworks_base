@@ -13,8 +13,8 @@ package {
 }
 
 aconfig_declarations {
-    name: "org_diamaneos_systemui_flags",
-    package: "org.diamaneos.systemui",
+    name: "de_diamaneos_systemui_flags",
+    package: "de.diamaneos.systemui",
     container: "system",
     srcs: [
         "*.aconfig",
@@ -22,7 +22,7 @@ aconfig_declarations {
 }
 
 java_aconfig_library {
-    name: "org_diamaneos_systemui_flags_lib",
-    aconfig_declarations: "org_diamaneos_systemui_flags",
+    name: "de_diamaneos_systemui_flags_lib",
+    aconfig_declarations: "de_diamaneos_systemui_flags",
     sdk_version: "system_current",
 }
