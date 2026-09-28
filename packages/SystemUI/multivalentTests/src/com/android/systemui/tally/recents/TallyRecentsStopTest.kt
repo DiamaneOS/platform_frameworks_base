@@ -22,6 +22,7 @@ import android.app.job.JobScheduler
 import android.content.pm.PackageManager
 import android.content.pm.UserInfo
 import android.os.Binder
+import android.os.Parcel
 import android.os.PowerExemptionManager.REASON_ROLE_DIALER
 import android.os.PowerExemptionManager.REASON_UNKNOWN
 import android.os.UserHandle
@@ -318,6 +319,47 @@ class TallyRecentsStopTest : SysuiTestCase() {
         runAll()
 
         assertThat(reports).containsExactly(emptySet<TallyStoppableApp>())
+    }
+
+    @Test
+    fun setListener_oneOfSystemUisOwnBinders_isNeverCalled() {
+        startFgs("pkg", 0)
+        // A binder that lives in SystemUI and is not a listener, handed back by Launcher.
+        val transactions = mutableListOf<Int>()
+        val local =
+            object : Binder() {
+                override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int) =
+                    transactions.add(code)
+            }
+
+        underTest.setListener(IStoppableAppsListener.Stub.asInterface(local), RECENTS_UID)
+        runAll()
+        startFgs("pkg2", 0)
+        runAll()
+
+        assertThat(transactions).isEmpty()
+    }
+
+    @Test
+    fun listener_thatFails_isDroppedWithoutTakingSystemUiDown() {
+        var calls = 0
+        val failing =
+            object : IStoppableAppsListener.Stub() {
+                override fun onStoppableAppsChanged(
+                    packageNames: Array<String>,
+                    userIds: IntArray,
+                ) {
+                    calls++
+                    throw SecurityException("Binder invocation to an incorrect interface")
+                }
+            }
+
+        underTest.setListener(failing, RECENTS_UID)
+        runAll()
+        startFgs("pkg", 0)
+        runAll()
+
+        assertThat(calls).isEqualTo(1)
     }
 
     @Test

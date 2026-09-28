@@ -19,6 +19,7 @@ package com.android.systemui.tally.recents
 import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Binder
 import android.os.IBinder
 import android.os.RemoteException
 import android.os.UserHandle
@@ -130,6 +131,13 @@ constructor(
     @WorkerThread
     private fun addListener(newListener: IStoppableAppsListener, userId: Int) {
         val binder = newListener.asBinder()
+        val local = binder.queryLocalInterface(IStoppableAppsListener.DESCRIPTOR)
+        if (binder is Binder && local !is IStoppableAppsListener) {
+            // One of SystemUI's own binders handed back: calling it would run another interface's
+            // code here, in SystemUI.
+            Log.w(TAG, "Ignored a listener that is one of SystemUI's own binders")
+            return
+        }
         val death =
             IBinder.DeathRecipient {
                 backgroundExecutor.execute { if (listener?.asBinder() === binder) clearListener() }
@@ -177,6 +185,10 @@ constructor(
             )
             reported = set
         } catch (e: RemoteException) {
+            clearListener()
+        } catch (e: RuntimeException) {
+            // Whatever the listener does, it must not take SystemUI down with it.
+            Log.w(TAG, "Dropped Recents' listener, which failed", e)
             clearListener()
         }
     }
