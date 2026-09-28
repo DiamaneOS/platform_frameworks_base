@@ -543,7 +543,9 @@ constructor(
 
     // Tally (DiamaneOS): Recents' "Still running · Stop". Recents may offer to stop only the apps
     // that this dialog lists with a Stop button because they run a foreground service, and it
-    // stops them only through here, as the dialog's Stop button does (tally.recents).
+    // stops them only through here, as the dialog's Stop button does (tally.recents). These may
+    // run on any worker thread: they read the running apps under [lock] and make their calls to
+    // the system outside it, on a fresh UserPackage each, so the dialog's state is not touched.
 
     /** Runs [listener] on the background thread whenever [getStoppableApps] may have changed. */
     fun addOnStoppableAppsChangedListener(listener: Runnable) {
