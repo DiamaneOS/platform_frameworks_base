@@ -39,6 +39,8 @@ import com.android.systemui.statusbar.notification.stack.AnimationFilter;
 import com.android.systemui.statusbar.notification.stack.AnimationProperties;
 import com.android.systemui.statusbar.notification.stack.ViewState;
 import com.android.systemui.statusbar.phone.ui.StatusBarIconController;
+import com.android.systemui.tally.TallyShell;
+import com.android.systemui.tally.privacy.TallyVpnIconLayout;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -77,6 +79,10 @@ public class StatusIconContainer extends AlphaOptimizedLinearLayout {
     private ArrayList<View> mMeasureViews = new ArrayList<>();
     // Any ignored icon will never be added as a child
     private Set<String> mIgnoredSlots = new HashSet<>();
+    // Tally: the VPN icon, which stays out of the overflow (TallyVpnIconLayout)
+    private final String mTallyVpnSlot;
+    private StatusIconState mTallyVpnState;
+    private float mTallyVpnWidth;
 
     private Configuration mConfiguration;
 
@@ -87,6 +93,7 @@ public class StatusIconContainer extends AlphaOptimizedLinearLayout {
     public StatusIconContainer(Context context, AttributeSet attrs) {
         super(context, attrs);
         mConfiguration = new Configuration(context.getResources().getConfiguration());
+        mTallyVpnSlot = context.getString(com.android.internal.R.string.status_bar_vpn);
         reloadDimens();
         setWillNotDraw(!DEBUG_OVERFLOW);
     }
@@ -322,6 +329,7 @@ public class StatusIconContainer extends AlphaOptimizedLinearLayout {
         float translationX = width - getPaddingEnd();
         float contentStart = getPaddingStart();
         int childCount = getChildCount();
+        mTallyVpnState = null;
         // Underflow === don't show content until that index
         if (DEBUG) Log.d(TAG, "calculateIconTranslations: start=" + translationX
                 + " width=" + width + " underflow=" + mNeedsUnderflow);
@@ -345,6 +353,10 @@ public class StatusIconContainer extends AlphaOptimizedLinearLayout {
             childState.visibleState = STATE_ICON;
             childState.setXTranslation(translationX);
             mLayoutStates.add(0, childState);
+            if (TallyShell.isEnabled() && mTallyVpnSlot.equals(iconView.getSlot())) {
+                mTallyVpnState = childState;
+                mTallyVpnWidth = getViewTotalWidth(child);
+            }
 
             // Shift translationX over by mIconSpacing for the next view.
             translationX -= mIconSpacing;
@@ -374,6 +386,11 @@ public class StatusIconContainer extends AlphaOptimizedLinearLayout {
             visible++;
         }
 
+        if (mTallyVpnState != null && firstUnderflowIndex != -1) {
+            firstUnderflowIndex = tallyKeepVpnIcon(firstUnderflowIndex, width, contentStart,
+                    maxVisible);
+        }
+
         if (firstUnderflowIndex != -1) {
             int totalDots = 0;
             int dotWidth = mStaticDotDiameter + mDotPadding;
@@ -399,6 +416,39 @@ public class StatusIconContainer extends AlphaOptimizedLinearLayout {
                 state.setXTranslation(width - state.getXTranslation() - child.getWidth());
             }
         }
+    }
+
+    /**
+     * Tally: keeps the VPN icon out of the overflow. Tally's privacy dot takes room at the end of
+     * the status bar, so when the VPN icon would overflow, the icons after it give way instead
+     * (TallyVpnIconLayout) and the VPN icon goes just before those that stay. Returns the new
+     * first index of the overflow; unchanged if the VPN icon does not overflow or cannot fit.
+     */
+    private int tallyKeepVpnIcon(int firstUnderflowIndex, float width, float contentStart,
+            int maxVisible) {
+        int vpn = mLayoutStates.indexOf(mTallyVpnState);
+        if (vpn < 0 || vpn > firstUnderflowIndex) {
+            return firstUnderflowIndex;
+        }
+        int total = mLayoutStates.size();
+        float[] x = new float[total];
+        for (int i = 0; i < total; i++) {
+            x[i] = mLayoutStates.get(i).getXTranslation();
+        }
+        float endEdge = width - getPaddingEnd();
+        int first = TallyVpnIconLayout.keptStart(x, firstUnderflowIndex, mTallyVpnWidth,
+                mIconSpacing, endEdge, contentStart, mUnderflowWidth, maxVisible,
+                mShouldRestrictIcons);
+        if (first == -1) {
+            return firstUnderflowIndex;
+        }
+        float vpnX = (first < total ? x[first] - mIconSpacing : endEdge) - mTallyVpnWidth;
+        mTallyVpnState.setXTranslation(vpnX);
+        mLayoutStates.remove(vpn);
+        // After the removal the kept icons start at first - 1: the VPN icon goes just before them.
+        mLayoutStates.add(first - 1, mTallyVpnState);
+        mUnderflowStart = (int) Math.max(contentStart, vpnX - mUnderflowWidth - mIconSpacing);
+        return first - 2;
     }
 
     private void applyIconStates() {

@@ -37,9 +37,14 @@ import com.android.systemui.res.R
 import com.android.systemui.statusbar.layout.StatusBarContentInsetsChangedListener
 import com.android.systemui.statusbar.layout.StatusBarContentInsetsProvider
 import com.android.systemui.statusbar.window.StatusBarWindowController
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.privacy.TallyIndicatorArea
+import com.android.systemui.tally.privacy.TallyPrivacyChipBinder
 import com.android.systemui.util.animation.AnimationUtil.Companion.frames
+import dagger.Lazy
 import javax.inject.Inject
 import kotlin.math.roundToInt
+import org.diamaneos.tally.R as TallyR
 
 /** Controls the view for system event animations. */
 interface SystemEventChipAnimationController : SystemStatusAnimationCallback {
@@ -69,6 +74,7 @@ constructor(
     @DisplayAware private val context: Context,
     @DisplayAware private val statusBarWindowController: StatusBarWindowController?,
     @DisplayAware private val contentInsetsProvider: StatusBarContentInsetsProvider,
+    private val tallyIndicatorArea: Lazy<TallyIndicatorArea>? = null,
 ) : SystemEventChipAnimationController {
 
     private lateinit var animationWindowView: FrameLayout
@@ -92,8 +98,23 @@ constructor(
     private var chipMinWidth =
         context.resources.getDimensionPixelSize(R.dimen.ongoing_appops_chip_min_animation_width)
 
+    // Tally's privacy dot is larger than stock's; the chip shrinks into it.
     private val dotSize =
-        context.resources.getDimensionPixelSize(R.dimen.ongoing_appops_dot_diameter)
+        context.resources.getDimensionPixelSize(
+            if (TallyShell.isEnabled) {
+                TallyR.dimen.tally_privacy_dot_size
+            } else {
+                R.dimen.ongoing_appops_dot_diameter
+            }
+        )
+
+    /**
+     * Tally: how far past the status bar content the chips end. They end where the privacy dot's
+     * outer edge is, 16 dp from the display's edge as in the prototype, so the privacy chip shrinks
+     * into the dot where it stands. Stock chips end with the content and then move onto the dot.
+     */
+    @VisibleForTesting val chipEndShift = if (TallyShell.isEnabled) dotSize else 0
+
     // Use during animation so that multiple animators can update the drawing rect
     private var animRect = Rect()
 
@@ -110,10 +131,16 @@ constructor(
         val insets = contentInsetsProvider.getStatusBarContentInsetsForCurrentRotation()
         currentAnimatedView =
             viewCreator(themedContext).also {
+                if (TallyShell.isEnabled) {
+                    tallyIndicatorArea?.let { area ->
+                        TallyPrivacyChipBinder.bind(it.view, area.get())
+                    }
+                }
                 animationWindowView.addView(
                     it.view,
                     layoutParamsDefault(
-                        if (animationWindowView.isLayoutRtl) insets.left else insets.right
+                        (if (animationWindowView.isLayoutRtl) insets.left else insets.right) -
+                            chipEndShift
                     ),
                 )
                 it.view.alpha = 0f
@@ -218,7 +245,14 @@ constructor(
                 addUpdateListener { updateAnimatedViewBoundsWidth(animatedValue as Int) }
             }
 
-        val keyFrame1Height = dotSize * 2
+        // Tally: twice Tally's 16 dp dot is taller than the chip, so the keyframe is at most the
+        // chip's own height and the chip never stretches on its way into the dot.
+        val keyFrame1Height =
+            if (TallyShell.isEnabled) {
+                minOf(dotSize * 2, chipBounds.height())
+            } else {
+                dotSize * 2
+            }
         val chipVerticalCenter = chipBounds.top + chipBounds.height() / 2
         val height1 =
             ValueAnimator.ofInt(chipBounds.height(), keyFrame1Height).apply {
@@ -242,8 +276,9 @@ constructor(
 
         // Move the chip view to overlap exactly with the privacy dot. The chip displays by default
         // exactly adjacent to the dot, so we can just move over by the diameter of the dot itself
+        // (Tally's chip already ends where the dot does, so it does not move)
         val moveOut =
-            ValueAnimator.ofInt(0, dotSize).apply {
+            ValueAnimator.ofInt(0, dotSize - chipEndShift).apply {
                 startDelay = 3.frames
                 duration = 11.frames
                 interpolator = STATUS_CHIP_MOVE_TO_DOT
@@ -366,12 +401,12 @@ constructor(
 
         when (animationDirection) {
             LEFT -> {
-                chipRight = contentArea.right
-                chipLeft = contentArea.right - chip.chipWidth
+                chipRight = contentArea.right + chipEndShift
+                chipLeft = contentArea.right + chipEndShift - chip.chipWidth
             }
             else /* RIGHT */ -> {
-                chipLeft = contentArea.left
-                chipRight = contentArea.left + chip.chipWidth
+                chipLeft = contentArea.left - chipEndShift
+                chipRight = contentArea.left - chipEndShift + chip.chipWidth
             }
         }
         chipBounds = Rect(chipLeft, chipTop, chipRight, chipBottom)

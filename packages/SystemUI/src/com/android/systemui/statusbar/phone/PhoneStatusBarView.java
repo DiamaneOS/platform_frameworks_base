@@ -43,6 +43,7 @@ import com.android.systemui.Gefingerpoken;
 import com.android.systemui.res.R;
 import com.android.systemui.statusbar.gesture.StatusBarLongPressGestureDetector;
 import com.android.systemui.statusbar.phone.userswitcher.StatusBarUserSwitcherContainer;
+import com.android.systemui.tally.TallyShell;
 import com.android.systemui.user.ui.binder.StatusBarUserChipViewBinder;
 import com.android.systemui.user.ui.viewmodel.StatusBarUserChipViewModel;
 import com.android.systemui.util.leak.RotationUtils;
@@ -56,6 +57,11 @@ public class PhoneStatusBarView extends FrameLayout {
     private int mRotationOrientation = -1;
     @Nullable
     private View mCutoutSpace;
+    @Nullable
+    private View mTallyStartSide;
+    @Nullable
+    private View mTallyEndSide;
+    private int mTallyCutoutSpaceLeft = -1;
     @Nullable
     private DisplayCutout mDisplayCutout;
     @Nullable
@@ -106,6 +112,16 @@ public class PhoneStatusBarView extends FrameLayout {
         updateSafeInsets();
     }
 
+    /**
+     * With Tally, applies the content insets again (as padding) when they changed without a change
+     * updateDisplayParameters() tracks: with the privacy dot's room at the end, a new layout
+     * direction moves it to the other side. The sides are placed again as the view measures.
+     */
+    void tallyReapplyInsets() {
+        updateSafeInsets();
+        requestLayout();
+    }
+
     void init(StatusBarUserChipViewModel viewModel) {
         StatusBarUserSwitcherContainer container = findViewById(R.id.user_switcher_container);
         StatusBarUserChipViewBinder.bind(container, viewModel);
@@ -121,6 +137,10 @@ public class PhoneStatusBarView extends FrameLayout {
     public void onFinishInflate() {
         super.onFinishInflate();
         mCutoutSpace = findViewById(R.id.cutout_space_view);
+        if (TallyShell.isEnabled()) {
+            mTallyStartSide = findViewById(R.id.status_bar_start_side_container);
+            mTallyEndSide = findViewById(R.id.status_bar_end_side_container);
+        }
 
         updateResources();
     }
@@ -168,6 +188,14 @@ public class PhoneStatusBarView extends FrameLayout {
             requestLayout();
         }
         return super.onApplyWindowInsets(insets);
+    }
+
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        if (TallyShell.isEnabled()) {
+            tallyPlaceSides();
+        }
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
     }
 
     /**
@@ -368,6 +396,52 @@ public class PhoneStatusBarView extends FrameLayout {
         bounds.right = bounds.right - mCutoutSideNudge;
         lp.width = bounds.width();
         lp.height = bounds.height();
+        if (TallyShell.isEnabled()) {
+            mTallyCutoutSpaceLeft = bounds.left;
+        }
+    }
+
+    /**
+     * Tally's privacy dot needs more room at the end of the status bar than the rounded corner
+     * needs at the start, so the content is off the display's centre, and stock's even split
+     * between the two sides would leave the cutout space off the cutout. With Tally the side left
+     * of the cutout (the start side, or the end side in RTL) is sized to end where the space
+     * starts, at the cutout, and the side right of it keeps its weight and takes the rest: the
+     * start side keeps stock's room and the end side starts at the cutout's edge, as in stock.
+     * Without the space, the sides share the content evenly, as in stock. This runs as the view
+     * measures, once the layout direction and the padding (the insets) are settled.
+     */
+    private void tallyPlaceSides() {
+        if (mCutoutSpace == null || mTallyStartSide == null || mTallyEndSide == null) {
+            return;
+        }
+        boolean changed;
+        if (mCutoutSpace.getVisibility() == View.VISIBLE && mTallyCutoutSpaceLeft >= 0) {
+            boolean rtl = getLayoutDirection() == View.LAYOUT_DIRECTION_RTL;
+            // status_bar_contents starts after this view's padding and its own.
+            int contentLeft = getPaddingLeft() + getResources().getDimensionPixelSize(
+                    rtl ? R.dimen.status_bar_padding_end : R.dimen.status_bar_padding_start);
+            int leftWidth = Math.max(0, mTallyCutoutSpaceLeft - contentLeft);
+            changed = tallySetSide(rtl ? mTallyEndSide : mTallyStartSide, leftWidth, 0f)
+                    | tallySetSide(rtl ? mTallyStartSide : mTallyEndSide, 0, 1f);
+        } else {
+            changed = tallySetSide(mTallyStartSide, 0, 1f) | tallySetSide(mTallyEndSide, 0, 1f);
+        }
+        if (changed) {
+            // status_bar_contents sizes the sides: it must measure again, even at the same size.
+            ((View) mTallyStartSide.getParent()).forceLayout();
+        }
+    }
+
+    /** Sets a side's width and weight (stock's are 0 and 1); returns whether they changed. */
+    private static boolean tallySetSide(View side, int width, float weight) {
+        LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) side.getLayoutParams();
+        if (lp.width == width && lp.weight == weight) {
+            return false;
+        }
+        lp.width = width;
+        lp.weight = weight;
+        return true;
     }
 
     private void updateSafeInsets() {

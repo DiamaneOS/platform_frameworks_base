@@ -28,8 +28,10 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.dimensionResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.android.systemui.res.R
 import com.android.systemui.statusbar.chips.ui.model.ColorsModel
@@ -48,11 +50,14 @@ fun ChipContent(
     icon: OngoingActivityChipModel.ChipIcon?,
     colors: ColorsModel,
     modifier: Modifier = Modifier,
+    tallyTextStyle: TextStyle? = null,
+    tallyTextEndPadding: Dp = 0.dp,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
     val locale: Locale? = LocalConfiguration.current.locales[0]
-    val textStyle = MaterialTheme.typography.labelLargeEmphasized
+    // Tally: the capture chips take Tally's capture chip type.
+    val textStyle = tallyTextStyle ?: MaterialTheme.typography.labelLargeEmphasized
     val textColor = Color(colors.text(context))
     val maxTextWidth = dimensionResource(id = R.dimen.ongoing_activity_chip_max_text_width)
     val startPadding =
@@ -70,7 +75,8 @@ fun ChipContent(
                 id = R.dimen.ongoing_activity_chip_text_end_padding_for_embedded_padding_icon
             )
         } else {
-            0.dp
+            // Tally: a capture chip's end padding past its side padding, likewise.
+            tallyTextEndPadding
         }
     val textMeasurer = rememberTextMeasurer()
     when (viewModel) {
