@@ -63,10 +63,11 @@ import org.diamaneos.tally.R as TallyR
 
 /**
  * Whether the status bar area under the chips in the status bar is dark, provided around them by
- * [ProvideTallyStatusBarArea]. Where nothing provides it, the area counts as dark: the `_dark`
- * variant with its black edge keeps 3:1 over any colour.
+ * [ProvideTallyStatusBarArea], or null where nothing provides it (the desktop and ambient status
+ * bars). A chip over an unknown area takes the `_light` variant, which keeps 3:1 against both white
+ * and black by itself.
  */
-val LocalTallyStatusBarAreaDark = staticCompositionLocalOf { true }
+val LocalTallyStatusBarAreaDark = staticCompositionLocalOf<Boolean?> { null }
 
 /** Provides [LocalTallyStatusBarAreaDark] from [area] to [content] while Tally is on. */
 @Composable
