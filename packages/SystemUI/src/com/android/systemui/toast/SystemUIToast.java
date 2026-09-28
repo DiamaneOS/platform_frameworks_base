@@ -42,6 +42,7 @@ import android.widget.TextView;
 
 import com.android.internal.R;
 import com.android.systemui.plugins.ToastPlugin;
+import com.android.systemui.tally.TallyShell;
 
 /**
  * SystemUI TextToast that can be customized by ToastPlugins. Should never instantiate this class
@@ -172,7 +173,9 @@ public class SystemUIToast implements ToastPlugin.Toast {
         }
 
         final View toastView = mLayoutInflater.inflate(
-                    com.android.systemui.res.R.layout.text_toast, null);
+                    TallyShell.isEnabled()
+                            ? TallyToast.LAYOUT
+                            : com.android.systemui.res.R.layout.text_toast, null);
         final TextView textView = toastView.findViewById(com.android.systemui.res.R.id.text);
         final ImageView iconView = toastView.findViewById(com.android.systemui.res.R.id.icon);
         textView.setText(mText);
@@ -232,6 +235,9 @@ public class SystemUIToast implements ToastPlugin.Toast {
         if (isPluginToast() && mPluginToast.getInAnimation() != null) {
             return mPluginToast.getInAnimation();
         }
+        if (TallyShell.isEnabled()) {
+            return TallyToast.inAnimation(getView());
+        }
 
         return ToastDefaultAnimation.Companion.toastIn(getView());
     }
@@ -239,6 +245,9 @@ public class SystemUIToast implements ToastPlugin.Toast {
     private Animator createOutAnimator() {
         if (isPluginToast() && mPluginToast.getOutAnimation() != null) {
             return mPluginToast.getOutAnimation();
+        }
+        if (TallyShell.isEnabled()) {
+            return TallyToast.outAnimation(getView());
         }
         return ToastDefaultAnimation.Companion.toastOut(getView());
     }
