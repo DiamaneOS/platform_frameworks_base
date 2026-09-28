@@ -22,15 +22,22 @@ import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.drawable.Drawable
 import android.view.View
+import com.android.systemui.tally.lamp.TallyLampColors
+import com.android.systemui.tally.lamp.TallyLampDrawable
+import com.android.systemui.tally.lamp.TallyLampState
 import kotlin.math.roundToInt
+import org.diamaneos.tally.R as TallyR
 
 /**
  * Draws the lens ring (camera in use) and the location lamp by the lens ([TallyLensGeometry]), in
- * the sensor colours for the area under them. Each one appears at once and, when its sensor is no
- * longer in use, fades out on the prototype's fill spring ([TallyFillSpringFade]); [onIdle] is
- * called once neither is in use and both have faded.
+ * the sensor colours for the area under them. Each one appears at once. When its sensor is no
+ * longer in use, the ring fades out on the prototype's fill spring ([TallyFillSpringFade]) and the
+ * lamp, the shared Tally lamp, goes out as every lamp does, on the same spring; [onIdle] is called
+ * once neither is in use and both are out.
  */
 @SuppressLint("ViewConstructor")
 class TallyLensIndicatorView(context: Context, private val onIdle: () -> Unit) : View(context) {
@@ -40,16 +47,37 @@ class TallyLensIndicatorView(context: Context, private val onIdle: () -> Unit) :
     private var colors: TallyIndicatorColors? = null
     private val fadeOut = TallyFillSpringFade.from(resources)
 
-    private val ring = Lamp()
-    private val lamp = Lamp()
+    /** The lens ring's opacity. */
+    private val ring = Light()
+
+    /** The location lamp by the lens: lit at once, as a privacy lamp, and going out on its own. */
+    private val lamp =
+        TallyLampDrawable(context).also {
+            it.instantAppear = true
+            it.callback = this
+        }
+
+    /** Keeps the window while the lamp goes out: the same spring, so both are done together. */
+    private val lampOut = Light()
 
     init {
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
     }
 
-    /** Sets where the ring and the lamp are drawn. */
+    /**
+     * Sets where the ring and the lamp are drawn. The lamp is 8 dp lit, with its lit edge
+     * (`tally_stroke_lit_edge`, 1.5 dp, the lens lamp's edge) just outside that.
+     */
     fun setGeometry(geometry: TallyLensGeometry) {
         this.geometry = geometry
+        lamp.reloadResources(resources)
+        val litEdge = resources.getDimension(TallyR.dimen.tally_stroke_lit_edge)
+        lamp.setLampSizePx((2 * geometry.lampRadius + litEdge).roundToInt())
+        val width = lamp.intrinsicWidth
+        val height = lamp.intrinsicHeight
+        val left = (geometry.lampX - width / 2f).roundToInt()
+        val top = (geometry.lampY - height / 2f).roundToInt()
+        lamp.setBounds(left, top, left + width, top + height)
         invalidate()
     }
 
@@ -57,18 +85,23 @@ class TallyLensIndicatorView(context: Context, private val onIdle: () -> Unit) :
     fun setColors(colors: TallyIndicatorColors) {
         if (this.colors == colors) return
         this.colors = colors
+        // One colour lit, edged with the indicators' edge; nothing is drawn once it is out.
+        lamp.colors =
+            TallyLampColors.plain(colors.fill, sensor = true)
+                .copy(litEdge = colors.edge, off = Color.TRANSPARENT)
         invalidate()
     }
 
     /** Lights the ring while the camera is in use and the lamp while location is in use. */
     fun setInUse(camera: Boolean, location: Boolean) {
         ring.setOn(camera)
-        lamp.setOn(location)
+        lampOut.setOn(location)
+        lamp.setState(if (location) TallyLampState.ON else TallyLampState.OFF)
     }
 
-    /** Whether the ring or the lamp is lit or still fading out. */
+    /** Whether the ring or the lamp is lit or still going out. */
     val isShowing: Boolean
-        get() = ring.isVisible || lamp.isVisible
+        get() = ring.isVisible || lampOut.isVisible
 
     override fun onDraw(canvas: Canvas) {
         val g = geometry ?: return
@@ -83,20 +116,21 @@ class TallyLensIndicatorView(context: Context, private val onIdle: () -> Unit) :
                 canvas.drawPath(ringBand, paint)
             }
         }
-        if (g.hasLamp) {
-            drawFaded(canvas, lamp.alpha) {
-                paint.color = c.edge
-                canvas.drawCircle(g.lampX, g.lampY, g.lampEdgeRadius, paint)
-                paint.color = c.fill
-                canvas.drawCircle(g.lampX, g.lampY, g.lampRadius, paint)
-            }
-        }
+        if (g.hasLamp) lamp.draw(canvas)
+    }
+
+    override fun verifyDrawable(who: Drawable): Boolean = who === lamp || super.verifyDrawable(who)
+
+    override fun onVisibilityAggregated(isVisible: Boolean) {
+        super.onVisibilityAggregated(isVisible)
+        lamp.setVisible(isVisible, false)
     }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         ring.endFade()
-        lamp.endFade()
+        lampOut.endFade()
+        lamp.jumpToCurrentState()
     }
 
     /** Draws [draw] at [alpha], through a layer while it fades so its parts do not show through. */
@@ -116,8 +150,8 @@ class TallyLensIndicatorView(context: Context, private val onIdle: () -> Unit) :
         if (!isShowing) onIdle()
     }
 
-    /** One of the two lights: on at once, off with a fade on the fill spring. */
-    private inner class Lamp {
+    /** A light's visibility: on at once, out with a fade on the fill spring. */
+    private inner class Light {
         var alpha = 0f
             private set
 
