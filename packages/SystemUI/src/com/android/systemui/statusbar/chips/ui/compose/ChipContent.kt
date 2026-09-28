@@ -31,6 +31,7 @@ import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.android.systemui.res.R
 import com.android.systemui.statusbar.chips.ui.model.ColorsModel
@@ -50,6 +51,7 @@ fun ChipContent(
     colors: ColorsModel,
     modifier: Modifier = Modifier,
     tallyTextStyle: TextStyle? = null,
+    tallyTextEndPadding: Dp = 0.dp,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -73,7 +75,8 @@ fun ChipContent(
                 id = R.dimen.ongoing_activity_chip_text_end_padding_for_embedded_padding_icon
             )
         } else {
-            0.dp
+            // Tally: a capture chip's end padding past its side padding, likewise.
+            tallyTextEndPadding
         }
     val textMeasurer = rememberTextMeasurer()
     when (viewModel) {
