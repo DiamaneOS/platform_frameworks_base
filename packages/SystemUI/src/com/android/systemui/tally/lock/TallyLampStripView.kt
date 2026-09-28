@@ -306,7 +306,8 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
                 when (kind) {
                     TallyStripItem.Kind.ALARM -> item.alarmTime
                     TallyStripItem.Kind.BATTERY ->
-                        NumberFormat.getPercentInstance().format(item.batteryLevel / 100.0)
+                        if (!item.showBatteryPercent) null
+                        else NumberFormat.getPercentInstance().format(item.batteryLevel / 100.0)
                     else -> null
                 }
             wordsView.text = words
