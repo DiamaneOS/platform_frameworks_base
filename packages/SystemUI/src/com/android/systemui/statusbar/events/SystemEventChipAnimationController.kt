@@ -37,7 +37,11 @@ import com.android.systemui.res.R
 import com.android.systemui.statusbar.layout.StatusBarContentInsetsChangedListener
 import com.android.systemui.statusbar.layout.StatusBarContentInsetsProvider
 import com.android.systemui.statusbar.window.StatusBarWindowController
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.privacy.TallyIndicatorArea
+import com.android.systemui.tally.privacy.TallyPrivacyChipBinder
 import com.android.systemui.util.animation.AnimationUtil.Companion.frames
+import dagger.Lazy
 import javax.inject.Inject
 import kotlin.math.roundToInt
 
@@ -69,6 +73,7 @@ constructor(
     @DisplayAware private val context: Context,
     @DisplayAware private val statusBarWindowController: StatusBarWindowController?,
     @DisplayAware private val contentInsetsProvider: StatusBarContentInsetsProvider,
+    private val tallyIndicatorArea: Lazy<TallyIndicatorArea>? = null,
 ) : SystemEventChipAnimationController {
 
     private lateinit var animationWindowView: FrameLayout
@@ -110,6 +115,11 @@ constructor(
         val insets = contentInsetsProvider.getStatusBarContentInsetsForCurrentRotation()
         currentAnimatedView =
             viewCreator(themedContext).also {
+                if (TallyShell.isEnabled) {
+                    tallyIndicatorArea?.let { area ->
+                        TallyPrivacyChipBinder.bind(it.view, area.get())
+                    }
+                }
                 animationWindowView.addView(
                     it.view,
                     layoutParamsDefault(
