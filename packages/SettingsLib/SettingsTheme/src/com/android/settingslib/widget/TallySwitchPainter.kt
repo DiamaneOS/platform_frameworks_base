@@ -36,7 +36,7 @@ import android.graphics.RectF
  * Right to left, the switch is mirrored: the thumb is on at the left and the lamp wipes in from the
  * right. Nothing is allocated per frame.
  */
-internal class TallySwitchPainter {
+class TallySwitchPainter {
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val rect = RectF()
