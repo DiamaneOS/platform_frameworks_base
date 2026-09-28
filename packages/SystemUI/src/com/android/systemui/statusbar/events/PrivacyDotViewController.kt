@@ -651,20 +651,18 @@ constructor(
     }
 
     /**
-     * Tally: the dot is a 16 dp live lamp on a backing, in the colours for the area under it: the
-     * sensor colours whatever the sensors (location only included), the capture colours for screen
-     * capture alone.
+     * Tally: the dot is the shared live lamp on a 16 dp backing, in the colours for the area under
+     * it: the sensor colours whatever the sensors (location only included), the capture colours for
+     * screen capture alone. A dot made for another density is made again.
      */
     @UiThread
     private fun updateTallyDot(corner: View, state: ViewState) {
         val dotView = corner.findViewById<ImageView>(R.id.privacy_dot) ?: return
-        val drawable =
-            dotView.drawable as? TallyPrivacyDotDrawable
-                ?: TallyPrivacyDotDrawable(
-                        dotView.resources.getDimensionPixelSize(TallyR.dimen.tally_privacy_dot_size)
-                    )
-                    .also { dotView.setImageDrawable(it) }
         val context = dotView.context
+        val sizePx = dotView.resources.getDimensionPixelSize(TallyR.dimen.tally_privacy_dot_size)
+        val drawable =
+            (dotView.drawable as? TallyPrivacyDotDrawable)?.takeIf { it.dotSizePx == sizePx }
+                ?: TallyPrivacyDotDrawable(context, sizePx).also { dotView.setImageDrawable(it) }
         drawable.setColors(
             if (state.tallyCaptureOnly) {
                 TallyIndicatorColors.capture(context, state.tallyAreaDark)
