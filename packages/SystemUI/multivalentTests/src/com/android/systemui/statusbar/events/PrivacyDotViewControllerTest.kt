@@ -55,8 +55,10 @@ import com.android.systemui.statusbar.layout.StatusBarContentInsetsProvider
 import com.android.systemui.statusbar.policy.FakeConfigurationController
 import com.android.systemui.statusbar.quickactions.av.domain.interactor.fakeAvControlsChipInteractor
 import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.privacy.TallyIndicatorArea
 import com.android.systemui.testKosmos
 import com.android.systemui.util.concurrency.DelayableExecutor
+import com.android.systemui.util.concurrency.FakeExecutor
 import com.android.systemui.util.leak.RotationUtils.ROTATION_LANDSCAPE
 import com.android.systemui.util.leak.RotationUtils.ROTATION_NONE
 import com.android.systemui.util.leak.RotationUtils.ROTATION_SEASCAPE
@@ -64,8 +66,10 @@ import com.android.systemui.util.leak.RotationUtils.ROTATION_UPSIDE_DOWN
 import com.android.systemui.util.mockito.any
 import com.android.systemui.util.mockito.mock
 import com.android.systemui.util.mockito.whenever
+import com.android.systemui.util.time.FakeSystemClock
 import com.google.common.truth.Truth.assertThat
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -585,7 +589,7 @@ class PrivacyDotViewControllerTest(flags: FlagsParameterization) : SysuiTestCase
         kosmos.runTest {
             assumeTrue(TallyShell.isEnabled)
             val captor = ArgumentCaptor.forClass(SystemStatusAnimationCallback::class.java)
-            val controller: PrivacyDotViewController = createAndInitializeController()
+            val controller = createAndInitializeController()
             Mockito.verify(mockAnimationScheduler).addCallback(captor.capture())
             val callback: SystemStatusAnimationCallback = captor.value
             fakeAvControlsChipInteractor.isShowingAvChip.value = false
@@ -602,15 +606,77 @@ class PrivacyDotViewControllerTest(flags: FlagsParameterization) : SysuiTestCase
 
             // Screen capture alone takes the capture colour.
             callback.onSystemStatusAnimationTransitionToPersistentDot(null, listOf(capture))
-            assertThat(controller.currentViewState.tallyCaptureOnly).isTrue()
+            assertThat(controller.tallyCaptureOnly).isTrue()
 
             // A sensor in use as well wins: the sensor colour.
             callback.onSystemStatusAnimationTransitionToPersistentDot(null, listOf(capture, camera))
-            assertThat(controller.currentViewState.tallyCaptureOnly).isFalse()
+            assertThat(controller.tallyCaptureOnly).isFalse()
 
             // Unknown items keep the sensor colour.
             callback.onSystemStatusAnimationTransitionToPersistentDot(null, null)
-            assertThat(controller.currentViewState.tallyCaptureOnly).isFalse()
+            assertThat(controller.tallyCaptureOnly).isFalse()
+        }
+
+    @Test
+    fun tally_areaFlippingEvery50Ms_doesNotHoldBackTheDot() =
+        kosmos.runTest {
+            assumeTrue(TallyShell.isEnabled)
+            // A delayed executor on a fake clock, so the stock 100 ms wait before a state is
+            // applied really waits.
+            val clock = FakeSystemClock()
+            val uiExecutor = FakeExecutor(clock)
+            // The area under the dot, which apps influence, flipping every 50 ms.
+            val areaDark = MutableStateFlow(true)
+            val area = mock<TallyIndicatorArea>()
+            whenever(area.isOverlayAreaDark).thenReturn(areaDark)
+            val controller =
+                PrivacyDotViewControllerImpl(
+                    executor,
+                    kosmos.backgroundScope,
+                    statusBarStateController,
+                    configurationController,
+                    contentInsetsProvider,
+                    animationScheduler = mockAnimationScheduler,
+                    shadeInteractor = kosmos.shadeInteractor,
+                    avControlsChipInteractor = kosmos.fakeAvControlsChipInteractor,
+                    uiExecutor = uiExecutor,
+                    displayId = DISPLAY_ID,
+                    shadeDisplaysInteractor = { kosmos.shadeDisplaysInteractor },
+                    tallyIndicatorArea = { area },
+                )
+            // Invisible, as privacy_dot_*.xml inflates them.
+            val corners = listOf(topLeftView, topRightView, bottomLeftView, bottomRightView)
+            corners.forEach { it.visibility = View.INVISIBLE }
+            controller.initialize(topLeftView, topRightView, bottomLeftView, bottomRightView)
+            val captor = ArgumentCaptor.forClass(SystemStatusAnimationCallback::class.java)
+            Mockito.verify(mockAnimationScheduler).addCallback(captor.capture())
+            val callback: SystemStatusAnimationCallback = captor.value
+            fakeAvControlsChipInteractor.isShowingAvChip.value = false
+            fun flipAreaFor(millis: Long) {
+                repeat((millis / 50).toInt()) {
+                    areaDark.value = !areaDark.value
+                    clock.advanceTime(50)
+                }
+            }
+            flipAreaFor(200)
+
+            // A sensor comes into use: the dot shows within the stock 100 ms.
+            callback.onSystemStatusAnimationTransitionToPersistentDot(null, null)
+            flipAreaFor(100)
+            assertThat(controller.currentViewState.shouldShowDot()).isTrue()
+            assertThat(topRightView.visibility).isEqualTo(View.VISIBLE)
+
+            // A rotation hides every corner until its state is applied: the dot comes back in its
+            // new corner within the same 100 ms.
+            setRotation(ROTATION_LANDSCAPE)
+            controller.setNewRotation(ROTATION_LANDSCAPE)
+            assertThat(bottomRightView.visibility).isEqualTo(View.INVISIBLE)
+            flipAreaFor(100)
+            assertThat(controller.currentViewState.designatedCorner).isEqualTo(bottomRightView)
+            assertThat(bottomRightView.visibility).isEqualTo(View.VISIBLE)
+
+            // The colour still follows the area.
+            assertThat(controller.tallyAreaDark).isEqualTo(areaDark.value)
         }
 
     private fun setRotation(rotation: Int) {
