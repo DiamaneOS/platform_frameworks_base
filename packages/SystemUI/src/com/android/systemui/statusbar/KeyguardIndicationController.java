@@ -129,6 +129,7 @@ import com.android.systemui.statusbar.phone.KeyguardIndicationTextView;
 import com.android.systemui.statusbar.phone.StatusBarKeyguardViewManager;
 import com.android.systemui.statusbar.policy.KeyguardStateController;
 import com.android.systemui.tally.TallyShell;
+import com.android.systemui.tally.lock.TallySideFpsHintCounter;
 import com.android.systemui.tally.lock.TallyWallTheme;
 import com.android.systemui.user.domain.interactor.UserLogoutInteractor;
 import com.android.systemui.util.AlarmTimeout;
@@ -218,7 +219,7 @@ public class KeyguardIndicationController {
     private CharSequence mBiometricMessageFollowUp;
     private BiometricSourceType mBiometricMessageSource;
     // Tally: the side fingerprint sensor's hint, see maybeShowSideFpsHint.
-    private int mSideFpsHintsShown;
+    private final TallySideFpsHintCounter mSideFpsHintCounter;
     private CharSequence mSideFpsHint;
     private ColorStateList mInitialTextColorState;
     private boolean mVisible;
@@ -345,7 +346,8 @@ public class KeyguardIndicationController {
             DeviceEntryFingerprintAuthInteractor deviceEntryFingerprintAuthInteractor,
             DeviceEntryFaceAuthInteractor deviceEntryFaceAuthInteractor,
             UserLogoutInteractor userLogoutInteractor,
-            Lazy<SecureLockDeviceInteractor> secureLockDeviceInteractor
+            Lazy<SecureLockDeviceInteractor> secureLockDeviceInteractor,
+            TallySideFpsHintCounter sideFpsHintCounter
     ) {
         mContext = context;
         mBroadcastDispatcher = broadcastDispatcher;
@@ -380,6 +382,7 @@ public class KeyguardIndicationController {
         mDeviceEntryFaceAuthInteractor = deviceEntryFaceAuthInteractor;
         mUserLogoutInteractor = userLogoutInteractor;
         mSecureLockDeviceInteractor = secureLockDeviceInteractor;
+        mSideFpsHintCounter = sideFpsHintCounter;
 
         mFaceAcquiredMessageDeferral = faceHelpMessageDeferral.create();
 
@@ -1815,14 +1818,17 @@ public class KeyguardIndicationController {
     }
 
     /**
-     * Tally: on the first few wakes after boot, says for a few seconds where the side fingerprint
-     * sensor is, in stock's words. Only when the fingerprint can unlock the lock screen and
-     * nothing else is being said: in lockdown, when the credential is required (after a restart,
-     * a timeout or an admin lock), after a lockout, while a trust agent keeps the device unlocked
-     * or on a managed device, whose disclosure it would cover, it stays away.
+     * Tally: on a user's first few wakes, counted per user across restarts, says for a few seconds
+     * where the side fingerprint sensor is, in stock's words. Only when the fingerprint can unlock
+     * the lock screen and nothing else is being said: in lockdown, when the credential is required
+     * (after a restart, a timeout or an admin lock), after a lockout, while a trust agent keeps the
+     * device unlocked or on a managed device, whose disclosure it would cover, it stays away.
      */
     private void maybeShowSideFpsHint() {
         final int userId = getCurrentUser();
+        // The count is read in the background, so it is ready by the first wake that may show
+        // the hint; until then the hint stays away.
+        mSideFpsHintCounter.prefetch(userId);
         if (!mVisible
                 || mDozing
                 || mOrganizationOwnedDevice
@@ -1835,11 +1841,11 @@ public class KeyguardIndicationController {
                 || mKeyguardUpdateMonitor.getUserHasTrust(userId)
                 || !TextUtils.isEmpty(mBiometricMessage)
                 || !TextUtils.isEmpty(mTransientIndication)
-                || mSideFpsHintsShown >= mContext.getResources().getInteger(
-                        org.diamaneos.tally.R.integer.tally_fp_hint_wakes)) {
+                || !mSideFpsHintCounter.hasWakesLeft(userId, mContext.getResources().getInteger(
+                        org.diamaneos.tally.R.integer.tally_fp_hint_wakes))) {
             return;
         }
-        mSideFpsHintsShown++;
+        mSideFpsHintCounter.countWake(userId);
         mSideFpsHint = mContext.getString(R.string.fingerprint_dialog_touch_sensor);
         showTransientIndication(mSideFpsHint);
         hideTransientIndicationDelayed(mContext.getResources().getInteger(
