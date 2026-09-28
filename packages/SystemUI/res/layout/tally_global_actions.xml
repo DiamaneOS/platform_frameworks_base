@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ~ Copyright (C) 2026 The DiamaneOS Project
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~      http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License
+  -->
+
+<!-- The Tally power menu (the prototype's .pm): a sheet by the power key (TallyPowerMenuContainer)
+     holding the actions as rows and the small ones as keys (TallyGlobalActionsLayout), in a scroll
+     view so large text never pushes an action off screen. The sheet with the background is a
+     LaunchableView, as the dialog's opening animation from Quick Settings' power key needs. -->
+<com.android.systemui.globalactions.TallyPowerMenuContainer
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/global_actions_container"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:clipChildren="false"
+    android:clipToPadding="false">
+
+    <com.android.systemui.globalactions.TallyGlobalActionsLayout
+        android:id="@id/global_actions_view"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:layout_margin="@dimen/tally_power_menu_margin"
+        android:clipChildren="false"
+        android:clipToPadding="false"
+        android:orientation="vertical">
+
+        <com.android.systemui.animation.view.LaunchableLinearLayout
+            android:id="@+id/tally_power_menu_sheet"
+            android:layout_width="@dimen/tally_power_menu_width"
+            android:layout_height="wrap_content"
+            android:background="@drawable/tally_power_menu_background"
+            android:elevation="@dimen/tally_power_menu_elevation"
+            android:orientation="vertical"
+            android:padding="@dimen/tally_power_menu_padding">
+
+            <ScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:overScrollMode="ifContentScrolls"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:id="@android:id/list"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:divider="@drawable/tally_power_menu_gap"
+                    android:orientation="vertical"
+                    android:showDividers="middle" />
+            </ScrollView>
+        </com.android.systemui.animation.view.LaunchableLinearLayout>
+    </com.android.systemui.globalactions.TallyGlobalActionsLayout>
+</com.android.systemui.globalactions.TallyPowerMenuContainer>

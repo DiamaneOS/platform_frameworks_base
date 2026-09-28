@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ~ Copyright (C) 2026 The DiamaneOS Project
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~      http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License
+  -->
+
+<!-- Sizes and ids only the Tally power menu and toasts use. -->
+<resources>
+    <!-- The power menu's sheet (the prototype's .pm): 240 dp wide, 8 dp from the power key's edge
+         and every other edge, 8 dp inside -->
+    <dimen name="tally_power_menu_width">240dp</dimen>
+    <dimen name="tally_power_menu_margin">8dp</dimen>
+    <dimen name="tally_power_menu_padding">8dp</dimen>
+    <!-- How far the sheet slides out of the power key (the prototype's 260 dp) -->
+    <dimen name="tally_power_menu_travel">260dp</dimen>
+    <!-- The shadow under the sheet: the prototype's one ambient shadow, as elevation -->
+    <dimen name="tally_power_menu_elevation">2dp</dimen>
+    <!-- A row: icon, then its words; 14 dp between them, 6 and 12 dp inside -->
+    <dimen name="tally_power_menu_row_gap">14dp</dimen>
+    <dimen name="tally_power_menu_row_padding_vertical">6dp</dimen>
+    <dimen name="tally_power_menu_row_padding_horizontal">12dp</dimen>
+    <!-- A small key (screenshot, bug report): 64 dp tall, its icon over its word -->
+    <dimen name="tally_power_menu_key_height">64dp</dimen>
+    <dimen name="tally_power_menu_key_gap">2dp</dimen>
+
+    <!-- The toast (the prototype's .toast): 48 dp at least, 12 dp before the icon and 16 dp after
+         the words, 10 dp above and below, a 20 dp icon 10 dp from the words -->
+    <dimen name="tally_toast_min_height">48dp</dimen>
+    <dimen name="tally_toast_padding_start">12dp</dimen>
+    <dimen name="tally_toast_padding_end">16dp</dimen>
+    <dimen name="tally_toast_padding_vertical">10dp</dimen>
+    <dimen name="tally_toast_icon_size">20dp</dimen>
+    <dimen name="tally_toast_gap">10dp</dimen>
+    <!-- The shadow under the toast: the prototype's one ambient shadow, as elevation -->
+    <dimen name="tally_toast_elevation">2dp</dimen>
+
+    <!-- Marks a power menu item drawn as a small key -->
+    <item type="id" name="tally_power_menu_key" />
+    <!-- The spring that slides the power menu's sheet -->
+    <item type="id" name="tally_power_menu_spring" />
+    <!-- A toast's rise, so the fade out can stop it -->
+    <item type="id" name="tally_toast_in" />
+</resources>
