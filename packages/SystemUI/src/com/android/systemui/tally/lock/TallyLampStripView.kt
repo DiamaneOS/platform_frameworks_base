@@ -97,7 +97,7 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
         val available = MeasureSpec.getSize(widthMeasureSpec) - paddingLeft - paddingRight
         val shown = itemViews.values.filter { it.visibility != GONE }
         val alarm = itemViews.getValue(TallyStripItem.Kind.ALARM)
-        val gap = px(ITEM_GAP_DP)
+        val gap = stripItemGapPx(context)
 
         // Everything first, then give way step by step until the row fits.
         shown.forEach {
@@ -164,7 +164,7 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
         else super.drawChild(canvas, child, drawingTime)
 
     override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
-        val gap = px(ITEM_GAP_DP)
+        val gap = stripItemGapPx(context)
         val minRow = px(ROW_MIN_HEIGHT_DP)
         val rtl = layoutDirection == LAYOUT_DIRECTION_RTL
         val inner = r - l - paddingLeft - paddingRight
@@ -377,7 +377,6 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
 
     private companion object {
         /** The prototype's strip (shell.js, app.css): gaps, lamp, icon and row sizes in dp. */
-        const val ITEM_GAP_DP = 18f
         const val LAMP_ICON_GAP_DP = 4f
         const val ICON_DP = 18f
         const val ICON_WORDS_GAP_DP = 5f
@@ -385,3 +384,22 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
         const val DESCRIPTION_SEPARATOR = ", "
     }
 }
+
+/**
+ * The gap between the items of a lock screen strip: 18 dp, and 14 dp from 150 % text, as the
+ * prototype's strip (app.css, .tally.ts-150 .lk-strip).
+ */
+internal fun stripItemGapPx(context: Context): Int {
+    val large = context.resources.configuration.fontScale >= LARGE_TEXT_SCALE
+    val dp = if (large) ITEM_GAP_LARGE_TEXT_DP else ITEM_GAP_DP
+    return TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP,
+            dp,
+            context.resources.displayMetrics,
+        )
+        .roundToInt()
+}
+
+private const val ITEM_GAP_DP = 18f
+private const val ITEM_GAP_LARGE_TEXT_DP = 14f
+private const val LARGE_TEXT_SCALE = 1.5f
