@@ -56,6 +56,7 @@ import com.android.systemui.statusbar.notification.SourceType;
 import com.android.systemui.statusbar.notification.shared.NotificationHeadsUpCycling;
 import com.android.systemui.statusbar.notification.stack.NotificationStackScrollLayout;
 import com.android.systemui.statusbar.notification.stack.StackStateAnimator;
+import com.android.systemui.tally.TallyShell;
 import com.android.systemui.util.DumpUtilsKt;
 
 import java.io.PrintWriter;
@@ -153,7 +154,11 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
     }
 
     protected void updateColors() {
-        if (notificationRowTransparency()) {
+        if (TallyShell.isEnabled()) {
+            // Tally: every notification is an opaque card in the surface colour.
+            mNormalColor = mContext.getColor(org.diamaneos.tally.R.color.tally_surface);
+            mOpaqueColor = mNormalColor;
+        } else if (notificationRowTransparency()) {
             mNormalColor = SurfaceEffectColors.surfaceEffect1(getContext());
             mOpaqueColor = mContext.getColor(
                     com.android.internal.R.color.materialColorSurfaceContainer);
@@ -216,7 +221,9 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
      * be useful in a configuration change.
      */
     protected void initBackground() {
-        mBackgroundNormal.setCustomBackground(R.drawable.notification_material_bg);
+        // Tally: the same background with a hairline around the card.
+        mBackgroundNormal.setCustomBackground(TallyShell.isEnabled()
+                ? R.drawable.tally_notification_bg : R.drawable.notification_material_bg);
         mBackgroundNormal.setBlurBackgroundEnabled(usesBlurredBackground());
     }
 

@@ -44,6 +44,7 @@ import com.android.systemui.Dumpable;
 import com.android.systemui.common.shared.colors.SurfaceEffectColors;
 import com.android.systemui.res.R;
 import com.android.systemui.statusbar.notification.shared.NotificationAddXOnHoverToDismiss;
+import com.android.systemui.tally.TallyShell;
 import com.android.systemui.util.Assert;
 import com.android.systemui.util.DrawableDumpKt;
 
@@ -95,7 +96,9 @@ public class NotificationBackgroundView extends View implements Dumpable,
                 R.color.notification_state_color_light);
         mDarkColoredStatefulColors = getResources().getColorStateList(
                 R.color.notification_state_color_dark);
-        if (notificationRowTransparency()) {
+        if (TallyShell.isEnabled()) {
+            mNormalColor = mContext.getColor(org.diamaneos.tally.R.color.tally_surface);
+        } else if (notificationRowTransparency()) {
             mNormalColor = SurfaceEffectColors.surfaceEffect1(getContext());
         } else  {
             mNormalColor = mContext.getColor(
