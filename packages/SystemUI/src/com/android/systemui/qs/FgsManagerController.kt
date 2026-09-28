@@ -70,6 +70,8 @@ import com.android.systemui.shade.ShadeDisplayAware
 import com.android.systemui.shade.domain.interactor.ShadeDialogContextInteractor
 import com.android.systemui.shared.system.SysUiStatsLog
 import com.android.systemui.statusbar.phone.SystemUIDialog
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.recents.TallyStoppableApp
 import com.android.systemui.util.DeviceConfigProxy
 import com.android.systemui.util.indentIfPossible
 import com.android.systemui.util.time.SystemClock
@@ -333,6 +335,8 @@ constructor(
     private val onDialogDismissedListeners =
         mutableSetOf<FgsManagerController.OnDialogDismissedListener>()
 
+    @GuardedBy("lock") private val onStoppableAppsChangedListeners = mutableSetOf<Runnable>()
+
     override fun addOnNumberOfPackagesChangedListener(
         listener: FgsManagerController.OnNumberOfPackagesChangedListener
     ) {
@@ -371,6 +375,9 @@ constructor(
             onNumberOfPackagesChangedListeners.forEach {
                 backgroundExecutor.execute { it.onNumberOfPackagesChanged(num) }
             }
+        }
+        if (TallyShell.isEnabled) {
+            onStoppableAppsChangedListeners.forEach { backgroundExecutor.execute(it) }
         }
     }
 
@@ -532,6 +539,72 @@ constructor(
             jobScheduler.notePendingUserRequestedAppStop(packageName, userId, "task manager")
         }
         activityManager.stopAppForUser(packageName, userId)
+    }
+
+    // Tally (DiamaneOS): Recents' "Still running · Stop". Recents may offer to stop only the apps
+    // that this dialog lists with a Stop button because they run a foreground service, and it
+    // stops them only through here, as the dialog's Stop button does (tally.recents). These may
+    // run on any worker thread: they read the running apps under [lock] and make their calls to
+    // the system outside it, on a fresh UserPackage each, so the dialog's state is not touched.
+
+    /** Runs [listener] on the background thread whenever [getStoppableApps] may have changed. */
+    fun addOnStoppableAppsChangedListener(listener: Runnable) {
+        synchronized(lock) { onStoppableAppsChangedListeners.add(listener) }
+    }
+
+    /** Removes a listener added with [addOnStoppableAppsChangedListener]. */
+    fun removeOnStoppableAppsChangedListener(listener: Runnable) {
+        synchronized(lock) { onStoppableAppsChangedListeners.remove(listener) }
+    }
+
+    /**
+     * The apps that this dialog lists with a Stop button because they run a foreground service, for
+     * the current user and its profiles. Reads each app's policy again, as the dialog does when it
+     * opens. Empty unless Tally is on.
+     */
+    @WorkerThread
+    fun getStoppableApps(): List<TallyStoppableApp> {
+        if (!TallyShell.isEnabled) return emptyList()
+        val running =
+            synchronized(lock) {
+                runningTaskIdentifiers
+                    .filter { (app, ids) -> ids.hasFgs() && currentProfileIds.contains(app.userId) }
+                    .map { (app, _) -> TallyStoppableApp(app.packageName, app.userId) }
+            }
+        return running.filter { hasStopButtonNow(it.packageName, it.userId) }
+    }
+
+    /**
+     * Stops [packageName] for [userId] as this dialog's Stop button does, but only if it is one of
+     * [getStoppableApps] now. Otherwise, and unless Tally is on, does nothing. Returns whether it
+     * stopped the app.
+     */
+    @WorkerThread
+    fun stopIfStoppable(packageName: String, userId: Int): Boolean {
+        if (!TallyShell.isEnabled) return false
+        val timeStarted =
+            synchronized(lock) {
+                runningTaskIdentifiers[UserPackage(userId, packageName)]
+                    ?.takeIf { it.hasFgs() && currentProfileIds.contains(userId) }
+                    ?.startTime
+            }
+        if (timeStarted == null || !hasStopButtonNow(packageName, userId)) return false
+        stopPackage(userId, packageName, timeStarted)
+        return true
+    }
+
+    /** Whether this dialog would give [packageName] in [userId] a Stop button by its policy now. */
+    @WorkerThread
+    private fun hasStopButtonNow(packageName: String, userId: Int): Boolean {
+        val app = UserPackage(userId, packageName)
+        try {
+            app.updateUiControl()
+        } catch (e: PackageManager.NameNotFoundException) {
+            return false
+        } catch (e: RemoteException) {
+            return false
+        }
+        return app.uiControl == UIControl.NORMAL
     }
 
     private fun onShowUserVisibleJobsFlagChanged() {
