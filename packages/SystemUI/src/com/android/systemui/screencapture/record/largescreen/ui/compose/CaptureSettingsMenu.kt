@@ -49,6 +49,8 @@ import com.android.systemui.screencapture.common.ui.compose.LoadingIcon
 import com.android.systemui.screencapture.common.ui.compose.StyledTooltip
 import com.android.systemui.screencapture.common.ui.compose.loadIcon
 import com.android.systemui.screencapture.record.largescreen.ui.viewmodel.PreCaptureToolbarViewModel
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.switches.TallySwitch
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -180,7 +182,11 @@ private fun SettingsMenuItem(
             }
         },
         trailingIcon = {
-            Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
+            if (TallyShell.isEnabled) {
+                TallySwitch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
+            } else {
+                Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
+            }
         },
         enabled = enabled,
     )

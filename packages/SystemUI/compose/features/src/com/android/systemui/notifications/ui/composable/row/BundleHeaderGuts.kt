@@ -58,6 +58,8 @@ import com.android.internal.R
 import com.android.systemui.initOnBackPressedDispatcherOwner
 import com.android.systemui.lifecycle.repeatWhenAttached
 import com.android.systemui.statusbar.notification.row.ui.viewmodel.BundleHeaderGutsViewModel
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.switches.TallySwitch
 
 fun createBundleHeaderGutsComposeView(context: Context): ComposeView {
     return ComposeView(context).apply {
@@ -149,28 +151,35 @@ private fun ContentRow(viewModel: BundleHeaderGutsViewModel, modifier: Modifier 
             )
         }
 
-        Switch(
-            checked = viewModel.switchState,
-            onCheckedChange = null, // handled at the Row level above
-            thumbContent =
-                if (viewModel.switchState) {
-                    {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = null,
-                            modifier = Modifier.size(SwitchDefaults.IconSize),
-                        )
-                    }
-                } else {
-                    {
-                        Icon(
-                            imageVector = Icons.Default.Close,
-                            contentDescription = null,
-                            modifier = Modifier.size(SwitchDefaults.IconSize),
-                        )
-                    }
-                },
-        )
+        if (TallyShell.isEnabled) {
+            TallySwitch(
+                checked = viewModel.switchState,
+                onCheckedChange = null, // handled at the Row level above
+            )
+        } else {
+            Switch(
+                checked = viewModel.switchState,
+                onCheckedChange = null, // handled at the Row level above
+                thumbContent =
+                    if (viewModel.switchState) {
+                        {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                modifier = Modifier.size(SwitchDefaults.IconSize),
+                            )
+                        }
+                    } else {
+                        {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = null,
+                                modifier = Modifier.size(SwitchDefaults.IconSize),
+                            )
+                        }
+                    },
+            )
+        }
     }
 }
 
