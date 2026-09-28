@@ -44,6 +44,7 @@ import com.android.systemui.util.animation.AnimationUtil.Companion.frames
 import dagger.Lazy
 import javax.inject.Inject
 import kotlin.math.roundToInt
+import org.diamaneos.tally.R as TallyR
 
 /** Controls the view for system event animations. */
 interface SystemEventChipAnimationController : SystemStatusAnimationCallback {
@@ -97,8 +98,15 @@ constructor(
     private var chipMinWidth =
         context.resources.getDimensionPixelSize(R.dimen.ongoing_appops_chip_min_animation_width)
 
+    // Tally's privacy dot is larger than stock's; the chip shrinks into it.
     private val dotSize =
-        context.resources.getDimensionPixelSize(R.dimen.ongoing_appops_dot_diameter)
+        context.resources.getDimensionPixelSize(
+            if (TallyShell.isEnabled) {
+                TallyR.dimen.tally_privacy_dot_size
+            } else {
+                R.dimen.ongoing_appops_dot_diameter
+            }
+        )
     // Use during animation so that multiple animators can update the drawing rect
     private var animRect = Rect()
 
