@@ -20,6 +20,7 @@ import android.content.Context
 import android.icu.text.DateFormat
 import android.icu.text.DisplayContext
 import android.icu.util.TimeZone
+import android.text.TextPaint
 import android.util.DisplayMetrics
 import android.util.TypedValue
 import android.view.View
@@ -54,6 +55,8 @@ import com.android.systemui.plugins.keyguard.ui.clocks.ThemeConfig
 import com.android.systemui.plugins.keyguard.ui.clocks.TimeFormatKind
 import java.io.PrintWriter
 import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.min
 import kotlin.math.roundToInt
 import org.diamaneos.tally.R as TallyR
 
@@ -134,6 +137,7 @@ class TallyClockFaceController(
         DigitalTimeFormatter("h:mm", timeKeeper, enableContentDescription = true)
     private var dateFormat: DateFormat = createDateFormat(Locale.getDefault())
     private var dozeFraction = 0f
+    private val fitPaint = TextPaint()
 
     private val dateView =
         TextView(ctx).apply {
@@ -150,7 +154,7 @@ class TallyClockFaceController(
         }
 
     override val view: LinearLayout =
-        LinearLayout(ctx).apply {
+        FaceView(ctx).apply {
             id =
                 if (isLarge) ClockViewIds.LOCKSCREEN_CLOCK_VIEW_LARGE
                 else ClockViewIds.LOCKSCREEN_CLOCK_VIEW_SMALL
@@ -261,16 +265,23 @@ class TallyClockFaceController(
         }
 
     /**
-     * Text appearances are read again on each call, so the date follows font scale changes. The
-     * time's box is the prototype's line box, one text size tall: the font's own ascent and descent
-     * are taller, so its margins take the difference back. The box starts a little above the date's
-     * bottom, as in the prototype.
+     * Text appearances are read again on each call, so the date follows font scale changes; the
+     * time takes its size on the glass, which [fitTime] may reduce when it measures.
      */
     private fun applySizes() {
         dateView.setTextAppearance(TallyR.style.TextAppearance_Tally_LockDate)
         dateView.setPaddingRelative(dp(DATE_INSET_DP), 0, 0, 0)
         timeView.setTextAppearance(TallyR.style.TextAppearance_Tally_Clock)
-        timeView.setTextSize(TypedValue.COMPLEX_UNIT_PX, glassSizePx(ctx, CLOCK_SIZE_DP))
+        setTimeSize(glassSizePx(ctx, CLOCK_SIZE_DP))
+    }
+
+    /**
+     * The time's size and box. The box is the prototype's line box, one text size tall: the font's
+     * own ascent and descent are taller, so its margins take the difference back. The box starts a
+     * little above the date's bottom, as in the prototype.
+     */
+    private fun setTimeSize(sizePx: Float) {
+        timeView.setTextSize(TypedValue.COMPLEX_UNIT_PX, sizePx)
         val metrics = timeView.paint.fontMetrics
         val halfLeading = (timeView.textSize - (metrics.descent - metrics.ascent)) / 2f
         timeView.layoutParams =
@@ -278,6 +289,35 @@ class TallyClockFaceController(
                 topMargin = (halfLeading - dp(DATE_OVERLAP_DP)).roundToInt()
                 bottomMargin = halfLeading.roundToInt()
             }
+    }
+
+    /**
+     * Shrinks the time, before the face measures, when at its size on the glass it would be wider
+     * than the room the face has: a long time (another numbering system, a wider fallback font)
+     * never runs off the screen. The room is the width the face is measured with, never more than
+     * the screen less the clock's start inset, less the lock screen's side margin.
+     */
+    private fun fitTime(widthMeasureSpec: Int) {
+        val full = glassSizePx(ctx, CLOCK_SIZE_DP)
+        val screen = ctx.resources.displayMetrics.widthPixels - dp(CLOCK_START_DP)
+        val given =
+            if (View.MeasureSpec.getMode(widthMeasureSpec) == View.MeasureSpec.UNSPECIFIED) screen
+            else min(View.MeasureSpec.getSize(widthMeasureSpec), screen)
+        val room = given - dp(SIDE_MARGIN_DP)
+        fitPaint.set(timeView.paint)
+        fitPaint.textSize = full
+        val text = timeView.text
+        val natural = fitPaint.measureText(text, 0, text.length)
+        val size = if (room <= 0 || natural <= room) full else full * room / natural
+        if (abs(timeView.textSize - size) >= SIZE_STEP_PX) setTimeSize(size)
+    }
+
+    /** The face's view: it fits the time to its room each time before it measures. */
+    private inner class FaceView(context: Context) : LinearLayout(context) {
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            fitTime(widthMeasureSpec)
+            super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+        }
     }
 
     private fun dp(value: Float): Int =
@@ -299,6 +339,12 @@ class TallyClockFaceController(
         private const val CLOCK_START_DP = 18f
         private const val DATE_INSET_DP = 6f
         private const val DATE_OVERLAP_DP = 2f
+
+        /** The lock screen's side margin, which the time keeps clear of at its end. */
+        private const val SIDE_MARGIN_DP = 24f
+
+        /** Size changes smaller than this are left alone, so that measuring never loops. */
+        private const val SIZE_STEP_PX = 0.5f
 
         /** [dp] at density 480, scaled by 480 / densityDpi and rounded to 2 dp, in pixels. */
         fun glassSizePx(ctx: Context, dp: Float): Float {
