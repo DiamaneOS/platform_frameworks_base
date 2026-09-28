@@ -85,6 +85,8 @@ data class PropertyData(
     var endedBeforeStartingCleanupHandler: ((Boolean) -> Unit)? = null,
     var startOffset: Float = 0f,
     var doubleOvershootAvoidingListener: DynamicAnimation.OnAnimationUpdateListener? = null,
+    /** Tally: the running spring cannot overshoot (an animation's own; the default one can). */
+    var noOvershootSpring: Boolean = false,
 )
 
 /**
@@ -198,6 +200,9 @@ private fun startAnimation(
     ) {
         propertyData.doubleOvershootAvoidingListener =
             DynamicAnimation.OnAnimationUpdateListener { _, offset: Float, velocity: Float ->
+                // Tally: a spring that cannot overshoot needs no guard, which would end it on its
+                // first frame (it reads a damping ratio of 1 as a spring it has already calmed).
+                if (propertyData.noOvershootSpring) return@OnAnimationUpdateListener
                 val isOscillatingBackwards = velocity.sign == propertyData.startOffset.sign
                 val didAlreadyRemoveBounciness =
                     animator.spring.dampingRatio == SpringForce.DAMPING_RATIO_NO_BOUNCY
@@ -226,6 +231,13 @@ private fun startAnimation(
 
     // reset a new spring as it may have been modified
     val spring = createDefaultSpring().setFinalPosition(0f)
+    if (properties?.hasCustomSpring() == true) {
+        // Tally: the animation's own spring.
+        spring
+            .setStiffness(properties.customSpringStiffness)
+            .setDampingRatio(properties.customSpringDampingRatio)
+    }
+    propertyData.noOvershootSpring = spring.dampingRatio >= SpringForce.DAMPING_RATIO_NO_BOUNCY
     maxOvershoot
         ?.takeIf { it > 0f }
         ?.let {
@@ -246,6 +258,11 @@ private fun startAnimation(
     // cancel previous starters still pending
     view.removeCallbacks(propertyData.delayRunnable)
     animator.setStartValue(startOffset)
+    if (properties?.hasCustomSpring() == true && !animator.isRunning) {
+        // Tally: a push, so that a view at rest moves on its first frame.
+        val push = properties.customSpringImpulse * sqrt(spring.stiffness)
+        animator.setStartVelocity(-push * startOffset)
+    }
     val startRunnable = Runnable {
         animator.animateToFinalPosition(0f)
         propertyData.delayRunnable = null

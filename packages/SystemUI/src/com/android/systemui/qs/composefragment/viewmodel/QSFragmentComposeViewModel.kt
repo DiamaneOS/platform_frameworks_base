@@ -72,6 +72,7 @@ import com.android.systemui.shade.transition.LargeScreenShadeInterpolator
 import com.android.systemui.statusbar.StatusBarState
 import com.android.systemui.statusbar.SysuiStatusBarStateController
 import com.android.systemui.statusbar.disableflags.data.repository.DisableFlagsRepository
+import com.android.systemui.tally.TallyShell
 import com.android.systemui.util.LargeScreenUtils
 import com.android.systemui.util.asIndenting
 import com.android.systemui.util.kotlin.emitOnStart
@@ -337,8 +338,10 @@ constructor(
 
     var shouldUpdateSquishinessOnMedia by mutableStateOf(false)
 
+    // Tally's first pull shows keys and the expanded shade tiles with words, so the keys fade out
+    // as the tiles fade in instead of each key growing into its tile.
     val animateTilesExpansion: Boolean
-        get() = inFirstPage && !mediaSuddenlyAppearingInLandscape
+        get() = !TallyShell.isEnabled && inFirstPage && !mediaSuddenlyAppearingInLandscape
 
     val isEditing by
         hydrator.hydratedStateOf(

@@ -92,6 +92,7 @@ import com.android.systemui.surfaceeffects.core.turbulencenoise.TurbulenceNoiseA
 import com.android.systemui.surfaceeffects.view.loadingeffect.LoadingEffectView
 import com.android.systemui.surfaceeffects.view.ripple.MultiRippleView
 import com.android.systemui.surfaceeffects.view.turbulencenoise.TurbulenceNoiseView
+import com.android.systemui.tally.TallyShell
 import com.android.systemui.util.animation.TransitionLayout
 import com.android.systemui.util.concurrency.FakeExecutor
 import com.android.systemui.util.settings.GlobalSettings
@@ -633,6 +634,11 @@ public class MediaControlPanelTest : SysuiTestCase() {
         player.bindPlayer(state1, PACKAGE)
         bgExecutor.runAllReady()
         mainExecutor.runAllReady()
+        if (TallyShell.isEnabled) {
+            // Tally: the media card is a neutral card and never shows the artwork.
+            verify(albumView, times(1)).setImageDrawable(any<Drawable>())
+            return
+        }
         val drawableCaptor = argumentCaptor<Drawable>()
         verify(albumView, times(2)).setImageDrawable(drawableCaptor.capture())
         assertTrue(drawableCaptor.allValues[1] is TransitionDrawable)
@@ -1033,7 +1039,12 @@ public class MediaControlPanelTest : SysuiTestCase() {
         // Validate first binding
         assertThat(actionPlayPause.isEnabled()).isTrue()
         assertThat(actionPlayPause.contentDescription).isEqualTo("play")
-        assertThat(actionPlayPause.getBackground()).isNull()
+        // Tally: the play key is always a tonal key; stock takes the action's (here none).
+        if (TallyShell.isEnabled) {
+            assertThat(actionPlayPause.getBackground()).isNotNull()
+        } else {
+            assertThat(actionPlayPause.getBackground()).isNull()
+        }
         verify(collapsedSet).setVisibility(R.id.actionPlayPause, ConstraintSet.VISIBLE)
         assertThat(actionPlayPause.hasOnClickListeners()).isTrue()
 
@@ -1057,7 +1068,11 @@ public class MediaControlPanelTest : SysuiTestCase() {
 
         // Validate correct state was bound
         assertThat(actionPlayPause.contentDescription).isEqualTo("loading")
-        assertThat(actionPlayPause.getBackground()).isNull()
+        if (TallyShell.isEnabled) {
+            assertThat(actionPlayPause.getBackground()).isNotNull()
+        } else {
+            assertThat(actionPlayPause.getBackground()).isNull()
+        }
         verify(mockAvd0, times(1)).registerAnimationCallback(any<Animatable2.AnimationCallback>())
         verify(mockAvd1, times(1)).registerAnimationCallback(any<Animatable2.AnimationCallback>())
         verify(mockAvd2, times(1)).registerAnimationCallback(any<Animatable2.AnimationCallback>())

@@ -44,6 +44,7 @@ import com.android.systemui.Dumpable;
 import com.android.systemui.common.shared.colors.SurfaceEffectColors;
 import com.android.systemui.res.R;
 import com.android.systemui.statusbar.notification.shared.NotificationAddXOnHoverToDismiss;
+import com.android.systemui.tally.TallyShell;
 import com.android.systemui.util.Assert;
 import com.android.systemui.util.DrawableDumpKt;
 
@@ -86,6 +87,8 @@ public class NotificationBackgroundView extends View implements Dumpable,
 
     // True only if the dismiss button is visible.
     private boolean mDrawDismissButtonCutout = false;
+    // Tally: whether the card has the heads-up's edge (see setTallyHeadsUpEdge).
+    private boolean mTallyHeadsUpEdge;
     private boolean mOnKeyguard = true;
 
     public NotificationBackgroundView(Context context, AttributeSet attrs) {
@@ -95,7 +98,9 @@ public class NotificationBackgroundView extends View implements Dumpable,
                 R.color.notification_state_color_light);
         mDarkColoredStatefulColors = getResources().getColorStateList(
                 R.color.notification_state_color_dark);
-        if (notificationRowTransparency()) {
+        if (TallyShell.isEnabled()) {
+            mNormalColor = mContext.getColor(org.diamaneos.tally.R.color.tally_surface);
+        } else if (notificationRowTransparency()) {
             mNormalColor = SurfaceEffectColors.surfaceEffect1(getContext());
         } else  {
             mNormalColor = mContext.getColor(
@@ -311,6 +316,9 @@ public class NotificationBackgroundView extends View implements Dumpable,
             mBackground.setCallback(this);
             setTint(mTintColor);
         }
+        if (mTallyHeadsUpEdge) {
+            applyTallyEdge();
+        }
         if (mBackground instanceof RippleDrawable) {
             ((RippleDrawable) mBackground).setForceSoftware(true);
         }
@@ -388,6 +396,32 @@ public class NotificationBackgroundView extends View implements Dumpable,
 
     private Drawable getStatefulBackgroundLayer() {
         return ((LayerDrawable) mBackground).getDrawable(1);
+    }
+
+    /**
+     * Tally: draws the card's hairline in the outline colour while the card floats over the screen
+     * as a heads-up, as the prototype's heads-up, and in the outline variant, the card's own,
+     * everywhere else.
+     */
+    public void setTallyHeadsUpEdge(boolean headsUp) {
+        if (mTallyHeadsUpEdge == headsUp) {
+            return;
+        }
+        mTallyHeadsUpEdge = headsUp;
+        applyTallyEdge();
+    }
+
+    private void applyTallyEdge() {
+        if (!(mBackground instanceof LayerDrawable)) {
+            return;
+        }
+        ((GradientDrawable) getBaseBackgroundLayer().mutate()).setStroke(
+                getResources().getDimensionPixelSize(
+                        org.diamaneos.tally.R.dimen.tally_stroke_hairline),
+                mContext.getColor(mTallyHeadsUpEdge
+                        ? org.diamaneos.tally.R.color.tally_outline
+                        : org.diamaneos.tally.R.color.tally_outline_variant));
+        invalidate();
     }
 
     public void setTint(int tintColor) {

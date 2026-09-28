@@ -96,7 +96,12 @@ fun PrivacyChipContainer(
                         Text(
                             text = stringResource(R.string.privacy_chip_container_leading_title),
                             color = Colors.chevronAndText,
-                            style = MaterialTheme.typography.labelMediumEmphasized,
+                            style =
+                                if (TallyPrivacyChipContainerStyle.isEnabled) {
+                                    TallyPrivacyChipContainerStyle.textStyle()
+                                } else {
+                                    MaterialTheme.typography.labelMediumEmphasized
+                                },
                             modifier = Modifier.padding(horizontal = privacyTextExtraPadding),
                         )
                     }
@@ -107,7 +112,14 @@ fun PrivacyChipContainer(
                 }
                 key("chevron") {
                     Icon(
-                        painter = painterResource(R.drawable.ic_chevron_end_round_filed),
+                        painter =
+                            painterResource(
+                                if (TallyPrivacyChipContainerStyle.isEnabled) {
+                                    TallyPrivacyChipContainerStyle.chevron
+                                } else {
+                                    R.drawable.ic_chevron_end_round_filed
+                                }
+                            ),
                         contentDescription = null,
                         tint = Colors.chevronAndText,
                         modifier = Modifier.size(iconSize),
@@ -129,9 +141,23 @@ private object PrivacyChipContainer {
 
     object Colors {
         val container: Color
-            @ReadOnlyComposable @Composable get() = LocalAndroidColorScheme.current.surfaceEffect1
+            @ReadOnlyComposable
+            @Composable
+            get() =
+                if (TallyPrivacyChipContainerStyle.isEnabled) {
+                    TallyPrivacyChipContainerStyle.container
+                } else {
+                    LocalAndroidColorScheme.current.surfaceEffect1
+                }
 
         val chevronAndText: Color
-            @ReadOnlyComposable @Composable get() = MaterialTheme.colorScheme.onSurface
+            @ReadOnlyComposable
+            @Composable
+            get() =
+                if (TallyPrivacyChipContainerStyle.isEnabled) {
+                    TallyPrivacyChipContainerStyle.chevronAndText
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                }
     }
 }

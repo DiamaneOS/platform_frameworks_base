@@ -52,6 +52,8 @@ import com.android.systemui.statusbar.notification.TransformState;
 import com.android.systemui.statusbar.notification.row.ExpandableNotificationRow;
 import com.android.systemui.statusbar.notification.shared.NotificationAddXOnHoverToDismiss;
 import com.android.systemui.statusbar.notification.shared.NotificationXButtonClipFix;
+import com.android.systemui.tally.lamp.TallyLampState;
+import com.android.systemui.tally.shade.TallyLiveCards;
 
 import java.util.Stack;
 
@@ -305,6 +307,17 @@ public class NotificationHeaderViewWrapper extends NotificationViewWrapper imple
     public void setRecentlyAudiblyAlerted(boolean audiblyAlerted) {
         if (mAudiblyAlertedIcon != null) {
             mAudiblyAlertedIcon.setVisibility(audiblyAlerted ? VISIBLE : GONE);
+        }
+    }
+
+    /**
+     * Tally: shows a live lamp after the app's name while the notification is live (an ongoing
+     * event), or takes it away.
+     */
+    public void setTallyLiveLamp(boolean live) {
+        if (mAppNameText != null) {
+            TallyLiveCards.bindLamp(mRow.getContext(), mAppNameText,
+                    live ? TallyLampState.LIVE : null, /* atEnd= */ true);
         }
     }
 

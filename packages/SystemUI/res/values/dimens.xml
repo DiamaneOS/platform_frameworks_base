@@ -334,6 +334,10 @@
 
     <!-- heads up elevation that is added if the view is pinned -->
     <dimen name="heads_up_pinned_elevation">16dp</dimen>
+    <!-- Tally: the prototype's one soft shadow (0 2 8 dp, 12 % black), as elevation -->
+    <dimen xmlns:android="http://schemas.android.com/apk/res/android"
+        name="heads_up_pinned_elevation"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">2dp</dimen>
 
     <!-- Height of a messaging notifications with actions at least. Note that this is an upper bound
          and the notification won't use this much, but is measured with wrap_content -->
@@ -353,6 +357,10 @@
 
     <!-- Radius for notifications corners without adjacent notifications -->
     <dimen name="notification_corner_radius">28dp</dimen>
+    <!-- Tally: each notification is a card with the card radius -->
+    <dimen xmlns:android="http://schemas.android.com/apk/res/android"
+        name="notification_corner_radius"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">@dimen/tally_radius_m</dimen>
 
     <!-- Stroke width for notifications focus state overlay, see id/notification_focus_outline -->
     <dimen name="notification_focus_stroke_width">3dp</dimen>
@@ -362,6 +370,10 @@
 
     <!-- Radius for notifications corners with adjacent notifications -->
     <dimen name="notification_corner_radius_small">4dp</dimen>
+    <!-- Tally: cards next to each other keep their full radius -->
+    <dimen xmlns:android="http://schemas.android.com/apk/res/android"
+        name="notification_corner_radius_small"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">@dimen/tally_radius_m</dimen>
 
     <!-- the padding of the shelf icon container -->
     <dimen name="shelf_icon_container_padding">13dp</dimen>
@@ -773,6 +785,10 @@
 
     <!-- The height of the divider between the individual notifications. -->
     <dimen name="notification_divider_height">2dp</dimen>
+    <!-- Tally: 8 dp between cards, in the shade and on the lock screen -->
+    <dimen xmlns:android="http://schemas.android.com/apk/res/android"
+        name="notification_divider_height"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">@dimen/tally_space_s</dimen>
 
     <!-- The *additional* height of the divider between bundles. -->
     <dimen name="bundle_divider_height">2dp</dimen>
@@ -931,6 +947,13 @@
     <dimen name="battery_level_padding_start">4dp</dimen>
 
     <dimen name="notification_section_header_height">48dp</dimen>
+
+    <!-- The corner radius of the buttons at the end of the notification list -->
+    <dimen name="notif_footer_btn_corner_radius">20dp</dimen>
+    <!-- Tally: keys, not pills -->
+    <dimen xmlns:android="http://schemas.android.com/apk/res/android"
+        name="notif_footer_btn_corner_radius"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">@dimen/tally_radius_s</dimen>
 
     <!-- Largest size an avatar might need to be drawn in the user picker, status bar, or
          quick settings header -->
@@ -1463,6 +1486,10 @@
     <dimen name="control_menu_horizontal_padding">@dimen/notification_side_paddings_single</dimen>
     <dimen name="control_apps_popup_item_height">56dp</dimen>
     <dimen name="control_popup_item_corner_radius">@dimen/notification_corner_radius_small</dimen>
+    <!-- Tally: menu items take the key radius (the small notification radius above is a card's) -->
+    <dimen xmlns:android="http://schemas.android.com/apk/res/android"
+        name="control_popup_item_corner_radius"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">@dimen/tally_radius_s</dimen>
     <dimen name="control_popup_items_divider_height">@dimen/controls_app_divider_height</dimen>
     <dimen name="control_popup_max_width">380dp</dimen>
     <dimen name="control_popup_corner_radius">@dimen/notification_corner_radius</dimen>
