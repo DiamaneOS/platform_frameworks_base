@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -33,6 +34,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -49,6 +52,9 @@ import com.android.systemui.privacy.ui.compose.PrivacyChipContainer.Dimensions.i
 import com.android.systemui.privacy.ui.compose.PrivacyChipContainer.Dimensions.privacyTextExtraPadding
 import com.android.systemui.privacy.ui.compose.PrivacyChipContainer.Dimensions.regularPadding
 import com.android.systemui.res.R
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.privacy.TallySensorChip
+import org.diamaneos.tally.R as TallyR
 
 /**
  * Privacy chip container.
@@ -77,9 +83,15 @@ fun PrivacyChipContainer(
             }
         val hasLocation =
             remember(privacyTypes) { privacyTypes.contains(PrivacyType.TYPE_LOCATION) }
+        // Tally: no pills in the shell's own controls.
+        val shape =
+            if (TallyShell.isEnabled) {
+                RoundedCornerShape(dimensionResource(TallyR.dimen.tally_radius_s))
+            } else {
+                CircleShape
+            }
         Expandable(
-            controller =
-                rememberExpandableController(color = Colors.container, shape = CircleShape),
+            controller = rememberExpandableController(color = Colors.container, shape = shape),
             expandable = expandable,
             defaultMinSize = false,
             useModifierBasedImplementation = true,
@@ -106,9 +118,20 @@ fun PrivacyChipContainer(
                         )
                     }
                 }
-                key("nonLocation") { NonLocationPrivacyChip(nonLocation) }
-                if (hasLocation) {
-                    key("location") { LocationPrivacyChip() }
+                if (TallyShell.isEnabled) {
+                    // Tally: one chip in the sensor colours for the area under it (the container,
+                    // whose text colour tells whether it is dark), with every type in use.
+                    key("tally") {
+                        TallySensorChip(
+                            privacyTypes,
+                            isAreaDark = Colors.chevronAndText.luminance() > 0.5f,
+                        )
+                    }
+                } else {
+                    key("nonLocation") { NonLocationPrivacyChip(nonLocation) }
+                    if (hasLocation) {
+                        key("location") { LocationPrivacyChip() }
+                    }
                 }
                 key("chevron") {
                     Icon(
