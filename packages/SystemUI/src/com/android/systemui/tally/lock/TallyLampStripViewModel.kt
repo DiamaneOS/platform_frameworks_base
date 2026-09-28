@@ -66,6 +66,8 @@ data class TallyStripItem(
     /** The battery level (0 to 100) and charging state, for the battery readout. */
     val batteryLevel: Int = 0,
     val isCharging: Boolean = false,
+    /** Whether the battery readout shows the percentage, as stock's keyguard status bar would. */
+    val showBatteryPercent: Boolean = false,
 ) {
     /** The items in the strip's order: the camera and microphone first. */
     enum class Kind(
@@ -237,8 +239,17 @@ constructor(
             )
         }
 
+    /**
+     * The battery glyph always, as stock's keyguard status bar shows its battery icon, and the
+     * percentage only while charging or when the user's battery percentage setting is on, as
+     * stock's keyguard status bar (BatteryViewModel.ShowPercentWhenChargingOrSetting).
+     */
     private val battery: Flow<TallyStripItem?> =
-        combine(batteryInteractor.level, batteryInteractor.isCharging) { level, charging ->
+        combine(
+            batteryInteractor.level,
+            batteryInteractor.isCharging,
+            batteryInteractor.isBatteryPercentSettingEnabled,
+        ) { level, charging, percentSetting ->
             if (level == null) return@combine null
             val words =
                 if (charging) R.string.accessibility_battery_level_charging
@@ -249,6 +260,7 @@ constructor(
                 listOf(TallyWords(words, level)),
                 batteryLevel = level,
                 isCharging = charging,
+                showBatteryPercent = charging || percentSetting,
             )
         }
 
