@@ -38,6 +38,8 @@ import com.android.systemui.common.ui.view.onApplyWindowInsets
 import com.android.systemui.common.ui.view.updateMargin
 import com.android.systemui.dagger.qualifiers.Application
 import com.android.systemui.res.R
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.volume.TallyVolumePanelMotion
 import com.android.systemui.util.kotlin.awaitCancellationThenDispose
 import com.android.systemui.util.view.listenToComputeInternalInsets
 import com.android.systemui.volume.dialog.captions.ui.viewmodel.VolumeDialogCaptionsButtonViewModel
@@ -80,6 +82,9 @@ constructor(
 ) {
 
     private val isOnLeft: Boolean = context.resources.getBoolean(R.bool.config_volumeDialogOnLeft)
+    private val tallyMotion: TallyVolumePanelMotion? by lazy {
+        if (TallyShell.isEnabled) TallyVolumePanelMotion(context.resources) else null
+    }
     private val halfOpenedOffsetPx: Float =
         context.resources.getDimensionPixelSize(R.dimen.volume_dialog_half_opened_offset).toFloat()
     private val mainSliderVerticalMargin: Int by lazy {
@@ -127,6 +132,7 @@ constructor(
             dialog,
             viewModel.dialogVisibilityModel,
             slideFromLeft = isOnLeft && isVolumeDialogVertical,
+            tallyMotion = if (isVolumeDialogVertical) tallyMotion else null,
         )
 
         viewModel.dialogTitle
@@ -194,19 +200,20 @@ constructor(
         dialog: Dialog,
         visibilityModel: Flow<VolumeDialogVisibilityModel>,
         slideFromLeft: Boolean,
+        tallyMotion: TallyVolumePanelMotion?,
     ) {
-        view.applyAnimationProgress(FRACTION_HIDE, slideFromLeft)
+        view.applyAnimationProgress(FRACTION_HIDE, slideFromLeft, tallyMotion)
         val animationValueHolder = FloatValueHolder(FRACTION_HIDE)
         val animation: SpringAnimation =
             SpringAnimation(animationValueHolder)
                 .setSpring(
                     SpringForce()
-                        .setStiffness(SPRING_STIFFNESS)
-                        .setDampingRatio(SPRING_DAMPING_RATIO)
+                        .setStiffness(tallyMotion?.stiffness ?: SPRING_STIFFNESS)
+                        .setDampingRatio(tallyMotion?.dampingRatio ?: SPRING_DAMPING_RATIO)
                 )
                 .setMinimumVisibleChange(ANIMATION_MINIMUM_VISIBLE_CHANGE)
                 .addUpdateListener { _, value, _ ->
-                    view.applyAnimationProgress(value, slideFromLeft)
+                    view.applyAnimationProgress(value, slideFromLeft, tallyMotion)
                 }
         var junkListener: DynamicAnimation.OnAnimationUpdateListener? = null
 
@@ -219,6 +226,7 @@ constructor(
                         junkListener?.let(animation::removeUpdateListener)
                         junkListener =
                             jankListenerFactory.show(view).also(animation::addUpdateListener)
+                        tallyMotion?.kick(animation, towardsShown = true)
                         animation.suspendAnimate(FRACTION_SHOW)
                     }
 
@@ -227,6 +235,7 @@ constructor(
                         junkListener?.let(animation::removeUpdateListener)
                         junkListener =
                             jankListenerFactory.dismiss(view).also(animation::addUpdateListener)
+                        tallyMotion?.kick(animation, towardsShown = false)
                         animation.suspendAnimate(FRACTION_HIDE)
                         dialog.dismiss()
                     }
@@ -242,8 +251,17 @@ constructor(
     /**
      * @param fraction in range [0, 1]. 0 corresponds to the dialog being hidden and 1 - visible.
      * @param slideFromLeft whether the dialog is on the left edge and slides in from there.
+     * @param tallyMotion Tally's motion for the panel, or null for stock's.
      */
-    private fun View.applyAnimationProgress(fraction: Float, slideFromLeft: Boolean) {
+    private fun View.applyAnimationProgress(
+        fraction: Float,
+        slideFromLeft: Boolean,
+        tallyMotion: TallyVolumePanelMotion?,
+    ) {
+        if (tallyMotion != null) {
+            tallyMotion.apply(this, fraction, slideFromLeft)
+            return
+        }
         alpha = ceil(fraction)
         translationX = lerp(if (slideFromLeft) -width else width, 0, fraction).toFloat()
     }
