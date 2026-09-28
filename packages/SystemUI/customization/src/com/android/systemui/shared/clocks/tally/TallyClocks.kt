@@ -17,11 +17,13 @@
 package com.android.systemui.shared.clocks.tally
 
 import android.content.res.Resources
+import android.util.TypedValue
 import com.android.systemui.customization.R as CustomizationR
 import com.android.systemui.plugins.keyguard.ui.clocks.ClockId
 import com.android.systemui.plugins.keyguard.ui.clocks.ClockMetadata
 import com.android.systemui.plugins.keyguard.ui.clocks.ClockPickerConfig
 import com.android.systemui.shared.clocks.DEFAULT_CLOCK_ID
+import kotlin.math.roundToInt
 import org.diamaneos.systemui.Flags
 
 /**
@@ -48,6 +50,22 @@ object TallyClocks {
      */
     val clocks: List<ClockMetadata>
         get() = if (isEnabled) listOf(ClockMetadata(TALLY_CLOCK_ID)) else emptyList()
+
+    /**
+     * How far below the status bar the Tally clock starts: the prototype's date sits 10 dp under
+     * its 48 dp status bar. Other clocks keep SystemUI's keyguard_clock_top_margin.
+     */
+    const val TOP_MARGIN_DP = 10f
+
+    /** [TOP_MARGIN_DP] in pixels. */
+    @JvmStatic
+    fun topMarginPx(resources: Resources): Int =
+        TypedValue.applyDimension(
+                TypedValue.COMPLEX_UNIT_DIP,
+                TOP_MARGIN_DP,
+                resources.displayMetrics,
+            )
+            .roundToInt()
 
     /** The clock a registry shows when the user never picked one: the Tally clock while on. */
     val fallbackClockId: ClockId
