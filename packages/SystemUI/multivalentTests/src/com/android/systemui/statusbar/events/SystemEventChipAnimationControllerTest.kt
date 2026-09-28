@@ -115,8 +115,10 @@ class SystemEventChipAnimationControllerTest : SysuiTestCase() {
             TestableLooper.get(this).processAllMessages()
             controller.prepareChipAnimation(viewCreator)
 
+            // Tally's chips end where its privacy dot does, past the content area
+            val shift = controller.chipEndShift
             val chipRect = controller.chipBounds
-            assertThat(chipRect).isEqualTo(Rect(890, 30, 990, 80))
+            assertThat(chipRect).isEqualTo(Rect(890 + shift, 30, 990 + shift, 80))
         } finally {
             ViewUtils.detachView(statusbarFake)
         }
@@ -138,8 +140,9 @@ class SystemEventChipAnimationControllerTest : SysuiTestCase() {
                 .thenReturn(landscapeArea)
             getInsetsListener().onStatusBarContentInsetsChanged()
 
+            val shift = controller.chipEndShift
             val chipRect = controller.chipBounds
-            assertThat(chipRect).isEqualTo(Rect(1890, 20, 1990, 70))
+            assertThat(chipRect).isEqualTo(Rect(1890 + shift, 20, 1990 + shift, 70))
         } finally {
             ViewUtils.detachView(statusbarFake)
         }
@@ -200,8 +203,9 @@ class SystemEventChipAnimationControllerTest : SysuiTestCase() {
             controller.prepareChipAnimation(viewCreator)
 
             // THEN it still aligns the chip to the content area provided by the insets provider
+            val shift = controller.chipEndShift
             val chipRect = controller.chipBounds
-            assertThat(chipRect).isEqualTo(Rect(890, 30, 990, 80))
+            assertThat(chipRect).isEqualTo(Rect(890 + shift, 30, 990 + shift, 80))
         } finally {
             ViewUtils.detachView(statusbarFake)
         }
