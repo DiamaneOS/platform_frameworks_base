@@ -334,6 +334,10 @@
 
     <!-- heads up elevation that is added if the view is pinned -->
     <dimen name="heads_up_pinned_elevation">16dp</dimen>
+    <!-- Tally: the prototype's one soft shadow (0 2 8 dp, 12 % black), as elevation -->
+    <dimen xmlns:android="http://schemas.android.com/apk/res/android"
+        name="heads_up_pinned_elevation"
+        android:featureFlag="org.diamaneos.systemui.tally_shell">2dp</dimen>
 
     <!-- Height of a messaging notifications with actions at least. Note that this is an upper bound
          and the notification won't use this much, but is measured with wrap_content -->
