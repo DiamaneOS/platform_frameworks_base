@@ -25,6 +25,7 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import com.android.internal.util.ScreenshotRequest;
 
+import com.android.systemui.shared.recents.IStoppableAppsListener;
 import com.android.systemui.shared.recents.model.Task;
 
 /**
@@ -202,4 +203,25 @@ interface ISystemUiProxy {
     oneway void onOverviewHidden(int displayId) = 62;
 
     // Next id = 63
+
+    // DiamaneOS, Tally shell: Recents' "Still running · Stop". These ids start at 1000, so that
+    // upstream's next ids never collide with them.
+
+    /**
+     * Sets the listener that learns which apps Recents may offer to stop, or removes it (null).
+     * SystemUI tells it the current set at once and again whenever the set changes, only while the
+     * caller is the current user's recents app and only while the Tally shell is on. SystemUI drops
+     * the listener when it lets go of Launcher. Setting the listener again (for example when
+     * Recents opens) makes SystemUI check every app's policy and tell the whole set again.
+     */
+    oneway void setStoppableAppsListener(IStoppableAppsListener listener) = 1000;
+
+    /**
+     * Stops an app for Recents' Stop button, as the Stop button of SystemUI's Active apps dialog
+     * does, and like that dialog only once the lock screen is gone. SystemUI first checks again
+     * that the app is one it would report to the listener above; if not, or while the lock screen
+     * shows, it ignores the call and brings the listener up to date. Does nothing unless the Tally
+     * shell is on.
+     */
+    oneway void stopApp(String packageName, int userId) = 1001;
 }
