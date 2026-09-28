@@ -42,6 +42,8 @@ import com.android.systemui.FontStyles;
 import com.android.systemui.bouncer.shared.constants.PinBouncerConstants.Color;
 import com.android.systemui.bouncer.ui.helper.BouncerHapticPlayer;
 import com.android.systemui.res.R;
+import com.android.systemui.tally.TallyShell;
+import com.android.systemui.tally.lock.TallyBouncerType;
 
 /**
  * Viewgroup for the bouncer numpad button, specifically for digits.
@@ -132,7 +134,11 @@ public class NumPadKey extends ViewGroup implements NumPadAnimationListener, Num
             mAnimator = null;
         }
 
-        if (bouncerUiRevamp2()) {
+        if (TallyShell.isEnabled()) {
+            // Tally: the digits in Sofia Sans at the regular weight; only the typeface changes.
+            mDigitText.setTypeface(TallyBouncerType.typeface(context,
+                    org.diamaneos.tally.R.style.TextAppearance_Tally_Body));
+        } else if (bouncerUiRevamp2()) {
             mDigitText.setTypeface(
                     Typeface.create(FontStyles.GSF_LABEL_SMALL_EMPHASIZED, Typeface.NORMAL));
         }
