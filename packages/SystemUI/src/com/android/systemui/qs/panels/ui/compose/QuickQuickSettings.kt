@@ -35,6 +35,8 @@ import com.android.systemui.qs.panels.ui.viewmodel.BounceableTileViewModel
 import com.android.systemui.qs.panels.ui.viewmodel.QuickQuickSettingsViewModel
 import com.android.systemui.qs.shared.ui.QuickSettings.Elements.toElementKey
 import com.android.systemui.res.R
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.shade.TallyQuickQuickSettings
 
 @Composable
 fun ContentScope.QuickQuickSettings(
@@ -42,6 +44,10 @@ fun ContentScope.QuickQuickSettings(
     modifier: Modifier = Modifier,
     listening: () -> Boolean,
 ) {
+    if (TallyShell.isEnabled) {
+        TallyQuickQuickSettings(viewModel, listening, modifier)
+        return
+    }
     val columns = viewModel.columns
     val sizedTiles = viewModel.tileViewModels
     val tiles = sizedTiles.fastMap { it.tile }
