@@ -61,4 +61,15 @@ enum class TallyLampSize {
                 LARGE -> TallyR.dimen.tally_lamp_box_14
                 XLARGE -> TallyR.dimen.tally_lamp_box_16
             }
+
+    /**
+     * The size a lamp of this size takes at [fontScale], for lamps that grow with the text (tile
+     * lamps): from 200 % text, 12 and 14 dp lamps are drawn at 16 dp, the extra large token.
+     */
+    fun forFontScale(fontScale: Float): TallyLampSize =
+        if (fontScale >= LARGE_TEXT_SCALE && (this == DEFAULT || this == LARGE)) XLARGE else this
+
+    private companion object {
+        const val LARGE_TEXT_SCALE = 2f
+    }
 }
