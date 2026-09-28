@@ -5,10 +5,10 @@
 
   Generated from the Tally token spec (design/tokens/tokens.json in the DiamaneOS design
   repository) by design/tokens/generate.py. Do not edit: change the spec and regenerate.
-  Spec: tokens.json sha256 6b284c5d150020815d22b6758bb41154647ce24453e23005e8f2097c7e401a21
+  Spec: tokens.json sha256 17c7a32318d548ba331e9741c74f8e8a8abc8109d40767e7d8e96216c074721f
 -->
 <resources>
-    <!-- Export settingslib-switch: SettingsLib's SettingsTheme in the frameworks_base fork (packages/SettingsLib/SettingsTheme), roadmap step 3.5: the Tally switch's colours and geometry for the switch drawables there, as literal values, because SettingsLib's modules are built into mainline APEXes and do not link tallytokens; -v34 because the colour roles exist from API 34 -->
+    <!-- Export settingslib-switch: SettingsLib in the frameworks_base fork, roadmap step 3.5: the Tally switch's colours, geometry and motion for SettingsTheme's switch drawables and TallySwitch view (packages/SettingsLib/SettingsTheme), the Compose switch in Spa (packages/SettingsLib/Spa/spa) and the main switch row, as literal values, because SettingsLib's modules are built into mainline APEXes and do not link tallytokens; -v34 because the colour roles exist from API 34 -->
     <!-- from tally_surface_high -->
     <color name="settingslib_tally_surface_high">@android:color/system_surface_container_high_light</color>
     <!-- from tally_outline -->
@@ -39,4 +39,50 @@
     <dimen name="settingslib_tally_switch_thumb_padding">2dp</dimen>
     <!-- tally_switch_height - tally_switch_width / 2 = 6 dp: the track's padding on each side: less the thumb padding, it keeps the thumb one thumb inset from the ends, in Switch, SwitchCompat and MaterialSwitch alike -->
     <dimen name="settingslib_tally_switch_track_padding">6dp</dimen>
+    <!-- from tally_lamp_outline -->
+    <color name="settingslib_tally_lamp_outline">@android:color/system_accent1_700</color>
+    <!-- from tally_radius_s -->
+    <dimen name="settingslib_tally_switch_radius">8dp</dimen>
+    <!-- from tally_stroke_lit_edge -->
+    <dimen name="settingslib_tally_switch_lit_edge">1.5dp</dimen>
+    <!-- tally_radius_s - tally_stroke_lit_edge / 2 = 7.25 dp: the radius of a lit switch's edge line at its centre: lit, the lamp fills the whole switch, over its border, so its outer corners are tally_radius_s, and the lampOutline line runs round its edge -->
+    <dimen name="settingslib_tally_switch_lit_edge_radius">7.25dp</dimen>
+    <!-- tally_stroke_lit_edge / 2 = 0.75 dp: a lit switch's lamp ends under the middle of its edge line, so no lamp shows outside the line at the anti-aliased outer edge; in dark theme the line is the lamp itself (lampOutline is the lamp there), so the lamp reaches the edge -->
+    <dimen name="settingslib_tally_switch_lit_fill_inset">0.75dp</dimen>
+    <!-- tally_radius_s - tally_stroke_lit_edge = 6.5 dp: the edge line's inner corners: a disabled lit switch's lamp stops at the line's inner edge, since both are see-through then and must not overlap -->
+    <dimen name="settingslib_tally_switch_lit_inner_radius">6.5dp</dimen>
+    <!-- from tally_accent -->
+    <color name="settingslib_tally_accent">@android:color/system_primary_light</color>
+    <!-- from tally_focus_ring_width -->
+    <dimen name="settingslib_tally_focus_ring_width">2dp</dimen>
+    <!-- from tally_focus_ring_offset -->
+    <dimen name="settingslib_tally_focus_ring_offset">2dp</dimen>
+    <!-- tally_focus_ring_offset + tally_focus_ring_width = 4 dp: how far the focus ring reaches past the switch: the room a switch that takes keyboard focus itself keeps round it, so no parent clips the ring -->
+    <dimen name="settingslib_tally_focus_ring_reach">4dp</dimen>
+    <!-- from tally_spring_pebble: stiffness and damping ratio -->
+    <item name="settingslib_tally_spring_pebble_stiffness" format="float" type="dimen">1500.0</item>
+    <item name="settingslib_tally_spring_pebble_damping_ratio" format="float" type="dimen">1.0</item>
+    <!-- from tally_spring_fill: stiffness and damping ratio -->
+    <item name="settingslib_tally_spring_fill_stiffness" format="float" type="dimen">1600.0</item>
+    <item name="settingslib_tally_spring_fill_damping_ratio" format="float" type="dimen">1.0</item>
+    <!-- from tally_motion_tap_impulse -->
+    <item name="settingslib_tally_motion_tap_impulse" format="float" type="dimen">0.6</item>
+    <!-- from tally_reduced_motion_fade_ms -->
+    <integer name="settingslib_tally_reduced_motion_fade_ms">120</integer>
+    <!-- from tally_surface -->
+    <color name="settingslib_tally_surface">@android:color/system_neutral1_10</color>
+    <!-- from tally_outline_variant -->
+    <color name="settingslib_tally_outline_variant">@android:color/system_outline_variant_light</color>
+    <!-- from tally_ink -->
+    <color name="settingslib_tally_ink">@android:color/system_on_surface_light</color>
+    <!-- from tally_ink_muted -->
+    <color name="settingslib_tally_ink_muted">@android:color/system_on_surface_variant_light</color>
+    <!-- from tally_radius_m -->
+    <dimen name="settingslib_tally_row_radius">12dp</dimen>
+    <!-- from tally_stroke_hairline -->
+    <dimen name="settingslib_tally_row_hairline">1dp</dimen>
+    <!-- tally_radius_m - tally_stroke_hairline / 2 = 11.5 dp: the radius of the main switch row's hairline at its centre, so the card's outer corners are tally_radius_m, as the prototype's Settings sections -->
+    <dimen name="settingslib_tally_row_border_radius">11.5dp</dimen>
+    <!-- from tally_space_l -->
+    <dimen name="settingslib_tally_row_padding">16dp</dimen>
 </resources>
