@@ -17,7 +17,7 @@
 package com.android.systemui.tally.lamp
 
 import androidx.annotation.DimenRes
-import org.diamaneos.tally.R as TallyR
+import de.diamaneos.tally.R as TallyR
 
 /**
  * The token sizes of a Tally lamp. A lamp may take any size, but these are the ones the shell uses;

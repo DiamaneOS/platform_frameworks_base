@@ -69,11 +69,11 @@ import dagger.Provides
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
+import de.diamaneos.tally.R as TallyR
 import java.util.concurrent.Executor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
-import org.diamaneos.tally.R as TallyR
 
 /**
  * Understands how to keep the persistent privacy dot in the corner of the screen in

@@ -20,8 +20,8 @@ import android.content.res.Resources
 import android.view.View
 import androidx.dynamicanimation.animation.SpringAnimation
 import com.android.systemui.res.R
+import de.diamaneos.tally.R as TallyR
 import kotlin.math.sqrt
-import org.diamaneos.tally.R as TallyR
 
 /**
  * How the Tally volume panel comes and goes (the prototype's `vol.x`): it slides in from its edge

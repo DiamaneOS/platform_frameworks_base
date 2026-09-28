@@ -53,11 +53,11 @@ import com.android.systemui.util.leak.RotationUtils.ROTATION_UPSIDE_DOWN
 import com.android.systemui.util.leak.RotationUtils.Rotation
 import com.android.systemui.util.leak.RotationUtils.getExactRotation
 import com.android.systemui.util.leak.RotationUtils.getResourcesForRotation
+import de.diamaneos.tally.R as TallyR
 import java.io.PrintWriter
 import java.lang.Math.max
 import java.util.concurrent.CopyOnWriteArraySet
 import javax.inject.Inject
-import org.diamaneos.tally.R as TallyR
 
 /**
  * Encapsulates logic that can solve for the left/right insets required for the status bar contents.

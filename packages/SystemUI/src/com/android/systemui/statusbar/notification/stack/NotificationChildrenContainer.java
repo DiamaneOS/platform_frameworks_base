@@ -660,7 +660,7 @@ public class NotificationChildrenContainer extends ViewGroup
         if (TallyShell.isEnabled()) {
             // Tally: dividers inside a card are hairlines in the outline variant.
             divider.setBackgroundColor(
-                    mContext.getColor(org.diamaneos.tally.R.color.tally_outline_variant));
+                    mContext.getColor(de.diamaneos.tally.R.color.tally_outline_variant));
         }
         divider.setAlpha(0f);
         return divider;

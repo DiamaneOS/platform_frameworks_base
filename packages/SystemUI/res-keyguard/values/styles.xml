@@ -27,7 +27,7 @@
     </style>
     <!-- Tally: the same text in Sofia Sans at the regular weight, from the Tally body type -->
     <style name="Keyguard.TextView" parent="@android:style/Widget.DeviceDefault.TextView"
-        android:featureFlag="org.diamaneos.systemui.tally_shell">
+        android:featureFlag="de.diamaneos.systemui.tally_shell">
         <item name="android:textAppearance">@style/TextAppearance.Tally.Body</item>
         <item name="android:textSize">@dimen/kg_status_line_font_size</item>
         <item name="android:textColor">@color/materialColorOnSurface</item>
@@ -61,7 +61,7 @@
     </style>
     <!-- Tally: the prototype's outlined key, in the ink colour and the Tally label type -->
     <style name="Keyguard.TextView.EmergencyButton" parent="Theme.SystemUI"
-        android:featureFlag="org.diamaneos.systemui.tally_shell">
+        android:featureFlag="de.diamaneos.systemui.tally_shell">
         <item name="android:textAppearance">@style/TextAppearance.Tally.Label</item>
         <item name="android:textColor">@color/tally_ink</item>
         <item name="android:background">@drawable/tally_bouncer_outlined_key</item>
@@ -142,7 +142,7 @@
 
     <!-- Tally: the password field is an outlined box with the key radius -->
     <style name="PasswordTheme" parent="Theme.SystemUI"
-        android:featureFlag="org.diamaneos.systemui.tally_shell">
+        android:featureFlag="de.diamaneos.systemui.tally_shell">
         <item name="android:textColor">?android:attr/textColorPrimary</item>
         <item name="android:colorControlNormal">?android:attr/textColorPrimary</item>
         <item name="android:colorControlActivated">?android:attr/textColorPrimary</item>

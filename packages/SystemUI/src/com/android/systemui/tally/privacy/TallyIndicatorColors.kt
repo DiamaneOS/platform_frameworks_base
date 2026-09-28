@@ -23,7 +23,7 @@ import android.util.TypedValue
 import androidx.annotation.ColorInt
 import com.android.systemui.privacy.PrivacyItem
 import com.android.systemui.privacy.PrivacyType
-import org.diamaneos.tally.R as TallyR
+import de.diamaneos.tally.R as TallyR
 
 /**
  * The colours of one Tally privacy indicator over the status bar area: its fill, what is drawn on

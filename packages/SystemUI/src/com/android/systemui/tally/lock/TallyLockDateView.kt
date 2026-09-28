@@ -22,9 +22,9 @@ import android.text.TextUtils
 import android.widget.TextView
 import androidx.core.graphics.ColorUtils
 import com.android.systemui.shared.clocks.tally.TallyClocks
+import de.diamaneos.tally.R as TallyR
 import java.util.Date
 import java.util.Locale
-import org.diamaneos.tally.R as TallyR
 
 /**
  * The date line of the Tally lock screen under a clock that has no date of its own (any clock but

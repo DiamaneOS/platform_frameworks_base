@@ -25,9 +25,9 @@ import com.android.systemui.plugins.keyguard.ui.clocks.ClockId
 import com.android.systemui.plugins.keyguard.ui.clocks.ClockMetadata
 import com.android.systemui.plugins.keyguard.ui.clocks.ClockPickerConfig
 import com.android.systemui.shared.clocks.DEFAULT_CLOCK_ID
+import de.diamaneos.systemui.Flags
 import java.util.Locale
 import kotlin.math.roundToInt
-import org.diamaneos.systemui.Flags
 
 /**
  * The Tally lock clock in the shared clock library. SystemUI and Wallpaper & style (ThemePicker)

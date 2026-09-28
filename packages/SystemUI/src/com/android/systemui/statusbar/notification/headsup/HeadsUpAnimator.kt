@@ -22,7 +22,7 @@ import com.android.systemui.res.R
 import com.android.systemui.statusbar.notification.stack.AnimationProperties
 import com.android.systemui.statusbar.ui.SystemBarUtilsProxy
 import com.android.systemui.tally.TallyShell
-import org.diamaneos.tally.R as TallyR
+import de.diamaneos.tally.R as TallyR
 
 /**
  * A class shared between [StackScrollAlgorithm] and [StackStateAnimator] to ensure all heads up

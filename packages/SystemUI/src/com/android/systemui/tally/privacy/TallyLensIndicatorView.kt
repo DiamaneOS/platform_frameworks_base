@@ -29,8 +29,8 @@ import android.view.View
 import com.android.systemui.tally.lamp.TallyLampColors
 import com.android.systemui.tally.lamp.TallyLampDrawable
 import com.android.systemui.tally.lamp.TallyLampState
+import de.diamaneos.tally.R as TallyR
 import kotlin.math.roundToInt
-import org.diamaneos.tally.R as TallyR
 
 /**
  * Draws the lens ring (camera in use) and the location lamp by the lens ([TallyLensGeometry]), in

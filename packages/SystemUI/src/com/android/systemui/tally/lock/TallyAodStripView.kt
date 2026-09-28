@@ -26,8 +26,8 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.android.systemui.res.R
+import de.diamaneos.tally.R as TallyR
 import kotlin.math.roundToInt
-import org.diamaneos.tally.R as TallyR
 
 /**
  * The always-on display's strip, where the lamp strip is on the lock screen: one row with an icon

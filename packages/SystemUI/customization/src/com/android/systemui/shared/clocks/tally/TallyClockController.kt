@@ -52,12 +52,12 @@ import com.android.systemui.plugins.keyguard.ui.clocks.ClockSettings
 import com.android.systemui.plugins.keyguard.ui.clocks.ClockViewIds
 import com.android.systemui.plugins.keyguard.ui.clocks.ThemeConfig
 import com.android.systemui.plugins.keyguard.ui.clocks.TimeFormatKind
+import de.diamaneos.tally.R as TallyR
 import java.io.PrintWriter
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.roundToInt
-import org.diamaneos.tally.R as TallyR
 
 /**
  * The Tally lock clock: the date (LockDate) above the time (Clock: Sofia Sans at weight 280,

@@ -19,7 +19,7 @@ package com.android.systemui.tally.lock
 import android.content.Context
 import android.graphics.Typeface
 import androidx.annotation.StyleRes
-import org.diamaneos.tally.R as TallyR
+import de.diamaneos.tally.R as TallyR
 
 /**
  * The Tally type for bouncer text whose typeface SystemUI sets in code: the PIN digits and the
