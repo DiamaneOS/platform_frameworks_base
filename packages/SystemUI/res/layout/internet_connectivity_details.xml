@@ -136,6 +136,7 @@
                         </LinearLayout>
 
                         <FrameLayout
+                            android:featureFlag="!org.diamaneos.systemui.tally_shell"
                             android:layout_width="@dimen/tile_details_switch_container_width"
                             android:layout_height="@dimen/tile_details_switch_track_height"
                             android:layout_marginBottom="6dp"
@@ -151,6 +152,24 @@
                                 android:focusable="false"
                                 android:theme="@style/Theme.Material3.DynamicColors.DayNight"
                                 style="@style/SettingslibSwitchStyle.Expressive"
+                                tools:ignore="UseSwitchCompatOrMaterialXml" />
+                        </FrameLayout>
+
+                        <!-- Tally: in place of the switch above while the Tally flag is on. -->
+                        <FrameLayout
+                            android:featureFlag="org.diamaneos.systemui.tally_shell"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content">
+
+                            <com.android.settingslib.widget.TallySwitch
+                                android:id="@+id/mobile_toggle"
+                                android:padding="@dimen/settingslib_tally_focus_ring_reach"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_gravity="center"
+                                android:focusable="false"
+                                android:theme="@style/Theme.Material3.DynamicColors.DayNight"
+                                style="@style/SettingslibSwitchStyle.Tally"
                                 tools:ignore="UseSwitchCompatOrMaterialXml" />
                         </FrameLayout>
 
@@ -247,6 +266,7 @@
                     </LinearLayout>
 
                     <FrameLayout
+                        android:featureFlag="!org.diamaneos.systemui.tally_shell"
                         android:layout_width="@dimen/tile_details_switch_container_width"
                         android:layout_height="@dimen/tile_details_switch_track_height"
                         android:layout_marginTop="6dp"
@@ -262,6 +282,24 @@
                             android:focusable="false"
                             android:theme="@style/Theme.Material3.DynamicColors.DayNight"
                             style="@style/SettingslibSwitchStyle.Expressive"
+                            tools:ignore="UseSwitchCompatOrMaterialXml" />
+                    </FrameLayout>
+
+                    <!-- Tally: in place of the switch above while the Tally flag is on. -->
+                    <FrameLayout
+                        android:featureFlag="org.diamaneos.systemui.tally_shell"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content">
+
+                        <com.android.settingslib.widget.TallySwitch
+                            android:id="@+id/wifi_toggle"
+                            android:padding="@dimen/settingslib_tally_focus_ring_reach"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="center"
+                            android:focusable="false"
+                            android:theme="@style/Theme.Material3.DynamicColors.DayNight"
+                            style="@style/SettingslibSwitchStyle.Tally"
                             tools:ignore="UseSwitchCompatOrMaterialXml" />
                     </FrameLayout>
                 </LinearLayout>

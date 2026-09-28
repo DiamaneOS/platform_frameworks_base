@@ -80,6 +80,7 @@
                     android:textAppearance="@style/TextAppearance.TileDetailsEntryTitle" />
 
                 <com.google.android.material.materialswitch.MaterialSwitch
+                    android:featureFlag="!org.diamaneos.systemui.tally_shell"
                     android:id="@+id/bluetooth_toggle"
                     android:scaleX="0.77"
                     android:scaleY="0.77"
@@ -92,6 +93,22 @@
                     android:contentDescription="@string/turn_on_bluetooth"
                     android:theme="@style/Theme.Material3.DynamicColors.DayNight"
                     style="@style/SettingslibSwitchStyle.Expressive"
+                    tools:ignore="UseSwitchCompatOrMaterialXml" />
+
+                <!-- Tally: in place of the switch above while the Tally flag is on. -->
+                <com.android.settingslib.widget.TallySwitch
+                    android:featureFlag="org.diamaneos.systemui.tally_shell"
+                    android:id="@+id/bluetooth_toggle"
+                    android:paddingHorizontal="@dimen/settingslib_tally_focus_ring_reach"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="@dimen/bluetooth_details_toggle_row_margin_end"
+                    android:layout_gravity="center_vertical"
+                    android:focusable="true"
+                    android:clickable="true"
+                    android:contentDescription="@string/turn_on_bluetooth"
+                    android:theme="@style/Theme.Material3.DynamicColors.DayNight"
+                    style="@style/SettingslibSwitchStyle.Tally"
                     tools:ignore="UseSwitchCompatOrMaterialXml" />
             </LinearLayout>
 
@@ -127,6 +144,7 @@
                     android:textAppearance="@style/TextAppearance.TileDetailsEntryTitle" />
 
                 <com.google.android.material.materialswitch.MaterialSwitch
+                    android:featureFlag="!org.diamaneos.systemui.tally_shell"
                     android:id="@+id/bluetooth_auto_on_toggle"
                     android:scaleX="0.77"
                     android:scaleY="0.77"
@@ -139,6 +157,22 @@
                     android:contentDescription="@string/turn_on_bluetooth_auto_tomorrow"
                     android:theme="@style/Theme.Material3.DynamicColors.DayNight"
                     style="@style/SettingslibSwitchStyle.Expressive"
+                    tools:ignore="UseSwitchCompatOrMaterialXml" />
+
+                <!-- Tally: in place of the switch above while the Tally flag is on. -->
+                <com.android.settingslib.widget.TallySwitch
+                    android:featureFlag="org.diamaneos.systemui.tally_shell"
+                    android:id="@+id/bluetooth_auto_on_toggle"
+                    android:paddingHorizontal="@dimen/settingslib_tally_focus_ring_reach"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="@dimen/bluetooth_details_toggle_row_margin_end"
+                    android:layout_gravity="center_vertical"
+                    android:focusable="true"
+                    android:clickable="true"
+                    android:contentDescription="@string/turn_on_bluetooth_auto_tomorrow"
+                    android:theme="@style/Theme.Material3.DynamicColors.DayNight"
+                    style="@style/SettingslibSwitchStyle.Tally"
                     tools:ignore="UseSwitchCompatOrMaterialXml" />
             </LinearLayout>
 

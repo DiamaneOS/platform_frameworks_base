@@ -73,6 +73,7 @@
                 />
 
                 <com.google.android.material.materialswitch.MaterialSwitch
+                    android:featureFlag="!org.diamaneos.systemui.tally_shell"
                     android:theme="@style/Theme.Material3.DynamicColors.DayNight"
                     android:id="@+id/material_toggle"
                     android:filterTouchesWhenObscured="false"
@@ -83,6 +84,20 @@
                     android:layout_width="wrap_content"
                     android:layout_gravity="center_vertical"
                     style="@style/SettingslibSwitchStyle.Expressive"/>
+
+                <!-- Tally: in place of the switch above while the Tally flag is on. -->
+                <com.android.settingslib.widget.TallySwitch
+                    android:featureFlag="org.diamaneos.systemui.tally_shell"
+                    android:theme="@style/Theme.Material3.DynamicColors.DayNight"
+                    android:id="@+id/material_toggle"
+                    android:filterTouchesWhenObscured="false"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:padding="8dp"
+                    android:layout_height="48dp"
+                    android:layout_width="wrap_content"
+                    android:layout_gravity="center_vertical"
+                    style="@style/SettingslibSwitchStyle.Tally"/>
 
             </com.android.systemui.statusbar.notification.row.AppControlView>
 
