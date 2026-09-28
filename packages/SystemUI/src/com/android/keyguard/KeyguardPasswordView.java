@@ -29,6 +29,7 @@ import static com.android.keyguard.KeyguardSecurityView.PROMPT_REASON_RESTART_FO
 import static com.android.keyguard.KeyguardSecurityView.PROMPT_REASON_TIMEOUT;
 import static com.android.keyguard.KeyguardSecurityView.PROMPT_REASON_TRUSTAGENT_EXPIRED;
 import static com.android.keyguard.KeyguardSecurityView.PROMPT_REASON_USER_REQUEST;
+import static com.android.keyguard.NumPadAnimatableKt.DISABLED_FOREGROUND_ALPHA;
 import static com.android.systemui.statusbar.policy.DevicePostureController.DEVICE_POSTURE_CLOSED;
 import static com.android.systemui.statusbar.policy.DevicePostureController.DEVICE_POSTURE_UNKNOWN;
 
@@ -38,7 +39,9 @@ import android.animation.ValueAnimator;
 import android.app.ActivityManager;
 import android.content.Context;
 import android.content.res.ColorStateList;
+import android.graphics.Color;
 import android.graphics.Insets;
+import android.graphics.PorterDuff;
 import android.graphics.Rect;
 import android.os.Trace;
 import android.util.AttributeSet;
@@ -57,6 +60,7 @@ import com.android.internal.widget.TextViewInputDisabler;
 import com.android.systemui.DejankUtils;
 import com.android.systemui.res.R;
 import com.android.systemui.statusbar.policy.DevicePostureController;
+import com.android.systemui.tally.TallyShell;
 
 /**
  * Displays an alphanumeric (latin-1) key entry for the user to enter
@@ -196,6 +200,16 @@ public class KeyguardPasswordView extends KeyguardAbsKeyInputView {
 
     @Override
     protected void setPasswordEntryEnabled(boolean enabled) {
+        if (TallyShell.isEnabled()) {
+            // Tally: the field keeps the colours its drawable draws and only fades while entry is
+            // disabled, as the PIN keys do; the stock tint would paint its fill and outline in the
+            // text colour.
+            mPasswordEntry.setBackgroundTintMode(PorterDuff.Mode.DST_IN);
+            mPasswordEntry.setBackgroundTintList(enabled ? null : ColorStateList.valueOf(
+                    Color.argb(DISABLED_FOREGROUND_ALPHA, 1f, 1f, 1f)));
+            mPasswordEntry.setCursorVisible(enabled);
+            return;
+        }
         int color = mPasswordEntry.getTextColors().getColorForState(
                 enabled ? ENABLE_STATE_SET : DISABLE_STATE_SET, 0);
         mPasswordEntry.setBackgroundTintList(ColorStateList.valueOf(color));
