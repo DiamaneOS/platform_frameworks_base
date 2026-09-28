@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.android.systemui.tally.lock
+package com.android.systemui.shared.clocks.tally
 
 import android.content.Context
 import android.icu.text.DateFormat
@@ -52,7 +52,6 @@ import com.android.systemui.plugins.keyguard.ui.clocks.ClockSettings
 import com.android.systemui.plugins.keyguard.ui.clocks.ClockViewIds
 import com.android.systemui.plugins.keyguard.ui.clocks.ThemeConfig
 import com.android.systemui.plugins.keyguard.ui.clocks.TimeFormatKind
-import com.android.systemui.res.R
 import java.io.PrintWriter
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -76,7 +75,7 @@ class TallyClockController(ctx: Context, settings: ClockSettings) : ClockControl
 
     override val config =
         ClockConfig(
-            TallyClockProvider.TALLY_CLOCK_ID,
+            TallyClocks.TALLY_CLOCK_ID,
             ctx.resources.getString(CustomizationR.string.clock_default_name),
             ctx.resources.getString(CustomizationR.string.clock_default_description),
         )
@@ -318,6 +317,8 @@ class TallyClockFaceController(
 /**
  * Places both faces of the Tally clock where SystemUI places the small clock, at the prototype's
  * start inset and at their own height: the large face does not move to the middle of the screen.
+ * The large face takes the small face's top, which SystemUI keeps in place while the small face is
+ * gone.
  */
 class TallyClockFaceLayout(view: View, private val isLarge: Boolean, private val startDp: Float) :
     DefaultClockFaceLayout(view) {
@@ -325,7 +326,11 @@ class TallyClockFaceLayout(view: View, private val isLarge: Boolean, private val
     override fun applyConstraints(constraints: ConstraintSet): ConstraintSet {
         super.applyConstraints(constraints)
         return constraints.apply {
-            place(this, topAnchor = R.id.small_clock_guideline_top, topSide = ConstraintSet.BOTTOM)
+            place(
+                this,
+                topAnchor = ClockViewIds.LOCKSCREEN_CLOCK_VIEW_SMALL,
+                topSide = ConstraintSet.TOP,
+            )
         }
     }
 

@@ -29,13 +29,10 @@ import com.android.systemui.dagger.qualifiers.Background;
 import com.android.systemui.dagger.qualifiers.Main;
 import com.android.systemui.plugins.PluginManager;
 import com.android.systemui.plugins.keyguard.ui.clocks.ClockMessageBuffers;
-import com.android.systemui.plugins.keyguard.ui.clocks.ClockProvider;
 import com.android.systemui.res.R;
 import com.android.systemui.shade.ShadeDisplayAware;
 import com.android.systemui.shared.clocks.ClockRegistry;
 import com.android.systemui.shared.clocks.DefaultClockProvider;
-import com.android.systemui.tally.TallyShell;
-import com.android.systemui.tally.lock.TallyClockProvider;
 import com.android.systemui.util.ThreadAssert;
 
 import dagger.Module;
@@ -60,17 +57,6 @@ public abstract class ClockRegistryModule {
             LayoutInflater layoutInflater,
             ClockMessageBuffers clockBuffers,
             @Nullable Vibrator vibrator) {
-        ClockProvider defaultClockProvider = new DefaultClockProvider(
-                layoutInflater,
-                resources,
-                vibrator
-        );
-        String fallbackClockId = context.getString(R.string.lockscreen_clock_id_fallback);
-        if (TallyShell.isEnabled()) {
-            // The Tally clock is the default on a Tally build; the stock clocks stay available.
-            defaultClockProvider = new TallyClockProvider(defaultClockProvider, resources);
-            fallbackClockId = TallyClockProvider.TALLY_CLOCK_ID;
-        }
         ClockRegistry registry = new ClockRegistry(
                 context,
                 pluginManager,
@@ -78,8 +64,12 @@ public abstract class ClockRegistryModule {
                 mainDispatcher,
                 bgDispatcher,
                 /* handleAllUsers= */ true,
-                defaultClockProvider,
-                fallbackClockId,
+                new DefaultClockProvider(
+                        layoutInflater,
+                        resources,
+                        vibrator
+                ),
+                context.getString(R.string.lockscreen_clock_id_fallback),
                 clockBuffers,
                 /* keepAllLoaded = */ false,
                 /* subTag = */ "System",
