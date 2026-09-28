@@ -54,6 +54,7 @@ import com.android.systemui.statusbar.events.PrivacyDotCorner.TopRight
 import com.android.systemui.statusbar.layout.StatusBarContentInsetsProvider
 import com.android.systemui.statusbar.policy.FakeConfigurationController
 import com.android.systemui.statusbar.quickactions.av.domain.interactor.fakeAvControlsChipInteractor
+import com.android.systemui.tally.TallyShell
 import com.android.systemui.testKosmos
 import com.android.systemui.util.concurrency.DelayableExecutor
 import com.android.systemui.util.leak.RotationUtils.ROTATION_LANDSCAPE
@@ -65,6 +66,7 @@ import com.android.systemui.util.mockito.mock
 import com.android.systemui.util.mockito.whenever
 import com.google.common.truth.Truth.assertThat
 import java.util.concurrent.TimeUnit
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.ArgumentCaptor
@@ -575,6 +577,40 @@ class PrivacyDotViewControllerTest(flags: FlagsParameterization) : SysuiTestCase
             )
             assertThat(controller.currentViewState.systemPrivacyEventLocationOnlyIsActive)
                 .isEqualTo(true)
+        }
+
+    @Test
+    @EnableFlags(Flags.FLAG_LOCATION_INDICATORS_ENABLED)
+    fun animationCallback_tally_screenCaptureAloneTakesTheCaptureColour() =
+        kosmos.runTest {
+            assumeTrue(TallyShell.isEnabled)
+            val captor = ArgumentCaptor.forClass(SystemStatusAnimationCallback::class.java)
+            val controller: PrivacyDotViewController = createAndInitializeController()
+            Mockito.verify(mockAnimationScheduler).addCallback(captor.capture())
+            val callback: SystemStatusAnimationCallback = captor.value
+            fakeAvControlsChipInteractor.isShowingAvChip.value = false
+            val capture =
+                PrivacyItem(
+                    privacyType = PrivacyType.TYPE_MEDIA_PROJECTION,
+                    application = PrivacyApplication(packageName = "com.android", uid = 1),
+                )
+            val camera =
+                PrivacyItem(
+                    privacyType = PrivacyType.TYPE_CAMERA,
+                    application = PrivacyApplication(packageName = "com.android", uid = 2),
+                )
+
+            // Screen capture alone takes the capture colour.
+            callback.onSystemStatusAnimationTransitionToPersistentDot(null, listOf(capture))
+            assertThat(controller.currentViewState.tallyCaptureOnly).isTrue()
+
+            // A sensor in use as well wins: the sensor colour.
+            callback.onSystemStatusAnimationTransitionToPersistentDot(null, listOf(capture, camera))
+            assertThat(controller.currentViewState.tallyCaptureOnly).isFalse()
+
+            // Unknown items keep the sensor colour.
+            callback.onSystemStatusAnimationTransitionToPersistentDot(null, null)
+            assertThat(controller.currentViewState.tallyCaptureOnly).isFalse()
         }
 
     private fun setRotation(rotation: Int) {

@@ -66,6 +66,9 @@ constructor(
             updateView(PrivacyChipBuilder(context, field))
             if (locationIndicatorsEnabled()) {
                 updateResources()
+            } else if (TallyShell.isEnabled) {
+                // Tally: the colours follow the items (screen capture alone, or a sensor).
+                applyTallyColors()
             }
         }
 
@@ -173,8 +176,9 @@ constructor(
     }
 
     /**
-     * Tally: the sensor colours for the area under the chip, with an edge just outside it, and
-     * Tally's padding and radius. The height and icon size stay the stock ones set above.
+     * Tally: the sensor colours (the capture colours for screen capture alone) for the area under
+     * the chip, with an edge just outside it, and Tally's padding and radius. The height and icon
+     * size stay the stock ones set above.
      */
     private fun updateTallyResources() {
         val res = context.resources
@@ -195,7 +199,8 @@ constructor(
     }
 
     private fun applyTallyColors() {
-        val colors = TallyIndicatorColors.sensor(context, tallyAreaDark)
+        // Screen capture alone takes the capture colours; with a sensor in use, the sensor's.
+        val colors = TallyIndicatorColors.forPrivacyItems(context, tallyAreaDark, privacyList)
         tallyBackground?.setColors(colors)
         iconColor = colors.onFill
         for (i in 0 until iconsContainer.childCount) {
