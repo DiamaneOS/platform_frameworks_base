@@ -24,13 +24,13 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.view.View
-import com.android.app.animation.Interpolators
 import kotlin.math.roundToInt
 
 /**
  * Draws the lens ring (camera in use) and the location lamp by the lens ([TallyLensGeometry]), in
- * the sensor colours for the area under them. Each one appears at once and fades out when its
- * sensor is no longer in use; [onIdle] is called once neither is in use and both have faded.
+ * the sensor colours for the area under them. Each one appears at once and, when its sensor is no
+ * longer in use, fades out on the prototype's fill spring ([TallyFillSpringFade]); [onIdle] is
+ * called once neither is in use and both have faded.
  */
 @SuppressLint("ViewConstructor")
 class TallyLensIndicatorView(context: Context, private val onIdle: () -> Unit) : View(context) {
@@ -38,6 +38,7 @@ class TallyLensIndicatorView(context: Context, private val onIdle: () -> Unit) :
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private var geometry: TallyLensGeometry? = null
     private var colors: TallyIndicatorColors? = null
+    private val fadeOut = TallyFillSpringFade.from(resources)
 
     private val ring = Lamp()
     private val lamp = Lamp()
@@ -115,7 +116,7 @@ class TallyLensIndicatorView(context: Context, private val onIdle: () -> Unit) :
         if (!isShowing) onIdle()
     }
 
-    /** One of the two lights: on at once, off with a fade. */
+    /** One of the two lights: on at once, off with a fade on the fill spring. */
     private inner class Lamp {
         var alpha = 0f
             private set
@@ -140,8 +141,8 @@ class TallyLensIndicatorView(context: Context, private val onIdle: () -> Unit) :
             if (!this.on) return
             this.on = false
             val animator = ValueAnimator.ofFloat(alpha, 0f)
-            animator.duration = FADE_OUT_MS
-            animator.interpolator = Interpolators.ALPHA_OUT
+            animator.duration = fadeOut.durationMillis
+            animator.interpolator = fadeOut.interpolator
             animator.addUpdateListener {
                 if (fade === animator) {
                     alpha = it.animatedValue as Float
@@ -169,10 +170,5 @@ class TallyLensIndicatorView(context: Context, private val onIdle: () -> Unit) :
             running.cancel()
             alpha = if (on) 1f else 0f
         }
-    }
-
-    private companion object {
-        /** As the privacy dot's own fade out. */
-        const val FADE_OUT_MS = 160L
     }
 }

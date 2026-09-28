@@ -51,6 +51,7 @@ import com.android.systemui.statusbar.layout.StatusBarContentInsetsProvider
 import com.android.systemui.statusbar.policy.ConfigurationController
 import com.android.systemui.statusbar.quickactions.av.domain.interactor.AvControlsChipInteractor
 import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.privacy.TallyFillSpringFade
 import com.android.systemui.tally.privacy.TallyIndicatorArea
 import com.android.systemui.tally.privacy.TallyIndicatorColors
 import com.android.systemui.tally.privacy.TallyPrivacyDotDrawable
@@ -277,9 +278,12 @@ constructor(
     override fun hideDotView(dot: View, animate: Boolean) {
         dot.clearAnimation()
         if (animate) {
+            // Tally: the dot goes out on the prototype's fill spring, as every indicator.
+            val tallyFade =
+                if (TallyShell.isEnabled) TallyFillSpringFade.from(dot.resources) else null
             dot.animate()
-                .setDuration(DURATION)
-                .setInterpolator(Interpolators.ALPHA_OUT)
+                .setDuration(tallyFade?.durationMillis ?: DURATION)
+                .setInterpolator(tallyFade?.interpolator ?: Interpolators.ALPHA_OUT)
                 .alpha(0f)
                 .withEndAction {
                     dot.visibility = View.INVISIBLE
