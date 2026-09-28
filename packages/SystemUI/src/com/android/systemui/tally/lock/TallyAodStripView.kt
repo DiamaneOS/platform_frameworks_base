@@ -42,6 +42,9 @@ class TallyAodStripView(context: Context) : LinearLayout(context) {
     init {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
+        // Hidden until its binder has the first dozing state, so it never shows on its own.
+        visibility = INVISIBLE
+        alpha = 0f
         itemViews.values.forEach { item ->
             item.visibility = GONE
             addView(item)
