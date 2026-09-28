@@ -23,10 +23,11 @@ import com.android.systemui.dagger.qualifiers.Default
 import com.android.systemui.display.dagger.SystemUIDisplaySubcomponent
 import com.android.systemui.log.LogBuffer
 import com.android.systemui.log.LogBufferFactory
+import com.android.systemui.tally.privacy.TallyPrivacyModule
 import dagger.Module
 import dagger.Provides
 
-@Module
+@Module(includes = [TallyPrivacyModule::class])
 interface StatusBarEventsModule {
 
     companion object {
