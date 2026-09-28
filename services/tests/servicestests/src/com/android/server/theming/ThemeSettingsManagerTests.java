@@ -362,7 +362,7 @@ public class ThemeSettingsManagerTests {
         // palette but keeps the source as HOME_WALLPAPER.
         assertThat(defaultSettings.colorSource()).isEqualTo(FieldColorSource.VALUE_HOME_WALLPAPER);
         assertThat(defaultSettings.themeStyle()).isEqualTo(ThemeStyle.EXPRESSIVE);
-        assertThat(defaultSettings.seedColors().getFirst()).isEqualTo(Color.valueOf(0xFF1b6ef3));
+        assertThat(defaultSettings.seedColors().getFirst()).isEqualTo(Color.valueOf(0xFFFBA700));
     }
 
     @Test
