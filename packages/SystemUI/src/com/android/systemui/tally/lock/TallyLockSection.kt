@@ -49,8 +49,10 @@ import kotlinx.coroutines.flow.map
  * The Tally lock screen's lamp strip, under the clock. The default blueprint uses this section in
  * place of KeyguardSliceViewSection while Tally is on: the Tally clock shows the date, and the
  * strip shows the next alarm and Do Not Disturb, which the slice showed. Under any other clock,
- * which has no date of its own, a date line takes the slice's place and the strip follows it. Like
- * the slice section, it defines smart_space_barrier_bottom, so the notifications start below.
+ * which has no date of its own, a date line takes the slice's place and the strip follows it. On
+ * the always-on display the strip gives way to the always-on strip, which shows what the slice
+ * showed there besides the date. Like the slice section, it defines smart_space_barrier_bottom, so
+ * the notifications start below.
  *
  * With a smartspace plugin, which draws its own date and places the notifications itself, it adds
  * nothing, as the slice section does not either.
@@ -70,21 +72,26 @@ constructor(
 ) : KeyguardSection() {
     private var stripView: TallyLampStripView? = null
     private var dateView: TallyLockDateView? = null
+    private var aodStripView: TallyAodStripView? = null
     private val handles = DisposableHandles()
 
     override fun addViews(constraintLayout: ConstraintLayout) {
         if (TallyShell.isUnexpectedlyInLegacyMode() || smartspaceController.isEnabled) return
         val date = TallyLockDateView(context).apply { id = DATE_ID }
         val strip = TallyLampStripView(context).apply { id = STRIP_ID }
+        val aodStrip = TallyAodStripView(context).apply { id = AOD_STRIP_ID }
         dateView = date
         stripView = strip
+        aodStripView = aodStrip
         constraintLayout.addView(date)
         constraintLayout.addView(strip)
+        constraintLayout.addView(aodStrip)
     }
 
     override fun bindData(constraintLayout: ConstraintLayout) {
         val strip = stripView ?: return
         val date = dateView ?: return
+        val aodStrip = aodStripView ?: return
         handles.dispose()
         handles +=
             TallyLampStripViewBinder.bind(
@@ -102,6 +109,14 @@ constructor(
                 aodBurnInViewModel,
                 configurationController,
                 appContext,
+            )
+        handles +=
+            TallyAodStripViewBinder.bind(
+                aodStrip,
+                viewModel,
+                keyguardInteractor,
+                aodBurnInViewModel,
+                configurationController,
             )
         // The date line and the strip's place depend on the clock: SystemUI re-applies only the
         // clock's own constraints when the clock changes, so this section re-applies its own.
@@ -169,7 +184,20 @@ constructor(
             } else {
                 connect(STRIP_ID, ConstraintSet.TOP, DATE_ID, ConstraintSet.BOTTOM, px(DATE_GAP_DP))
             }
-            createBarrier(R.id.smart_space_barrier_bottom, Barrier.BOTTOM, 0, STRIP_ID, DATE_ID)
+            // The always-on strip takes the lamp strip's place.
+            constrainWidth(AOD_STRIP_ID, ConstraintSet.MATCH_CONSTRAINT)
+            constrainHeight(AOD_STRIP_ID, ConstraintSet.WRAP_CONTENT)
+            connect(AOD_STRIP_ID, ConstraintSet.START, STRIP_ID, ConstraintSet.START)
+            connect(AOD_STRIP_ID, ConstraintSet.END, STRIP_ID, ConstraintSet.END)
+            connect(AOD_STRIP_ID, ConstraintSet.TOP, STRIP_ID, ConstraintSet.TOP)
+            createBarrier(
+                R.id.smart_space_barrier_bottom,
+                Barrier.BOTTOM,
+                0,
+                STRIP_ID,
+                AOD_STRIP_ID,
+                DATE_ID,
+            )
         }
     }
 
@@ -177,8 +205,10 @@ constructor(
         handles.dispose()
         stripView?.let { constraintLayout.removeView(it) }
         dateView?.let { constraintLayout.removeView(it) }
+        aodStripView?.let { constraintLayout.removeView(it) }
         stripView = null
         dateView = null
+        aodStripView = null
     }
 
     private fun isTallyClock(): Boolean =
@@ -198,6 +228,8 @@ constructor(
         val STRIP_ID = View.generateViewId()
 
         val DATE_ID = View.generateViewId()
+
+        val AOD_STRIP_ID = View.generateViewId()
 
         /** The prototype's lock layout: 24 dp from the sides, 36 dp under the clock's box. */
         const val SIDE_MARGIN_DP = 24f
