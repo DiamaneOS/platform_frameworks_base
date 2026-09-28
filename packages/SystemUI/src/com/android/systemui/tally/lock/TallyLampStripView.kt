@@ -18,6 +18,7 @@ package com.android.systemui.tally.lock
 
 import android.content.Context
 import android.content.res.ColorStateList
+import android.graphics.Canvas
 import android.util.TypedValue
 import android.view.View
 import android.view.ViewGroup
@@ -145,7 +146,19 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
             resolveSize(height + paddingTop + paddingBottom, heightMeasureSpec),
         )
         updateDescription(shown.filter { it.folded })
+        // A folded item's words are in the strip's description; screen readers skip the item.
+        shown.forEach {
+            it.importantForAccessibility =
+                if (it.folded) IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+                else IMPORTANT_FOR_ACCESSIBILITY_YES
+        }
     }
+
+    // A folded item takes no room and is not drawn: nothing clips its lamp and icon, which would
+    // otherwise draw at the strip's start.
+    override fun drawChild(canvas: Canvas, child: View, drawingTime: Long): Boolean =
+        if ((child as? ItemView)?.folded == true) false
+        else super.drawChild(canvas, child, drawingTime)
 
     override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
         val gap = px(ITEM_GAP_DP)
