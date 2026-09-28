@@ -111,9 +111,11 @@ import com.android.systemui.qs.ui.composable.QuickSettingsTheme
 import com.android.systemui.qs.ui.compose.borderOnFocus
 import com.android.systemui.res.R
 import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.lamp.TallyLamp
+import com.android.systemui.tally.lamp.TallyLampDefaults
+import com.android.systemui.tally.lamp.TallyLampSize
+import com.android.systemui.tally.lamp.TallyLampState
 import com.android.systemui.tally.shade.TallyKeyDefaults
-import com.android.systemui.tally.shade.TallyLamp
-import com.android.systemui.tally.shade.TallyLampForm
 import com.android.systemui.tally.shade.tallyTextStyle
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
@@ -537,7 +539,7 @@ private fun TallyNumberKey(
                     color = colors.content,
                 )
                 // Apps running in the background are live.
-                TallyLamp(TallyLampForm.LIVE, dimensionResource(TallyR.dimen.tally_lamp_size_small))
+                TallyLamp(TallyLampState.LIVE, size = TallyLampDefaults.size(TallyLampSize.SMALL))
             }
             if (showNewDot) {
                 NewChangesDot(Modifier.align(Alignment.BottomEnd))
