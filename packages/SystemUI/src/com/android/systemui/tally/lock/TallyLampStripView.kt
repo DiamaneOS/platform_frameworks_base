@@ -120,7 +120,9 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
 
         rows.clear()
         if (unbounded || rowWidth(visible, gap) <= available) {
-            rows += visible
+            // Never an empty row: with nothing to show (before the first items arrive, or when
+            // every item has folded away) the strip has no rows and no height.
+            if (visible.isNotEmpty()) rows += visible
         } else {
             var row = mutableListOf<ItemView>()
             var width = 0
@@ -140,7 +142,7 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
         val minRow = px(ROW_MIN_HEIGHT_DP)
         val height =
             if (rows.isEmpty()) 0
-            else rows.sumOf { row -> max(minRow, row.maxOf { it.measuredHeight }) }
+            else rows.sumOf { row -> max(minRow, row.maxOfOrNull { it.measuredHeight } ?: 0) }
         val width =
             if (unbounded) rows.maxOfOrNull { rowWidth(it, gap) } ?: 0
             else MeasureSpec.getSize(widthMeasureSpec)
@@ -171,7 +173,7 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
         var top = paddingTop
         val placed = mutableSetOf<ItemView>()
         rows.forEach { row ->
-            val rowHeight = max(minRow, row.maxOf { it.measuredHeight })
+            val rowHeight = max(minRow, row.maxOfOrNull { it.measuredHeight } ?: 0)
             var x = 0
             row.forEach { item ->
                 // The battery readout sits at the end of its row.
