@@ -67,7 +67,6 @@ import com.android.systemui.tally.TallyShell
 import com.android.systemui.tally.privacy.LocalTallyStatusBarAreaDark
 import com.android.systemui.tally.privacy.TallyIndicatorColors
 import com.android.systemui.tally.privacy.tallyCaptureChipTextStyle
-import com.android.systemui.tally.privacy.tallyIndicatorEdge
 import org.diamaneos.tally.R as TallyR
 
 @Composable
@@ -77,13 +76,21 @@ fun OngoingActivityChip(
     modifier: Modifier = Modifier,
 ) {
     // Tally: the capture chips (screen recording, casting, sharing) take the capture colours for
-    // the area under them, with an edge just outside, Tally's padding and radius, and Tally's type.
+    // the area under them, with the edge around them, Tally's padding and radius, and Tally's type.
+    // Over an unknown area they take the light variant, which keeps 3:1 by itself.
     val tallyColors =
         if (TallyShell.isEnabled && model.colors is ColorsModel.Red) {
-            TallyIndicatorColors.capture(LocalContext.current, LocalTallyStatusBarAreaDark.current)
+            TallyIndicatorColors.capture(
+                LocalContext.current,
+                isAreaDark = LocalTallyStatusBarAreaDark.current ?: false,
+            )
         } else {
             null
         }
+    // Tally: the edge is the chip's own border, drawn inside its shape, where Expandable's clip
+    // cannot cut it. The chip grows by the edge on each side, so its fill keeps stock's height and
+    // Tally's radius, with the edge just outside it as in the prototype.
+    val tallyEdgeWidth = if (tallyColors != null) TallyIndicatorColors.EDGE_WIDTH_DP.dp else 0.dp
     val tallyTextStyle = if (tallyColors != null) tallyCaptureChipTextStyle() else null
     val chipModel =
         if (tallyColors != null) {
@@ -101,8 +108,15 @@ fun OngoingActivityChip(
         }
 
     val borderStroke =
-        chipModel.colors.outline(LocalContext.current)?.let {
-            BorderStroke(dimensionResource(R.dimen.ongoing_activity_chip_outline_width), Color(it))
+        if (tallyColors != null) {
+            BorderStroke(tallyEdgeWidth, Color(tallyColors.edge))
+        } else {
+            chipModel.colors.outline(LocalContext.current)?.let {
+                BorderStroke(
+                    dimensionResource(R.dimen.ongoing_activity_chip_outline_width),
+                    Color(it),
+                )
+            }
         }
 
     val onClick =
@@ -122,7 +136,7 @@ fun OngoingActivityChip(
     val isClickable = onClick != null
 
     val chipSidePaddingTotal = 20.dp
-    val minWidth =
+    val stockMinWidth =
         if (isClickable) {
             dimensionResource(id = R.dimen.min_clickable_item_size)
         } else if (model.icon != null) {
@@ -131,10 +145,12 @@ fun OngoingActivityChip(
             dimensionResource(id = R.dimen.ongoing_activity_chip_min_text_width) +
                 chipSidePaddingTotal
         }
+    // Tally: the edge on each side comes on top of stock's minimum, which the fill keeps.
+    val minWidth = stockMinWidth + tallyEdgeWidth * 2
 
     val cornerRadius =
         if (tallyColors != null) {
-            dimensionResource(id = TallyR.dimen.tally_radius_s)
+            dimensionResource(id = TallyR.dimen.tally_radius_s) + tallyEdgeWidth
         } else {
             dimensionResource(id = R.dimen.ongoing_activity_chip_corner_radius)
         }
@@ -190,8 +206,7 @@ fun OngoingActivityChip(
             chipModel,
             iconViewStore,
             minWidth = minWidth,
-            tallyEdge = tallyColors?.let { Color(it.edge) },
-            cornerRadius = cornerRadius,
+            tallyEdgeWidth = if (tallyColors != null) tallyEdgeWidth else null,
             tallyTextStyle = tallyTextStyle,
         )
     }
@@ -203,24 +218,22 @@ private fun ChipBody(
     iconViewStore: NotificationIconContainerViewBinder.IconViewStore?,
     minWidth: Dp,
     modifier: Modifier = Modifier,
-    tallyEdge: Color? = null,
-    cornerRadius: Dp = 0.dp,
+    tallyEdgeWidth: Dp? = null,
     tallyTextStyle: TextStyle? = null,
 ) {
-    // Tally: the capture chips' edge, drawn just outside the chip, and their own padding. As
-    // stock, both sides take the same padding, so the icon stays centred when the text hides; the
-    // rest of the end padding goes after the text, next to an icon, and hides with it.
-    val tallyEdgeModifier =
-        if (tallyEdge != null) Modifier.tallyIndicatorEdge(tallyEdge, cornerRadius) else Modifier
+    // Tally: the capture chips' own padding, inside their edge (the chip's border). As stock, both
+    // sides take the same padding, so the icon stays centred when the text hides; the rest of the
+    // end padding goes after the text, next to an icon, and hides with it.
     val tallySidePadding =
-        if (tallyEdge != null) {
-            dimensionResource(TallyR.dimen.tally_capture_chip_padding_start)
+        if (tallyEdgeWidth != null) {
+            tallyEdgeWidth + dimensionResource(TallyR.dimen.tally_capture_chip_padding_start)
         } else {
             null
         }
     val tallyTextEndPadding =
-        if (tallySidePadding != null && model.icon != null) {
-            dimensionResource(TallyR.dimen.tally_capture_chip_padding_end) - tallySidePadding
+        if (tallyEdgeWidth != null && model.icon != null) {
+            dimensionResource(TallyR.dimen.tally_capture_chip_padding_end) -
+                dimensionResource(TallyR.dimen.tally_capture_chip_padding_start)
         } else {
             0.dp
         }
@@ -229,8 +242,11 @@ private fun ChipBody(
         verticalAlignment = Alignment.CenterVertically,
         modifier =
             modifier
-                .then(tallyEdgeModifier)
-                .heightIn(min = dimensionResource(R.dimen.ongoing_appops_chip_height))
+                .heightIn(
+                    min =
+                        dimensionResource(R.dimen.ongoing_appops_chip_height) +
+                            (tallyEdgeWidth ?: 0.dp) * 2
+                )
                 // Set the minWidth here as well as on the Expandable so that the content within
                 // this row is still centered correctly horizontally
                 .widthIn(min = minWidth)
