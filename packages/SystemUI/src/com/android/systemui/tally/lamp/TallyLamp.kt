@@ -17,6 +17,7 @@
 package com.android.systemui.tally.lamp
 
 import android.animation.ValueAnimator
+import android.os.SystemClock
 import android.view.Choreographer
 import android.view.animation.AnimationUtils
 import androidx.compose.foundation.layout.Spacer
@@ -55,6 +56,9 @@ import androidx.compose.ui.unit.Dp
  * @param requestedSinceMillis when the request started, in uptime milliseconds
  *   (`SystemClock.uptimeMillis`), so that the requested dashes go on where they were when the lamp
  *   is shown again; by default the lamp counts from when it first shows the request.
+ * @param onRequestedStill called once per request, while the lamp is in the composition, when it
+ *   has been requested for `tally_lamp_requested_still_ms` (5 s): the moment its words change to
+ *   "Still trying…". The dashes are still by then.
  */
 @Composable
 fun TallyLamp(
@@ -64,6 +68,7 @@ fun TallyLamp(
     colors: TallyLampColors = TallyLampDefaults.colors(),
     instantAppear: Boolean = colors.sensor,
     requestedSinceMillis: Long = TallyLampState.SINCE_FIRST_SHOWN,
+    onRequestedStill: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
@@ -73,7 +78,15 @@ fun TallyLamp(
         modifier
             .size(size)
             .then(
-                TallyLampElement(state, sizePx, colors, spec, instantAppear, requestedSinceMillis)
+                TallyLampElement(
+                    state,
+                    sizePx,
+                    colors,
+                    spec,
+                    instantAppear,
+                    requestedSinceMillis,
+                    onRequestedStill,
+                )
             )
     )
 }
@@ -122,6 +135,7 @@ private data class TallyLampElement(
     val spec: TallyLampSpec,
     val instantAppear: Boolean,
     val requestedSinceMillis: Long,
+    val onRequestedStill: (() -> Unit)?,
 ) : ModifierNodeElement<TallyLampNode>() {
     override fun create() = TallyLampNode(this)
 
@@ -137,13 +151,21 @@ private class TallyLampNode(element: TallyLampElement) : Modifier.Node(), DrawMo
     private val motion = TallyLampMotion()
     private val painter = TallyLampPainter()
     private val frameCallback = Choreographer.FrameCallback { onFrame(it) }
+    private val stillCallback = Choreographer.FrameCallback { onStill() }
     private var spec = element.spec
     private var sizePx = element.sizePx
     private var colors = element.colors
     private var instantAppear = element.instantAppear
+    private var onRequestedStill = element.onRequestedStill
     private var drawnSinceAttach = false
     private var framePosted = false
     private var lastDrawMillis = 0L
+    private var stillPosted = false
+    private var stillNotified = false
+
+    // Only a change to what is drawn redraws the lamp, not a new callback.
+    override val shouldAutoInvalidate: Boolean
+        get() = false
 
     init {
         motion.setSpec(spec)
@@ -160,15 +182,23 @@ private class TallyLampNode(element: TallyLampElement) : Modifier.Node(), DrawMo
     }
 
     fun update(element: TallyLampElement) {
+        var redraw = false
         if (element.spec !== spec || element.sizePx != sizePx) {
             spec = element.spec
             sizePx = element.sizePx
             motion.setSpec(spec)
             geometry.set(spec, sizePx.toFloat())
             motion.setLiveFill(geometry.liveFill)
+            redraw = true
         }
-        colors = element.colors
+        if (element.colors != colors) {
+            colors = element.colors
+            redraw = true
+        }
         instantAppear = element.instantAppear
+        onRequestedStill = element.onRequestedStill
+        val previous = motion.state
+        val previousStart = motion.requestedStartMillis
         motion.setState(
             element.state,
             nowMillis = AnimationUtils.currentAnimationTimeMillis(),
@@ -177,7 +207,19 @@ private class TallyLampNode(element: TallyLampElement) : Modifier.Node(), DrawMo
             instantAppear = instantAppear,
             requestedSinceMillis = element.requestedSinceMillis,
         )
-        // The node invalidates its drawing after an update by itself.
+        if (motion.state != previous || motion.requestedStartMillis != previousStart) {
+            // Another state or request (with its own "Still trying…").
+            stillNotified = false
+            removeStill()
+            redraw = true
+        }
+        updateStill()
+        if (redraw) invalidateDraw()
+    }
+
+    override fun onAttach() {
+        invalidateDraw()
+        updateStill()
     }
 
     override fun onDetach() {
@@ -186,6 +228,7 @@ private class TallyLampNode(element: TallyLampElement) : Modifier.Node(), DrawMo
             framePosted = false
             Choreographer.getInstance().removeFrameCallback(frameCallback)
         }
+        removeStill()
     }
 
     override fun ContentDrawScope.draw() {
@@ -228,6 +271,39 @@ private class TallyLampNode(element: TallyLampElement) : Modifier.Node(), DrawMo
             // Only turning, and a frame drawn less than a lamp frame ago: look again next frame.
             postFrame()
         }
+    }
+
+    private fun updateStill() {
+        val wanted =
+            isAttached &&
+                onRequestedStill != null &&
+                motion.state == TallyLampState.REQUESTED &&
+                !stillNotified
+        if (!wanted) {
+            removeStill()
+            return
+        }
+        if (stillPosted) return
+        stillPosted = true
+        val delay = motion.requestedStillAtMillis - SystemClock.uptimeMillis()
+        Choreographer.getInstance().postFrameCallbackDelayed(stillCallback, maxOf(0L, delay))
+    }
+
+    private fun removeStill() {
+        if (!stillPosted) return
+        stillPosted = false
+        Choreographer.getInstance().removeFrameCallback(stillCallback)
+    }
+
+    private fun onStill() {
+        stillPosted = false
+        if (!isAttached || motion.state != TallyLampState.REQUESTED || stillNotified) return
+        if (SystemClock.uptimeMillis() < motion.requestedStillAtMillis) {
+            updateStill()
+            return
+        }
+        stillNotified = true
+        onRequestedStill?.invoke()
     }
 
     private companion object {

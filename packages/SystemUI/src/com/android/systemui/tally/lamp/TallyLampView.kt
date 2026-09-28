@@ -66,6 +66,13 @@ class TallyLampView @JvmOverloads constructor(context: Context, attrs: Attribute
             lamp.instantAppear = value
         }
 
+    /** See [TallyLampDrawable.onRequestedStill]: when the words say "Still trying…". */
+    var onRequestedStill: Runnable?
+        get() = lamp.onRequestedStill
+        set(value) {
+            lamp.onRequestedStill = value
+        }
+
     /** The lamp's diameter in pixels. */
     val lampSizePx: Int
         get() = lamp.lampSizePx
