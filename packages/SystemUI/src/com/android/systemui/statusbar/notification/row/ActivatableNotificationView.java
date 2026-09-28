@@ -122,6 +122,10 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
     private boolean mShadowHidden;
     private boolean mIsHeadsUpAnimation;
     private boolean mIsHeadsUpCycling;
+    // Tally: whether the next heads-up animation, and the one running, slide the whole card (see
+    // setTallyHeadsUpSlide).
+    private boolean mTallyHeadsUpSlideNext;
+    private boolean mTallyHeadsUpSlide;
     /* In order to track headsup longpress coordindate. */
     protected Point mTargetPoint;
     private boolean mDismissed;
@@ -436,6 +440,7 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
         enableAppearDrawing(true);
         mIsHeadsUpAnimation = isHeadsUpAnimation;
         mIsHeadsUpCycling = isHeadsUpCycling;
+        takeTallyHeadsUpSlide();
         if (mDrawingAppearAnimation) {
             startAppearAnimation(false /* isAppearing */, translationDirection,
                     delay, duration, onStartedRunnable, onFinishedRunnable, animationListener,
@@ -457,9 +462,30 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
         enableAppearDrawing(true);
         mIsHeadsUpAnimation = isHeadsUpAppear;
         mIsHeadsUpCycling = isHeadsUpCycling;
+        takeTallyHeadsUpSlide();
         if (mDrawingAppearAnimation) {
             startAppearAnimation(true /* isAppearing */, isHeadsUpAppear ? 0.0f : -1.0f, delay,
                     duration, null, null, null, ClipSide.BOTTOM);
+        }
+    }
+
+    /**
+     * Tally: makes the next heads-up appear or disappear animation slide the whole card, as Tally's
+     * heads-up does: the stack moves it in from above the screen and back out, and the animation
+     * neither reveals it from its top nor fades its content. Its timing and callbacks stay stock's.
+     */
+    public void setTallyHeadsUpSlide(boolean slide) {
+        mTallyHeadsUpSlideNext = slide;
+    }
+
+    private void takeTallyHeadsUpSlide() {
+        boolean wasSliding = mTallyHeadsUpSlide;
+        mTallyHeadsUpSlide = mTallyHeadsUpSlideNext && mIsHeadsUpAnimation && !mIsHeadsUpCycling
+                && mTargetPoint == null && TallyShell.isEnabled();
+        mTallyHeadsUpSlideNext = false;
+        if (wasSliding && !mTallyHeadsUpSlide && mAppearAnimationFraction != -1.0f) {
+            // The card was shown whole while it slid, so another animation goes on from there.
+            mAppearAnimationFraction = 1.0f;
         }
     }
 
@@ -511,6 +537,11 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
         });
         if (animationListener != null) {
             mAppearAnimator.addListener(animationListener);
+        }
+        if (mTallyHeadsUpSlide) {
+            // Tally: the whole card, its content shown throughout.
+            setContentAlpha(1.0f);
+            setOutlineRect(null);
         }
         // we need to apply the initial state already to avoid drawn frames in the wrong state
         updateAppearAnimationAlpha();
@@ -626,6 +657,10 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
      */
     @VisibleForTesting
     public void updateAppearRect(ClipSide clipSide, int fullWidth, int fullHeight) {
+        if (mTallyHeadsUpSlide) {
+            // Tally: a sliding heads-up is never clipped.
+            return;
+        }
         float interpolatedFraction;
         if (useNonLinearAnimation()) {
             interpolatedFraction = mCurrentAppearInterpolator.getInterpolation(
@@ -671,6 +706,10 @@ public abstract class ActivatableNotificationView extends ExpandableOutlineView 
     }
 
     private void updateAppearAnimationAlpha() {
+        if (mTallyHeadsUpSlide) {
+            // Tally: nor faded.
+            return;
+        }
         updateAppearAnimationContentAlpha(
                 mAppearAnimationFraction,
                 ALPHA_APPEAR_START_FRACTION,

@@ -37,6 +37,7 @@ import com.android.systemui.statusbar.notification.shared.NotificationHeadsUpCyc
 import com.android.systemui.statusbar.phone.StatusBarKeyguardViewManager
 import com.android.systemui.statusbar.ui.fakeSystemBarUtilsProxy
 import com.android.systemui.surfaceeffects.core.utils.MathUtils
+import com.android.systemui.tally.TallyShell
 import com.android.systemui.testKosmos
 import com.google.common.truth.Expect
 import com.google.common.truth.Truth.assertThat
@@ -815,9 +816,7 @@ class StackScrollAlgorithmTest(flags: FlagsParameterization) : SysuiTestCase() {
         whenever(notificationRow.intrinsicHeight).thenReturn(100)
         whenever(notificationRow.isHeadsUpAnimatingAway).thenReturn(true)
 
-        resetViewStates_hunYTranslationIs(
-            expected = -topMargin - stackScrollAlgorithm.mHeadsUpAppearStartAboveScreen
-        )
+        resetViewStates_hunTranslatedAboveScreen(topMargin)
     }
 
     @Test
@@ -835,9 +834,7 @@ class StackScrollAlgorithmTest(flags: FlagsParameterization) : SysuiTestCase() {
         whenever(notificationRow.isHeadsUpAnimatingAway).thenReturn(true)
         whenever(notificationRow.hasStatusBarChipDuringHeadsUpAnimation()).thenReturn(false)
 
-        resetViewStates_hunYTranslationIs(
-            expected = -topMargin - stackScrollAlgorithm.mHeadsUpAppearStartAboveScreen
-        )
+        resetViewStates_hunTranslatedAboveScreen(topMargin)
     }
 
     @Test
@@ -2205,6 +2202,24 @@ class StackScrollAlgorithmTest(flags: FlagsParameterization) : SysuiTestCase() {
     private fun resetViewStates_hunYTranslationIs(expected: Float) {
         stackScrollAlgorithm.resetViewStates(ambientState, 0)
 
+        assertThat(notificationRow.viewState.yTranslation).isEqualTo(expected)
+    }
+
+    /**
+     * A heads-up animating away at the top of the screen ends above it: stock's
+     * mHeadsUpAppearStartAboveScreen above the screen, or with Tally, whose heads-up slides away
+     * whole, the whole card and the gap under the status bar above it.
+     */
+    private fun resetViewStates_hunTranslatedAboveScreen(topMargin: Float) {
+        stackScrollAlgorithm.resetViewStates(ambientState, 0)
+
+        val gap = px(R.dimen.heads_up_status_bar_padding)
+        val expected =
+            if (TallyShell.isEnabled) {
+                -topMargin - notificationRow.viewState.height - gap
+            } else {
+                -topMargin - stackScrollAlgorithm.mHeadsUpAppearStartAboveScreen
+            }
         assertThat(notificationRow.viewState.yTranslation).isEqualTo(expected)
     }
 
