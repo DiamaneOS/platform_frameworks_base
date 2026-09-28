@@ -18,7 +18,6 @@ package com.android.systemui.shared.clocks.tally
 
 import android.content.Context
 import android.icu.text.DateFormat
-import android.icu.text.DisplayContext
 import android.icu.util.TimeZone
 import android.text.TextPaint
 import android.util.DisplayMetrics
@@ -258,11 +257,7 @@ class TallyClockFaceController(
     }
 
     private fun createDateFormat(locale: Locale): DateFormat =
-        DateFormat.getInstanceForSkeleton(DATE_SKELETON, locale).apply {
-            // As the stock lock screen date (KeyguardSliceProvider).
-            setContext(DisplayContext.CAPITALIZATION_FOR_BEGINNING_OF_SENTENCE)
-            timeZone = timeKeeper.timeZone
-        }
+        TallyClocks.dateFormat(locale).apply { timeZone = timeKeeper.timeZone }
 
     /**
      * Text appearances are read again on each call, so the date follows font scale changes; the
@@ -326,9 +321,6 @@ class TallyClockFaceController(
 
     companion object {
         private const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
-
-        /** Full weekday, day and full month, localised (the prototype's "Friday 26 September"). */
-        private const val DATE_SKELETON = "EEEEMMMMd"
 
         /** The clock's size on the glass: 118 dp at the owner's density, 480. */
         private const val CLOCK_SIZE_DP = 118f

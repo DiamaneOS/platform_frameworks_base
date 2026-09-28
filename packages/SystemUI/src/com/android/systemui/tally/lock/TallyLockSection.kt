@@ -22,27 +22,35 @@ import android.view.View
 import androidx.constraintlayout.widget.Barrier
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.constraintlayout.widget.ConstraintSet
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.dagger.qualifiers.Application
 import com.android.systemui.dagger.qualifiers.Main
 import com.android.systemui.keyguard.domain.interactor.KeyguardInteractor
 import com.android.systemui.keyguard.shared.model.KeyguardSection
+import com.android.systemui.keyguard.ui.viewmodel.AodBurnInViewModel
 import com.android.systemui.keyguard.ui.viewmodel.KeyguardClockViewModel
+import com.android.systemui.lifecycle.repeatWhenAttached
 import com.android.systemui.plugins.keyguard.ui.clocks.ClockViewIds
 import com.android.systemui.res.R
 import com.android.systemui.shade.ShadeDisplayAware
+import com.android.systemui.shared.clocks.tally.TallyClocks.TALLY_CLOCK_ID
 import com.android.systemui.statusbar.lockscreen.LockscreenSmartspaceController
 import com.android.systemui.statusbar.policy.ConfigurationController
 import com.android.systemui.tally.TallyShell
+import com.android.systemui.util.kotlin.DisposableHandles
 import javax.inject.Inject
 import kotlin.math.roundToInt
-import kotlinx.coroutines.DisposableHandle
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 /**
  * The Tally lock screen's lamp strip, under the clock. The default blueprint uses this section in
  * place of KeyguardSliceViewSection while Tally is on: the Tally clock shows the date, and the
- * strip shows the next alarm and Do Not Disturb, which the slice showed. Like the slice section, it
- * defines smart_space_barrier_bottom, so the notifications start below the strip.
+ * strip shows the next alarm and Do Not Disturb, which the slice showed. Under any other clock,
+ * which has no date of its own, a date line takes the slice's place and the strip follows it. Like
+ * the slice section, it defines smart_space_barrier_bottom, so the notifications start below.
  *
  * With a smartspace plugin, which draws its own date and places the notifications itself, it adds
  * nothing, as the slice section does not either.
@@ -58,41 +66,81 @@ constructor(
     private val keyguardInteractor: KeyguardInteractor,
     @Main private val configurationController: ConfigurationController,
     private val smartspaceController: LockscreenSmartspaceController,
+    private val aodBurnInViewModel: AodBurnInViewModel,
 ) : KeyguardSection() {
     private var stripView: TallyLampStripView? = null
-    private var disposableHandle: DisposableHandle? = null
+    private var dateView: TallyLockDateView? = null
+    private val handles = DisposableHandles()
 
     override fun addViews(constraintLayout: ConstraintLayout) {
         if (TallyShell.isUnexpectedlyInLegacyMode() || smartspaceController.isEnabled) return
-        val view = TallyLampStripView(context).apply { id = STRIP_ID }
-        stripView = view
-        constraintLayout.addView(view)
+        val date = TallyLockDateView(context).apply { id = DATE_ID }
+        val strip = TallyLampStripView(context).apply { id = STRIP_ID }
+        dateView = date
+        stripView = strip
+        constraintLayout.addView(date)
+        constraintLayout.addView(strip)
     }
 
     override fun bindData(constraintLayout: ConstraintLayout) {
-        val view = stripView ?: return
-        disposableHandle?.dispose()
-        disposableHandle =
+        val strip = stripView ?: return
+        val date = dateView ?: return
+        handles.dispose()
+        handles +=
             TallyLampStripViewBinder.bind(
-                view,
+                strip,
                 viewModel,
                 keyguardInteractor,
                 configurationController,
                 appContext,
             )
+        handles +=
+            TallyLockDateViewBinder.bind(
+                date,
+                viewModel,
+                keyguardInteractor,
+                aodBurnInViewModel,
+                configurationController,
+                appContext,
+            )
+        // The date line and the strip's place depend on the clock: SystemUI re-applies only the
+        // clock's own constraints when the clock changes, so this section re-applies its own.
+        handles +=
+            date.repeatWhenAttached {
+                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    keyguardClockViewModel.currentClock
+                        .map { isTallyClock() }
+                        .distinctUntilChanged()
+                        .collect { reapplyConstraints(constraintLayout) }
+                }
+            }
     }
 
     override fun applyConstraints(constraintSet: ConstraintSet) {
         if (stripView == null) return
-        // Under whichever clock face shows; both faces of the Tally clock sit in the same place.
-        val clockId =
-            if (keyguardClockViewModel.isLargeClockVisible.value) {
-                ClockViewIds.LOCKSCREEN_CLOCK_VIEW_LARGE
-            } else {
-                ClockViewIds.LOCKSCREEN_CLOCK_VIEW_SMALL
-            }
+        val tallyClock = isTallyClock()
         val side = px(SIDE_MARGIN_DP)
         constraintSet.apply {
+            // Where the stock date line was: under the small clock's place, which SystemUI keeps
+            // while the large clock shows. Hidden under the Tally clock, which has its own date.
+            constrainWidth(DATE_ID, ConstraintSet.MATCH_CONSTRAINT)
+            constrainHeight(DATE_ID, ConstraintSet.WRAP_CONTENT)
+            connect(
+                DATE_ID,
+                ConstraintSet.START,
+                ConstraintSet.PARENT_ID,
+                ConstraintSet.START,
+                side,
+            )
+            connect(DATE_ID, ConstraintSet.END, ConstraintSet.PARENT_ID, ConstraintSet.END, side)
+            connect(
+                DATE_ID,
+                ConstraintSet.TOP,
+                ClockViewIds.LOCKSCREEN_CLOCK_VIEW_SMALL,
+                ConstraintSet.BOTTOM,
+            )
+            setVisibility(DATE_ID, if (tallyClock) View.GONE else View.VISIBLE)
+
             constrainWidth(STRIP_ID, ConstraintSet.MATCH_CONSTRAINT)
             constrainHeight(STRIP_ID, ConstraintSet.WRAP_CONTENT)
             connect(
@@ -103,16 +151,43 @@ constructor(
                 side,
             )
             connect(STRIP_ID, ConstraintSet.END, ConstraintSet.PARENT_ID, ConstraintSet.END, side)
-            connect(STRIP_ID, ConstraintSet.TOP, clockId, ConstraintSet.BOTTOM, px(CLOCK_GAP_DP))
-            createBarrier(R.id.smart_space_barrier_bottom, Barrier.BOTTOM, 0, STRIP_ID)
+            if (tallyClock) {
+                // Under whichever face shows; both faces of the Tally clock sit in one place.
+                val clockId =
+                    if (keyguardClockViewModel.isLargeClockVisible.value) {
+                        ClockViewIds.LOCKSCREEN_CLOCK_VIEW_LARGE
+                    } else {
+                        ClockViewIds.LOCKSCREEN_CLOCK_VIEW_SMALL
+                    }
+                connect(
+                    STRIP_ID,
+                    ConstraintSet.TOP,
+                    clockId,
+                    ConstraintSet.BOTTOM,
+                    px(CLOCK_GAP_DP),
+                )
+            } else {
+                connect(STRIP_ID, ConstraintSet.TOP, DATE_ID, ConstraintSet.BOTTOM, px(DATE_GAP_DP))
+            }
+            createBarrier(R.id.smart_space_barrier_bottom, Barrier.BOTTOM, 0, STRIP_ID, DATE_ID)
         }
     }
 
     override fun removeViews(constraintLayout: ConstraintLayout) {
-        disposableHandle?.dispose()
-        disposableHandle = null
+        handles.dispose()
         stripView?.let { constraintLayout.removeView(it) }
+        dateView?.let { constraintLayout.removeView(it) }
         stripView = null
+        dateView = null
+    }
+
+    private fun isTallyClock(): Boolean =
+        keyguardClockViewModel.currentClock.value?.config?.id == TALLY_CLOCK_ID
+
+    private fun reapplyConstraints(root: ConstraintLayout) {
+        val constraints = ConstraintSet().apply { clone(root) }
+        applyConstraints(constraints)
+        constraints.applyTo(root)
     }
 
     private fun px(dp: Float): Int =
@@ -122,8 +197,13 @@ constructor(
     private companion object {
         val STRIP_ID = View.generateViewId()
 
+        val DATE_ID = View.generateViewId()
+
         /** The prototype's lock layout: 24 dp from the sides, 36 dp under the clock's box. */
         const val SIDE_MARGIN_DP = 24f
         const val CLOCK_GAP_DP = 36f
+
+        /** Between the date line and the strip, whose 40 dp row centres its items. */
+        const val DATE_GAP_DP = 4f
     }
 }
