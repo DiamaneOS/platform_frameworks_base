@@ -295,6 +295,8 @@ constructor(
     @UiThread
     override fun showDotView(dot: View, animate: Boolean) {
         dot.clearAnimation()
+        // Tally shows the dot at once: a fade-out still running would hide it again as it ends.
+        if (TallyShell.isEnabled) dot.animate().cancel()
         if (animate) {
             dot.visibility = View.VISIBLE
             dot.alpha = 0f
