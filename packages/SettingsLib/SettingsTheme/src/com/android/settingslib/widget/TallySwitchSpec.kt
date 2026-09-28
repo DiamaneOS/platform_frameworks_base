@@ -28,7 +28,7 @@ import com.android.settingslib.widget.theme.R
  * context's theme: dark theme reads the night values.
  */
 @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
-internal class TallySwitchSpec(
+class TallySwitchSpec(
     /** Pixels per dp. */
     val density: Float,
     val width: Float,
