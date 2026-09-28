@@ -16,23 +16,27 @@
 
 package com.android.systemui.tally.privacy
 
+import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.PointF
 import android.graphics.Rect
 import android.graphics.RectF
+import android.util.RotationUtils
 import android.view.Surface
 
 /**
  * Where the lens ring and the location lamp by the lens are drawn, in the coordinates of the window
  * that holds them ([windowBounds], in display coordinates for the current rotation).
  *
- * The ring follows the display cutout's own outline: an edge from 2 to 4 dp outside it, the 3 dp
- * ring in the sensor colour from 4 to 7 dp, and an edge from 7 to 9 dp ([edgeBand] covers both
- * edges and lies under [ringBand]). Around a round punch hole these are circles; around the FP6's
- * rectangular cutout, which reaches the top of the screen, they are rounded bands around its sides
- * and bottom. Nothing is drawn nearer than [CLEARANCE_DP] to the cutout, so the ring stays on
- * active pixels. The lamp sits beside the lens, on the side the prototype puts it (the left, with
- * the phone upright), just outside the ring.
+ * The ring follows the outline of the display cutout, and of the lens when a device sets its
+ * circle: an edge from 2 to 4 dp outside them, the 3 dp ring in the sensor colour from 4 to 7 dp,
+ * and an edge from 7 to 9 dp ([edgeBand] covers both edges and lies under [ringBand]). Around a
+ * round cutout around the lens these are circles; around the FP6's rectangular cutout, which
+ * reaches the top of the screen and holds the lens, they are rounded bands around its sides and
+ * bottom. Nothing is drawn nearer than [CLEARANCE_DP] to the cutout, so the ring stays on active
+ * pixels. The lamp sits beside the lens, level with its centre, on the side the prototype puts it
+ * (the left, with the phone upright), just outside the ring.
  */
 class TallyLensGeometry(
     val windowBounds: Rect,
@@ -56,33 +60,50 @@ class TallyLensGeometry(
         const val LAMP_EDGE_DP = 1.5f
 
         /**
-         * Computes the geometry around [cutoutPath] (display coordinates) on a display of
-         * [displayBounds] at [rotation], or null if nothing can be drawn.
+         * Computes the geometry around [cutoutPath] (display coordinates) and the [lens] circle, if
+         * a device sets one (its bounds, from [lensCircle]), on a display of [displayBounds] at
+         * [rotation], or null if nothing can be drawn. Without a lens circle, the lens is taken to
+         * be at the cutout's end away from the display edge, as a punch hole in a cutout that
+         * reaches the edge.
          */
         @JvmStatic
+        @JvmOverloads
         fun compute(
             cutoutPath: Path,
             displayBounds: Rect,
             @Surface.Rotation rotation: Int,
             density: Float,
+            lens: RectF? = null,
         ): TallyLensGeometry? {
             val cutoutBounds = RectF()
             @Suppress("DEPRECATION") cutoutPath.computeBounds(cutoutBounds, true)
             if (cutoutBounds.isEmpty) return null
+
+            // What the ring keeps clear of: the cutout, and the lens when it is set.
+            val cleared = lens?.let { union(cutoutPath, it) } ?: cutoutPath
+            val clearedBounds = RectF()
+            @Suppress("DEPRECATION") cleared.computeBounds(clearedBounds, true)
+            val lensCenter =
+                if (lens != null) {
+                    PointF(lens.centerX(), lens.centerY())
+                } else {
+                    inferredLensCenter(cutoutBounds, rotation)
+                }
 
             val innerEdge = CLEARANCE_DP * density
             val ringInner = innerEdge + EDGE_DP * density
             val ringOuter = ringInner + RING_DP * density
             val outerEdge = ringOuter + EDGE_DP * density
 
-            val edgeBand = band(cutoutPath, innerEdge, outerEdge)
-            val ringBand = band(cutoutPath, ringInner, ringOuter)
+            val edgeBand = band(cleared, innerEdge, outerEdge)
+            val ringBand = band(cleared, ringInner, ringOuter)
 
             val lampRadius = LAMP_DIAMETER_DP / 2f * density
             val lampEdgeRadius = lampRadius + LAMP_EDGE_DP * density
             val lamp =
                 lampCenter(
-                    cutoutBounds,
+                    clearedBounds,
+                    lensCenter,
                     displayBounds,
                     rotation,
                     offset = outerEdge + lampEdgeRadius,
@@ -121,6 +142,45 @@ class TallyLensGeometry(
             )
         }
 
+        /**
+         * A lens circle a device sets in natural-orientation pixels of the display's highest
+         * resolution, as the cutout path is ([centerX] from the display's horizontal centre,
+         * [centerY] from its top, [radius]), on the display now: scaled by [ratio], the framework's
+         * ratio of the display's size now to [physicalWidth] (the highest resolution's width), and
+         * rotated to [rotation] on a display of [naturalWidth] x [naturalHeight] in its natural
+         * orientation, as the framework maps the cutout path.
+         */
+        @JvmStatic
+        fun lensCircle(
+            centerX: Float,
+            centerY: Float,
+            radius: Float,
+            physicalWidth: Int,
+            ratio: Float,
+            naturalWidth: Int,
+            naturalHeight: Int,
+            @Surface.Rotation rotation: Int,
+        ): RectF {
+            val center = floatArrayOf((physicalWidth / 2f + centerX) * ratio, centerY * ratio)
+            val toDisplay = Matrix()
+            RotationUtils.transformPhysicalToLogicalCoordinates(
+                rotation,
+                naturalWidth,
+                naturalHeight,
+                toDisplay,
+            )
+            toDisplay.mapPoints(center)
+            val r = radius * ratio
+            return RectF(center[0] - r, center[1] - r, center[0] + r, center[1] + r)
+        }
+
+        /** [path] and the circle in [oval] together, or null if that cannot be computed. */
+        private fun union(path: Path, oval: RectF): Path? {
+            val circle = Path().apply { addOval(oval, Path.Direction.CW) }
+            val both = Path()
+            return if (both.op(path, circle, Path.Op.UNION)) both else null
+        }
+
         /** The area between [from] and [to] outside [path], or null if it cannot be computed. */
         private fun band(path: Path, from: Float, to: Float): Path? {
             val outer = grow(path, to)
@@ -145,41 +205,54 @@ class TallyLensGeometry(
         }
 
         /**
-         * The lamp's centre: beside the lens, [offset] away from the cutout's side, on the side
-         * that is the left with the phone upright (else the other side, if the lamp and its [reach]
-         * would leave the display). The lens is taken to be at the cutout's end away from the
-         * display edge, as a punch hole in a cutout that reaches the edge. Returns null if neither
-         * side fits.
+         * Where the lens is taken to be when no lens circle is set: at the cutout's end away from
+         * the display edge, as a punch hole in a cutout that reaches the edge.
+         */
+        private fun inferredLensCenter(cutout: RectF, @Surface.Rotation rotation: Int): PointF {
+            val lensInset = minOf(cutout.width(), cutout.height()) / 2f
+            return when (rotation) {
+                Surface.ROTATION_90 -> PointF(cutout.right - lensInset, cutout.centerY())
+                Surface.ROTATION_180 -> PointF(cutout.centerX(), cutout.top + lensInset)
+                Surface.ROTATION_270 -> PointF(cutout.left + lensInset, cutout.centerY())
+                else -> PointF(cutout.centerX(), cutout.bottom - lensInset)
+            }
+        }
+
+        /**
+         * The lamp's centre: beside the [lens], level with its centre, [offset] away from the side
+         * of what the ring keeps clear of ([cleared]), on the side that is the left with the phone
+         * upright (else the other side, if the lamp and its [reach] would leave the display).
+         * Returns null if neither side fits.
          */
         private fun lampCenter(
-            cutout: RectF,
+            cleared: RectF,
+            lens: PointF,
             display: Rect,
             @Surface.Rotation rotation: Int,
             offset: Float,
             reach: Float,
         ): FloatArray? {
-            val lensInset = minOf(cutout.width(), cutout.height()) / 2f
             val candidates =
                 when (rotation) {
                     Surface.ROTATION_90 ->
                         listOf(
-                            floatArrayOf(cutout.right - lensInset, cutout.bottom + offset),
-                            floatArrayOf(cutout.right - lensInset, cutout.top - offset),
+                            floatArrayOf(lens.x, cleared.bottom + offset),
+                            floatArrayOf(lens.x, cleared.top - offset),
                         )
                     Surface.ROTATION_180 ->
                         listOf(
-                            floatArrayOf(cutout.right + offset, cutout.top + lensInset),
-                            floatArrayOf(cutout.left - offset, cutout.top + lensInset),
+                            floatArrayOf(cleared.right + offset, lens.y),
+                            floatArrayOf(cleared.left - offset, lens.y),
                         )
                     Surface.ROTATION_270 ->
                         listOf(
-                            floatArrayOf(cutout.left + lensInset, cutout.top - offset),
-                            floatArrayOf(cutout.left + lensInset, cutout.bottom + offset),
+                            floatArrayOf(lens.x, cleared.top - offset),
+                            floatArrayOf(lens.x, cleared.bottom + offset),
                         )
                     else ->
                         listOf(
-                            floatArrayOf(cutout.left - offset, cutout.bottom - lensInset),
-                            floatArrayOf(cutout.right + offset, cutout.bottom - lensInset),
+                            floatArrayOf(cleared.left - offset, lens.y),
+                            floatArrayOf(cleared.right + offset, lens.y),
                         )
                 }
             return candidates.firstOrNull { (x, y) ->
