@@ -95,9 +95,9 @@ fun Modifier.tallyIndicatorEdge(color: Color, cornerRadius: Dp): Modifier = draw
 }
 
 /**
- * Tally's privacy chip in the shade header: one chip in the sensor colours for the area under it,
- * with an icon for each type in use, at the stock chip's height and icon size (which follow the
- * text size).
+ * Tally's privacy chip in the shade header: one chip in the sensor colours for the area under it
+ * (the capture colours for screen capture alone), with an icon for each type in use, at the stock
+ * chip's height and icon size (which follow the text size).
  */
 @Composable
 fun TallySensorChip(
@@ -108,7 +108,10 @@ fun TallySensorChip(
     val types = remember(privacyTypes) { privacyTypes.sorted() }
     if (types.isEmpty()) return
     val context = LocalContext.current
-    val colors = remember(context, isAreaDark) { TallyIndicatorColors.sensor(context, isAreaDark) }
+    val colors =
+        remember(context, isAreaDark, types) {
+            TallyIndicatorColors.forPrivacyTypes(context, isAreaDark, types)
+        }
     val radius = dimensionResource(TallyR.dimen.tally_radius_s)
     val iconSize = dimensionResource(R.dimen.ongoing_appops_chip_icon_size)
     Row(

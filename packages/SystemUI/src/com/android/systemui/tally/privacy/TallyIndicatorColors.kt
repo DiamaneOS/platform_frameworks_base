@@ -21,6 +21,8 @@ import android.content.res.Resources
 import android.graphics.Color
 import android.util.TypedValue
 import androidx.annotation.ColorInt
+import com.android.systemui.privacy.PrivacyItem
+import com.android.systemui.privacy.PrivacyType
 import org.diamaneos.tally.R as TallyR
 
 /**
@@ -75,6 +77,33 @@ data class TallyIndicatorColors(
                     edge = Color.WHITE,
                 )
             }
+
+        /**
+         * The colours for privacy items of [types]: the capture colours when screen capture (media
+         * projection) is all they show, else the sensor colours. A sensor in use wins, and so do
+         * unknown items, so a sensor is never shown in the capture colour.
+         */
+        @JvmStatic
+        fun forPrivacyTypes(
+            context: Context,
+            isAreaDark: Boolean,
+            types: Collection<PrivacyType>?,
+        ): TallyIndicatorColors =
+            if (isCaptureOnly(types)) capture(context, isAreaDark) else sensor(context, isAreaDark)
+
+        /** [forPrivacyTypes] for the types of [items]. */
+        @JvmStatic
+        fun forPrivacyItems(
+            context: Context,
+            isAreaDark: Boolean,
+            items: List<PrivacyItem>?,
+        ): TallyIndicatorColors =
+            forPrivacyTypes(context, isAreaDark, items?.map { it.privacyType })
+
+        /** Whether [types] are screen capture (media projection) and nothing else. */
+        @JvmStatic
+        fun isCaptureOnly(types: Collection<PrivacyType>?): Boolean =
+            !types.isNullOrEmpty() && types.all { it == PrivacyType.TYPE_MEDIA_PROJECTION }
 
         /** Converts a length in dp to pixels for [resources]. */
         @JvmStatic

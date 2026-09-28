@@ -614,7 +614,7 @@ constructor(
         val shouldShow = state.shouldShowDot()
         if (TallyShell.isEnabled) {
             if (shouldShow && state.designatedCorner != null) {
-                updateTallyDot(state.designatedCorner, state.tallyAreaDark)
+                updateTallyDot(state.designatedCorner, state)
             }
         } else if (locationIndicatorsEnabled()) {
             if (shouldShow && state.designatedCorner != null) {
@@ -647,11 +647,12 @@ constructor(
     }
 
     /**
-     * Tally: the dot is a 16 dp live lamp on a backing, in the sensor colours for the area under
-     * it, whatever the privacy items (location only included).
+     * Tally: the dot is a 16 dp live lamp on a backing, in the colours for the area under it: the
+     * sensor colours whatever the sensors (location only included), the capture colours for screen
+     * capture alone.
      */
     @UiThread
-    private fun updateTallyDot(corner: View, isAreaDark: Boolean) {
+    private fun updateTallyDot(corner: View, state: ViewState) {
         val dotView = corner.findViewById<ImageView>(R.id.privacy_dot) ?: return
         val drawable =
             dotView.drawable as? TallyPrivacyDotDrawable
@@ -659,7 +660,14 @@ constructor(
                         dotView.resources.getDimensionPixelSize(TallyR.dimen.tally_privacy_dot_size)
                     )
                     .also { dotView.setImageDrawable(it) }
-        drawable.setColors(TallyIndicatorColors.sensor(dotView.context, isAreaDark))
+        val context = dotView.context
+        drawable.setColors(
+            if (state.tallyCaptureOnly) {
+                TallyIndicatorColors.capture(context, state.tallyAreaDark)
+            } else {
+                TallyIndicatorColors.sensor(context, state.tallyAreaDark)
+            }
+        )
     }
 
     private val systemStatusAnimationCallback: SystemStatusAnimationCallback =
@@ -684,6 +692,18 @@ constructor(
                             nextViewState.copy(
                                 systemPrivacyEventIsActive = true,
                                 contentDescription = contentDescription,
+                            )
+                    }
+                    if (TallyShell.isEnabled) {
+                        // Tally: screen capture alone takes the capture colour, and a sensor in use
+                        // wins. The items come only with location indicators on (as in this
+                        // build): without them the dot keeps the sensor colour.
+                        nextViewState =
+                            nextViewState.copy(
+                                tallyCaptureOnly =
+                                    TallyIndicatorColors.isCaptureOnly(
+                                        privacyItems?.map { it.privacyType }
+                                    )
                             )
                     }
                 }
@@ -784,6 +804,8 @@ data class ViewState(
     val contentDescription: String? = null,
     /** Tally: whether the area under the dot is dark. Dark until known: the safe variant. */
     val tallyAreaDark: Boolean = true,
+    /** Tally: whether screen capture alone is in use, which takes the capture colour. */
+    val tallyCaptureOnly: Boolean = false,
 ) {
     fun shouldShowDot(): Boolean {
         return systemPrivacyEventIsActive &&
