@@ -5,7 +5,7 @@
 
   Generated from the Tally token spec (design/tokens/tokens.json in the DiamaneOS design
   repository) by design/tokens/generate.py. Do not edit: change the spec and regenerate.
-  Spec: tokens.json sha256 2b0dac529d1db3d68b24fa7d6815802d2c9fc56c844e296bedf81de1929bed0c
+  Spec: tokens.json sha256 6b284c5d150020815d22b6758bb41154647ce24453e23005e8f2097c7e401a21
 -->
 <resources>
     <!-- Export settingslib-switch: SettingsLib's SettingsTheme in the frameworks_base fork (packages/SettingsLib/SettingsTheme): the Tally switch's colours and geometry for the switch drawables there, as literal values, because SettingsLib's modules are built into mainline APEXes and do not link tallytokens; -v34 because the colour roles exist from API 34 -->
