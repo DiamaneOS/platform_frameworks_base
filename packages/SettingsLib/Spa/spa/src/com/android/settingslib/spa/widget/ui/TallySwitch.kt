@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -45,7 +46,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.shape
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
 import com.android.settingslib.spa.R
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -76,6 +80,8 @@ internal fun TallySwitch(
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
     val spec = remember(context, configuration) { TallySwitchSpec.from(context) }
+    // Its shape, which Material's switch gives accessibility through its track's background.
+    val switchShape = remember(spec) { RoundedCornerShape((spec.radius / spec.density).dp) }
     val pressed by source.collectIsPressedAsState()
     val focused by source.collectIsFocusedAsState()
     // Only keyboard focus shows the ring, as the prototype's :focus-visible.
@@ -102,6 +108,7 @@ internal fun TallySwitch(
                 dimensionResource(R.dimen.settingslib_tally_switch_width),
                 dimensionResource(R.dimen.settingslib_tally_switch_height),
             )
+            .semantics { shape = switchShape }
             .then(
                 TallySwitchElement(
                     checked = checked,
