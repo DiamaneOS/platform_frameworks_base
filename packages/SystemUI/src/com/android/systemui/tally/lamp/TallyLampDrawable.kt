@@ -38,7 +38,8 @@ import android.view.animation.AnimationUtils
  * shown, or before its first frame, are at once.
  */
 class TallyLampDrawable(context: Context) : Drawable() {
-    private var spec = TallyLampSpec.from(context.resources)
+    private var resources = context.resources
+    private var spec = TallyLampSpec.from(resources)
     private val geometry = TallyLampGeometry()
     private val motion = TallyLampMotion()
     private val painter = TallyLampPainter()
@@ -77,7 +78,7 @@ class TallyLampDrawable(context: Context) : Drawable() {
 
     init {
         motion.setSpec(spec)
-        setLampSizePx(context.resources.getDimensionPixelSize(TallyLampSize.DEFAULT.sizeRes))
+        setLampSize(TallyLampSize.DEFAULT)
         motion.setState(
             TallyLampState.OFF,
             nowMillis = AnimationUtils.currentAnimationTimeMillis(),
@@ -110,6 +111,11 @@ class TallyLampDrawable(context: Context) : Drawable() {
         if (state != previous || state == TallyLampState.REQUESTED) invalidateSelf()
     }
 
+    /** Draws the lamp at a token size; the host lays out again for the new size. */
+    fun setLampSize(size: TallyLampSize) {
+        setLampSizePx(resources.getDimensionPixelSize(size.sizeRes))
+    }
+
     /** Sets the lamp's diameter; the host lays out again for the new [getIntrinsicWidth]. */
     fun setLampSizePx(px: Int) {
         if (px == sizePx) return
@@ -121,6 +127,7 @@ class TallyLampDrawable(context: Context) : Drawable() {
 
     /** Reads the tokens again, after a density change. Set the size again after this. */
     fun reloadResources(resources: Resources) {
+        this.resources = resources
         spec = TallyLampSpec.from(resources)
         motion.setSpec(spec)
         geometry.set(spec, sizePx.toFloat())

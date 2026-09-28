@@ -43,6 +43,7 @@ class TallyLampView @JvmOverloads constructor(context: Context, attrs: Attribute
     val lamp = TallyLampDrawable(context).also { it.callback = this }
 
     private var sizeToken: TallyLampSize? = TallyLampSize.DEFAULT
+    private var growsWithText = false
     private var sizeDp = 0f
     private var themeColors = true
 
@@ -80,9 +81,14 @@ class TallyLampView @JvmOverloads constructor(context: Context, attrs: Attribute
         requestedSinceMillis: Long = TallyLampState.SINCE_FIRST_SHOWN,
     ) = lamp.setState(state, requestedSinceMillis)
 
-    /** Draws the lamp at a token size. */
-    fun setLampSize(size: TallyLampSize) {
+    /**
+     * Draws the lamp at a token size. With [growsWithText] it grows from 200 % text as tile lamps
+     * do ([TallyLampSize.forFontScale]), following font scale changes.
+     */
+    @JvmOverloads
+    fun setLampSize(size: TallyLampSize, growsWithText: Boolean = false) {
         sizeToken = size
+        this.growsWithText = growsWithText
         applySize()
     }
 
@@ -135,9 +141,12 @@ class TallyLampView @JvmOverloads constructor(context: Context, attrs: Attribute
     }
 
     private fun applySize() {
+        val fontScale = resources.configuration.fontScale
         val px =
-            sizeToken?.let { resources.getDimensionPixelSize(it.sizeRes) }
-                ?: (sizeDp * resources.displayMetrics.density).roundToInt()
+            sizeToken?.let {
+                val size = if (growsWithText) it.forFontScale(fontScale) else it
+                resources.getDimensionPixelSize(size.sizeRes)
+            } ?: (sizeDp * resources.displayMetrics.density).roundToInt()
         if (px == lamp.lampSizePx) return
         lamp.setLampSizePx(px)
         requestLayout()
