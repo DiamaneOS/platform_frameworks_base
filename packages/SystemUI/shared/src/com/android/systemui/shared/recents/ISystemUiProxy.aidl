@@ -218,8 +218,9 @@ interface ISystemUiProxy {
 
     /**
      * Stops an app for Recents' Stop button, as the Stop button of SystemUI's Active apps dialog
-     * does. SystemUI first checks again that the app is one it would report to the listener above;
-     * if not, it ignores the call and brings the listener up to date. Does nothing unless the Tally
+     * does, and like that dialog only once the lock screen is gone. SystemUI first checks again
+     * that the app is one it would report to the listener above; if not, or while the lock screen
+     * shows, it ignores the call and brings the listener up to date. Does nothing unless the Tally
      * shell is on.
      */
     oneway void stopApp(String packageName, int userId) = 1001;
