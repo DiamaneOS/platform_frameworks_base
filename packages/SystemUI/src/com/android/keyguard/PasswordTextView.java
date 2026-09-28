@@ -38,6 +38,8 @@ import android.view.animation.Interpolator;
 
 import com.android.settingslib.Utils;
 import com.android.systemui.res.R;
+import com.android.systemui.tally.TallyShell;
+import com.android.systemui.tally.lock.TallyBouncerType;
 
 import java.util.ArrayList;
 
@@ -134,8 +136,14 @@ public class PasswordTextView extends BasePasswordTextView {
 
         mDrawPaint.setFlags(Paint.SUBPIXEL_TEXT_FLAG | Paint.ANTI_ALIAS_FLAG);
         mDrawPaint.setTextAlign(Paint.Align.CENTER);
-        mDrawPaint.setTypeface(Typeface.create(
-                context.getString(com.android.internal.R.string.config_headlineFontFamily), 0));
+        if (TallyShell.isEnabled()) {
+            // Tally: a typed digit, while it shows before turning into a dot, in Sofia Sans.
+            mDrawPaint.setTypeface(TallyBouncerType.typeface(context,
+                    org.diamaneos.tally.R.style.TextAppearance_Tally_Body));
+        } else {
+            mDrawPaint.setTypeface(Typeface.create(
+                    context.getString(com.android.internal.R.string.config_headlineFontFamily), 0));
+        }
         mAppearInterpolator = AnimationUtils.loadInterpolator(mContext,
                 android.R.interpolator.linear_out_slow_in);
         mDisappearInterpolator = AnimationUtils.loadInterpolator(mContext,
