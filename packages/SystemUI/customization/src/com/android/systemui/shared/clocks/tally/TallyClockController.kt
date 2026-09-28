@@ -339,12 +339,15 @@ class TallyClockFaceLayout(view: View, private val isLarge: Boolean, private val
         constraints: ConstraintSet,
     ): ConstraintSet {
         super.applyPreviewConstraints(clockPreviewConfig, constraints)
+        // The Tally clock's own top margin, as on the lock screen (KeyguardClockViewModel).
+        val topMargin = TallyClocks.topMarginPx(view.resources)
         return constraints.apply {
             place(
                 this,
                 topAnchor = ConstraintSet.PARENT_ID,
                 topSide = ConstraintSet.TOP,
-                topMargin = clockPreviewConfig.getSmallClockTopPadding(),
+                topMargin =
+                    clockPreviewConfig.copy(clockTopMargin = topMargin).getSmallClockTopPadding(),
             )
         }
     }
