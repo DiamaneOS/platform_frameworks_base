@@ -149,6 +149,7 @@ import com.android.systemui.statusbar.policy.ConfigurationController;
 import com.android.systemui.statusbar.policy.KeyguardStateController;
 import com.android.systemui.statusbar.window.StatusBarWindowController;
 import com.android.systemui.statusbar.window.StatusBarWindowControllerStore;
+import com.android.systemui.tally.TallyShell;
 import com.android.systemui.telephony.TelephonyListenerManager;
 import com.android.systemui.topui.TopUiController;
 import com.android.systemui.user.domain.interactor.SelectedUserInteractor;
@@ -1002,6 +1003,10 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
         public View create(
                 Context context, View convertView, ViewGroup parent, LayoutInflater inflater) {
             View v = super.create(context, convertView, parent, inflater);
+            if (TallyShell.isEnabled()) {
+                TallyGlobalActions.styleEmergency(v);
+                return v;
+            }
             int textColor = getEmergencyTextColor(context);
             int iconColor = getEmergencyIconColor(context);
             int backgroundColor = getEmergencyBackgroundColor(context);
@@ -2095,7 +2100,9 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
 
         public View create(
                 Context context, View convertView, ViewGroup parent, LayoutInflater inflater) {
-            View v = inflater.inflate(getGridItemLayoutResource(), parent, false /* attach */);
+            int layout = TallyShell.isEnabled()
+                    ? TallyGlobalActions.itemLayout(this) : getGridItemLayoutResource();
+            View v = inflater.inflate(layout, parent, false /* attach */);
             // ConstraintLayout flow needs an ID to reference
             v.setId(View.generateViewId());
 
@@ -2121,6 +2128,12 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
                 messageView.setText(mMessage);
             } else {
                 messageView.setText(mMessageResId);
+            }
+
+            if (TallyShell.isEnabled()) {
+                TallyGlobalActions.styleItem(v, this, TallyGlobalActions.note(context, this,
+                        mLockPatternUtils, mUserTracker.getUserId(),
+                        mKeyguardStateController.isMethodSecure()));
             }
 
             return v;
@@ -2620,7 +2633,7 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
         @VisibleForTesting
         @Nullable
         SystemUIDialog mCurrentDialog;
-        private GlobalActionsLayoutLite mGlobalActionsLayout;
+        private GlobalActionsLayout mGlobalActionsLayout;
         @Nullable
         private ScrimDrawable mBackgroundDrawable;
         @Nullable
@@ -2812,7 +2825,13 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
         }
 
         private void initializeLayout(@NonNull SystemUIDialog dialog) {
-            dialog.setContentView(com.android.systemui.res.R.layout.global_actions_grid_lite);
+            if (TallyShell.isEnabled()) {
+                dialog.setContentView(com.android.systemui.res.R.layout.tally_global_actions);
+                dialog.getWindow().setDimAmount(
+                        TallyGlobalActions.dimAmount(dialog.getContext()));
+            } else {
+                dialog.setContentView(com.android.systemui.res.R.layout.global_actions_grid_lite);
+            }
             fixNavBarClipping(dialog);
 
             mGlobalActionsLayout =
@@ -3032,6 +3051,11 @@ public class GlobalActionsDialogLite implements DialogInterface.OnDismissListene
         /** Run either the enter or exit animation, then run {@code then}. */
         private void startAnimation(@NonNull SystemUIDialog dialog, boolean isEnter,
                 @Nullable Runnable then) {
+            if (TallyShell.isEnabled()) {
+                TallyGlobalActions.animate(mGlobalActionsLayout, dialog.getWindow(),
+                        mInitialWindowDimAmount, isEnter, then);
+                return;
+            }
             ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
 
             // Note: these specs should be the same as in popup_enter_material and
