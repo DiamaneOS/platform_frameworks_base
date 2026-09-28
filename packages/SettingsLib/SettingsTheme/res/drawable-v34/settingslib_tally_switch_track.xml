@@ -15,11 +15,44 @@
   limitations under the License.
   -->
 
-<!-- Tally switch track, for Switch, SwitchCompat and MaterialSwitch: the fill with the border
-     over it. The padding, with the thumb's, sets where the thumb stops (see tally_switch.xml). -->
+<!-- Tally switch track, for Switch, SwitchCompat and MaterialSwitch. Off, the fill with the
+     border over it; on, the lamp over the whole switch, its border included, edged with the
+     lit-edge line in lampOutline (in dark theme lampOutline is the lamp, so the lamp reaches the
+     edge), as the prototype's lit switch. The padding, with the thumb's, sets where the thumb
+     stops (see tally_switch.xml). -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android"
     android:constantSize="true">
-    <!-- Disabled, the fill and the border are both see-through, so the fill stops at the
+    <!-- Disabled and on, the lamp and its edge line are both see-through, so the lamp stops at the
+         line's inner edge instead of running under it. -->
+    <item android:state_enabled="false" android:state_checked="true">
+        <layer-list
+            android:paddingLeft="@dimen/settingslib_tally_switch_track_padding"
+            android:paddingRight="@dimen/settingslib_tally_switch_track_padding">
+            <item
+                android:left="@dimen/settingslib_tally_switch_lit_edge"
+                android:top="@dimen/settingslib_tally_switch_lit_edge"
+                android:right="@dimen/settingslib_tally_switch_lit_edge"
+                android:bottom="@dimen/settingslib_tally_switch_lit_edge">
+                <shape android:shape="rectangle">
+                    <corners android:radius="@dimen/settingslib_tally_switch_lit_inner_radius" />
+                    <solid android:color="@color/settingslib_tally_switch_track_color" />
+                </shape>
+            </item>
+            <item>
+                <shape android:shape="rectangle">
+                    <size
+                        android:width="@dimen/settingslib_tally_switch_width"
+                        android:height="@dimen/settingslib_tally_switch_height" />
+                    <corners android:radius="@dimen/settingslib_tally_switch_lit_edge_radius" />
+                    <solid android:color="@android:color/transparent" />
+                    <stroke
+                        android:width="@dimen/settingslib_tally_switch_lit_edge"
+                        android:color="@color/settingslib_tally_switch_lit_edge_color" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+    <!-- Disabled and off, the fill and the border are both see-through, so the fill stops at the
          border's inner edge instead of running under it. -->
     <item android:state_enabled="false">
         <layer-list
@@ -38,8 +71,29 @@
             <item android:drawable="@drawable/settingslib_tally_switch_border" />
         </layer-list>
     </item>
-    <!-- Enabled, the fill ends under the middle of the opaque border, so its edge never shows
-         outside it. -->
+    <!-- On, the lamp ends under the middle of its opaque edge line (a shape's fill stops at its
+         stroke's centre), so no lamp shows outside the line. Neither the border nor the dark fill
+         is under it, so no grey shows at its anti-aliased edge. -->
+    <item android:state_checked="true">
+        <layer-list
+            android:paddingLeft="@dimen/settingslib_tally_switch_track_padding"
+            android:paddingRight="@dimen/settingslib_tally_switch_track_padding">
+            <item>
+                <shape android:shape="rectangle">
+                    <size
+                        android:width="@dimen/settingslib_tally_switch_width"
+                        android:height="@dimen/settingslib_tally_switch_height" />
+                    <corners android:radius="@dimen/settingslib_tally_switch_lit_edge_radius" />
+                    <solid android:color="@color/settingslib_tally_switch_track_color" />
+                    <stroke
+                        android:width="@dimen/settingslib_tally_switch_lit_edge"
+                        android:color="@color/settingslib_tally_switch_lit_edge_color" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+    <!-- Off, the fill ends under the middle of the opaque border, so its edge never shows outside
+         it. -->
     <item>
         <layer-list
             android:paddingLeft="@dimen/settingslib_tally_switch_track_padding"
