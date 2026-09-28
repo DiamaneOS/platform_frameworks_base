@@ -54,15 +54,16 @@ object TallyClocks {
         get() = if (isEnabled) TALLY_CLOCK_ID else DEFAULT_CLOCK_ID
 
     /**
-     * How the clock picker shows the Tally clock. It is this build's default clock, so it takes the
-     * default clock's translated name, description and thumbnail rather than new text.
+     * How the clock picker shows the Tally clock: by its name, which is also what TalkBack reads
+     * for it, and a thumbnail of the clock's own digits, so that it is told apart from the stock
+     * default clock.
      */
     fun pickerConfig(resources: Resources): ClockPickerConfig =
         ClockPickerConfig(
             TALLY_CLOCK_ID,
-            resources.getString(CustomizationR.string.clock_default_name),
-            resources.getString(CustomizationR.string.clock_default_description),
-            resources.getDrawable(CustomizationR.drawable.clock_default_thumbnail, null),
+            resources.getString(CustomizationR.string.tally_clock_name),
+            resources.getString(CustomizationR.string.tally_clock_name),
+            resources.getDrawable(CustomizationR.drawable.tally_clock_thumbnail, null),
             isReactiveToTone = false,
         )
 }

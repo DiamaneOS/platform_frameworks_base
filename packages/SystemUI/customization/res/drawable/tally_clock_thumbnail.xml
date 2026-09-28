@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ~ Copyright (C) 2026 The DiamaneOS Project
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~      http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+  -->
+<!-- DiamaneOS: the Tally lock clock's thumbnail in the clock picker: "14:32" as the clock draws it,
+     in Sofia Sans at weight 280 with tabular figures and -0.025 em tracking (the outlines of the
+     vendor's SofiaSans-Regular.ttf at that weight, OFL). White, as the default clock's thumbnail. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="56dp"
+    android:height="16dp"
+    android:viewportWidth="2377"
+    android:viewportHeight="679">
+    <!-- one.tf -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M6.6 667Q0 667 0 660.4V626.4Q0 619.9 6.6 619.9H172.9V69.8L9.6 126.6Q3.1 128.6 3.1 122.1V87.1Q3.1 81.5 7.1 80L203.9 9.5Q206.4 8.5 208.6 8.3Q210.9 8 213.4 8H217.5Q224.1 8 224.1 14.6V619.9H372.8Q379.4 619.9 379.4 626.4V660.4Q379.4 667 372.8 667Z" />
+    <!-- four.tf -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M880.1 667Q873.6 667 873.6 660.4V528.2H537.2Q530.6 528.2 530.6 521.6V517.3Q530.6 511.6 532.6 507.5L805.6 18Q808.4 12 814.1 12H856.8Q860.4 12 861.1 14Q861.8 16 860.3 19.6L603.1 481.1H874.1V246.9Q874.1 240.3 880.6 240.3H916.7Q923.2 240.3 923.2 246.9V481.1H1012.4Q1019 481.1 1019 487.7V521.6Q1019 528.2 1012.4 528.2H923.2V660.4Q923.2 667 916.7 667Z" />
+    <!-- colon -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M1179.3 287Q1160.3 287 1151 276.7Q1141.7 266.3 1141.7 249.6V241.6Q1141.7 225.1 1151 214.9Q1160.3 204.7 1179.3 204.7Q1198.3 204.7 1207.4 214.9Q1216.4 225.1 1216.4 241.6V249.6Q1216.4 266.3 1207.4 276.7Q1198.3 287 1179.3 287ZM1179.3 679Q1160.3 679 1151 668.7Q1141.7 658.3 1141.7 641.6V633.6Q1141.7 617.1 1151 606.9Q1160.3 596.7 1179.3 596.7Q1198.3 596.7 1207.4 606.9Q1216.4 617.1 1216.4 633.6V641.6Q1216.4 658.3 1207.4 668.7Q1198.3 679 1179.3 679Z" />
+    <!-- three.tf -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M1568.3 679Q1501.3 679 1457 658.7Q1412.8 638.4 1391.2 598.9Q1369.7 559.4 1369.7 504Q1369.7 497.4 1376.3 497.4H1413.8Q1420.4 497.4 1420.4 504Q1420.4 568.2 1456 600.5Q1491.7 632.9 1567.3 632.9Q1645.6 632.9 1688.4 598Q1731.3 563.2 1731.3 499.9V481.3Q1731.3 353.8 1573.3 353.8H1492.1Q1485.6 353.8 1485.6 347.2V314.8Q1485.6 308.2 1492.1 308.2H1573.8Q1640.1 308.2 1678.2 273.9Q1716.3 239.5 1716.3 177.2V159.1Q1716.3 104.8 1680.7 75.4Q1645 46.1 1572.8 46.1Q1495.6 46.1 1460.7 77.4Q1425.8 108.8 1425.8 172.5Q1425.8 179.1 1419.2 179.1H1381.7Q1375.1 179.1 1375.1 172.5Q1375.1 87.5 1424.2 43.7Q1473.3 0 1575.8 0Q1672 0 1719.7 41Q1767.5 82 1767.5 163.6Q1767.5 232 1736.6 272.2Q1705.7 312.4 1657.3 326.4V328Q1720.2 343.5 1751.4 382.8Q1782.5 422 1782.5 490.4Q1782.5 582.4 1727.2 630.7Q1671.9 679 1568.3 679Z" />
+    <!-- two.tf -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M1993.3 667Q1986.7 667 1986.7 660.4V616.4Q1986.7 559.6 2004.9 517.4Q2023.2 475.3 2053.4 444.1Q2083.6 412.9 2119.8 387.9Q2156 362.9 2192.3 340.2Q2228.5 317.4 2258.7 293.5Q2288.9 269.5 2307.2 239.8Q2325.4 210.1 2325.4 170.8V154.1Q2325.4 98.9 2291.7 72.5Q2258 46.1 2187.8 46.1Q2112.6 46.1 2076 78.5Q2039.4 110.8 2043.3 172.5Q2043.3 179.1 2037.3 179.1H1999.2Q1992.7 179.1 1992.7 172.5Q1990.2 117 2011.7 78.5Q2033.3 40 2078.8 20Q2124.3 0 2191.9 0Q2286 0 2331.3 39.3Q2376.6 78.6 2376.6 157.7Q2376.6 210.7 2358.4 247.7Q2340.1 284.7 2310.2 312.2Q2280.2 339.7 2244 362.2Q2207.8 384.7 2171.8 407.4Q2135.8 430.1 2105.9 458.6Q2075.9 487 2057.7 525.8Q2039.4 564.6 2039.4 619.9H2367Q2373.6 619.9 2373.6 626.4V660.4Q2373.6 667 2367 667Z" />
+</vector>

@@ -76,8 +76,8 @@ class TallyClockController(ctx: Context, settings: ClockSettings) : ClockControl
     override val config =
         ClockConfig(
             TallyClocks.TALLY_CLOCK_ID,
-            ctx.resources.getString(CustomizationR.string.clock_default_name),
-            ctx.resources.getString(CustomizationR.string.clock_default_description),
+            ctx.resources.getString(CustomizationR.string.tally_clock_name),
+            ctx.resources.getString(CustomizationR.string.tally_clock_name),
         )
 
     override val eventListeners = ClockEventListeners()
