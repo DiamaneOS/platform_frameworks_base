@@ -24,7 +24,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
-import com.android.settingslib.graph.ThemedBatteryDrawable
 import com.android.systemui.privacy.PrivacyType
 import com.android.systemui.res.R
 import com.android.systemui.tally.lamp.TallyLampColors
@@ -237,7 +236,7 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
                 setSingleLine(true)
                 includeFontPadding = false
             }
-        private var battery: ThemedBatteryDrawable? = null
+        private var battery: TallyBatteryDrawable? = null
 
         /** Set by the strip before it measures this item; not a layout request of its own. */
         var showWords = true
@@ -289,10 +288,11 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
             iconView.imageTintList = ColorStateList.valueOf(ink)
             when (kind) {
                 TallyStripItem.Kind.BATTERY -> {
-                    val drawable =
-                        battery ?: ThemedBatteryDrawable(context, ink).also { battery = it }
-                    drawable.setColors(ink, wall.getColor(TallyR.color.tally_ink_muted), ink)
-                    drawable.setBatteryLevel(item.batteryLevel)
+                    // The Tally battery glyph, with the level and charging state the words and
+                    // the description also give.
+                    val drawable = battery ?: TallyBatteryDrawable().also { battery = it }
+                    drawable.color = ink
+                    drawable.chargeLevel = item.batteryLevel
                     drawable.charging = item.isCharging
                     iconView.imageTintList = null
                     iconView.setImageDrawable(drawable)
