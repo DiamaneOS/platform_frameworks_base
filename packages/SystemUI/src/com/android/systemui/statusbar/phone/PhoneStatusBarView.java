@@ -43,6 +43,7 @@ import com.android.systemui.Gefingerpoken;
 import com.android.systemui.res.R;
 import com.android.systemui.statusbar.gesture.StatusBarLongPressGestureDetector;
 import com.android.systemui.statusbar.phone.userswitcher.StatusBarUserSwitcherContainer;
+import com.android.systemui.tally.TallyShell;
 import com.android.systemui.user.ui.binder.StatusBarUserChipViewBinder;
 import com.android.systemui.user.ui.viewmodel.StatusBarUserChipViewModel;
 import com.android.systemui.util.leak.RotationUtils;
@@ -368,6 +369,24 @@ public class PhoneStatusBarView extends FrameLayout {
         bounds.right = bounds.right - mCutoutSideNudge;
         lp.width = bounds.width();
         lp.height = bounds.height();
+        if (TallyShell.isEnabled()) {
+            lp.width += tallyInsetAsymmetry();
+        }
+    }
+
+    /**
+     * Tally's privacy dot needs more room at the end of the status bar than the rounded corner
+     * needs at the start, so the content insets differ by this much. The cutout space is centred
+     * in the content, which puts it half of that off the cutout; widening it by all of it brings
+     * its edge on the dot's side back to the cutout's edge, where stock's even insets put it, and
+     * keeps its other edge clear of the cutout.
+     */
+    private int tallyInsetAsymmetry() {
+        if (mInsetsFetcher == null) {
+            return 0;
+        }
+        Insets insets = mInsetsFetcher.fetchInsets();
+        return Math.abs(insets.left - insets.right);
     }
 
     private void updateSafeInsets() {

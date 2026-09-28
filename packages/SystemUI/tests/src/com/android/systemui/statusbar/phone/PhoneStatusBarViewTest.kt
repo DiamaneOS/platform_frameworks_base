@@ -45,7 +45,9 @@ import com.android.systemui.res.R
 import com.android.systemui.statusbar.gesture.StatusBarLongPressGestureDetector
 import com.android.systemui.statusbar.window.StatusBarWindowController
 import com.android.systemui.statusbar.window.StatusBarWindowControllerStore
+import com.android.systemui.tally.TallyShell
 import com.google.common.truth.Truth.assertThat
+import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
 import org.mockito.Mock
@@ -437,6 +439,39 @@ class PhoneStatusBarViewTest : SysuiTestCase() {
     }
 
     @Test
+    fun tally_unevenInsets_endSideStartsAtTheCutoutsEdge() {
+        assumeTrue(TallyShell.isEnabled)
+        // An FP6-like display at density 3: 1116 px wide with a 60 px cutout at the top centre,
+        // and the insets Tally gives it: the rounded corner's 24 dp at the start, the privacy
+        // dot's 32 dp at the end.
+        val cutout =
+            DisplayCutout(Insets.of(0, 110, 0, 0), null, Rect(528, 0, 588, 110), null, null)
+        whenever(view.rootWindowInsets)
+            .thenReturn(WindowInsets.Builder().setDisplayCutout(cutout).build())
+        context.orCreateTestableResources.apply {
+            addOverride(R.dimen.status_bar_padding_start, 12)
+            addOverride(R.dimen.status_bar_padding_end, 12)
+            addOverride(R.dimen.display_cutout_margin_consumption, 0)
+        }
+        view.updateResources()
+        view.setHasCornerCutoutFetcher { false }
+        view.setInsetsFetcher {
+            Insets.of(/* left= */ 72, /* top= */ 0, /* right= */ 96, /* bottom= */ 0)
+        }
+
+        view.onAttachedToWindow()
+        view.measure(exactly(1116), exactly(144))
+        view.layout(0, 0, 1116, 144)
+
+        val contents = view.requireViewById<View>(R.id.status_bar_contents)
+        val startSide = view.requireViewById<View>(R.id.status_bar_start_side_container)
+        val endSide = view.requireViewById<View>(R.id.status_bar_end_side_container)
+        assertThat(view.requireViewById<View>(R.id.cutout_space_view).width).isEqualTo(60 + 24)
+        assertThat(contents.left + endSide.left).isEqualTo(588)
+        assertThat(contents.left + startSide.right).isAtMost(528)
+    }
+
+    @Test
     fun onTouchEvent_downEventNotHandledIfOutsideTouchableRegion_whenFlagEnabled() {
         val touchableRegion = Region.obtain().apply { set(0, 0, 200, 200) }
         view.updateTouchableRegion(touchableRegion)
@@ -523,6 +558,9 @@ class PhoneStatusBarViewTest : SysuiTestCase() {
             /* frameWidth = */ 0,
             /* frameHeight = */ 0,
         )
+
+    private fun exactly(size: Int) =
+        View.MeasureSpec.makeMeasureSpec(size, View.MeasureSpec.EXACTLY)
 
     companion object {
         val DEFAULT_TOUCHABLE_REGION = Region(0, 0, 500, 500)
