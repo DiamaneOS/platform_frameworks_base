@@ -44,7 +44,8 @@ import org.diamaneos.tally.R as TallyR
  * every layout, as the prototype's declutter rule has it: first the alarm's time goes, then Wi-Fi,
  * Bluetooth and Calm fold away while they are off (their words stay in the strip's description),
  * and only then does the row wrap. The camera and microphone come first, so a sensor in use is
- * never the item that runs out of room.
+ * never the item that runs out of room. From 150 % text, as the prototype, the alarm's time always
+ * goes, the battery readout stops growing and the gaps narrow.
  *
  * Text and lamps are drawn in the theme the lock wallpaper calls for ([setLightWallpaper]), as
  * stock SystemUI does for text on the lock screen.
@@ -260,6 +261,14 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
         fun applyTextAppearance() {
             wordsView.setTextAppearance(TallyR.style.TextAppearance_Tally_Label)
             wordsView.fontFeatureSettings = "tnum"
+            if (kind == TallyStripItem.Kind.BATTERY && isLargeText(context)) {
+                // As the prototype: from 150 % text the battery readout, a display value like the
+                // clock, stops growing, at its size there (15 x 1.5), so the row keeps one line.
+                wordsView.setTextSize(
+                    TypedValue.COMPLEX_UNIT_DIP,
+                    BATTERY_WORDS_LARGE_TEXT_DP * LARGE_TEXT_SCALE,
+                )
+            }
         }
 
         fun bind(item: TallyStripItem, wall: Context) {
@@ -304,7 +313,8 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
 
             val words =
                 when (kind) {
-                    TallyStripItem.Kind.ALARM -> item.alarmTime
+                    // As the prototype: from 150 % text the alarm's time goes; its words keep it.
+                    TallyStripItem.Kind.ALARM -> item.alarmTime.takeUnless { isLargeText(context) }
                     TallyStripItem.Kind.BATTERY ->
                         if (!item.showBatteryPercent) null
                         else NumberFormat.getPercentInstance().format(item.batteryLevel / 100.0)
@@ -393,8 +403,7 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
  * prototype's strip (app.css, .tally.ts-150 .lk-strip).
  */
 internal fun stripItemGapPx(context: Context): Int {
-    val large = context.resources.configuration.fontScale >= LARGE_TEXT_SCALE
-    val dp = if (large) ITEM_GAP_LARGE_TEXT_DP else ITEM_GAP_DP
+    val dp = if (isLargeText(context)) ITEM_GAP_LARGE_TEXT_DP else ITEM_GAP_DP
     return TypedValue.applyDimension(
             TypedValue.COMPLEX_UNIT_DIP,
             dp,
@@ -403,6 +412,13 @@ internal fun stripItemGapPx(context: Context): Int {
         .roundToInt()
 }
 
+/** Whether the text size is 150 % or more, where the prototype's strip changes its rules. */
+private fun isLargeText(context: Context): Boolean =
+    context.resources.configuration.fontScale >= LARGE_TEXT_SCALE
+
 private const val ITEM_GAP_DP = 18f
 private const val ITEM_GAP_LARGE_TEXT_DP = 14f
 private const val LARGE_TEXT_SCALE = 1.5f
+
+/** The prototype's battery readout at large text: 15 dp times the text size, up to 150 %. */
+private const val BATTERY_WORDS_LARGE_TEXT_DP = 15f
