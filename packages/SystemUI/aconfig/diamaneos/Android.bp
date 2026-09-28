@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2026 The DiamaneOS Project
+
+// DiamaneOS flags for SystemUI. They are declared and linked like SystemUI's
+// own flags in the parent directory, but in an aconfig package of their own,
+// so they sit in this directory: the parent's *.aconfig only takes
+// com.android.systemui. SystemUI code reads tally_shell through
+// com.android.systemui.tally.TallyShell, never through the generated class.
+
+package {
+    default_applicable_licenses: ["frameworks_base_packages_SystemUI_license"],
+    default_visibility: ["//frameworks/base/packages/SystemUI:__subpackages__"],
+}
+
+aconfig_declarations {
+    name: "org_diamaneos_systemui_flags",
+    package: "org.diamaneos.systemui",
+    container: "system",
+    srcs: [
+        "*.aconfig",
+    ],
+}
+
+java_aconfig_library {
+    name: "org_diamaneos_systemui_flags_lib",
+    aconfig_declarations: "org_diamaneos_systemui_flags",
+    sdk_version: "system_current",
+}

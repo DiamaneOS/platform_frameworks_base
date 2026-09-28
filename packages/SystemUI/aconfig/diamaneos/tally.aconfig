@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 The DiamaneOS Project
+
+package: "org.diamaneos.systemui"
+container: "system"
+
+flag {
+    name: "tally_shell"
+    namespace: "systemui"
+    description: "Tally, the DiamaneOS interface, in SystemUI. Every Tally change to SystemUI's code and resources depends on this one flag, so a build with it off has GrapheneOS's own SystemUI."
+    bug: "FP6-211"
+    is_fixed_read_only: true
+}
