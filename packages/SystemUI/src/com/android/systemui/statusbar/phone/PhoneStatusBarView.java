@@ -112,6 +112,16 @@ public class PhoneStatusBarView extends FrameLayout {
         updateSafeInsets();
     }
 
+    /**
+     * With Tally, applies the content insets again (as padding) when they changed without a change
+     * updateDisplayParameters() tracks: with the privacy dot's room at the end, a new layout
+     * direction moves it to the other side. The sides are placed again as the view measures.
+     */
+    void tallyReapplyInsets() {
+        updateSafeInsets();
+        requestLayout();
+    }
+
     void init(StatusBarUserChipViewModel viewModel) {
         StatusBarUserSwitcherContainer container = findViewById(R.id.user_switcher_container);
         StatusBarUserChipViewBinder.bind(container, viewModel);

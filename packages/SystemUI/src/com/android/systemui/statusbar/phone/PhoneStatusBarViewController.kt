@@ -42,11 +42,13 @@ import com.android.systemui.shade.domain.interactor.ShadeModeInteractor
 import com.android.systemui.statusbar.core.StatusBarEventForwardingModernization
 import com.android.systemui.statusbar.data.repository.StatusBarConfigurationController
 import com.android.systemui.statusbar.gesture.StatusBarLongPressGestureDetector
+import com.android.systemui.statusbar.layout.StatusBarContentInsetsChangedListener
 import com.android.systemui.statusbar.layout.StatusBarContentInsetsProvider
 import com.android.systemui.statusbar.policy.Clock
 import com.android.systemui.statusbar.policy.ConfigurationController
 import com.android.systemui.statusbar.window.StatusBarWindowControllerStore
 import com.android.systemui.statusbar.window.StatusBarWindowStateController
+import com.android.systemui.tally.TallyShell
 import com.android.systemui.unfold.UNFOLD_STATUS_BAR
 import com.android.systemui.unfold.util.ScopedUnfoldTransitionProgressProvider
 import com.android.systemui.user.ui.viewmodel.StatusBarUserChipViewModel
@@ -178,6 +180,18 @@ private constructor(
         updateStartSideContainerHoverListener()
     }
 
+    /**
+     * With Tally the content insets change sides with the layout direction (the privacy dot's room
+     * is at the end), which the view does not track: it applies them again whenever the insets
+     * provider says they changed.
+     */
+    private val tallyInsetsListener =
+        object : StatusBarContentInsetsChangedListener {
+            override fun onStatusBarContentInsetsChanged() {
+                mView.tallyReapplyInsets()
+            }
+        }
+
     override fun onViewAttached() {
         clock = mView.requireViewById(R.id.clock)
 
@@ -199,6 +213,9 @@ private constructor(
         }
         progressProvider?.setReadyToHandleTransition(true)
         configurationController.addCallback(configurationListener)
+        if (TallyShell.isEnabled) {
+            statusBarContentInsetsProvider.addCallback(tallyInsetsListener)
+        }
     }
 
     private fun addCursorSupportToIconContainers() {
@@ -258,6 +275,9 @@ private constructor(
         endSideContainer.setOnHoverListener(null)
         progressProvider?.setReadyToHandleTransition(false)
         configurationController.removeCallback(configurationListener)
+        if (TallyShell.isEnabled) {
+            statusBarContentInsetsProvider.removeCallback(tallyInsetsListener)
+        }
     }
 
     init {
