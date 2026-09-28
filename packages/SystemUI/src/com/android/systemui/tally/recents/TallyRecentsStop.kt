@@ -27,9 +27,11 @@ import androidx.annotation.WorkerThread
 import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.dagger.qualifiers.Application
 import com.android.systemui.dagger.qualifiers.Background
+import com.android.systemui.dagger.qualifiers.Main
 import com.android.systemui.qs.FgsManagerControllerImpl
 import com.android.systemui.settings.UserTracker
 import com.android.systemui.shared.recents.IStoppableAppsListener
+import com.android.systemui.statusbar.policy.KeyguardStateController
 import com.android.systemui.tally.TallyShell
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicBoolean
@@ -43,7 +45,9 @@ import javax.inject.Inject
  * that the dialog lists with a Stop button because it runs a foreground service. Stop goes through
  * the dialog's own policy in [FgsManagerControllerImpl], which checks the app again, so Launcher
  * needs no new permission and never stops an app itself. Only the current user's recents app is
- * heard, and only about the current user and its profiles. The work runs on the background thread.
+ * heard, and only about the current user and its profiles. Like the dialog, which opens only once
+ * the keyguard is gone, Stop does nothing while the lock screen shows. The work runs on the
+ * background thread.
  */
 @SysUISingleton
 class TallyRecentsStop
@@ -53,6 +57,8 @@ constructor(
     private val fgsManagerController: FgsManagerControllerImpl,
     private val packageManager: PackageManager,
     private val userTracker: UserTracker,
+    private val keyguardStateController: KeyguardStateController,
+    @Main private val mainExecutor: Executor,
     @Background private val backgroundExecutor: Executor,
 ) {
     private val recentsPackage: String? by lazy {
@@ -88,20 +94,37 @@ constructor(
         }
     }
 
-    /** Stops [packageName] in [userId] for Recents' Stop button if the Active apps dialog would. */
+    /**
+     * Stops [packageName] in [userId] for Recents' Stop button if the Active apps dialog would, and
+     * only while the lock screen is gone.
+     */
     fun stopApp(packageName: String?, userId: Int, callingUid: Int) {
         if (TallyShell.isUnexpectedlyInLegacyMode()) return
-        backgroundExecutor.execute {
-            if (packageName == null || !isCurrentRecentsApp(callingUid)) return@execute
-            val stopped =
-                userTracker.userProfiles.any { it.id == userId } &&
-                    fgsManagerController.stopIfStoppable(packageName, userId)
-            if (!stopped) {
-                Log.w(TAG, "Ignored Stop: Active apps offers none for $packageName in user $userId")
-                // The app's policy may have changed since the last report: tell Recents again.
-                report()
-            }
+        // The keyguard state changes on the main thread: read it there, when Recents asks.
+        mainExecutor.execute {
+            val keyguardShowing = keyguardStateController.isShowing
+            backgroundExecutor.execute { stop(packageName, userId, callingUid, keyguardShowing) }
         }
+    }
+
+    @WorkerThread
+    private fun stop(packageName: String?, userId: Int, callingUid: Int, keyguardShowing: Boolean) {
+        if (packageName == null || !isCurrentRecentsApp(callingUid)) return
+        if (keyguardShowing) {
+            // Also while occluded (the secure camera, the emergency dialer, an alarm) and dozing.
+            refuse(packageName, userId, "the lock screen is showing")
+        } else if (userTracker.userProfiles.none { it.id == userId }) {
+            refuse(packageName, userId, "not the current user or one of its profiles")
+        } else if (!fgsManagerController.stopIfStoppable(packageName, userId)) {
+            refuse(packageName, userId, "Active apps offers no Stop for it")
+        }
+    }
+
+    @WorkerThread
+    private fun refuse(packageName: String, userId: Int, why: String) {
+        Log.w(TAG, "Ignored Stop for $packageName in user $userId: $why")
+        // The app's policy may have changed since the last report: tell Recents again.
+        report()
     }
 
     @WorkerThread
