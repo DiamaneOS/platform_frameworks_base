@@ -377,12 +377,15 @@ constructor(
             settings.boolSetting(MEDIA_CONTROLS_LOCK_SCREEN, true).distinctUntilChanged()
 
         /**
-         * Whether the lock screen shows an alarm that rings at [triggerTime]: only within the stock
-         * lock screen's 12 hours from [now] (KeyguardSliceProvider), and only while it shows
-         * notifications, as GrapheneOS's smartspace line.
+         * Whether the lock screen shows an alarm that rings at [triggerTime]: only when it is still
+         * to come and rings within the lock screen's 12 hours from [now], exactly as GrapheneOS's
+         * smartspace line decides it (SystemUISmartspaceService.shouldDisplayAlarm), and only while
+         * the lock screen shows notifications, as that line.
          */
-        fun alarmShows(triggerTime: Long, now: Long, notificationsShown: Boolean): Boolean =
-            notificationsShown && triggerTime <= now + TimeUnit.HOURS.toMillis(ALARM_HOURS)
+        fun alarmShows(triggerTime: Long, now: Long, notificationsShown: Boolean): Boolean {
+            val delta = triggerTime - now
+            return notificationsShown && delta > 0 && delta <= TimeUnit.HOURS.toMillis(ALARM_HOURS)
+        }
 
         /**
          * The always-on items for the alarm's time ([alarmTime], null for none), Do Not Disturb and
