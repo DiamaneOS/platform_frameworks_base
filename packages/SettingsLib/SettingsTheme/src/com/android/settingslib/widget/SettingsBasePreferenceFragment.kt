@@ -35,7 +35,8 @@ import com.android.settingslib.widget.theme.R
 abstract class SettingsBasePreferenceFragment : PreferenceFragmentCompat() {
 
     val footerDataMap = mutableMapOf<String, FooterData>()
-    protected open val isPreferenceSpacingEnabled = true
+    // Tally: no gap between rows, so a section's rows join into one card (stock left 2 dp).
+    protected open val isPreferenceSpacingEnabled = false
 
     @CallSuper
     override fun onCreateView(

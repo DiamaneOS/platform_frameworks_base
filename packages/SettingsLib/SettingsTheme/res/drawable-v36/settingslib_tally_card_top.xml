@@ -18,10 +18,9 @@
 <!-- A Tally section card segment, the prototype's .set-sec and .set-row: a section's first row: the
      card's top, its rounded corners and edge, in the surface colour with the 1 dp hairline in
      outlineVariant and 12 dp outer corners, 12 dp from the screen's sides, with the row's content
-     28 dp in. It reaches 3 dp below the row: across the 2 dp the list may leave between rows
-     (SettingsBasePreferenceFragment's item spacing), with its bottom edge under the next row, which
-     draws the hairline between them and carries the card on. No ripple: the plain background of
-     switch rows, whose switch shows the press. -->
+     28 dp in. It reaches 1 dp below the row, so its bottom edge lies under the next row's top edge:
+     one hairline between the rows, and the card runs on. No ripple: the plain background of switch
+     rows, whose switch shows the press. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android"
     android:paddingStart="@dimen/settingslib_tally_row_inset"
     android:paddingEnd="@dimen/settingslib_tally_row_inset">
@@ -29,7 +28,7 @@
     <item
         android:start="@dimen/settingslib_tally_card_margin"
         android:end="@dimen/settingslib_tally_card_margin"
-        android:bottom="-3dp">
+        android:bottom="-1dp">
         <shape android:shape="rectangle">
             <solid android:color="@android:color/transparent" />
             <corners
@@ -42,7 +41,7 @@
     <item
         android:start="@dimen/settingslib_tally_card_margin"
         android:end="@dimen/settingslib_tally_card_margin"
-        android:bottom="-3dp">
+        android:bottom="-1dp">
         <shape android:shape="rectangle">
             <solid android:color="@color/settingslib_tally_surface" />
             <stroke
