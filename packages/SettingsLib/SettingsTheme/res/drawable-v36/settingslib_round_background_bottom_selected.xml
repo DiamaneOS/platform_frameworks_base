@@ -21,6 +21,19 @@
     android:paddingMode="stack"
     android:paddingStart="@dimen/settingslib_tally_row_inset"
     android:paddingEnd="@dimen/settingslib_tally_row_inset">
+    <!-- The segment's outline, whole: draws nothing. -->
+    <item
+        android:start="@dimen/settingslib_tally_card_margin"
+        android:end="@dimen/settingslib_tally_card_margin">
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/transparent" />
+            <corners
+                android:topLeftRadius="0dp"
+                android:topRightRadius="0dp"
+                android:bottomLeftRadius="@dimen/settingslib_tally_row_border_radius"
+                android:bottomRightRadius="@dimen/settingslib_tally_row_border_radius" />
+        </shape>
+    </item>
     <item
         android:start="@dimen/settingslib_tally_card_margin"
         android:end="@dimen/settingslib_tally_card_margin">
