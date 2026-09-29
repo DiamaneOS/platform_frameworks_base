@@ -52,6 +52,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -243,10 +244,17 @@ fun SmallTileContent(
     modifier: Modifier = Modifier,
     size: @Composable () -> Dp = { CommonTileDefaults.SmallTileIconSize },
     animateToEnd: Boolean = false,
+    // DiamaneOS Tally: Tally's tiles take a new colour at once; their lit field's wipe carries it.
+    animateColor: Boolean = true,
 ) {
     val context = LocalContext.current
     val icon = iconProvider(context)
-    val animatedColor by animateColorAsState(color, label = "QSTileIconColor")
+    val animatedColor by
+        if (animateColor) {
+            animateColorAsState(color, label = "QSTileIconColor")
+        } else {
+            rememberUpdatedState(color)
+        }
     val sizeValue = size()
     val iconModifier =
         modifier

@@ -197,7 +197,8 @@ fun TallyTileContent(
     val wipe = rememberWipe(state.isLit)
     // The content takes the lit colours once the field has lit. Until then, and while it drains,
     // it keeps the unlit colours and the lit part of the field shows it in the colour for text on
-    // the lamp, as the prototype's two layers do.
+    // the lamp, as the prototype's two layers do. The wipe carries the change, so the colours
+    // switch at once; an icon easing into the lit colour would flash its unlit one first.
     val fieldLit by remember(wipe) { derivedStateOf { wipe.value >= 1f } }
     val lit = state.isLit && fieldLit
     val edgeWidth = dimensionResource(TallyR.dimen.tally_stroke_lit_edge)
@@ -392,6 +393,7 @@ private fun BoxScope.KeycapContent(
         iconProvider = iconProvider,
         color = iconColor(state, lit, palette),
         size = { iconSize },
+        animateColor = false,
         modifier =
             Modifier.align(Alignment.Center)
                 .offset(KEYCAP_ICON_SHIFT, KEYCAP_ICON_SHIFT)
@@ -452,6 +454,7 @@ private fun LargeContent(
                         iconProvider = iconProvider,
                         color = iconColor(state, lit, palette),
                         size = { LARGE_ICON_SIZE },
+                        animateColor = false,
                     )
                 }
             }
@@ -538,7 +541,12 @@ private fun ToggleKey(
                 .sysuiResTag(TOGGLE_TAG),
         contentAlignment = Alignment.Center,
     ) {
-        SmallTileContent(iconProvider = iconProvider, color = iconColor, size = { LARGE_ICON_SIZE })
+        SmallTileContent(
+            iconProvider = iconProvider,
+            color = iconColor,
+            size = { LARGE_ICON_SIZE },
+            animateColor = false,
+        )
     }
 }
 
