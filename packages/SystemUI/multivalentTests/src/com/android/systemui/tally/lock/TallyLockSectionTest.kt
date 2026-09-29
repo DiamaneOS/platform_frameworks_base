@@ -120,6 +120,7 @@ class TallyLockSectionTest : SysuiTestCase() {
     fun builtInSmartspace_otherClock_showsOneDateLineWithTheStripUnderIt() {
         currentClock.value = clock("DEFAULT")
         val section = section(builtInPlugin())
+        section.notificationsShown = true
         section.addViews(root)
 
         val constraints = constraints(section)
@@ -129,6 +130,47 @@ class TallyLockSectionTest : SysuiTestCase() {
         assertThat(constraints.getVisibility(date.id)).isEqualTo(View.VISIBLE)
         assertThat(constraints.getConstraint(view<TallyLampStripView>().id).layout.topToBottom)
             .isEqualTo(date.id)
+    }
+
+    @Test
+    fun otherClock_lockScreenHidesNotifications_hidesTheDateLine() {
+        // As GrapheneOS's smartspace line, whose date the date line stands in for.
+        currentClock.value = clock("DEFAULT")
+        val section = section(builtInPlugin())
+        section.notificationsShown = false
+        section.addViews(root)
+
+        val constraints = constraints(section)
+
+        val date = view<TallyLockDateView>()
+        assertThat(constraints.getVisibility(date.id)).isEqualTo(View.GONE)
+        assertThat(constraints.getVisibility(sharedR.id.bc_smartspace_view)).isEqualTo(View.GONE)
+        // The strip takes the date line's place under the clock.
+        assertThat(constraints.getConstraint(view<TallyLampStripView>().id).layout.topToBottom)
+            .isEqualTo(date.id)
+    }
+
+    @Test
+    fun otherClock_notificationsNotReadYet_keepsTheDateLineHidden() {
+        currentClock.value = clock("DEFAULT")
+        val section = section(builtInPlugin())
+        section.addViews(root)
+
+        val constraints = constraints(section)
+
+        assertThat(constraints.getVisibility(view<TallyLockDateView>().id)).isEqualTo(View.GONE)
+    }
+
+    @Test
+    fun tallyClock_notificationsShown_dateStaysInTheClockOnly() {
+        currentClock.value = clock(TALLY_CLOCK_ID)
+        val section = section(builtInPlugin())
+        section.notificationsShown = true
+        section.addViews(root)
+
+        val constraints = constraints(section)
+
+        assertThat(constraints.getVisibility(view<TallyLockDateView>().id)).isEqualTo(View.GONE)
     }
 
     @Test
