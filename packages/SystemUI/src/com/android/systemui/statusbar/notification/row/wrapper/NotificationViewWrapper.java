@@ -346,10 +346,14 @@ public abstract class NotificationViewWrapper implements TransformableView {
         if (customBackgroundColor != 0) {
             return customBackgroundColor;
         }
-        // Tally: the card's surface colour.
-        return mView.getContext().getColor(TallyShell.isEnabled()
-                ? de.diamaneos.tally.R.color.tally_surface
-                : com.android.internal.R.color.materialColorSurfaceContainerHigh);
+        // Tally: the card's surface colour, a SystemUI resource, so it is read through the row's
+        // context: the view's is the posting app's (an app's custom view has it), where SystemUI's
+        // resource ids do not exist.
+        if (TallyShell.isEnabled()) {
+            return mRow.getContext().getColor(de.diamaneos.tally.R.color.tally_surface);
+        }
+        return mView.getContext().getColor(
+                com.android.internal.R.color.materialColorSurfaceContainerHigh);
     }
 
     public void setLegacy(boolean legacy) {
