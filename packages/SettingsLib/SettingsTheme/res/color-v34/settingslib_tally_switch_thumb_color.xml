@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copyright (C) 2026 The DiamaneOS Project
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+  -->
+
+<!-- Tally switch thumb: the outline colour when off, onLamp on the lamp when on. Disabled
+     (for example by an admin or by Enhanced Confirmation Mode) it keeps its state's colour at
+     the disabled-content opacity, so a switch that is on and cannot be changed still reads as
+     on. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_enabled="false" android:state_checked="true"
+          android:color="@color/settingslib_tally_on_lamp"
+          android:alpha="0.38" />
+    <item android:state_enabled="false"
+          android:color="@color/settingslib_tally_outline"
+          android:alpha="0.38" />
+    <item android:state_checked="true"
+          android:color="@color/settingslib_tally_on_lamp" />
+    <item android:color="@color/settingslib_tally_outline" />
+</selector>

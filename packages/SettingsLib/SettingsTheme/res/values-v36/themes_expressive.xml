@@ -44,7 +44,7 @@
         <item name="android:clipChildren">false</item>
 
         <!-- For Expressive Switch -->
-        <item name="expressiveSwitchStyle">@style/SettingslibSwitchStyle.Expressive</item>
+        <item name="expressiveSwitchStyle">@style/SettingslibSwitchStyle.Tally</item>
     </style>
 
     <!-- Using in SubSettings page including injected settings page -->

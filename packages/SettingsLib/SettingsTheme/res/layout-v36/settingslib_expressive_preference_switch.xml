@@ -15,7 +15,8 @@
     limitations under the License.
   -->
 
-<com.google.android.material.materialswitch.MaterialSwitch
+<!-- The Tally switch: a MaterialSwitch that draws and moves as the Tally prototype's switch. -->
+<com.android.settingslib.widget.TallySwitch
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:theme="@style/Theme.Material3.DynamicColors.DayNight"
     android:id="@+id/switchWidget"
