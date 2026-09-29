@@ -32,6 +32,8 @@ import androidx.compose.ui.res.stringResource
 import com.android.systemui.lifecycle.rememberViewModel
 import com.android.systemui.statusbar.quickactions.av.ui.viewmodel.ButtonViewModel
 import com.android.systemui.statusbar.quickactions.av.ui.viewmodel.StudioLookDrillInViewModel
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.switches.TallySwitch
 import kotlinx.coroutines.launch
 
 @Composable
@@ -87,10 +89,17 @@ fun StudioLookSwitch(shape: Shape, viewModel: ButtonViewModel) {
             }
         },
         trailingContent = {
-            Switch(
-                checked = viewModel.state.isEnabled,
-                onCheckedChange = { scope.launch { viewModel.onClick() } },
-            )
+            if (TallyShell.isEnabled) {
+                TallySwitch(
+                    checked = viewModel.state.isEnabled,
+                    onCheckedChange = { scope.launch { viewModel.onClick() } },
+                )
+            } else {
+                Switch(
+                    checked = viewModel.state.isEnabled,
+                    onCheckedChange = { scope.launch { viewModel.onClick() } },
+                )
+            }
         },
         // Color of the item itself is never 'enabled', just the switch.
         colors = itemColors(false),
