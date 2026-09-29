@@ -221,11 +221,15 @@ constructor(
     val minutes: Flow<Long> =
         merge(minuteTicks, keyguardInteractor.dozeTimeTick.map { systemClock.currentTimeMillis() })
 
-    private val notificationsShown: Flow<Boolean> =
+    /**
+     * Whether the user's lock screen shows notifications ([lockScreenShowsNotifications]); the lock
+     * section's date line follows it too.
+     */
+    val lockScreenNotificationsShown: Flow<Boolean> =
         lockScreenShowsNotifications(secureSettingsRepository)
 
     private val alarm: Flow<TallyStripItem?> =
-        combine(nextAlarm, minutes, notificationsShown) { info, now, shown ->
+        combine(nextAlarm, minutes, lockScreenNotificationsShown) { info, now, shown ->
             // Shown as [alarmShows] decides, with its time in the user's 12 or 24 hour format and
             // without AM or PM, as the stock lock screen (KeyguardSliceProvider) shows it.
             if (info == null || !alarmShows(info.triggerTime, now, shown)) return@combine null
@@ -310,7 +314,7 @@ constructor(
                 alarm,
                 zenModeInteractor.isZenModeEnabled,
                 playingMedia,
-                notificationsShown,
+                lockScreenNotificationsShown,
                 mediaOnLockScreen(secureSettingsRepository),
             ) { alarm, dnd, media, shown, mediaSetting ->
                 aodItemsFor(alarm?.alarmTime, dnd, media, shown, mediaSetting)
