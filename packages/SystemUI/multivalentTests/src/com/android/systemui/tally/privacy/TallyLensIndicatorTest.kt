@@ -36,9 +36,13 @@ import com.android.systemui.SysuiTestCase
 import com.android.systemui.privacy.PrivacyApplication
 import com.android.systemui.privacy.PrivacyItem
 import com.android.systemui.privacy.PrivacyItemController
+import com.android.systemui.privacy.PrivacyItemController.Companion.TIME_TO_HOLD_INDICATORS
+import com.android.systemui.privacy.PrivacyItemController.Companion.TIME_TO_HOLD_INDICATORS_FOR_LOCATION
 import com.android.systemui.privacy.PrivacyType
 import com.android.systemui.settings.DisplayTracker
 import com.android.systemui.tally.TallyShell
+import com.android.systemui.util.concurrency.FakeExecutor
+import com.android.systemui.util.time.FakeSystemClock
 import com.google.common.truth.Truth.assertThat
 import java.util.concurrent.Executor
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -57,13 +61,16 @@ import org.mockito.kotlin.whenever
 
 /**
  * The lens ring lights only while an app uses a camera and a front camera opened during that use,
- * keeps the privacy item's hold after the front camera closes, counts a camera whose facing cannot
- * be read as the front one, and lights for any camera where SystemUI cannot follow cameras opening.
- * The ring's window is added only when something lights.
+ * keeps the privacy item's hold after the front camera closes, whichever of the close and the
+ * privacy item comes first, counts a camera whose facing cannot be read as the front one, and
+ * lights for any camera where SystemUI cannot follow cameras opening. The ring's window is added
+ * only when something lights.
  */
 @SmallTest
 @RunWith(AndroidJUnit4::class)
 class TallyLensIndicatorTest : SysuiTestCase() {
+    private val clock = FakeSystemClock()
+    private val mainExecutor = FakeExecutor(clock)
     private val windowManager = mock<WindowManager>()
     private val cameraManager = mock<CameraManager>()
     private val privacyItemController = mock<PrivacyItemController>()
@@ -162,14 +169,36 @@ class TallyLensIndicatorTest : SysuiTestCase() {
         privacyCallback().onPrivacyItemsChanged(emptyList())
         assertThat(indicator.isRingLit).isFalse()
 
-        // The next use, of the back camera, starts without the front camera's latch.
+        // The next use, of the back camera once the front camera's close window has passed,
+        // starts without the front camera's latch.
+        passTheFrontCloseWindow()
         cameraCallback().onCameraOpened(BACK_ID, CAMERA_APP)
         privacyCallback().onPrivacyItemsChanged(listOf(cameraInUse()))
         assertThat(indicator.isRingLit).isFalse()
     }
 
     @Test
-    fun switchingFromFrontToBack_putsTheRingOut() {
+    fun frontCameraClosedBeforeItsPrivacyItemArrives_lightsTheRing() {
+        // The camera service's close and the privacy item come on separate paths, unordered.
+        facing(FRONT_ID, CameraCharacteristics.LENS_FACING_FRONT)
+        val indicator = start(followsCameras = true)
+        cameraCallback().onCameraOpened(FRONT_ID, CAMERA_APP)
+        cameraCallback().onCameraClosed(FRONT_ID)
+
+        privacyCallback().onPrivacyItemsChanged(listOf(cameraInUse()))
+        assertThat(indicator.isRingLit).isTrue()
+        verify(windowManager).addView(any<TallyLensIndicatorView>(), any<ViewGroup.LayoutParams>())
+
+        // Lit for as long as the privacy item is held, past the front camera's close window too.
+        passTheFrontCloseWindow()
+        assertThat(indicator.isRingLit).isTrue()
+
+        privacyCallback().onPrivacyItemsChanged(emptyList())
+        assertThat(indicator.isRingLit).isFalse()
+    }
+
+    @Test
+    fun switchingFromFrontToBack_putsTheRingOutOnceTheWindowHasPassed() {
         facing(FRONT_ID, CameraCharacteristics.LENS_FACING_FRONT)
         facing(BACK_ID, CameraCharacteristics.LENS_FACING_BACK)
         val indicator = start(followsCameras = true)
@@ -177,10 +206,26 @@ class TallyLensIndicatorTest : SysuiTestCase() {
         privacyCallback().onPrivacyItemsChanged(listOf(cameraInUse()))
         assertThat(indicator.isRingLit).isTrue()
 
+        // The back camera opens at once after the front one closes: inside the close window, the
+        // front camera still counts.
         cameraCallback().onCameraClosed(FRONT_ID)
         cameraCallback().onCameraOpened(BACK_ID, CAMERA_APP)
+        assertThat(indicator.isRingLit).isTrue()
 
+        passTheFrontCloseWindow()
         assertThat(indicator.isRingLit).isFalse()
+    }
+
+    @Test
+    fun readingTheFacingThrows_countsAsTheFrontCameraWithoutFailing() {
+        whenever(cameraManager.getCameraCharacteristics(UNKNOWN_ID))
+            .thenThrow(SecurityException("not this user's camera"))
+        val indicator = start(followsCameras = true)
+
+        cameraCallback().onCameraOpened(UNKNOWN_ID, CAMERA_APP)
+        privacyCallback().onPrivacyItemsChanged(listOf(cameraInUse()))
+
+        assertThat(indicator.isRingLit).isTrue()
     }
 
     @Test
@@ -214,15 +259,24 @@ class TallyLensIndicatorTest : SysuiTestCase() {
             }
         return TallyLensIndicator(
                 permissionContext,
-                Executor { it.run() },
+                mainExecutor,
                 TestScope(),
                 windowManager,
                 displayTracker,
                 privacyItemController,
                 indicatorArea,
                 cameraManager,
+                clock,
             )
             .apply { start() }
+    }
+
+    /** Moves on past the longest privacy hold, running what the main thread has due. */
+    private fun passTheFrontCloseWindow() {
+        clock.advanceTime(
+            maxOf(TIME_TO_HOLD_INDICATORS, TIME_TO_HOLD_INDICATORS_FOR_LOCATION) + 1_000L
+        )
+        mainExecutor.runAllReady()
     }
 
     private fun facing(cameraId: String, facing: Int) {
