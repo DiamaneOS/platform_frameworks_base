@@ -82,6 +82,7 @@ val Kosmos.defaultKeyguardBlueprint by
             clockSection = keyguardClockSection,
             smartspaceSection = keyguardSmartspaceSection,
             keyguardSliceViewSection = mock(),
+            tallyLockSection = { mock() },
             udfpsAccessibilityOverlaySection = mock(),
             accessibilityActionsSection = mock(),
             batteryChargingPopupMenuSection = mock(),
