@@ -84,6 +84,7 @@ import com.android.wm.shell.protolog.ShellProtoLogGroup;
 import com.android.wm.shell.shared.TransactionPool;
 import com.android.wm.shell.sysui.ShellController;
 import com.android.wm.shell.sysui.UserChangeListener;
+import com.android.wm.shell.tally.TallyWmShell;
 
 import java.util.List;
 import java.util.function.Consumer;
@@ -653,6 +654,18 @@ public class SplashscreenContentDrawer {
                     mFinalIconSize *= mNoBackgroundScale;
                 }
                 createIconDrawable(iconDrawable, false /* legacy */, false /* loadInDetail */);
+            } else if (TallyWmShell.isEnabled()) {
+                // DiamaneOS Tally: the app's icon as a keycap, with its LED.
+                final Context shellContext = SplashscreenContentDrawer.this.mContext;
+                mFinalIconSize = TallySplashScreen.keycapSize(shellContext);
+                final int densityDpi = mContext.getResources().getConfiguration().densityDpi;
+                final int iconDpi = TallySplashScreen.iconDpi(densityDpi, mFinalIconSize,
+                        mDefaultIconSize);
+                Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, "getIcon");
+                iconDrawable = mHighResIconProvider.getIcon(mActivityInfo, densityDpi, iconDpi);
+                Trace.traceEnd(TRACE_TAG_WINDOW_MANAGER);
+                mFinalIconDrawables = new Drawable[] {TallySplashScreen.makeKeycap(shellContext,
+                        iconDrawable, iconDpi, mFinalIconSize, mSplashscreenWorkerHandler)};
             } else {
                 final float iconScale = (float) mIconSize / (float) mDefaultIconSize;
                 final int densityDpi = mContext.getResources().getConfiguration().densityDpi;
