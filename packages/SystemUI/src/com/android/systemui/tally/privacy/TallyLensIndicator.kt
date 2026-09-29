@@ -44,8 +44,9 @@ import com.android.systemui.privacy.PrivacyType
 import com.android.systemui.res.R
 import com.android.systemui.settings.DisplayTracker
 import com.android.systemui.tally.TallyShell
+import com.android.systemui.util.concurrency.DelayableExecutor
+import com.android.systemui.util.time.SystemClock
 import java.io.PrintWriter
-import java.util.concurrent.Executor
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 
@@ -77,13 +78,14 @@ class TallyLensIndicator
 @Inject
 constructor(
     @Main private val context: Context,
-    @Main private val mainExecutor: Executor,
+    @Main private val mainExecutor: DelayableExecutor,
     @Application private val scope: CoroutineScope,
     private val windowManager: WindowManager,
     private val displayTracker: DisplayTracker,
     private val privacyItemController: PrivacyItemController,
     private val indicatorArea: TallyIndicatorArea,
     private val cameraManager: CameraManager,
+    private val systemClock: SystemClock,
 ) : CoreStartable {
 
     private var view: TallyLensIndicatorView? = null
@@ -91,8 +93,12 @@ constructor(
     // Whether the camera service's open and close reports are followed; if not, any camera counts.
     private var followsCameras = false
     private val openFrontCameras = mutableSetOf<String>()
+    private val openOtherCameras = mutableSetOf<String>()
     // Whether a front camera opened during the current camera use; see [frontCameraInUse].
     private var frontCameraLatched = false
+    // When the last open front camera closed (elapsed realtime), or null if none has.
+    private var frontClosedAt: Long? = null
+    private var recheckCanceler: Runnable? = null
     private val frontFacing = mutableMapOf<String, Boolean>()
     private var locationInUse = false
     private var isAreaDark = true
@@ -126,7 +132,9 @@ constructor(
             override fun onPrivacyItemsChanged(privacyItems: List<PrivacyItem>) {
                 cameraInUse = privacyItems.any { it.privacyType == PrivacyType.TYPE_CAMERA }
                 locationInUse = privacyItems.any { it.privacyType == PrivacyType.TYPE_LOCATION }
-                if (!cameraInUse && openFrontCameras.isEmpty()) frontCameraLatched = false
+                if (!cameraInUse && openFrontCameras.isEmpty() && !inFrontCloseWindow()) {
+                    frontCameraLatched = false
+                }
                 update()
             }
         }
@@ -138,16 +146,25 @@ constructor(
                 if (facesFront(cameraId)) {
                     openFrontCameras.add(cameraId)
                     frontCameraLatched = true
-                } else if (openFrontCameras.isEmpty()) {
-                    // The app switched to another camera: the front one is no longer in use.
-                    frontCameraLatched = false
+                } else {
+                    openOtherCameras.add(cameraId)
+                    // The app switched to another camera, unless the front one only just closed:
+                    // then the camera's privacy item may still be on its way, so wait.
+                    if (openFrontCameras.isEmpty()) {
+                        if (inFrontCloseWindow()) scheduleRecheck() else frontCameraLatched = false
+                    }
                 }
                 update()
             }
 
+            // Reported straight from the camera service, so it can come before or after the
+            // privacy item of the same use: the latch never clears here.
             override fun onCameraClosed(cameraId: String) {
-                openFrontCameras.remove(cameraId)
-                if (!cameraInUse && openFrontCameras.isEmpty()) frontCameraLatched = false
+                openOtherCameras.remove(cameraId)
+                if (openFrontCameras.remove(cameraId) && openFrontCameras.isEmpty()) {
+                    frontClosedAt = systemClock.elapsedRealtime()
+                    scheduleRecheck()
+                }
                 update()
             }
         }
@@ -177,13 +194,38 @@ constructor(
 
     /**
      * Whether the ring shows: an app uses a camera (holds included) and, if cameras are followed, a
-     * front camera opened during this use. The latch is set when a front camera opens and cleared
-     * when the camera use ends with no front camera open, or when another camera opens while no
-     * front camera is open, so a front camera that closes at once stays noticeable for the chip's
-     * hold.
+     * front camera is open, opened during this use (the latch), or closed within [FRONT_CLOSE_HOLD]
+     * ms. The camera service reports opens and closes on its own path, unordered with the privacy
+     * items, so a short front camera use stays lit for the privacy item's hold whichever comes
+     * first. The latch is set when a front camera opens and clears only once that window has passed
+     * with no front camera open: when the camera is no longer in use, or when the app has another
+     * camera open instead.
      */
     private val frontCameraInUse: Boolean
-        get() = cameraInUse && (!followsCameras || frontCameraLatched)
+        get() =
+            cameraInUse &&
+                (!followsCameras ||
+                    openFrontCameras.isNotEmpty() ||
+                    frontCameraLatched ||
+                    inFrontCloseWindow())
+
+    private fun inFrontCloseWindow(): Boolean {
+        val closedAt = frontClosedAt ?: return false
+        return systemClock.elapsedRealtime() - closedAt <= FRONT_CLOSE_HOLD
+    }
+
+    /** Checks the latch again once the front camera's close window has passed. */
+    private fun scheduleRecheck() {
+        recheckCanceler?.run()
+        recheckCanceler = mainExecutor.executeDelayed(::recheck, FRONT_CLOSE_HOLD + 1)
+    }
+
+    private fun recheck() {
+        recheckCanceler = null
+        if (openFrontCameras.isNotEmpty() || inFrontCloseWindow()) return
+        if (!cameraInUse || openOtherCameras.isNotEmpty()) frontCameraLatched = false
+        update()
+    }
 
     /** Whether the ring is lit now. */
     @VisibleForTesting
@@ -199,7 +241,10 @@ constructor(
                         .get(CameraCharacteristics.LENS_FACING)
                 } catch (e: CameraAccessException) {
                     null
-                } catch (e: IllegalArgumentException) {
+                } catch (e: RuntimeException) {
+                    // An unknown id, or a camera this user may not read (SecurityException): on
+                    // the main thread, a failure here must never take SystemUI down.
+                    Log.w(TAG, "Unable to read camera $cameraId's facing", e)
                     null
                 }
             facing == null || facing == CameraCharacteristics.LENS_FACING_FRONT
@@ -349,7 +394,8 @@ constructor(
         pw.println("$TAG: cameraInUse=$cameraInUse locationInUse=$locationInUse")
         pw.println(
             "  followsCameras=$followsCameras openFrontCameras=$openFrontCameras" +
-                " frontCameraLatched=$frontCameraLatched"
+                " openOtherCameras=$openOtherCameras frontCameraLatched=$frontCameraLatched" +
+                " frontClosedAt=$frontClosedAt"
         )
         pw.println("  isAreaDark=$isAreaDark windowAdded=${view != null}")
         pw.println("  windowBounds=${geometry?.windowBounds} hasLamp=${geometry?.hasLamp}")
@@ -384,6 +430,16 @@ constructor(
 
     private companion object {
         const val TAG = "TallyLensIndicator"
+
+        /**
+         * How long after the last front camera closes it still counts as in use while a camera is:
+         * the longest of PrivacyItemController's holds, which the camera's privacy item can take.
+         */
+        val FRONT_CLOSE_HOLD =
+            maxOf(
+                PrivacyItemController.TIME_TO_HOLD_INDICATORS,
+                PrivacyItemController.TIME_TO_HOLD_INDICATORS_FOR_LOCATION,
+            )
         const val WINDOW_TITLE = "TallyLensIndicator"
     }
 }
