@@ -31,8 +31,9 @@
         <item name="titleCollapseMode">fade</item>
         <item name="extraMultilineHeightEnabled">true</item>
     </style>
+    <!-- Tally: the collapsed bar is the page's own colour (SettingsTheme's tally_rows.xml). -->
     <style name="SettingsLibCollapsingToolbarLayoutStyle.Expressive">
-        <item name="contentScrim">@color/settingslib_materialColorSurfaceContainer</item>
+        <item name="contentScrim">@color/settingslib_tally_background</item>
     </style>
 
     <style name="SettingsLibCollapsingToolbarTitle.Collapsed" parent="@style/TextAppearance.SettingsLib.TitleLarge.Emphasized">

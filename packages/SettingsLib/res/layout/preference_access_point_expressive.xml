@@ -15,13 +15,16 @@
   limitations under the License.
   -->
 
-<!-- Based off preference_two_target.xml with Material ripple moved to parent for full ripple. -->
-<LinearLayout
+<!-- Based off preference_two_target.xml with Material ripple moved to parent for full ripple.
+     Tally: a DrawableStateLinearLayout, so the expressive list draws it as a section card row, as
+     preference rows (settingslib_round_background_stateful), with their padding. -->
+<com.android.settingslib.widget.DrawableStateLinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:background="?android:attr/selectableItemBackground"
+    android:background="@drawable/settingslib_round_background_stateful"
+    android:defaultFocusHighlightEnabled="false"
     android:paddingStart="?android:attr/listPreferredItemPaddingStart"
     android:paddingEnd="?android:attr/listPreferredItemPaddingEnd"
     android:clipToPadding="false">
@@ -30,7 +33,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
-        android:minHeight="72dp"
+        android:minHeight="@dimen/settingslib_tally_row_min_height"
         android:baselineAligned="false"
         android:orientation="horizontal"
         android:clipToPadding="false">
@@ -65,4 +68,4 @@
 
     <include layout="@layout/settingslib_expressive_preference_footer"/>
 
-</LinearLayout>
+</com.android.settingslib.widget.DrawableStateLinearLayout>

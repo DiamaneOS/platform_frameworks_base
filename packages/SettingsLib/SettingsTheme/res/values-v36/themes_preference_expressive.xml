@@ -26,8 +26,9 @@
         <item name="preferenceScreenStyle">@style/SettingsLibPreference.PreferenceScreen.Expressive</item>
         <item name="preferenceStyle">@style/SettingsLibPreference.Expressive</item>
         <item name="switchPreferenceCompatStyle">@style/SettingsLibPreference.SwitchPreferenceCompat.Expressive</item>
-        <item name="preferenceCategoryTitleTextAppearance">@style/TextAppearance.CategoryTitle.SettingsLib</item>
-        <item name="preferenceCategoryTitleTextColor">@color/settingslib_materialColorPrimary</item>
+        <!-- Tally: section titles in the section type, muted (colour only where something is on). -->
+        <item name="preferenceCategoryTitleTextAppearance">@style/TextAppearance.SettingsLib.Tally.Section</item>
+        <item name="preferenceCategoryTitleTextColor">@color/settingslib_text_color_secondary</item>
 
         <!-- Expressive Design: overridable styles/themes for Preferences -->
         <item name="expressivePreferenceTheme">@style/ExpressivePreferenceTheme</item>

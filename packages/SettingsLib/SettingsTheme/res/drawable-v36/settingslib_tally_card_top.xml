@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Copyright (C) 2024 The Android Open Source Project
+  Copyright (C) 2026 The DiamaneOS Project
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -15,36 +15,30 @@
   limitations under the License.
   -->
 
-<!-- Tally: the selected row (the page open beside the list, in two panes) as a section card
-     segment in stock's selected colour. -->
+<!-- A Tally section card segment, the prototype's .set-sec and .set-row: a section's first row: the
+     card's top, its rounded corners and edge, in the surface colour with the 1 dp hairline in
+     outlineVariant and 12 dp outer corners, 12 dp from the screen's sides, with the row's content
+     28 dp in. It reaches 3 dp below the row: across the 2 dp the list may leave between rows
+     (SettingsBasePreferenceFragment's item spacing), with its bottom edge under the next row, which
+     draws the hairline between them and carries the card on. No ripple: the plain background of
+     switch rows, whose switch shows the press. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android"
-    android:paddingMode="stack"
     android:paddingStart="@dimen/settingslib_tally_row_inset"
     android:paddingEnd="@dimen/settingslib_tally_row_inset">
     <item
         android:start="@dimen/settingslib_tally_card_margin"
-        android:end="@dimen/settingslib_tally_card_margin">
+        android:end="@dimen/settingslib_tally_card_margin"
+        android:bottom="-3dp">
         <shape android:shape="rectangle">
-            <solid android:color="@color/settingslib_materialColorSurfaceContainer" />
+            <solid android:color="@color/settingslib_tally_surface" />
             <stroke
                 android:width="@dimen/settingslib_tally_row_hairline"
                 android:color="@color/settingslib_tally_outline_variant" />
             <corners
-                android:radius="@dimen/settingslib_tally_row_border_radius" />
+                android:topLeftRadius="@dimen/settingslib_tally_row_border_radius"
+                android:topRightRadius="@dimen/settingslib_tally_row_border_radius"
+                android:bottomLeftRadius="0dp"
+                android:bottomRightRadius="0dp" />
         </shape>
-    </item>
-    <item>
-        <ripple android:color="?android:colorControlHighlight">
-            <item
-                android:id="@android:id/mask"
-                android:start="@dimen/settingslib_tally_card_margin"
-                android:end="@dimen/settingslib_tally_card_margin">
-                <shape android:shape="rectangle">
-                    <solid android:color="@android:color/white" />
-                    <corners
-                        android:radius="@dimen/settingslib_tally_row_border_radius" />
-                </shape>
-            </item>
-        </ripple>
     </item>
 </layer-list>

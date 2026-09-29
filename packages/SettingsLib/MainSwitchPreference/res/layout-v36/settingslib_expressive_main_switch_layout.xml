@@ -15,17 +15,22 @@
   limitations under the License.
   -->
 
+<!-- Tally: the main switch row's card sits 12 dp from the screen's sides, as the page's section
+     cards: the list gives this row 16 dp of padding, which the bar reaches 4 dp into. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_height="wrap_content"
     android:layout_width="match_parent"
     android:paddingStart="?android:attr/listPreferredItemPaddingStart"
-    android:paddingEnd="?android:attr/listPreferredItemPaddingEnd">
+    android:paddingEnd="?android:attr/listPreferredItemPaddingEnd"
+    android:clipToPadding="false">
 
     <com.android.settingslib.widget.MainSwitchBar
         android:id="@+id/settingslib_main_switch_bar"
         android:visibility="gone"
         android:layout_height="wrap_content"
         android:layout_width="match_parent"
+        android:layout_marginStart="@dimen/settingslib_tally_main_switch_outset"
+        android:layout_marginEnd="@dimen/settingslib_tally_main_switch_outset"
         android:importantForAccessibility="no" />
 
 </FrameLayout>

@@ -1,4 +1,5 @@
-<?xml version="1.0" encoding="utf-8"?><!--
+<?xml version="1.0" encoding="utf-8"?>
+<!--
   Copyright (C) 2024 The Android Open Source Project
 
   Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,22 +15,40 @@
   limitations under the License.
   -->
 
-<ripple xmlns:android="http://schemas.android.com/apk/res/android"
-    android:color="?android:colorControlHighlight"
-    android:paddingStart="32dp"
-    android:paddingEnd="32dp">
+<!-- Tally: the highlighted row (a search result) as a section card segment, with stock's accent
+     at 26 % over it. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android"
+    android:paddingMode="stack"
+    android:paddingStart="@dimen/settingslib_tally_row_inset"
+    android:paddingEnd="@dimen/settingslib_tally_row_inset">
+    <item android:drawable="@drawable/settingslib_tally_card_bottom" />
     <item
-        android:end="?android:attr/listPreferredItemPaddingEnd"
-        android:start="?android:attr/listPreferredItemPaddingStart">
-        <shape
-            android:shape="rectangle"
-            android:tint="?android:attr/colorAccent">
-            <corners
-                android:bottomLeftRadius="@dimen/settingslib_preference_corner_radius"
-                android:bottomRightRadius="@dimen/settingslib_preference_corner_radius"
-                android:topLeftRadius="4dp"
-                android:topRightRadius="4dp" />
+        android:start="@dimen/settingslib_tally_card_margin"
+        android:end="@dimen/settingslib_tally_card_margin">
+        <shape android:shape="rectangle" android:tint="?android:attr/colorAccent">
             <solid android:color="#42000000" />
+            <corners
+                android:topLeftRadius="0dp"
+                android:topRightRadius="0dp"
+                android:bottomLeftRadius="@dimen/settingslib_tally_row_border_radius"
+                android:bottomRightRadius="@dimen/settingslib_tally_row_border_radius" />
         </shape>
     </item>
-</ripple>
+    <item>
+        <ripple android:color="?android:colorControlHighlight">
+            <item
+                android:id="@android:id/mask"
+                android:start="@dimen/settingslib_tally_card_margin"
+                android:end="@dimen/settingslib_tally_card_margin">
+                <shape android:shape="rectangle">
+                    <solid android:color="@android:color/white" />
+                    <corners
+                        android:topLeftRadius="0dp"
+                        android:topRightRadius="0dp"
+                        android:bottomLeftRadius="@dimen/settingslib_tally_row_border_radius"
+                        android:bottomRightRadius="@dimen/settingslib_tally_row_border_radius" />
+                </shape>
+            </item>
+        </ripple>
+    </item>
+</layer-list>
