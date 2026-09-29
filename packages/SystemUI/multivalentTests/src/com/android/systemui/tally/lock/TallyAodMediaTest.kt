@@ -18,13 +18,13 @@ package com.android.systemui.tally.lock
 
 import android.media.MediaMetadata
 import android.media.session.PlaybackState
-import android.provider.Settings.Secure.LOCK_SCREEN_SHOW_NOTIFICATIONS
 import android.provider.Settings.Secure.MEDIA_CONTROLS_LOCK_SCREEN
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.SmallTest
 import com.android.systemui.SysuiTestCase
 import com.android.systemui.shared.settings.data.repository.FakeSecureSettingsRepository
-import com.android.systemui.tally.lock.TallyLampStripViewModel.Companion.aodMediaAllowed
+import com.android.systemui.tally.lock.TallyLampStripViewModel.Companion.aodItemsFor
+import com.android.systemui.tally.lock.TallyLampStripViewModel.Companion.mediaOnLockScreen
 import com.android.systemui.tally.lock.TallyLampStripViewModel.Companion.mediaWords
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.flow.first
@@ -34,8 +34,8 @@ import org.junit.runner.RunWith
 
 /**
  * The always-on strip shows the playing media only where GrapheneOS's always-on line shows it: with
- * the lock screen showing notifications and "Show media on lock screen" on, and the artist only
- * when the media's notification has an icon.
+ * "Show media on lock screen" on, and the artist only when the media's notification has an icon.
+ * (With the lock screen hiding notifications it shows nothing: TallyLockNotificationsOffTest.)
  */
 @SmallTest
 @RunWith(AndroidJUnit4::class)
@@ -43,32 +43,47 @@ class TallyAodMediaTest : SysuiTestCase() {
     private val settings = FakeSecureSettingsRepository()
 
     @Test
-    fun settingsNeverWritten_noMedia() = runTest {
-        // As GrapheneOS's line reads them: lock screen notifications off, media on lock screen on.
-        assertThat(aodMediaAllowed(settings).first()).isFalse()
+    fun settingNeverWritten_mediaOnLockScreen() = runTest {
+        // As GrapheneOS's line reads it: on unless set.
+        assertThat(mediaOnLockScreen(settings).first()).isTrue()
     }
 
     @Test
-    fun lockScreenNotificationsOn_media() = runTest {
-        settings.setInt(LOCK_SCREEN_SHOW_NOTIFICATIONS, 1)
-
-        assertThat(aodMediaAllowed(settings).first()).isTrue()
-    }
-
-    @Test
-    fun lockScreenNotificationsOff_noMedia() = runTest {
-        settings.setInt(LOCK_SCREEN_SHOW_NOTIFICATIONS, 0)
-        settings.setBoolean(MEDIA_CONTROLS_LOCK_SCREEN, true)
-
-        assertThat(aodMediaAllowed(settings).first()).isFalse()
-    }
-
-    @Test
-    fun showMediaOnLockScreenOff_noMedia() = runTest {
-        settings.setInt(LOCK_SCREEN_SHOW_NOTIFICATIONS, 1)
+    fun showMediaOnLockScreenOff_noMediaOnLockScreen() = runTest {
         settings.setBoolean(MEDIA_CONTROLS_LOCK_SCREEN, false)
 
-        assertThat(aodMediaAllowed(settings).first()).isFalse()
+        assertThat(mediaOnLockScreen(settings).first()).isFalse()
+    }
+
+    @Test
+    fun showMediaOnLockScreenOff_alwaysOnLeavesOutOnlyTheMedia() {
+        val items =
+            aodItemsFor(
+                alarmTime = "7:30",
+                dnd = true,
+                media = "Low Tide",
+                notificationsShown = true,
+                mediaOnLockScreen = false,
+            )
+
+        assertThat(items.map { it.kind })
+            .containsExactly(TallyAodItem.Kind.ALARM, TallyAodItem.Kind.CALM)
+            .inOrder()
+    }
+
+    @Test
+    fun showMediaOnLockScreenOn_alwaysOnShowsTheMedia() {
+        val items =
+            aodItemsFor(
+                alarmTime = null,
+                dnd = false,
+                media = "Low Tide · Marisa Vale",
+                notificationsShown = true,
+                mediaOnLockScreen = true,
+            )
+
+        assertThat(items.single().kind).isEqualTo(TallyAodItem.Kind.MEDIA)
+        assertThat(items.single().words).isEqualTo("Low Tide · Marisa Vale")
     }
 
     @Test

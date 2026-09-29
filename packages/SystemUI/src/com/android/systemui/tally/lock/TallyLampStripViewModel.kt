@@ -117,8 +117,12 @@ data class TallyAodItem(
  * For the always-on display it gives only what the stock always-on date line (KeyguardSliceProvider
  * on the keyguard slice) showed besides the date: the next alarm's time within those 12 hours, Do
  * Not Disturb while it is on, and the title and artist of media that is playing, from the same
- * NotificationMediaManager. The media shows only where GrapheneOS's always-on line (its built-in
- * smartspace, which replaces the slice) shows it; see [aodMediaAllowed] and [mediaWords].
+ * NotificationMediaManager.
+ *
+ * The alarm, the always-on Do Not Disturb icon and the media show only where GrapheneOS's built-in
+ * smartspace line, which replaces the slice, shows them: not at all while the user's lock screen
+ * hides notifications ([lockScreenShowsNotifications]), and the media only as [mediaOnLockScreen]
+ * and [mediaWords] allow. The other lamps stay, as the keyguard status bar icons they mirror do.
  */
 @SysUISingleton
 class TallyLampStripViewModel
@@ -217,14 +221,14 @@ constructor(
     val minutes: Flow<Long> =
         merge(minuteTicks, keyguardInteractor.dozeTimeTick.map { systemClock.currentTimeMillis() })
 
+    private val notificationsShown: Flow<Boolean> =
+        lockScreenShowsNotifications(secureSettingsRepository)
+
     private val alarm: Flow<TallyStripItem?> =
-        combine(nextAlarm, minutes) { info, now ->
-            // As the stock lock screen (KeyguardSliceProvider): the alarm shows only when it rings
-            // 12 hours from now or sooner, and then with its time, in the user's 12 or 24 hour
-            // format and without AM or PM. A later alarm shows nothing.
-            if (info == null || info.triggerTime > now + TimeUnit.HOURS.toMillis(ALARM_HOURS)) {
-                return@combine null
-            }
+        combine(nextAlarm, minutes, notificationsShown) { info, now, shown ->
+            // Shown as [alarmShows] decides, with its time in the user's 12 or 24 hour format and
+            // without AM or PM, as the stock lock screen (KeyguardSliceProvider) shows it.
+            if (info == null || !alarmShows(info.triggerTime, now, shown)) return@combine null
             val is24 = DateFormat.is24HourFormat(context, userTracker.userId)
             val time = DateFormat.format(if (is24) "HH:mm" else "h:mm", info.triggerTime).toString()
             TallyStripItem(
@@ -300,34 +304,16 @@ constructor(
             }
             .distinctUntilChanged()
 
-    private val mediaAllowed: Flow<Boolean> = aodMediaAllowed(secureSettingsRepository)
-
     /** The items the always-on display shows, in the always-on strip's order. */
     val aodItems: Flow<List<TallyAodItem>> =
-        combine(alarm, zenModeInteractor.isZenModeEnabled, playingMedia, mediaAllowed) {
+        combine(
                 alarm,
-                dnd,
-                media,
-                showMedia ->
-                listOfNotNull(
-                    alarm?.alarmTime?.let {
-                        TallyAodItem(
-                            TallyAodItem.Kind.ALARM,
-                            it,
-                            TallyWords(R.string.accessibility_quick_settings_alarm, it),
-                        )
-                    },
-                    if (!dnd) null
-                    else
-                        TallyAodItem(
-                            TallyAodItem.Kind.CALM,
-                            null,
-                            TallyWords(R.string.accessibility_quick_settings_dnd),
-                        ),
-                    media
-                        ?.takeIf { showMedia }
-                        ?.let { TallyAodItem(TallyAodItem.Kind.MEDIA, it, null) },
-                )
+                zenModeInteractor.isZenModeEnabled,
+                playingMedia,
+                notificationsShown,
+                mediaOnLockScreen(secureSettingsRepository),
+            ) { alarm, dnd, media, shown, mediaSetting ->
+                aodItemsFor(alarm?.alarmTime, dnd, media, shown, mediaSetting)
             }
             .distinctUntilChanged()
 
@@ -368,19 +354,65 @@ constructor(
         private val MINUTE_MILLIS = TimeUnit.MINUTES.toMillis(1)
 
         /**
-         * Whether the always-on strip may show the playing media, for the current user: as
-         * GrapheneOS's always-on line, only while the lock screen shows notifications
-         * (LockscreenSmartspaceController drops the whole line otherwise) and "Show media on lock
-         * screen" is on (SystemUISmartspaceService), with the defaults they read them with.
+         * Whether the current user's lock screen shows notifications, read as GrapheneOS's
+         * smartspace line reads it (LockscreenSmartspaceController, off unless set). While it does
+         * not, that line shows none of its rows, so the strips leave out the rows they share with
+         * it: the alarm, the always-on Do Not Disturb icon and the media.
          */
-        fun aodMediaAllowed(settings: SecureSettingsRepository): Flow<Boolean> =
-            combine(
-                    settings.intSetting(LOCK_SCREEN_SHOW_NOTIFICATIONS, 0),
-                    settings.boolSetting(MEDIA_CONTROLS_LOCK_SCREEN, true),
-                ) { notifications, media ->
-                    notifications == 1 && media
-                }
+        fun lockScreenShowsNotifications(settings: SecureSettingsRepository): Flow<Boolean> =
+            settings
+                .intSetting(LOCK_SCREEN_SHOW_NOTIFICATIONS, 0)
+                .map { it == 1 }
                 .distinctUntilChanged()
+
+        /**
+         * Whether "Show media on lock screen" is on for the current user, read as GrapheneOS's
+         * smartspace line reads it (SystemUISmartspaceService, on unless set).
+         */
+        fun mediaOnLockScreen(settings: SecureSettingsRepository): Flow<Boolean> =
+            settings.boolSetting(MEDIA_CONTROLS_LOCK_SCREEN, true).distinctUntilChanged()
+
+        /**
+         * Whether the lock screen shows an alarm that rings at [triggerTime]: only within the stock
+         * lock screen's 12 hours from [now] (KeyguardSliceProvider), and only while it shows
+         * notifications, as GrapheneOS's smartspace line.
+         */
+        fun alarmShows(triggerTime: Long, now: Long, notificationsShown: Boolean): Boolean =
+            notificationsShown && triggerTime <= now + TimeUnit.HOURS.toMillis(ALARM_HOURS)
+
+        /**
+         * The always-on items for the alarm's time ([alarmTime], null for none), Do Not Disturb and
+         * the media's words, in the always-on strip's order: none while the lock screen hides
+         * notifications, and the media only with [mediaOnLockScreen] on.
+         */
+        fun aodItemsFor(
+            alarmTime: String?,
+            dnd: Boolean,
+            media: String?,
+            notificationsShown: Boolean,
+            mediaOnLockScreen: Boolean,
+        ): List<TallyAodItem> {
+            if (!notificationsShown) return emptyList()
+            return listOfNotNull(
+                alarmTime?.let {
+                    TallyAodItem(
+                        TallyAodItem.Kind.ALARM,
+                        it,
+                        TallyWords(R.string.accessibility_quick_settings_alarm, it),
+                    )
+                },
+                if (!dnd) null
+                else
+                    TallyAodItem(
+                        TallyAodItem.Kind.CALM,
+                        null,
+                        TallyWords(R.string.accessibility_quick_settings_dnd),
+                    ),
+                media
+                    ?.takeIf { mediaOnLockScreen }
+                    ?.let { TallyAodItem(TallyAodItem.Kind.MEDIA, it, null) },
+            )
+        }
 
         /**
          * The words for the media, as the stock always-on line takes them: none unless it plays,
