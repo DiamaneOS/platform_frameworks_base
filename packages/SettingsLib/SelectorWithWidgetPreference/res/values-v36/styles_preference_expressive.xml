@@ -66,13 +66,14 @@
         <item name="maxHeight">@dimen/secondary_app_icon_size</item>
     </style>
 
+    <!-- Tally: the text as in the other rows: their vertical padding, Tally's item and body type. -->
     <style name="ExpressiveSelectorWithWidgetPreferenceTextContainerStyle">
         <item name="android:layout_width">0dp</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_weight">1</item>
         <item name="android:orientation">vertical</item>
-        <item name="android:paddingTop">@dimen/settingslib_expressive_space_small1</item>
-        <item name="android:paddingBottom">@dimen/settingslib_expressive_space_small1</item>
+        <item name="android:paddingTop">@dimen/settingslib_tally_row_padding_vertical</item>
+        <item name="android:paddingBottom">@dimen/settingslib_tally_row_padding_vertical</item>
         <item name="android:paddingEnd">?android:attr/listPreferredItemPaddingEnd</item>
     </style>
 
@@ -84,6 +85,7 @@
         <item name="android:hyphenationFrequency">normalFast</item>
         <item name="android:lineBreakWordStyle">phrase</item>
         <item name="android:textAppearance">?android:attr/textAppearanceListItem</item>
+        <item name="android:lineHeight">@dimen/settingslib_tally_item_line_height</item>
     </style>
 
     <style name="ExpressiveSelectorWithWidgetPreferenceSummaryContainerStyle">
@@ -96,7 +98,8 @@
         <item name="android:layout_width">0dp</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_weight">1</item>
-        <item name="android:textAppearance">?android:attr/textAppearanceSmall</item>
+        <item name="android:textAppearance">?android:attr/textAppearanceListItemSecondary</item>
+        <item name="android:lineHeight">@dimen/settingslib_tally_body_line_height</item>
         <item name="android:textAlignment">viewStart</item>
         <item name="android:hyphenationFrequency">normalFast</item>
         <item name="android:lineBreakWordStyle">phrase</item>
@@ -107,7 +110,8 @@
         <item name="android:layout_width">0dp</item>
         <item name="android:layout_height">wrap_content</item>
         <item name="android:layout_weight">1</item>
-        <item name="android:textAppearance">?android:attr/textAppearanceSmall</item>
+        <item name="android:textAppearance">?android:attr/textAppearanceListItemSecondary</item>
+        <item name="android:lineHeight">@dimen/settingslib_tally_body_line_height</item>
         <item name="android:textAlignment">viewEnd</item>
         <item name="android:textColor">?android:attr/textColorSecondary</item>
         <item name="android:maxLines">1</item>

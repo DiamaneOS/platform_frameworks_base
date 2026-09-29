@@ -22,10 +22,12 @@
     android:theme="?expressiveTwoTargetPreferenceTheme"
     style="?expressiveTwoTargetPreferenceRootStyle">
 
+    <!-- Tally: at least a row's 64 dp, as the other rows. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
+        android:minHeight="@dimen/settingslib_tally_row_min_height"
         android:filterTouchesWhenObscured="false"
         android:orientation="horizontal">
 
