@@ -47,8 +47,9 @@
         <item name="layout">@layout/settingslib_expressive_preference</item>
     </style>
 
+    <!-- Tally: a switch row has no ripple or focus highlight of its own; its switch shows both. -->
     <style name="SettingsLibPreference.SwitchPreferenceCompat.Expressive">
-        <item name="layout">@layout/settingslib_expressive_preference</item>
+        <item name="layout">@layout/settingslib_tally_switch_preference</item>
         <item name="android:widgetLayout">@layout/settingslib_expressive_preference_switch</item>
     </style>
 
