@@ -51,6 +51,18 @@ internal class TallySwitchHost(private val view: CompoundButton) {
     var trackPadding = 0
         private set
 
+    /**
+     * What the system has confirmed for what the switch controls (see [TallySwitch.confirmedOn]):
+     * null lights the lamp with the checked state; otherwise the lamp lights only while the switch
+     * is checked and this is true.
+     */
+    var confirmedOn: Boolean? = null
+        set(value) {
+            if (field == value) return
+            field = value
+            onLampChanged()
+        }
+
     private val painter = TallySwitchPainter()
     private var dragging = false
     private var focused = false
@@ -62,6 +74,10 @@ internal class TallySwitchHost(private val view: CompoundButton) {
         motion.jumpTo(view.isChecked, view.isChecked)
         readPaddings()
     }
+
+    /** Whether the lamp lights: never while unchecked, and while waiting only once confirmed. */
+    private val lampLit: Boolean
+        get() = view.isChecked && confirmedOn != false
 
     /** The thumb and track drawables the parent measures and places: the Tally switch's size. */
     fun thumbSizeDrawable(): Drawable {
@@ -92,10 +108,20 @@ internal class TallySwitchHost(private val view: CompoundButton) {
         // As the parents do: move only when attached and laid out, so a bind shows it at once.
         if (view.isAttachedToWindow && view.isLaidOut) {
             val scale = durationScale()
-            motion.animateTo(checked, checked, scale)
+            motion.animateTo(checked, lampLit, scale)
             if (dragging) motion.releaseThumb(scale)
         } else {
-            motion.jumpTo(checked, checked)
+            motion.jumpTo(checked, lampLit)
+        }
+        view.invalidate()
+    }
+
+    /** After [confirmedOn] changes: the lamp moves as for a checked change; the thumb stays. */
+    private fun onLampChanged() {
+        if (view.isAttachedToWindow && view.isLaidOut) {
+            motion.animateTo(view.isChecked, lampLit, durationScale())
+        } else {
+            motion.jumpTo(view.isChecked, lampLit)
         }
         view.invalidate()
     }
