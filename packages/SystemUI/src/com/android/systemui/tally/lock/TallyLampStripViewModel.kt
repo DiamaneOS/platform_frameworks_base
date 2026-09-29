@@ -19,6 +19,8 @@ package com.android.systemui.tally.lock
 import android.app.AlarmManager
 import android.content.Context
 import android.media.MediaMetadata
+import android.provider.Settings.Secure.LOCK_SCREEN_SHOW_NOTIFICATIONS
+import android.provider.Settings.Secure.MEDIA_CONTROLS_LOCK_SCREEN
 import android.text.format.DateFormat
 import androidx.annotation.StringRes
 import com.android.settingslib.AccessibilityContentDescriptions
@@ -31,6 +33,7 @@ import com.android.systemui.privacy.PrivacyType
 import com.android.systemui.res.R
 import com.android.systemui.settings.UserTracker
 import com.android.systemui.shade.domain.interactor.PrivacyChipInteractor
+import com.android.systemui.shared.settings.data.repository.SecureSettingsRepository
 import com.android.systemui.statusbar.pipeline.battery.domain.interactor.BatteryInteractor
 import com.android.systemui.statusbar.pipeline.wifi.domain.interactor.WifiInteractor
 import com.android.systemui.statusbar.pipeline.wifi.shared.model.WifiNetworkModel
@@ -114,7 +117,8 @@ data class TallyAodItem(
  * For the always-on display it gives only what the stock always-on date line (KeyguardSliceProvider
  * on the keyguard slice) showed besides the date: the next alarm's time within those 12 hours, Do
  * Not Disturb while it is on, and the title and artist of media that is playing, from the same
- * NotificationMediaManager.
+ * NotificationMediaManager. The media shows only where GrapheneOS's always-on line (its built-in
+ * smartspace, which replaces the slice) shows it; see [aodMediaAllowed] and [mediaWords].
  */
 @SysUISingleton
 class TallyLampStripViewModel
@@ -131,6 +135,7 @@ constructor(
     private val systemClock: SystemClock,
     keyguardInteractor: KeyguardInteractor,
     private val mediaManager: NotificationMediaManager,
+    secureSettingsRepository: SecureSettingsRepository,
 ) {
     private val sensorsInUse: Flow<Set<PrivacyType>> =
         privacyChipInteractor.privacyItems
@@ -271,10 +276,7 @@ constructor(
             }
             .distinctUntilChanged()
 
-    /**
-     * The title and artist of the media that is playing, as KeyguardSliceProvider takes them for
-     * the stock always-on date line: none unless playing, stock's "No title" for an empty title.
-     */
+    /** The title and artist of the media that is playing, as [mediaWords] takes them. */
     private val playingMedia: Flow<String?> =
         conflatedCallbackFlow {
                 val listener =
@@ -283,7 +285,14 @@ constructor(
                             metadata: MediaMetadata?,
                             state: Int,
                         ) {
-                            trySend(mediaWords(metadata, state))
+                            trySend(
+                                mediaWords(
+                                    metadata,
+                                    state,
+                                    hasMediaIcon = mediaManager.mediaIcon != null,
+                                    noTitle = context.getString(R.string.music_controls_no_title),
+                                )
+                            )
                         }
                     }
                 mediaManager.addCallback(listener)
@@ -291,9 +300,15 @@ constructor(
             }
             .distinctUntilChanged()
 
+    private val mediaAllowed: Flow<Boolean> = aodMediaAllowed(secureSettingsRepository)
+
     /** The items the always-on display shows, in the always-on strip's order. */
     val aodItems: Flow<List<TallyAodItem>> =
-        combine(alarm, zenModeInteractor.isZenModeEnabled, playingMedia) { alarm, dnd, media ->
+        combine(alarm, zenModeInteractor.isZenModeEnabled, playingMedia, mediaAllowed) {
+                alarm,
+                dnd,
+                media,
+                showMedia ->
                 listOfNotNull(
                     alarm?.alarmTime?.let {
                         TallyAodItem(
@@ -309,19 +324,12 @@ constructor(
                             null,
                             TallyWords(R.string.accessibility_quick_settings_dnd),
                         ),
-                    media?.let { TallyAodItem(TallyAodItem.Kind.MEDIA, it, null) },
+                    media
+                        ?.takeIf { showMedia }
+                        ?.let { TallyAodItem(TallyAodItem.Kind.MEDIA, it, null) },
                 )
             }
             .distinctUntilChanged()
-
-    private fun mediaWords(metadata: MediaMetadata?, state: Int): String? {
-        if (metadata == null || !NotificationMediaManager.isPlayingState(state)) return null
-        val title =
-            metadata.getText(MediaMetadata.METADATA_KEY_TITLE)?.takeIf { it.isNotEmpty() }
-                ?: context.getString(R.string.music_controls_no_title)
-        val artist = metadata.getText(MediaMetadata.METADATA_KEY_ARTIST)
-        return if (artist.isNullOrEmpty()) title.toString() else "$title$MEDIA_SEPARATOR$artist"
-    }
 
     /**
      * Lit only when stock's status bar, which the lock screen shows, shows its Bluetooth icon
@@ -351,12 +359,48 @@ constructor(
         }
     }
 
-    private companion object {
+    internal companion object {
         /** Between the media's title and its artist, as the prototype joins a name and a value. */
-        const val MEDIA_SEPARATOR = " · "
+        private const val MEDIA_SEPARATOR = " · "
 
         /** KeyguardSliceProvider.ALARM_VISIBILITY_HOURS: the stock lock screen's alarm window. */
-        const val ALARM_HOURS = 12L
-        val MINUTE_MILLIS = TimeUnit.MINUTES.toMillis(1)
+        private const val ALARM_HOURS = 12L
+        private val MINUTE_MILLIS = TimeUnit.MINUTES.toMillis(1)
+
+        /**
+         * Whether the always-on strip may show the playing media, for the current user: as
+         * GrapheneOS's always-on line, only while the lock screen shows notifications
+         * (LockscreenSmartspaceController drops the whole line otherwise) and "Show media on lock
+         * screen" is on (SystemUISmartspaceService), with the defaults they read them with.
+         */
+        fun aodMediaAllowed(settings: SecureSettingsRepository): Flow<Boolean> =
+            combine(
+                    settings.intSetting(LOCK_SCREEN_SHOW_NOTIFICATIONS, 0),
+                    settings.boolSetting(MEDIA_CONTROLS_LOCK_SCREEN, true),
+                ) { notifications, media ->
+                    notifications == 1 && media
+                }
+                .distinctUntilChanged()
+
+        /**
+         * The words for the media, as the stock always-on line takes them: none unless it plays,
+         * stock's "No title" ([noTitle]) for an empty title, and the artist after the title only
+         * when the media's notification has an icon, as GrapheneOS's line shows the artist only
+         * beside that icon.
+         */
+        fun mediaWords(
+            metadata: MediaMetadata?,
+            state: Int,
+            hasMediaIcon: Boolean,
+            noTitle: CharSequence,
+        ): String? {
+            if (metadata == null || !NotificationMediaManager.isPlayingState(state)) return null
+            val title =
+                metadata.getText(MediaMetadata.METADATA_KEY_TITLE)?.takeIf { it.isNotEmpty() }
+                    ?: noTitle
+            val artist = metadata.getText(MediaMetadata.METADATA_KEY_ARTIST)
+            return if (artist.isNullOrEmpty() || !hasMediaIcon) title.toString()
+            else "$title$MEDIA_SEPARATOR$artist"
+        }
     }
 }
