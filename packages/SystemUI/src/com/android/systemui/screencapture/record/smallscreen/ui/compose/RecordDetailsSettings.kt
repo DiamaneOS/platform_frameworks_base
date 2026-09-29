@@ -64,6 +64,8 @@ import com.android.systemui.screencapture.common.ui.compose.loadIcon
 import com.android.systemui.screencapture.common.ui.viewmodel.DrawableLoaderViewModel
 import com.android.systemui.screencapture.record.smallscreen.ui.viewmodel.RecordDetailsTargetViewModel
 import com.android.systemui.screencapture.record.ui.viewmodel.ScreenCaptureRecordParametersViewModel
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.switches.TallySwitch
 
 @Composable
 fun RecordDetailsSettings(
@@ -234,12 +236,21 @@ private fun RichSwitch(
             maxLines = 1,
             modifier = Modifier.padding(horizontal = 8.dp).weight(1f).basicMarquee(),
         )
-        Switch(
-            checked = checked,
-            enabled = enabled,
-            onCheckedChange = onCheckedChange,
-            modifier = Modifier,
-        )
+        if (TallyShell.isEnabled) {
+            TallySwitch(
+                checked = checked,
+                enabled = enabled,
+                onCheckedChange = onCheckedChange,
+                modifier = Modifier,
+            )
+        } else {
+            Switch(
+                checked = checked,
+                enabled = enabled,
+                onCheckedChange = onCheckedChange,
+                modifier = Modifier,
+            )
+        }
     }
 }
 
