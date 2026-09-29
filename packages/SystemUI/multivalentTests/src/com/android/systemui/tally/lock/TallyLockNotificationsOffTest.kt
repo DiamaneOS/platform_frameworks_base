@@ -73,6 +73,14 @@ class TallyLockNotificationsOffTest : SysuiTestCase() {
     }
 
     @Test
+    fun alarmThatIsDueOrPassed_isNotShown() {
+        // As GrapheneOS's line: only an alarm still to come (delta > 0).
+        assertThat(alarmShows(NOW - 1, NOW, notificationsShown = true)).isFalse()
+        assertThat(alarmShows(NOW, NOW, notificationsShown = true)).isFalse()
+        assertThat(alarmShows(NOW + 1, NOW, notificationsShown = true)).isTrue()
+    }
+
+    @Test
     fun notificationsHidden_alwaysOnShowsNothing() {
         val items =
             aodItemsFor(
