@@ -61,6 +61,17 @@ constructor(
         host = h
     }
 
+    /**
+     * Whether the system has confirmed that what the switch controls is on, for a switch whose
+     * change takes effect later; null (the default) lights the lamp with the checked state. As
+     * [TallySwitch.confirmedOn].
+     */
+    var confirmedOn: Boolean?
+        get() = host?.confirmedOn
+        set(value) {
+            host?.confirmedOn = value
+        }
+
     override fun setChecked(checked: Boolean) {
         super.setChecked(checked)
         val h = host ?: return

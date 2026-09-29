@@ -42,6 +42,9 @@ import com.google.android.material.materialswitch.MaterialSwitch
  * through the row that toggles it; the focus ring while that row, or the switch when it takes focus
  * itself, has keyboard focus. See [TallySwitchPainter] and [TallySwitchMotion].
  *
+ * The lamp lights with the checked state, unless the switch waits for the system to confirm a
+ * change (see [confirmedOn]).
+ *
  * From API 34, as the colour roles it reads.
  */
 @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
@@ -65,6 +68,20 @@ constructor(
         applySizes(h)
         host = h
     }
+
+    /**
+     * For a switch whose change takes effect later (Wi-Fi, Bluetooth): whether the system has
+     * confirmed that what the switch controls is on. The thumb follows the checked state at once;
+     * the lamp lights only while the switch is checked and this is true, so it waits for the
+     * system, and a switch that is not confirmed shows unlit. Null, the default, lights the lamp
+     * with the checked state, for a change that takes effect at once. Only the drawing follows it:
+     * checking, clicks and accessibility stay the switch's.
+     */
+    var confirmedOn: Boolean?
+        get() = host?.confirmedOn
+        set(value) {
+            host?.confirmedOn = value
+        }
 
     override fun setChecked(checked: Boolean) {
         super.setChecked(checked)
