@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPDX-License-Identifier: Apache-2.0
+  Copyright 2026 The DiamaneOS Project
+
+  Generated from the Tally token spec (design/tokens/tokens.json in the DiamaneOS design
+  repository) by design/tokens/generate.py. Do not edit: change the spec and regenerate.
+  Spec: tokens.json sha256 17c7a32318d548ba331e9741c74f8e8a8abc8109d40767e7d8e96216c074721f
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Export settingslib-switch: from tally_press, ink at 10 % (#1A, light) · 12 % (#1F, dark) -->
+    <item android:color="@android:color/system_on_surface_dark" android:alpha="0.122" />
+</selector>
