@@ -22,9 +22,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
-import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -43,13 +41,16 @@ import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -70,6 +71,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.colorResource
@@ -202,7 +205,14 @@ fun TallyTileContent(
     val fieldLit by remember(wipe) { derivedStateOf { wipe.value >= 1f } }
     val lit = state.isLit && fieldLit
     val edgeWidth = dimensionResource(TallyR.dimen.tally_stroke_lit_edge)
-    Box(modifier.fillMaxSize().litField({ wipe.value }, lit, shape, palette, edgeWidth)) {
+    val keyPlate = remember { TileKeyPlate() }
+    val keyRadius = dimensionResource(TallyR.dimen.tally_radius_s)
+    Box(
+        modifier
+            .fillMaxSize()
+            .onPlaced(keyPlate::onTilePlaced)
+            .litField({ wipe.value }, lit, shape, palette, edgeWidth, keyPlate, keyRadius)
+    ) {
         if (iconOnly) {
             KeycapContent(state, lit, instantLamp, iconProvider, palette, bounceScale)
         } else {
@@ -217,8 +227,47 @@ fun TallyTileContent(
                 onLongClick,
                 isVisible,
                 palette,
+                keyPlate,
                 bounceScale,
             )
+        }
+    }
+}
+
+/**
+ * Where a tile's toggle key sits in the tile. The tile's field draws the key's plate, tonal where
+ * the field is unlit and outlined where it is lit, so the plate wipes with the field. Drawn by the
+ * key, the tonal plate showed on the lit part as a solid block in the colour for text on the lamp,
+ * with the icon lost in it, until the field had lit.
+ */
+private class TileKeyPlate {
+    private var tile: LayoutCoordinates? = null
+    private var key: LayoutCoordinates? = null
+
+    /** The key's bounds in the tile; empty when the tile has no key. */
+    var bounds by mutableStateOf(Rect.Zero)
+        private set
+
+    fun onTilePlaced(coordinates: LayoutCoordinates) {
+        tile = coordinates
+        update()
+    }
+
+    fun onKeyPlaced(coordinates: LayoutCoordinates) {
+        key = coordinates
+        update()
+    }
+
+    fun onKeyGone() {
+        key = null
+        bounds = Rect.Zero
+    }
+
+    private fun update() {
+        val tile = tile ?: return
+        val key = key ?: return
+        if (tile.isAttached && key.isAttached) {
+            bounds = tile.localBoundingBoxOf(key, clipBounds = false)
         }
     }
 }
@@ -311,8 +360,10 @@ private fun rememberWipe(lit: Boolean): Animatable<Float, AnimationVector1D> {
 
 /**
  * Draws the tile's field: tonal where it is not lit, the lamp colour (with the lamp outline as an
- * inner edge, which only shows in light theme) where it is. While the field wipes, the content is
- * in its unlit colours and the lit part shows it in the colour for text on the lamp.
+ * inner edge, which only shows in light theme) where it is, and the plate of the tile's toggle key:
+ * tonal on the unlit part, outlined in the colour for text on the lamp on the lit part. While the
+ * field wipes, the content is in its unlit colours and the lit part shows it in the colour for text
+ * on the lamp.
  *
  * @param contentLit the content is in its lit colours, which it is only once the field is lit.
  */
@@ -322,15 +373,19 @@ private fun Modifier.litField(
     shape: RoundedCornerShape,
     palette: TallyTilePalette,
     edgeWidth: Dp,
+    keyPlate: TileKeyPlate,
+    keyRadius: Dp,
 ): Modifier = drawWithCache {
     val tint = Paint().apply { colorFilter = ColorFilter.tint(palette.onLamp, BlendMode.SrcIn) }
     val edge = edgeWidth.toPx()
     val radius = shape.topStart.toPx(size, this)
+    val keyCorner = keyRadius.toPx()
     onDrawWithContent {
         val content = this
         val width = size.width
         val height = size.height
         val extent = (width * wipe()).coerceIn(0f, width)
+        val key = keyPlate.bounds
         // The field lights from the lamp's side, the start.
         val rtl = layoutDirection == LayoutDirection.Rtl
         val litLeft = if (rtl) width - extent else 0f
@@ -339,6 +394,11 @@ private fun Modifier.litField(
         val unlitRight = if (rtl) width - extent else width
         if (unlitRight > unlitLeft) {
             drawRect(palette.surface, Offset(unlitLeft, 0f), Size(unlitRight - unlitLeft, height))
+            if (!key.isEmpty) {
+                clipRect(unlitLeft, 0f, unlitRight, height) {
+                    drawRoundRect(palette.innerKey, key.topLeft, key.size, CornerRadius(keyCorner))
+                }
+            }
         }
         if (litRight > litLeft) {
             clipRect(litLeft, 0f, litRight, height) {
@@ -350,6 +410,15 @@ private fun Modifier.litField(
                     cornerRadius = CornerRadius(max(0f, radius - edge / 2f)),
                     style = Stroke(edge),
                 )
+                if (!key.isEmpty) {
+                    drawRoundRect(
+                        palette.onLamp,
+                        topLeft = key.topLeft + Offset(edge / 2f, edge / 2f),
+                        size = Size(key.width - edge, key.height - edge),
+                        cornerRadius = CornerRadius(max(0f, keyCorner - edge / 2f)),
+                        style = Stroke(edge),
+                    )
+                }
             }
         }
         if (contentLit) {
@@ -414,6 +483,7 @@ private fun LargeContent(
     onLongClick: (() -> Unit)?,
     isVisible: () -> Boolean,
     palette: TallyTilePalette,
+    keyPlate: TileKeyPlate,
     bounceScale: () -> Float,
 ) {
     val ink = if (lit) palette.onLamp else palette.ink
@@ -483,10 +553,10 @@ private fun LargeContent(
         }
         if (toggleClick != null) {
             ToggleKey(
-                lit = lit,
                 iconProvider = iconProvider,
                 iconColor = iconColor(state, lit, palette),
                 palette = palette,
+                plate = keyPlate,
                 toggleClick = toggleClick,
                 onLongClick = onLongClick,
                 accessibilityUiState = uiState.accessibilityUiState,
@@ -498,34 +568,27 @@ private fun LargeContent(
 /**
  * The toggle of a tile with a toggle of its own (Internet, Bluetooth): a 48 dp key at the tile's
  * end, tonal on an unlit tile and outlined on a lit one, with the upstream toggle's click, long
- * click and switch semantics.
+ * click and switch semantics. The tile's field draws its plate ([TileKeyPlate]).
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ToggleKey(
-    lit: Boolean,
     iconProvider: Context.() -> Icon,
     iconColor: Color,
     palette: TallyTilePalette,
+    plate: TileKeyPlate,
     toggleClick: () -> Unit,
     onLongClick: (() -> Unit)?,
     accessibilityUiState: AccessibilityUiState,
 ) {
     val shape = RoundedCornerShape(dimensionResource(TallyR.dimen.tally_radius_s))
-    val edge = dimensionResource(TallyR.dimen.tally_stroke_lit_edge)
     val longPressLabel = CommonTileDefaults.longPressLabelSettings().takeIf { onLongClick != null }
     Box(
         modifier =
             Modifier.size(dimensionResource(TallyR.dimen.tally_key_height))
+                .onPlaced(plate::onKeyPlaced)
                 .borderOnFocus(color = palette.focus, cornerSize = shape.topEnd)
                 .clip(shape)
-                .then(
-                    if (lit) {
-                        Modifier.border(edge, palette.onLamp, shape)
-                    } else {
-                        Modifier.background(palette.innerKey)
-                    }
-                )
                 .combinedClickable(
                     onClick = toggleClick,
                     onLongClick = onLongClick,
@@ -541,6 +604,7 @@ private fun ToggleKey(
                 .sysuiResTag(TOGGLE_TAG),
         contentAlignment = Alignment.Center,
     ) {
+        DisposableEffect(plate) { onDispose { plate.onKeyGone() } }
         SmallTileContent(
             iconProvider = iconProvider,
             color = iconColor,
