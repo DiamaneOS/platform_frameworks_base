@@ -119,6 +119,7 @@ import com.android.wm.shell.shared.TransactionPool;
 import com.android.wm.shell.shared.TransitionUtil;
 import com.android.wm.shell.shared.animation.Interpolators;
 import com.android.wm.shell.sysui.ShellInit;
+import com.android.wm.shell.tally.TallyWmShell;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -369,11 +370,17 @@ public class DefaultTransitionHandler implements Transitions.TransitionHandler {
 
         final boolean isTaskTransition = com.android.window.flags.Flags.transitionHandlerCujTags()
                 && isTaskTransition(info);
+        // DiamaneOS Tally: activities and tasks that would play the framework's default
+        // animations move as Tally's pages instead, measured as task-to-task interactions.
+        final boolean isTallyPage = TallyWmShell.isEnabled()
+                && TallyPageTransitions.isPageTransition(info, getWallpaperTransitType(info),
+                        TransitionUtil.isDreamTransition(info), mTransitionAnimation);
+        final boolean tracksCuj = isTaskTransition || isTallyPage;
 
         final Consumer<WindowAnimation> onAnimFinish = (winAnim) -> {
             animations.remove(winAnim);
             if (!animations.isEmpty()) return;
-            finishTransition(transition, info, finishCallback, isTaskTransition);
+            finishTransition(transition, info, finishCallback, tracksCuj);
         };
 
         @ColorInt int backgroundColorForTransition = 0;
@@ -520,7 +527,8 @@ public class DefaultTransitionHandler implements Transitions.TransitionHandler {
             if (!TransitionInfo.isIndependent(change, info)) continue;
 
             final int type = getTransitionTypeFromInfo(info);
-            Animation a = loadAnimation(type, info, change, wallpaperTransit, isDreamTransition);
+            Animation a = loadAnimation(type, info, change, wallpaperTransit, isDreamTransition,
+                    isTallyPage);
             if (a != null) {
                 final int displayId = isTask ? change.getTaskInfo().displayId
                         : info.getRoot(TransitionUtil.rootIndexFor(change, info))
@@ -652,6 +660,13 @@ public class DefaultTransitionHandler implements Transitions.TransitionHandler {
                     leash.release();
                 }
 
+                if (a instanceof TallyPageTransitions.CloseAnimation tallyClose) {
+                    // DiamaneOS Tally: a closing page's corners follow its scale.
+                    animations.add(TallyPageTransitions.buildCloseAnimation(tallyClose, change,
+                            onAnimFinish, mTransactionPool, mMainExecutor, animRelOffset,
+                            clipRect, mRoundedContentBounds.forDisplay(change.getEndDisplayId())));
+                    continue;
+                }
                 WindowAnimation winAnim = buildWindowAnimation(a, change, change.getLeash(),
                         onAnimFinish,
                         mTransactionPool, mMainExecutor, animRelOffset, cornerRadius, clipRect,
@@ -680,6 +695,10 @@ public class DefaultTransitionHandler implements Transitions.TransitionHandler {
             if (isTaskTransition) {
                 mInteractionJankMonitor.begin(info.getRoot(0).getLeash(), mContext,
                         mMainHandler, CUJ_DEFAULT_TASK_TO_TASK_ANIMATION);
+            } else if (isTallyPage) {
+                mInteractionJankMonitor.begin(info.getRoot(0).getLeash(), mContext,
+                        mMainHandler, CUJ_DEFAULT_TASK_TO_TASK_ANIMATION,
+                        TallyPageTransitions.cujTag(info));
             }
 
             // now start animations. they are started on another thread, so we have to post them
@@ -693,7 +712,7 @@ public class DefaultTransitionHandler implements Transitions.TransitionHandler {
         TransitionMetrics.getInstance().reportAnimationStart(transition);
         // run finish now in-case there are no animations
         if (!hasAnimations) {
-            finishTransition(transition, info, finishCallback, isTaskTransition);
+            finishTransition(transition, info, finishCallback, tracksCuj);
         }
         return true;
     }
@@ -998,7 +1017,7 @@ public class DefaultTransitionHandler implements Transitions.TransitionHandler {
     @Nullable
     private Animation loadAnimation(@WindowManager.TransitionType int type,
             @NonNull TransitionInfo info, @NonNull TransitionInfo.Change change,
-            int wallpaperTransit, boolean isDreamTransition) {
+            int wallpaperTransit, boolean isDreamTransition, boolean isTallyPage) {
         Animation a;
 
         final int flags = info.getFlags();
@@ -1054,6 +1073,9 @@ public class DefaultTransitionHandler implements Transitions.TransitionHandler {
         } else if (overrideType == ANIM_SCENE_TRANSITION) {
             // If there's a scene-transition, then jump-cut.
             return null;
+        } else if (isTallyPage) {
+            // DiamaneOS Tally: in place of the framework's default activity or task animation.
+            a = TallyPageTransitions.loadPageAnimation(mContext, type, change);
         } else {
             a = loadAttributeAnimation(
                     type, info, change, wallpaperTransit, mTransitionAnimation, isDreamTransition);
@@ -1187,7 +1209,7 @@ public class DefaultTransitionHandler implements Transitions.TransitionHandler {
     /**
      * Returns {@code true} if the default transition handler can run the override animation.
      *
-     * @see #loadAnimation(int, TransitionInfo, TransitionInfo.Change, int, boolean)
+     * @see #loadAnimation(int, TransitionInfo, TransitionInfo.Change, int, boolean, boolean)
      */
     public static boolean isSupportedOverrideAnimation(
             @NonNull TransitionInfo.AnimationOptions options) {
