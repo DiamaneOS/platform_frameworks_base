@@ -101,7 +101,9 @@ import com.android.systemui.haptics.slider.compose.ui.SliderHapticsViewModel
 import com.android.systemui.lifecycle.rememberViewModel
 import com.android.systemui.qs.ui.compose.borderOnFocus
 import com.android.systemui.res.R
+import com.android.systemui.tally.TallyShell
 import com.android.systemui.util.policy.PolicyRestriction
+import de.diamaneos.tally.R as TallyR
 import platform.test.motion.compose.values.MotionTestValueKey
 import platform.test.motion.compose.values.motionTestValues
 
@@ -453,8 +455,16 @@ data class ContainerColors(val idleColor: Color, val mirrorColor: Color) {
     companion object {
         fun singleColor(color: Color) = ContainerColors(color, color)
 
+        // Tally: the frame is the shade's own background (ShadeColors), so a dragged slider
+        // keeps the sheet it came from.
         val defaultContainerColor: Color
-            @Composable @ReadOnlyComposable get() = colorResource(R.color.shade_panel_fallback)
+            @Composable
+            @ReadOnlyComposable
+            get() =
+                colorResource(
+                    if (TallyShell.isEnabled) TallyR.color.tally_background
+                    else R.color.shade_panel_fallback
+                )
     }
 }
 
