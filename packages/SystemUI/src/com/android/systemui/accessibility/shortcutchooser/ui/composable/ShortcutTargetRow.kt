@@ -51,6 +51,8 @@ import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.unit.dp
 import com.android.compose.ui.graphics.painter.rememberDrawablePainter
 import com.android.systemui.accessibility.shortcutchooser.shared.model.AccessibilityTargetModel
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.switches.TallySwitch
 
 private object Constants {
     // Desired switch width divided by the default switch width in material3.
@@ -188,6 +190,11 @@ private fun Modifier.interactable(
 
 @Composable
 private fun PickerSwitch(checked: Boolean) {
+    if (TallyShell.isEnabled) {
+        // At its own size, as every Tally switch: not scaled down to an icon's width.
+        TallySwitch(checked = checked, onCheckedChange = null)
+        return
+    }
     Switch(
         checked = checked,
         onCheckedChange = null,
