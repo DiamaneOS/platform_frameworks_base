@@ -34,6 +34,7 @@ import static android.view.WindowManager.TRANSIT_OPEN;
 import static android.view.WindowManager.TRANSIT_TO_BACK;
 import static android.view.WindowManager.TRANSIT_TO_FRONT;
 import static android.window.TransitionInfo.FLAGS_IS_NON_APP_WINDOW;
+import static android.window.TransitionInfo.FLAG_FILLS_TASK;
 import static android.window.TransitionInfo.FLAG_IN_TASK_WITH_EMBEDDED_ACTIVITY;
 import static android.window.TransitionInfo.FLAG_IS_DISPLAY;
 import static android.window.TransitionInfo.FLAG_IS_OCCLUDED;
@@ -141,8 +142,8 @@ final class TallyPageTransitions {
 
     /**
      * Whether {@code info} moves as Tally's pages: Tally is on, the transition opens or closes
-     * activities or tasks and nothing else, stock would play the framework's default animation
-     * for every one of them, and none is exempt.
+     * full-screen tasks or activities that fill their task and nothing else, stock would play the
+     * framework's default animation for every one of them, and none is exempt.
      */
     static boolean isPageTransition(@NonNull TransitionInfo info, int wallpaperTransit,
             boolean isDreamTransition, @NonNull TransitionAnimation transitionAnimation) {
@@ -171,7 +172,12 @@ final class TallyPageTransitions {
             if (!TransitionUtil.isOpenOrCloseMode(mode)) return false;
             final ActivityManager.RunningTaskInfo task = change.getTaskInfo();
             if (task != null && task.getWindowingMode() != WINDOWING_MODE_FULLSCREEN) return false;
-            if (task == null && change.getActivityComponent() == null) return false;
+            // An activity must fill its task: a letterboxed one draws its bars outside its bounds,
+            // which the closing page's rounded crop would cut.
+            if (task == null && (change.getActivityComponent() == null
+                    || !change.hasFlags(FLAG_FILLS_TASK))) {
+                return false;
+            }
             if (isExempt(change) || !playsDefaultAnimation(change, type, transitionAnimation)) {
                 return false;
             }
