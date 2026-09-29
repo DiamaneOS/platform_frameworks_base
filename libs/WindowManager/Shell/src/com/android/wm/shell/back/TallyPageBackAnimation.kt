@@ -19,6 +19,7 @@ package com.android.wm.shell.back
 import android.animation.Animator
 import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
+import android.app.WindowConfiguration.WINDOWING_MODE_FULLSCREEN
 import android.content.Context
 import android.os.Handler
 import android.view.RemoteAnimationTarget
@@ -33,6 +34,7 @@ import com.android.wm.shell.shared.annotations.ShellMainThread
 import com.android.wm.shell.tally.TallyMotionTokens
 import com.android.wm.shell.tally.TallyPageMotion
 import java.util.Optional
+import kotlin.math.max
 
 /**
  * DiamaneOS Tally's predictive Back between activities and between tasks: the Tally prototype's
@@ -82,6 +84,12 @@ class TallyPageBackAnimation(
 
     /** The Back progress the page is at, 0 to 1 (see [TallyPageMotion.backProgress]). */
     private var pageProgress = 0f
+
+    /**
+     * The corners the windows keep at least: none in a full-screen task, where the display rounds
+     * them, and stock's radius in a bubble, a freeform or a split task, which round their own.
+     */
+    private var radiusFloor = 0f
     private var animator: ValueAnimator? = null
 
     init {
@@ -123,9 +131,11 @@ class TallyPageBackAnimation(
         super.startBackAnimation(backMotionEvent)
         // What the page goes back to shows under it, whole and still.
         val entering = enteringTarget ?: return
-        if (closingTarget == null) return
+        val closing = closingTarget ?: return
+        radiusFloor =
+            if (closing.taskInfo.windowingMode == WINDOWING_MODE_FULLSCREEN) 0f else cornerRadius
         currentEnteringRect.set(backAnimRect)
-        applyTransform(entering.leash, currentEnteringRect, 1f, radius = 0f)
+        applyTransform(entering.leash, currentEnteringRect, 1f, radius = radiusFloor)
         applyTransaction()
     }
 
@@ -229,7 +239,7 @@ class TallyPageBackAnimation(
             closing.leash,
             currentClosingRect,
             alpha,
-            radius = motion.cornerRadius(scale),
+            radius = max(radiusFloor, motion.cornerRadius(scale)),
         )
     }
 
