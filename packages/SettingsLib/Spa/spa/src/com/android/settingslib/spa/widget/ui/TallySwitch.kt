@@ -65,6 +65,12 @@ import kotlinx.coroutines.launch
  * moves only when [checked] changes after it is first shown, and follows the animator duration
  * scale, as the view does.
  *
+ * The lamp lights with [checked], unless [confirmedOn] is given: for a switch whose change takes
+ * effect later, whether the system has confirmed that what it controls is on. Then the thumb still
+ * follows [checked] at once, and the lamp lights only while [checked] and [confirmedOn] are both
+ * true, so a switch that is not confirmed shows unlit, as the view's `confirmedOn`. Only the
+ * drawing follows it; the semantics stay [checked]'s.
+ *
  * From API 34, as the colour roles it reads.
  */
 @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
@@ -75,6 +81,7 @@ internal fun TallySwitch(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     interactionSource: MutableInteractionSource? = null,
+    confirmedOn: Boolean? = null,
 ) {
     val source = interactionSource ?: remember { MutableInteractionSource() }
     val context = LocalContext.current
@@ -112,6 +119,7 @@ internal fun TallySwitch(
             .then(
                 TallySwitchElement(
                     checked = checked,
+                    lit = checked && confirmedOn != false,
                     enabled = enabled,
                     pressed = pressed,
                     focused = focused && keyboard,
@@ -124,6 +132,7 @@ internal fun TallySwitch(
 @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
 private data class TallySwitchElement(
     val checked: Boolean,
+    val lit: Boolean,
     val enabled: Boolean,
     val pressed: Boolean,
     val focused: Boolean,
@@ -144,6 +153,7 @@ private class TallySwitchNode(element: TallySwitchElement) : Modifier.Node(), Dr
     private val painter = TallySwitchPainter()
     private var spec = element.spec
     private var checked = element.checked
+    private var lit = element.lit
     private var enabled = element.enabled
     private var pressed = element.pressed
     private var focused = element.focused
@@ -156,7 +166,7 @@ private class TallySwitchNode(element: TallySwitchElement) : Modifier.Node(), Dr
 
     init {
         motion.setSpec(spec)
-        motion.jumpTo(checked, checked)
+        motion.jumpTo(checked, lit)
     }
 
     fun update(element: TallySwitchElement) {
@@ -164,14 +174,15 @@ private class TallySwitchNode(element: TallySwitchElement) : Modifier.Node(), Dr
             spec = element.spec
             motion.setSpec(spec)
         }
-        if (element.checked != checked) {
+        if (element.checked != checked || element.lit != lit) {
             checked = element.checked
+            lit = element.lit
             // A switch not yet shown takes its state at once, as a bound view does.
             if (isAttached && drawnSinceAttach) {
-                motion.animateTo(checked, checked, durationScale())
+                motion.animateTo(checked, lit, durationScale())
                 runFrames()
             } else {
-                motion.jumpTo(checked, checked)
+                motion.jumpTo(checked, lit)
             }
         }
         enabled = element.enabled
