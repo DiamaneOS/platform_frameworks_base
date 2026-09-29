@@ -39,6 +39,7 @@ import com.android.systemui.privacy.PrivacyItemController
 import com.android.systemui.privacy.PrivacyType
 import com.android.systemui.settings.DisplayTracker
 import com.android.systemui.tally.TallyShell
+import com.google.common.truth.Truth.assertThat
 import java.util.concurrent.Executor
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.TestScope
@@ -55,9 +56,10 @@ import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 
 /**
- * The lens ring lights only while an app uses a camera and the front camera is open, counts a
- * camera whose facing cannot be read as the front one, and lights for any camera where SystemUI
- * cannot follow cameras opening. The ring's window is added only when something lights.
+ * The lens ring lights only while an app uses a camera and a front camera opened during that use,
+ * keeps the privacy item's hold after the front camera closes, counts a camera whose facing cannot
+ * be read as the front one, and lights for any camera where SystemUI cannot follow cameras opening.
+ * The ring's window is added only when something lights.
  */
 @SmallTest
 @RunWith(AndroidJUnit4::class)
@@ -145,8 +147,61 @@ class TallyLensIndicatorTest : SysuiTestCase() {
         verify(windowManager).addView(any<TallyLensIndicatorView>(), any<ViewGroup.LayoutParams>())
     }
 
+    @Test
+    fun frontCameraClosed_ringStaysLitForTheHold_thenGoesOut() {
+        facing(FRONT_ID, CameraCharacteristics.LENS_FACING_FRONT)
+        facing(BACK_ID, CameraCharacteristics.LENS_FACING_BACK)
+        val indicator = start(followsCameras = true)
+        cameraCallback().onCameraOpened(FRONT_ID, CAMERA_APP)
+        privacyCallback().onPrivacyItemsChanged(listOf(cameraInUse()))
+
+        // A short front camera use: the camera closes while the privacy item is still held.
+        cameraCallback().onCameraClosed(FRONT_ID)
+        assertThat(indicator.isRingLit).isTrue()
+
+        privacyCallback().onPrivacyItemsChanged(emptyList())
+        assertThat(indicator.isRingLit).isFalse()
+
+        // The next use, of the back camera, starts without the front camera's latch.
+        cameraCallback().onCameraOpened(BACK_ID, CAMERA_APP)
+        privacyCallback().onPrivacyItemsChanged(listOf(cameraInUse()))
+        assertThat(indicator.isRingLit).isFalse()
+    }
+
+    @Test
+    fun switchingFromFrontToBack_putsTheRingOut() {
+        facing(FRONT_ID, CameraCharacteristics.LENS_FACING_FRONT)
+        facing(BACK_ID, CameraCharacteristics.LENS_FACING_BACK)
+        val indicator = start(followsCameras = true)
+        cameraCallback().onCameraOpened(FRONT_ID, CAMERA_APP)
+        privacyCallback().onPrivacyItemsChanged(listOf(cameraInUse()))
+        assertThat(indicator.isRingLit).isTrue()
+
+        cameraCallback().onCameraClosed(FRONT_ID)
+        cameraCallback().onCameraOpened(BACK_ID, CAMERA_APP)
+
+        assertThat(indicator.isRingLit).isFalse()
+    }
+
+    @Test
+    fun frontAndBackTogether_keepTheRingLit() {
+        facing(FRONT_ID, CameraCharacteristics.LENS_FACING_FRONT)
+        facing(BACK_ID, CameraCharacteristics.LENS_FACING_BACK)
+        val indicator = start(followsCameras = true)
+        cameraCallback().onCameraOpened(BACK_ID, CAMERA_APP)
+        cameraCallback().onCameraOpened(FRONT_ID, CAMERA_APP)
+        privacyCallback().onPrivacyItemsChanged(listOf(cameraInUse()))
+        assertThat(indicator.isRingLit).isTrue()
+
+        // Another open of the back camera while the front one is open changes nothing.
+        cameraCallback().onCameraClosed(BACK_ID)
+        cameraCallback().onCameraOpened(BACK_ID, CAMERA_APP)
+
+        assertThat(indicator.isRingLit).isTrue()
+    }
+
     /** Starts an indicator whose context holds the open and close listener permission or not. */
-    private fun start(followsCameras: Boolean) {
+    private fun start(followsCameras: Boolean): TallyLensIndicator {
         val permissionContext =
             object : ContextWrapper(context) {
                 override fun checkSelfPermission(permission: String): Int =
@@ -157,7 +212,7 @@ class TallyLensIndicatorTest : SysuiTestCase() {
                         else -> PackageManager.PERMISSION_DENIED
                     }
             }
-        TallyLensIndicator(
+        return TallyLensIndicator(
                 permissionContext,
                 Executor { it.run() },
                 TestScope(),
@@ -167,7 +222,7 @@ class TallyLensIndicatorTest : SysuiTestCase() {
                 indicatorArea,
                 cameraManager,
             )
-            .start()
+            .apply { start() }
     }
 
     private fun facing(cameraId: String, facing: Int) {
