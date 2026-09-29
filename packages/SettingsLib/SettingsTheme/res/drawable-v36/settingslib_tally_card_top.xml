@@ -25,6 +25,20 @@
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android"
     android:paddingStart="@dimen/settingslib_tally_row_inset"
     android:paddingEnd="@dimen/settingslib_tally_row_inset">
+    <!-- The segment's outline, whole: draws nothing. -->
+    <item
+        android:start="@dimen/settingslib_tally_card_margin"
+        android:end="@dimen/settingslib_tally_card_margin"
+        android:bottom="-3dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/transparent" />
+            <corners
+                android:topLeftRadius="@dimen/settingslib_tally_row_border_radius"
+                android:topRightRadius="@dimen/settingslib_tally_row_border_radius"
+                android:bottomLeftRadius="0dp"
+                android:bottomRightRadius="0dp" />
+        </shape>
+    </item>
     <item
         android:start="@dimen/settingslib_tally_card_margin"
         android:end="@dimen/settingslib_tally_card_margin"
