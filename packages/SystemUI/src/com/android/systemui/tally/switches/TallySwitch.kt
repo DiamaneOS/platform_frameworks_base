@@ -114,6 +114,7 @@ fun TallySwitch(
             .then(
                 TallySwitchElement(
                     checked = checked,
+                    lit = checked,
                     enabled = enabled,
                     pressed = pressed,
                     focused = focused && keyboard,
@@ -125,6 +126,7 @@ fun TallySwitch(
 
 private data class TallySwitchElement(
     val checked: Boolean,
+    val lit: Boolean,
     val enabled: Boolean,
     val pressed: Boolean,
     val focused: Boolean,
@@ -144,6 +146,7 @@ private class TallySwitchNode(element: TallySwitchElement) : Modifier.Node(), Dr
     private val painter = TallySwitchPainter()
     private var spec = element.spec
     private var checked = element.checked
+    private var lit = element.lit
     private var enabled = element.enabled
     private var pressed = element.pressed
     private var focused = element.focused
@@ -156,7 +159,7 @@ private class TallySwitchNode(element: TallySwitchElement) : Modifier.Node(), Dr
 
     init {
         motion.setSpec(spec)
-        motion.jumpTo(checked, checked)
+        motion.jumpTo(checked, lit)
     }
 
     fun update(element: TallySwitchElement) {
@@ -164,14 +167,15 @@ private class TallySwitchNode(element: TallySwitchElement) : Modifier.Node(), Dr
             spec = element.spec
             motion.setSpec(spec)
         }
-        if (element.checked != checked) {
+        if (element.checked != checked || element.lit != lit) {
             checked = element.checked
+            lit = element.lit
             // A switch not yet shown takes its state at once, as a bound view does.
             if (isAttached && drawnSinceAttach) {
-                motion.animateTo(checked, checked, durationScale())
+                motion.animateTo(checked, lit, durationScale())
                 runFrames()
             } else {
-                motion.jumpTo(checked, checked)
+                motion.jumpTo(checked, lit)
             }
         }
         enabled = element.enabled
