@@ -149,6 +149,9 @@ java_defaults {
         "mechanics",
         "perfetto_trace_java_protos",
         "dynamiccolors",
+        // DiamaneOS Tally: SystemUI's Tally flag and the Tally token library.
+        "//frameworks/base/packages/SystemUI/aconfig/diamaneos:de_diamaneos_systemui_flags_lib",
+        "tallytokens",
     ],
     libs: [
         // Soong fails to automatically add this dependency because all the
