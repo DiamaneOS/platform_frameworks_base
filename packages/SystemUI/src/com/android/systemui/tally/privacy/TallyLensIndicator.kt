@@ -16,9 +16,14 @@
 
 package com.android.systemui.tally.privacy
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Rect
 import android.graphics.RectF
+import android.hardware.camera2.CameraAccessException
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CameraManager
 import android.util.DisplayMetrics
 import android.util.DisplayUtils
 import android.util.Log
@@ -45,13 +50,18 @@ import kotlinx.coroutines.CoroutineScope
 
 /**
  * Tally's lens ring and the location lamp by the lens: a ring around the front camera's cutout
- * while any app uses the camera, and a lamp beside it while any app uses location.
+ * while an app uses the front camera, and a lamp beside it while any app uses location.
  *
- * They add to the stock privacy chip and dot and replace nothing. Like them, they take their data
- * only from [PrivacyItemController] (with its holds, and location whenever it reports location),
- * for every app and in every state. They are drawn in a window of their own above every other
- * window, the lock screen, the shade and dialogs included, as the privacy dot is, on active pixels
- * at least [TallyLensGeometry.CLEARANCE_DP] dp outside the display cutout. The window takes no
+ * They add to the stock privacy chip and dot and replace nothing: the chip and the dot still show
+ * every camera. Like them, they take their data from [PrivacyItemController] (with its holds, and
+ * location whenever it reports location), for every app and in every state. The ring also needs
+ * the front camera to be open, as the camera service reports it (as stock's camera protection
+ * reads it); a camera whose facing cannot be read counts as the front one, and where SystemUI
+ * cannot follow cameras opening, any camera lights the ring.
+ *
+ * They are drawn in a window of their own above every other window, the lock screen, the shade
+ * and dialogs included, as the privacy dot is, on active pixels at least
+ * [TallyLensGeometry.CLEARANCE_DP] dp outside the display cutout. The window takes no
  * touch, so it never blocks the status bar or the app under it, and it is there only while
  * something is lit or fading out.
  *
@@ -70,10 +80,15 @@ constructor(
     private val displayTracker: DisplayTracker,
     private val privacyItemController: PrivacyItemController,
     private val indicatorArea: TallyIndicatorArea,
+    private val cameraManager: CameraManager,
 ) : CoreStartable {
 
     private var view: TallyLensIndicatorView? = null
     private var cameraInUse = false
+    // Whether the camera service's open and close reports are followed; if not, any camera counts.
+    private var followsCameras = false
+    private val openFrontCameras = mutableSetOf<String>()
+    private val frontFacing = mutableMapOf<String, Boolean>()
     private var locationInUse = false
     private var isAreaDark = true
 
@@ -110,6 +125,18 @@ constructor(
             }
         }
 
+    // Cameras already open when this registers are reported at once.
+    private val cameraCallback =
+        object : CameraManager.AvailabilityCallback() {
+            override fun onCameraOpened(cameraId: String, packageId: String) {
+                if (facesFront(cameraId) && openFrontCameras.add(cameraId)) update()
+            }
+
+            override fun onCameraClosed(cameraId: String) {
+                if (openFrontCameras.remove(cameraId)) update()
+            }
+        }
+
     private val displayCallback =
         object : DisplayTracker.Callback {
             override fun onDisplayChanged(displayId: Int) {
@@ -119,6 +146,10 @@ constructor(
 
     override fun start() {
         if (TallyShell.isUnexpectedlyInLegacyMode()) return
+        followsCameras =
+            context.checkSelfPermission(Manifest.permission.CAMERA_OPEN_CLOSE_LISTENER) ==
+                PackageManager.PERMISSION_GRANTED
+        if (followsCameras) cameraManager.registerAvailabilityCallback(mainExecutor, cameraCallback)
         privacyItemController.addCallback(privacyItemsCallback)
         displayTracker.addDisplayChangeCallback(displayCallback, mainExecutor)
         scope.launch {
@@ -129,11 +160,31 @@ constructor(
         }
     }
 
+    /** Whether the ring shows: an app uses a camera and, if cameras are followed, the front one. */
+    private val frontCameraInUse: Boolean
+        get() = cameraInUse && (!followsCameras || openFrontCameras.isNotEmpty())
+
+    private fun facesFront(cameraId: String): Boolean =
+        frontFacing.getOrPut(cameraId) {
+            val facing =
+                try {
+                    cameraManager
+                        .getCameraCharacteristics(cameraId)
+                        .get(CameraCharacteristics.LENS_FACING)
+                } catch (e: CameraAccessException) {
+                    null
+                } catch (e: IllegalArgumentException) {
+                    null
+                }
+            facing == null || facing == CameraCharacteristics.LENS_FACING_FRONT
+        }
+
     /** Shows what is in use now; the window is added when something lights up. */
     private fun update() {
-        val lit = cameraInUse || locationInUse
+        val camera = frontCameraInUse
+        val lit = camera || locationInUse
         val current = view ?: if (lit) addWindow() else null
-        current?.setInUse(camera = cameraInUse, location = locationInUse)
+        current?.setInUse(camera = camera, location = locationInUse)
     }
 
     private fun addWindow(): TallyLensIndicatorView? {
@@ -153,7 +204,7 @@ constructor(
 
     private fun removeWindowIfIdle() {
         val current = view ?: return
-        if (cameraInUse || locationInUse || current.isShowing) return
+        if (frontCameraInUse || locationInUse || current.isShowing) return
         removeWindow(current)
     }
 
@@ -270,6 +321,7 @@ constructor(
 
     override fun dump(pw: PrintWriter, args: Array<out String>) {
         pw.println("$TAG: cameraInUse=$cameraInUse locationInUse=$locationInUse")
+        pw.println("  followsCameras=$followsCameras openFrontCameras=$openFrontCameras")
         pw.println("  isAreaDark=$isAreaDark windowAdded=${view != null}")
         pw.println("  windowBounds=${geometry?.windowBounds} hasLamp=${geometry?.hasLamp}")
         pw.println("  lensConfig=${lensConfig?.contentToString() ?: "inferred from the cutout"}")
