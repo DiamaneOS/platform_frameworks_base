@@ -31,6 +31,7 @@ import android.view.DisplayCutout
 import android.view.DisplayInfo
 import android.view.Gravity
 import android.view.WindowManager
+import androidx.annotation.VisibleForTesting
 import com.android.app.tracing.coroutines.launchTraced as launch
 import com.android.systemui.CoreStartable
 import com.android.systemui.ScreenDecorations
@@ -54,16 +55,18 @@ import kotlinx.coroutines.CoroutineScope
  *
  * They add to the stock privacy chip and dot and replace nothing: the chip and the dot still show
  * every camera. Like them, they take their data from [PrivacyItemController] (with its holds, and
- * location whenever it reports location), for every app and in every state. The ring also needs
- * the front camera to be open, as the camera service reports it (as stock's camera protection
- * reads it); a camera whose facing cannot be read counts as the front one, and where SystemUI
+ * location whenever it reports location), for every app and in every state. The ring also needs a
+ * front camera to have opened during the current camera use, as the camera service reports it (as
+ * stock's camera protection reads it). It then keeps the chip's holds: it stays lit until the
+ * camera is no longer in use, however soon the front camera closes, unless the app switches to
+ * another camera. A camera whose facing cannot be read counts as the front one, and where SystemUI
  * cannot follow cameras opening, any camera lights the ring.
  *
- * They are drawn in a window of their own above every other window, the lock screen, the shade
- * and dialogs included, as the privacy dot is, on active pixels at least
- * [TallyLensGeometry.CLEARANCE_DP] dp outside the display cutout. The window takes no
- * touch, so it never blocks the status bar or the app under it, and it is there only while
- * something is lit or fading out.
+ * They are drawn in a window of their own above every other window, the lock screen, the shade and
+ * dialogs included, as the privacy dot is, on active pixels at least
+ * [TallyLensGeometry.CLEARANCE_DP] dp outside the display cutout. The window takes no touch, so it
+ * never blocks the status bar or the app under it, and it is there only while something is lit or
+ * fading out.
  *
  * A device overlay can set the lens as a circle (`tally_lens_center_x`, `tally_lens_center_y` and
  * `tally_lens_radius`, in the cutout path's pixels): the ring then keeps clear of it too, and the
@@ -88,6 +91,8 @@ constructor(
     // Whether the camera service's open and close reports are followed; if not, any camera counts.
     private var followsCameras = false
     private val openFrontCameras = mutableSetOf<String>()
+    // Whether a front camera opened during the current camera use; see [frontCameraInUse].
+    private var frontCameraLatched = false
     private val frontFacing = mutableMapOf<String, Boolean>()
     private var locationInUse = false
     private var isAreaDark = true
@@ -121,6 +126,7 @@ constructor(
             override fun onPrivacyItemsChanged(privacyItems: List<PrivacyItem>) {
                 cameraInUse = privacyItems.any { it.privacyType == PrivacyType.TYPE_CAMERA }
                 locationInUse = privacyItems.any { it.privacyType == PrivacyType.TYPE_LOCATION }
+                if (!cameraInUse && openFrontCameras.isEmpty()) frontCameraLatched = false
                 update()
             }
         }
@@ -129,11 +135,20 @@ constructor(
     private val cameraCallback =
         object : CameraManager.AvailabilityCallback() {
             override fun onCameraOpened(cameraId: String, packageId: String) {
-                if (facesFront(cameraId) && openFrontCameras.add(cameraId)) update()
+                if (facesFront(cameraId)) {
+                    openFrontCameras.add(cameraId)
+                    frontCameraLatched = true
+                } else if (openFrontCameras.isEmpty()) {
+                    // The app switched to another camera: the front one is no longer in use.
+                    frontCameraLatched = false
+                }
+                update()
             }
 
             override fun onCameraClosed(cameraId: String) {
-                if (openFrontCameras.remove(cameraId)) update()
+                openFrontCameras.remove(cameraId)
+                if (!cameraInUse && openFrontCameras.isEmpty()) frontCameraLatched = false
+                update()
             }
         }
 
@@ -160,9 +175,20 @@ constructor(
         }
     }
 
-    /** Whether the ring shows: an app uses a camera and, if cameras are followed, the front one. */
+    /**
+     * Whether the ring shows: an app uses a camera (holds included) and, if cameras are followed, a
+     * front camera opened during this use. The latch is set when a front camera opens and cleared
+     * when the camera use ends with no front camera open, or when another camera opens while no
+     * front camera is open, so a front camera that closes at once stays noticeable for the chip's
+     * hold.
+     */
     private val frontCameraInUse: Boolean
-        get() = cameraInUse && (!followsCameras || openFrontCameras.isNotEmpty())
+        get() = cameraInUse && (!followsCameras || frontCameraLatched)
+
+    /** Whether the ring is lit now. */
+    @VisibleForTesting
+    internal val isRingLit: Boolean
+        get() = frontCameraInUse
 
     private fun facesFront(cameraId: String): Boolean =
         frontFacing.getOrPut(cameraId) {
@@ -321,7 +347,10 @@ constructor(
 
     override fun dump(pw: PrintWriter, args: Array<out String>) {
         pw.println("$TAG: cameraInUse=$cameraInUse locationInUse=$locationInUse")
-        pw.println("  followsCameras=$followsCameras openFrontCameras=$openFrontCameras")
+        pw.println(
+            "  followsCameras=$followsCameras openFrontCameras=$openFrontCameras" +
+                " frontCameraLatched=$frontCameraLatched"
+        )
         pw.println("  isAreaDark=$isAreaDark windowAdded=${view != null}")
         pw.println("  windowBounds=${geometry?.windowBounds} hasLamp=${geometry?.hasLamp}")
         pw.println("  lensConfig=${lensConfig?.contentToString() ?: "inferred from the cutout"}")
