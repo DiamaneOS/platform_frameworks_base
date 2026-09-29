@@ -191,7 +191,9 @@ internal class TallySwitchHost(private val view: CompoundButton) {
             rtl = view.layoutDirection == View.LAYOUT_DIRECTION_RTL,
             thumb = motion.thumb,
             wipe = motion.wipe,
-            checked = view.isChecked,
+            // The thumb takes the lamp's ink with the lamp: a thumb waiting for the system keeps
+            // the off colour, readable on the unlit track (onLamp there is 1.2:1 in dark theme).
+            checked = lampLit,
             pressed = view.isPressed,
             focused = focused,
             enabled = view.isEnabled,
