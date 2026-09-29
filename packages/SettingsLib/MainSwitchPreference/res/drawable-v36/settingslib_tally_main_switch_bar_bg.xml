@@ -17,16 +17,13 @@
 
 <!-- The Tally main switch row's card: the surface colour with a hairline edge in outlineVariant,
      as the prototype's Settings sections. The stroke is centred on the corners' radius, so the
-     outer corners are tally_radius_m. It keeps the press ripple, inside the card. -->
-<ripple xmlns:android="http://schemas.android.com/apk/res/android"
-    android:color="?android:attr/colorControlHighlight">
-    <item>
-        <shape android:shape="rectangle">
-            <solid android:color="@color/settingslib_tally_surface" />
-            <stroke
-                android:width="@dimen/settingslib_tally_row_hairline"
-                android:color="@color/settingslib_tally_outline_variant" />
-            <corners android:radius="@dimen/settingslib_tally_row_border_radius" />
-        </shape>
-    </item>
-</ripple>
+     outer corners are tally_radius_m. No ripple: the row's switch shows the press, as on every
+     Tally switch row. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/settingslib_tally_surface" />
+    <stroke
+        android:width="@dimen/settingslib_tally_row_hairline"
+        android:color="@color/settingslib_tally_outline_variant" />
+    <corners android:radius="@dimen/settingslib_tally_row_border_radius" />
+</shape>
