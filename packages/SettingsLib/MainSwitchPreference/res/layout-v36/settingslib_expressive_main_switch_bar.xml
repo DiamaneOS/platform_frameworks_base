@@ -23,20 +23,22 @@
     android:paddingVertical="@dimen/settingslib_expressive_space_small1"
     android:orientation="vertical">
 
+    <!-- The Tally main switch row: a row in a card of its own, with the Tally switch at its end,
+         as the prototype's switch rows in their Settings section. -->
     <LinearLayout
         android:id="@+id/frame"
         android:minHeight="@dimen/settingslib_expressive_space_large3"
         android:layout_height="wrap_content"
         android:layout_width="match_parent"
-        android:paddingStart="@dimen/settingslib_expressive_space_medium1"
-        android:paddingEnd="@dimen/settingslib_expressive_space_small3"
-        android:background="@drawable/settingslib_expressive_switch_bar_bg">
+        android:paddingStart="@dimen/settingslib_tally_row_padding"
+        android:paddingEnd="@dimen/settingslib_tally_row_padding"
+        android:background="@drawable/settingslib_tally_main_switch_bar_bg">
 
         <RelativeLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_gravity="center_vertical"
-            android:layout_marginEnd="@dimen/settingslib_expressive_space_extrasmall4"
+            android:layout_marginEnd="@dimen/settingslib_tally_row_padding"
             android:layout_marginVertical="@dimen/settingslib_expressive_space_small1"
             android:layout_weight="1">
 
@@ -47,8 +49,8 @@
                 android:layout_gravity="start"
                 android:ellipsize="end"
                 android:textAlignment="viewStart"
-                android:textAppearance="@style/TextAppearance.SettingsLib.TitleMedium.Emphasized"
-                android:textColor="@color/settingslib_expressive_color_main_switch_text" />
+                android:textAppearance="?android:attr/textAppearanceListItem"
+                android:textColor="@color/settingslib_tally_main_switch_title_color" />
 
             <TextView
                 android:id="@+id/switch_summary"
@@ -59,12 +61,12 @@
                 android:layout_below="@id/switch_text"
                 android:layout_gravity="start"
                 android:textAlignment="viewStart"
-                android:textAppearance="@style/TextAppearance.SettingsLib.LabelMedium"
-                android:textColor="@color/settingslib_expressive_color_main_switch_text"
+                android:textAppearance="?android:attr/textAppearanceListItemSecondary"
+                android:textColor="@color/settingslib_tally_main_switch_summary_color"
                 android:visibility="gone" />
         </RelativeLayout>
 
-        <com.google.android.material.materialswitch.MaterialSwitch
+        <com.android.settingslib.widget.TallySwitch
             android:theme="@style/Theme.Material3.DynamicColors.DayNight"
             android:id="@android:id/switch_widget"
             style="@style/SettingslibMainSwitchStyle.Expressive" />
