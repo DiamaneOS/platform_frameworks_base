@@ -15,21 +15,29 @@
   limitations under the License.
   -->
 
-<ripple xmlns:android="http://schemas.android.com/apk/res/android"
-    android:color="?android:colorControlHighlight"
-    android:paddingStart="32dp"
-    android:paddingEnd="32dp">
-    <item
-        android:start="?android:attr/listPreferredItemPaddingStart"
-        android:end="?android:attr/listPreferredItemPaddingEnd">
-        <shape android:shape="rectangle">
-            <solid
-                android:color="@color/settingslib_materialColorSurfaceBright" />
-            <corners
-                android:topLeftRadius="@dimen/settingslib_preference_corner_radius"
-                android:bottomLeftRadius="4dp"
-                android:topRightRadius="@dimen/settingslib_preference_corner_radius"
-                android:bottomRightRadius="4dp" />
-        </shape>
+<!-- Tally: a section card segment (a section's first row: the card's top, its rounded corners and
+     edge) with the row's ripple over it, masked to the row's part of the card; the segment itself
+     is settingslib_tally_card_top. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android"
+    android:paddingMode="stack"
+    android:paddingStart="@dimen/settingslib_tally_row_inset"
+    android:paddingEnd="@dimen/settingslib_tally_row_inset">
+    <item android:drawable="@drawable/settingslib_tally_card_top" />
+    <item>
+        <ripple android:color="?android:colorControlHighlight">
+            <item
+                android:id="@android:id/mask"
+                android:start="@dimen/settingslib_tally_card_margin"
+                android:end="@dimen/settingslib_tally_card_margin">
+                <shape android:shape="rectangle">
+                    <solid android:color="@android:color/white" />
+                    <corners
+                        android:topLeftRadius="@dimen/settingslib_tally_row_border_radius"
+                        android:topRightRadius="@dimen/settingslib_tally_row_border_radius"
+                        android:bottomLeftRadius="0dp"
+                        android:bottomRightRadius="0dp" />
+                </shape>
+            </item>
+        </ripple>
     </item>
-</ripple>
+</layer-list>
