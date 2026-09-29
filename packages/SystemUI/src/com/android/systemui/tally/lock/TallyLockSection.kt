@@ -29,17 +29,21 @@ import com.android.systemui.dagger.qualifiers.Application
 import com.android.systemui.dagger.qualifiers.Main
 import com.android.systemui.keyguard.domain.interactor.KeyguardInteractor
 import com.android.systemui.keyguard.shared.model.KeyguardSection
+import com.android.systemui.keyguard.smartspace.LockscreenSmartspaceGeneralPlugin
 import com.android.systemui.keyguard.ui.viewmodel.AodBurnInViewModel
 import com.android.systemui.keyguard.ui.viewmodel.KeyguardClockViewModel
 import com.android.systemui.lifecycle.repeatWhenAttached
+import com.android.systemui.plugins.BcSmartspaceDataPlugin
 import com.android.systemui.plugins.keyguard.ui.clocks.ClockViewIds
 import com.android.systemui.res.R
 import com.android.systemui.shade.ShadeDisplayAware
+import com.android.systemui.shared.R as sharedR
 import com.android.systemui.shared.clocks.tally.TallyClocks.TALLY_CLOCK_ID
 import com.android.systemui.statusbar.lockscreen.LockscreenSmartspaceController
 import com.android.systemui.statusbar.policy.ConfigurationController
 import com.android.systemui.tally.TallyShell
 import com.android.systemui.util.kotlin.DisposableHandles
+import java.util.Optional
 import javax.inject.Inject
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -54,8 +58,12 @@ import kotlinx.coroutines.flow.map
  * showed there besides the date. Like the slice section, it defines smart_space_barrier_bottom, so
  * the notifications start below.
  *
- * With a smartspace plugin, which draws its own date and places the notifications itself, it adds
- * nothing, as the slice section does not either.
+ * Beside GrapheneOS's built-in smartspace (LockscreenSmartspaceGeneralPlugin), which takes the
+ * slice's place in GrapheneOS and shows the slice's rows (the date, the next alarm within 12 hours,
+ * Do Not Disturb and, while dozing, the playing media), it adds its views all the same and hides
+ * that smartspace's line, whose every row it shows itself, so nothing shows twice. With a
+ * smartspace plugin, which draws its own date and places the notifications itself, it adds nothing,
+ * as the slice section does not either.
  */
 @SysUISingleton
 class TallyLockSection
@@ -67,16 +75,18 @@ constructor(
     private val viewModel: TallyLampStripViewModel,
     private val keyguardInteractor: KeyguardInteractor,
     @Main private val configurationController: ConfigurationController,
-    private val smartspaceController: LockscreenSmartspaceController,
+    smartspaceController: LockscreenSmartspaceController,
+    smartspacePlugin: Optional<BcSmartspaceDataPlugin>,
     private val aodBurnInViewModel: AodBurnInViewModel,
 ) : KeyguardSection() {
+    private val smartspace = Smartspace.of(smartspaceController.isEnabled, smartspacePlugin)
     private var stripView: TallyLampStripView? = null
     private var dateView: TallyLockDateView? = null
     private var aodStripView: TallyAodStripView? = null
     private val handles = DisposableHandles()
 
     override fun addViews(constraintLayout: ConstraintLayout) {
-        if (TallyShell.isUnexpectedlyInLegacyMode() || smartspaceController.isEnabled) return
+        if (TallyShell.isUnexpectedlyInLegacyMode() || smartspace == Smartspace.PLUGIN) return
         val date = TallyLockDateView(context).apply { id = DATE_ID }
         val strip = TallyLampStripView(context).apply { id = STRIP_ID }
         val aodStrip = TallyAodStripView(context).apply { id = AOD_STRIP_ID }
@@ -198,6 +208,14 @@ constructor(
                 AOD_STRIP_ID,
                 DATE_ID,
             )
+            if (smartspace == Smartspace.BUILT_IN) {
+                // GrapheneOS's built-in smartspace line shows only what these views show: its date
+                // is the Tally clock's or the date line's, its alarm and Do Not Disturb are the
+                // strip's, and its media while dozing is the always-on strip's. It goes under any
+                // clock, so nothing shows twice; the barrier above, which replaces its section's,
+                // leaves it out.
+                setVisibility(sharedR.id.bc_smartspace_view, View.GONE)
+            }
         }
     }
 
@@ -223,6 +241,28 @@ constructor(
     private fun px(dp: Float): Int =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, context.resources.displayMetrics)
             .roundToInt()
+
+    /** The lock screen's smartspace, which decides what this section adds beside it. */
+    internal enum class Smartspace {
+        /** No smartspace: the section adds its views, in the slice's place. */
+        NONE,
+
+        /** GrapheneOS's built-in smartspace: the section adds its views and hides its line. */
+        BUILT_IN,
+
+        /** A smartspace plugin, which draws its own date: the section adds nothing. */
+        PLUGIN;
+
+        companion object {
+            /** From LockscreenSmartspaceController.isEnabled and the smartspace data plugin. */
+            fun of(enabled: Boolean, plugin: Optional<BcSmartspaceDataPlugin>): Smartspace =
+                when {
+                    !enabled -> NONE
+                    plugin.orElse(null) is LockscreenSmartspaceGeneralPlugin -> BUILT_IN
+                    else -> PLUGIN
+                }
+        }
+    }
 
     private companion object {
         val STRIP_ID = View.generateViewId()
