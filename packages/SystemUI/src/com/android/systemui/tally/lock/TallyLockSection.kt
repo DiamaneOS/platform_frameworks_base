@@ -19,6 +19,7 @@ package com.android.systemui.tally.lock
 import android.content.Context
 import android.util.TypedValue
 import android.view.View
+import androidx.annotation.VisibleForTesting
 import androidx.constraintlayout.widget.Barrier
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.constraintlayout.widget.ConstraintSet
@@ -46,6 +47,7 @@ import com.android.systemui.util.kotlin.DisposableHandles
 import java.util.Optional
 import javax.inject.Inject
 import kotlin.math.roundToInt
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 
@@ -53,10 +55,11 @@ import kotlinx.coroutines.flow.map
  * The Tally lock screen's lamp strip, under the clock. The default blueprint uses this section in
  * place of KeyguardSliceViewSection while Tally is on: the Tally clock shows the date, and the
  * strip shows the next alarm and Do Not Disturb, which the slice showed. Under any other clock,
- * which has no date of its own, a date line takes the slice's place and the strip follows it. On
- * the always-on display the strip gives way to the always-on strip, which shows what the slice
- * showed there besides the date. Like the slice section, it defines smart_space_barrier_bottom, so
- * the notifications start below.
+ * which has no date of its own, a date line takes the slice's place and the strip follows it; like
+ * GrapheneOS's smartspace line, which it stands in for, the date line shows only while the user's
+ * lock screen shows notifications. On the always-on display the strip gives way to the always-on
+ * strip, which shows what the slice showed there besides the date. Like the slice section, it
+ * defines smart_space_barrier_bottom, so the notifications start below.
  *
  * Beside GrapheneOS's built-in smartspace (LockscreenSmartspaceGeneralPlugin), which takes the
  * slice's place in GrapheneOS and shows the slice's rows (the date, the next alarm within 12 hours,
@@ -84,6 +87,12 @@ constructor(
     private var dateView: TallyLockDateView? = null
     private var aodStripView: TallyAodStripView? = null
     private val handles = DisposableHandles()
+
+    /**
+     * Whether the user's lock screen shows notifications, from [TallyLampStripViewModel]. Until it
+     * is read, it counts as off, as GrapheneOS reads the setting.
+     */
+    @VisibleForTesting internal var notificationsShown = false
 
     override fun addViews(constraintLayout: ConstraintLayout) {
         if (TallyShell.isUnexpectedlyInLegacyMode() || smartspace == Smartspace.PLUGIN) return
@@ -128,15 +137,22 @@ constructor(
                 aodBurnInViewModel,
                 configurationController,
             )
-        // The date line and the strip's place depend on the clock: SystemUI re-applies only the
-        // clock's own constraints when the clock changes, so this section re-applies its own.
+        // The date line and the strip's place depend on the clock and on whether the lock screen
+        // shows notifications: SystemUI re-applies only the clock's own constraints when the clock
+        // changes, so this section re-applies its own.
         handles +=
             date.repeatWhenAttached {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    keyguardClockViewModel.currentClock
-                        .map { isTallyClock() }
+                    combine(
+                            keyguardClockViewModel.currentClock.map { isTallyClock() },
+                            viewModel.lockScreenNotificationsShown,
+                            ::Pair,
+                        )
                         .distinctUntilChanged()
-                        .collect { reapplyConstraints(constraintLayout) }
+                        .collect { (_, shown) ->
+                            notificationsShown = shown
+                            reapplyConstraints(constraintLayout)
+                        }
                 }
             }
     }
@@ -147,7 +163,9 @@ constructor(
         val side = px(SIDE_MARGIN_DP)
         constraintSet.apply {
             // Where the stock date line was: under the small clock's place, which SystemUI keeps
-            // while the large clock shows. Hidden under the Tally clock, which has its own date.
+            // while the large clock shows. Hidden under the Tally clock, which has its own date,
+            // and, as GrapheneOS's smartspace line, while the lock screen hides notifications; the
+            // strip then takes its place.
             constrainWidth(DATE_ID, ConstraintSet.MATCH_CONSTRAINT)
             constrainHeight(DATE_ID, ConstraintSet.WRAP_CONTENT)
             connect(
@@ -164,7 +182,10 @@ constructor(
                 ClockViewIds.LOCKSCREEN_CLOCK_VIEW_SMALL,
                 ConstraintSet.BOTTOM,
             )
-            setVisibility(DATE_ID, if (tallyClock) View.GONE else View.VISIBLE)
+            setVisibility(
+                DATE_ID,
+                if (tallyClock || !notificationsShown) View.GONE else View.VISIBLE,
+            )
 
             constrainWidth(STRIP_ID, ConstraintSet.MATCH_CONSTRAINT)
             constrainHeight(STRIP_ID, ConstraintSet.WRAP_CONTENT)
