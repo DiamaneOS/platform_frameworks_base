@@ -25,4 +25,9 @@ java_aconfig_library {
     name: "de_diamaneos_systemui_flags_lib",
     aconfig_declarations: "de_diamaneos_systemui_flags",
     sdk_version: "system_current",
+    // WM Shell (libs/WindowManager/Shell) reads the Tally flag too, for its motion.
+    visibility: [
+        "//frameworks/base/packages/SystemUI:__subpackages__",
+        "//frameworks/base/libs/WindowManager/Shell:__pkg__",
+    ],
 }

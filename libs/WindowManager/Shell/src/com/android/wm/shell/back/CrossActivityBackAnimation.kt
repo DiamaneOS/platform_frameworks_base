@@ -74,6 +74,7 @@ abstract class CrossActivityBackAnimation(
     protected val transaction: SurfaceControl.Transaction,
     @ShellMainThread handler: Handler,
     private val bubbleController: Optional<BubbleController>,
+    @Cuj.CujType cujType: Int = Cuj.CUJ_PREDICTIVE_BACK_CROSS_ACTIVITY,
 ) : ShellBackAnimation() {
 
     protected val startClosingRect = RectF()
@@ -93,13 +94,7 @@ abstract class CrossActivityBackAnimation(
     private var statusbarHeight = SystemBarUtils.getStatusBarHeight(context)
 
     private val backAnimationRunner =
-        BackAnimationRunner(
-            Callback(),
-            Runner(),
-            context,
-            Cuj.CUJ_PREDICTIVE_BACK_CROSS_ACTIVITY,
-            handler,
-        )
+        BackAnimationRunner(Callback(), Runner(), context, cujType, handler)
     private val initialTouchPos = PointF()
     private val transformMatrix = Matrix()
     private val tmpFloat9 = FloatArray(9)
@@ -283,7 +278,7 @@ abstract class CrossActivityBackAnimation(
         applyTransaction()
     }
 
-    private fun onGestureProgress(backEvent: BackEvent) {
+    protected open fun onGestureProgress(backEvent: BackEvent) {
         val progress = gestureInterpolator.getInterpolation(backEvent.progress)
         gestureProgress = progress
         currentClosingRect.setInterpolatedRectF(startClosingRect, targetClosingRect, progress)
@@ -300,6 +295,12 @@ abstract class CrossActivityBackAnimation(
             enteringTransformation,
         )
         applyTransaction()
+        updateStatusBarAppearance()
+        velocityTracker.addPosition(backEvent.frameTimeMillis, progress)
+    }
+
+    /** Keeps the status bar readable over the closing target as it moves, [currentClosingRect]. */
+    protected fun updateStatusBarAppearance() {
         if (fixCrossActivityBackAnimationInBubbles()) {
             if (screenSpaceBounds.top <= statusbarHeight / 2) {
                 background.customizeStatusBarAppearance(
@@ -309,8 +310,29 @@ abstract class CrossActivityBackAnimation(
         } else {
             background.customizeStatusBarAppearance(currentClosingRect.top.toInt())
         }
-        velocityTracker.addPosition(backEvent.frameTimeMillis, progress)
     }
+
+    /** Gives the status bar its own appearance back. */
+    protected fun resetStatusBarAppearance() {
+        background.resetStatusBarCustomization()
+    }
+
+    /** Stops the gesture's progress animation without a cancel callback. */
+    protected fun resetGestureProgress() {
+        progressAnimator.reset()
+    }
+
+    /**
+     * Plays the cancel of the gesture and then calls [finishAnimation]. By default the gesture's
+     * progress goes back to 0 on its own spring.
+     */
+    protected open fun onGestureCancelled() {
+        progressAnimator.onBackCancelled { finishAnimation() }
+    }
+
+    /** Whether a scrim covers the entering target while the closing one moves. */
+    protected open val showsScrim: Boolean
+        get() = true
 
     private fun getYOffset(centeredRect: RectF, touchY: Float): Float {
         val screenHeight = backAnimRect.height()
@@ -421,6 +443,7 @@ abstract class CrossActivityBackAnimation(
         alpha: Float,
         baseTransformation: Transformation? = null,
         flingMode: FlingMode = FlingMode.NO_FLING,
+        radius: Float = cornerRadius,
     ) {
         if (leash == null || !leash.isValid) return
         tempRectF.set(rect)
@@ -447,7 +470,7 @@ abstract class CrossActivityBackAnimation(
             .setAlpha(leash, alpha)
             .setMatrix(leash, matrix, tmpFloat9)
             .setCrop(leash, cropRect)
-            .setCornerRadius(leash, cornerRadius)
+            .setCornerRadius(leash, radius)
     }
 
     protected fun applyTransaction() {
@@ -456,7 +479,7 @@ abstract class CrossActivityBackAnimation(
     }
 
     private fun ensureScrimLayer() {
-        if (scrimLayer != null) return
+        if (scrimLayer != null || !showsScrim) return
         val isDarkTheme: Boolean = isDarkMode(context)
         val scrimBuilder =
             SurfaceControl.Builder()
@@ -625,7 +648,7 @@ abstract class CrossActivityBackAnimation(
 
         override fun onBackCancelled() {
             triggerBack = false
-            progressAnimator.onBackCancelled { finishAnimation() }
+            onGestureCancelled()
         }
 
         override fun onBackInvoked() {

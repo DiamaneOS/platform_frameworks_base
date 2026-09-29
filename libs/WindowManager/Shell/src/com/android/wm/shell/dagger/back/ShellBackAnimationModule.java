@@ -16,15 +16,27 @@
 
 package com.android.wm.shell.dagger.back;
 
+import android.content.Context;
+import android.os.Handler;
+
+import com.android.wm.shell.RootTaskDisplayAreaOrganizer;
+import com.android.wm.shell.back.BackAnimationBackground;
 import com.android.wm.shell.back.CrossTaskBackAnimation;
 import com.android.wm.shell.back.CustomCrossActivityBackAnimation;
 import com.android.wm.shell.back.DefaultCrossActivityBackAnimation;
 import com.android.wm.shell.back.ShellBackAnimation;
 import com.android.wm.shell.back.ShellBackAnimationRegistry;
+import com.android.wm.shell.back.TallyPageBackAnimation;
+import com.android.wm.shell.bubbles.BubbleController;
+import com.android.wm.shell.shared.annotations.ShellMainThread;
+import com.android.wm.shell.tally.TallyWmShell;
 
 import dagger.Binds;
+import dagger.Lazy;
 import dagger.Module;
 import dagger.Provides;
+
+import java.util.Optional;
 
 /** Default animation definitions for predictive back. */
 @Module
@@ -43,17 +55,45 @@ public interface ShellBackAnimationModule {
                 /* defaultBackToHomeAnimation= */ null);
     }
 
-    /** Default cross activity back animation */
-    @Binds
+    /**
+     * Default cross activity back animation: DiamaneOS Tally's page Back when Tally is on, else
+     * stock's.
+     */
+    @Provides
     @ShellBackAnimation.CrossActivity
-    ShellBackAnimation bindCrossActivityShellBackAnimation(
-            DefaultCrossActivityBackAnimation defaultCrossActivityBackAnimation);
+    static ShellBackAnimation provideCrossActivityShellBackAnimation(
+            Lazy<DefaultCrossActivityBackAnimation> defaultCrossActivityBackAnimation,
+            Context context,
+            BackAnimationBackground background,
+            RootTaskDisplayAreaOrganizer rootTaskDisplayAreaOrganizer,
+            @ShellMainThread Handler handler,
+            Optional<BubbleController> bubbleController) {
+        if (TallyWmShell.isEnabled()) {
+            return TallyPageBackAnimation.crossActivity(context, background,
+                    rootTaskDisplayAreaOrganizer, handler, bubbleController);
+        }
+        return defaultCrossActivityBackAnimation.get();
+    }
 
-    /** Default cross task back animation */
-    @Binds
+    /**
+     * Default cross task back animation: DiamaneOS Tally's page Back when Tally is on, else
+     * stock's.
+     */
+    @Provides
     @ShellBackAnimation.CrossTask
-    ShellBackAnimation provideCrossTaskShellBackAnimation(
-            CrossTaskBackAnimation crossTaskBackAnimation);
+    static ShellBackAnimation provideCrossTaskShellBackAnimation(
+            Lazy<CrossTaskBackAnimation> crossTaskBackAnimation,
+            Context context,
+            BackAnimationBackground background,
+            RootTaskDisplayAreaOrganizer rootTaskDisplayAreaOrganizer,
+            @ShellMainThread Handler handler,
+            Optional<BubbleController> bubbleController) {
+        if (TallyWmShell.isEnabled()) {
+            return TallyPageBackAnimation.crossTask(context, background,
+                    rootTaskDisplayAreaOrganizer, handler, bubbleController);
+        }
+        return crossTaskBackAnimation.get();
+    }
 
     /** Default customized activity back animation */
     @Binds
