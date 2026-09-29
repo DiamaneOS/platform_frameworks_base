@@ -210,7 +210,9 @@ private class TallySwitchNode(element: TallySwitchElement) : Modifier.Node(), Dr
                 rtl = layoutDirection == LayoutDirection.Rtl,
                 thumb = motion.thumb,
                 wipe = motion.wipe,
-                checked = checked,
+                // The thumb takes the lamp's ink with the lamp, as the view's (lit is checked
+                // unless the switch waits for the system).
+                checked = lit,
                 pressed = pressed,
                 focused = focused,
                 enabled = enabled,
