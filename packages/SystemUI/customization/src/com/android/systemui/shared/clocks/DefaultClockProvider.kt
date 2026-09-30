@@ -36,6 +36,9 @@ import com.android.systemui.plugins.keyguard.ui.clocks.ClockSettings
 import com.android.systemui.shared.clocks.controller.FlexClockController
 import com.android.systemui.shared.clocks.controller.FlexClockController.Companion.buildPresetGroup
 import com.android.systemui.shared.clocks.controller.FlexClockController.Companion.getDefaultAxes
+import com.android.systemui.shared.clocks.tally.TallyClockController
+import com.android.systemui.shared.clocks.tally.TallyClocks
+import com.android.systemui.shared.clocks.tally.TallyClocks.TALLY_CLOCK_ID
 
 private val TAG = DefaultClockProvider::class.simpleName
 const val DEFAULT_CLOCK_ID = "DEFAULT"
@@ -60,13 +63,14 @@ constructor(
         return listOf(
             ClockMetadata(DEFAULT_CLOCK_ID),
             ClockMetadata(FLEX_CLOCK_ID, isDeprecated = true, replacementTarget = DEFAULT_CLOCK_ID),
-        )
+        ) + TallyClocks.clocks // DiamaneOS: the Tally lock clock while Tally is on
     }
 
     override fun createClock(ctx: Context, settings: ClockSettings): ClockController {
         if (getClocks().all { it.clockId != settings.clockId }) {
             throw IllegalArgumentException("${settings.clockId} is unsupported by $TAG")
         }
+        if (settings.clockId == TALLY_CLOCK_ID) return TallyClockController(ctx, settings)
 
         val buffers = messageBuffers ?: ClockMessageBuffers(ClockLogger.DEFAULT_MESSAGE_BUFFER)
         val fontAxes = getDefaultAxes(settings).merge(settings.axes)
@@ -96,6 +100,7 @@ constructor(
         if (getClocks().all { it.clockId != settings.clockId }) {
             throw IllegalArgumentException("${settings.clockId} is unsupported by $TAG")
         }
+        if (settings.clockId == TALLY_CLOCK_ID) return TallyClocks.pickerConfig(resources)
 
         val fontAxes = getDefaultAxes(settings).merge(settings.axes)
         return ClockPickerConfig(
