@@ -604,7 +604,12 @@
     <style name="Theme.SystemUI.DayNightDialog" parent="@android:style/Theme.DeviceDefault.Light.Dialog"/>
 
     <style name="Theme.SystemUI.Dialog" parent="@style/Theme.SystemUI.DayNightDialog">
-        <item name="android:buttonCornerRadius">28dp</item>
+        <item name="android:buttonCornerRadius"
+            android:featureFlag="!de.diamaneos.systemui.tally_shell">28dp</item>
+        <!-- Tally: the key radius on every SystemUI dialog key and the rows drawn with it
+             (qs_dialog_btn_filled/outline, internet_dialog_selected_effect), not pills -->
+        <item name="android:buttonCornerRadius"
+            android:featureFlag="de.diamaneos.systemui.tally_shell">@dimen/tally_radius_s</item>
         <item name="android:buttonBarPositiveButtonStyle">@style/Widget.Dialog.Button</item>
         <item name="android:buttonBarNegativeButtonStyle">@style/Widget.Dialog.Button.BorderButton</item>
         <item name="android:buttonBarNeutralButtonStyle">@style/Widget.Dialog.Button.BorderButton</item>
@@ -1400,7 +1405,10 @@
     <style name="Widget" />
     <style name="Widget.Dialog" />
     <style name="Widget.Dialog.Button">
-        <item name="android:buttonCornerRadius">28dp</item>
+        <item name="android:buttonCornerRadius"
+            android:featureFlag="!de.diamaneos.systemui.tally_shell">28dp</item>
+        <item name="android:buttonCornerRadius"
+            android:featureFlag="de.diamaneos.systemui.tally_shell">@dimen/tally_radius_s</item>
         <item name="android:background">@drawable/qs_dialog_btn_filled</item>
         <item name="android:textColor">@color/qs_dialog_btn_filled_text_color</item>
         <item name="android:textSize">14sp</item>
