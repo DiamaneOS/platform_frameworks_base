@@ -142,8 +142,8 @@ constructor(
         traceSection("IconManager.createSbIconView") {
             val sbIcon = iconBuilder.createIconView(entry, context)
             sbIcon.scaleType = ImageView.ScaleType.CENTER_INSIDE
-            val (normalIconDescriptor, _) = getIconDescriptors(entry)
-            setIcon(entry, normalIconDescriptor, sbIcon)
+            val (_, sensitiveIconDescriptor) = getIconDescriptors(entry)
+            setIcon(entry, sensitiveIconDescriptor, sbIcon)
             return sbIcon
         }
 
@@ -170,11 +170,12 @@ constructor(
             aodIcon.scaleType = ImageView.ScaleType.CENTER_INSIDE
             aodIcon.setIncreasedSize(true)
 
-            // Set the icon views' icons
-            val (normalIconDescriptor, sensitiveIconDescriptor) = getIconDescriptors(entry)
+            // Set the icon views' icons. The status bar icon is redacted like the shelf and AOD
+            // icons, since the status bar also shows while the keyguard is occluded.
+            val (_, sensitiveIconDescriptor) = getIconDescriptors(entry)
 
             try {
-                setIcon(entry, normalIconDescriptor, sbIcon)
+                setIcon(entry, sensitiveIconDescriptor, sbIcon)
 
                 if (
                     android.app.Flags.hideStatusBarNotification() &&
@@ -204,11 +205,11 @@ constructor(
     /** Update the [StatusBarIconView] for the given [NotificationEntry]. */
     fun updateSbIcon(entry: NotificationEntry, iconView: StatusBarIconView) =
         traceSection("IconManager.updateSbIcon") {
-            val (normalIconDescriptor, _) = getIconDescriptors(entry)
+            val (_, sensitiveIconDescriptor) = getIconDescriptors(entry)
             val notificationContentDescription =
                 entry.sbn.notification?.let { iconBuilder.getIconContentDescription(it) }
             iconView.setNotification(entry.sbn, notificationContentDescription)
-            setIcon(entry, normalIconDescriptor, iconView)
+            setIcon(entry, sensitiveIconDescriptor, iconView)
         }
 
     /**
@@ -232,18 +233,18 @@ constructor(
 
             onIconUpdateRequiredListeners.onEach { it.onIconUpdateRequired(entry) }
 
-            val (normalIconDescriptor, sensitiveIconDescriptor) = getIconDescriptors(entry)
+            val (_, sensitiveIconDescriptor) = getIconDescriptors(entry)
             val notificationContentDescription =
                 entry.sbn.notification?.let { iconBuilder.getIconContentDescription(it) }
 
             entry.icons.statusBarIcon?.let {
                 it.setNotification(entry.sbn, notificationContentDescription)
-                setIcon(entry, normalIconDescriptor, it)
+                setIcon(entry, sensitiveIconDescriptor, it)
             }
 
             entry.icons.statusBarChipIcon?.let {
                 it.setNotification(entry.sbn, notificationContentDescription)
-                setIcon(entry, normalIconDescriptor, it)
+                setIcon(entry, sensitiveIconDescriptor, it)
             }
 
             entry.icons.shelfIcon?.let {
