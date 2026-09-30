@@ -35,6 +35,7 @@ import com.android.systemui.statusbar.notification.people.PeopleNotificationIden
 import com.android.systemui.statusbar.notification.people.PeopleNotificationIdentifier.Companion.TYPE_NON_PERSON
 import com.android.systemui.statusbar.notification.stack.BUCKET_PEOPLE
 import com.android.systemui.statusbar.notification.stack.BUCKET_PRIORITY_PEOPLE
+import com.android.systemui.tally.TallyShell
 import javax.inject.Inject
 
 /**
@@ -95,6 +96,11 @@ constructor(
                 }
                 return getPeopleType(entry) == TYPE_IMPORTANT_PERSON
             }
+
+            // Tally: priority conversations come first under the one "Conversations" header,
+            // which the section after this one shares, so it shows once.
+            override fun getHeaderNodeController(): NodeController? =
+                if (TallyShell.isEnabled) conversationHeaderNodeController else null
         }
 
     // TODO(b/330193582): Rename to just "People"
@@ -140,8 +146,10 @@ constructor(
         }
 
     // TODO: remove SHOW_ALL_SECTIONS, this redundant method, and peopleHeaderController
+    // Tally: every section of the shade has its header, conversations "Conversations".
     private val conversationHeaderNodeController: NodeController? =
-        if (RankingCoordinator.SHOW_ALL_SECTIONS) peopleHeaderController else null
+        if (RankingCoordinator.SHOW_ALL_SECTIONS || TallyShell.isEnabled) peopleHeaderController
+        else null
 
     private companion object {
         private const val TAG = "ConversationCoordinator"
