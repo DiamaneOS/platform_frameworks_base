@@ -663,6 +663,7 @@ private class TestController(nssl: NotificationStackScrollLayout, private val si
         /* sensitiveNotificationProtectionController = */ mock(),
         /* magneticNotificationRowManager = */ mock(),
         /* sectionsManager = */ mock(),
+        /* notificationShadeWindowController = */ { mock() },
     ) {
     val capturedEvents = ArrayList<MotionEvent>()
 
