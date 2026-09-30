@@ -27,6 +27,11 @@ sealed interface WifiTileModel {
     data class Active(
         override val icon: WifiTileIconModel = WifiTileIconModel(WifiIcons.WIFI_NO_NETWORK),
         override val secondaryLabel: CharSequence? = null,
+        /**
+         * Tally: Wi-Fi was asked to turn on and the radio does not report on yet, shown as a
+         * requested lamp.
+         */
+        val isTransient: Boolean = false,
     ) : WifiTileModel
 
     data class Inactive(
