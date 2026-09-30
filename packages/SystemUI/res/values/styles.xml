@@ -859,7 +859,10 @@
         <item name="android:textSize">14sp</item>
         <item name="android:minWidth">0dp</item>
     </style>
-    <!-- Tally: section headers in the section role (small capitals in the muted colour) -->
+    <!-- Tally: section headers in the section role (small capitals in the muted colour), on the
+         section type's own line (tally_notification_section_header), 4 dp in from the cards'
+         edge. The words are centred on the line from their ascent and descent, as the
+         prototype's line box does. -->
     <style xmlns:android="http://schemas.android.com/apk/res/android"
         name="TextAppearance.NotificationSectionHeaderLabel"
         parent="@android:style/Widget.DeviceDefault.Button.Borderless"
@@ -868,6 +871,14 @@
         <item name="android:textColor">@color/tally_ink_muted</item>
         <item name="android:lineHeight">@dimen/tally_type_section_line_height</item>
         <item name="android:minWidth">0dp</item>
+        <item name="android:minHeight">@dimen/tally_type_section_line_height</item>
+        <item name="android:paddingStart">@dimen/tally_notification_section_header_padding_side</item>
+        <item name="android:paddingEnd">@dimen/tally_notification_section_header_padding_side</item>
+        <item name="android:paddingTop">0dp</item>
+        <item name="android:paddingBottom">0dp</item>
+        <item name="android:gravity">start|center_vertical</item>
+        <item name="android:includeFontPadding">false</item>
+        <item name="android:background">?android:attr/selectableItemBackground</item>
     </style>
 
     <!-- unused -->
