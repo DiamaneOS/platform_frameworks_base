@@ -372,13 +372,18 @@
     </style>
 
     <!-- dropdownPreference dropdown item -->
+    <!-- Tally: the entries in Tally's item type, and the current one marked with the check the
+         other dropdowns show before it (stock marked none). -->
     <style name="SettingslibSpinnerDropDownItemStyle.Expressive"
         parent="@android:style/Widget.Material.DropDownItem.Spinner">
-        <item name="android:textAppearance">@style/TextAppearance.SettingsLib.LabelLarge</item>
+        <item name="android:textAppearance">@style/TextAppearance.SettingsLib.Tally.Item</item>
         <item name="android:textColor">@color/settingslib_materialColorOnSurface</item>
         <item name="android:layout_height">@dimen/settingslib_expressive_space_medium4</item>
         <item name="android:paddingStart">@dimen/settingslib_expressive_space_small1</item>
         <item name="android:paddingEnd">@dimen/settingslib_expressive_space_small1</item>
+        <item name="android:drawableStart">@drawable/settingslib_tally_menu_check</item>
+        <item name="android:drawablePadding">@dimen/settingslib_expressive_space_extrasmall4</item>
+        <item name="android:drawableTint">@color/settingslib_materialColorOnSurface</item>
     </style>
 
     <style name="SettingslibSpinnerStyle.Expressive.Outlined">
