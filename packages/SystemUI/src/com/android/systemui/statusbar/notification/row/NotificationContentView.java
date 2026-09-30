@@ -71,6 +71,8 @@ import com.android.systemui.statusbar.policy.SmartReplyStateInflaterKt;
 import com.android.systemui.statusbar.policy.SmartReplyView;
 import com.android.systemui.statusbar.policy.dagger.RemoteInputViewSubcomponent;
 import com.android.systemui.tally.TallyShell;
+import com.android.systemui.tally.lamp.TallyLampState;
+import com.android.systemui.tally.shade.TallyLiveCards;
 import com.android.systemui.util.Compile;
 import com.android.systemui.util.DumpUtilsKt;
 
@@ -1368,17 +1370,22 @@ public class NotificationContentView extends FrameLayout implements Notification
     }
 
     /**
-     * Tally: an ongoing notification is a live card, with a live lamp after the app's name. The
-     * public version (the lock screen's, with its contents hidden) shows what stock shows.
+     * Tally: an ongoing notification is a live card, with a live lamp after the first name in its
+     * top line, collapsed, expanded and as a heads-up. The public version (the lock screen's, with
+     * its contents hidden) shows what stock shows.
      */
     private void updateTallyLiveLamps() {
         boolean live = mSbn != null && mSbn.isOngoing()
                 && this != mContainingNotification.getPublicLayout();
+        TallyLampState state = live
+                ? TallyLiveCards.ongoingLamp(
+                        mContainingNotification.getEntryAdapter().getPromotedContentModel())
+                : null;
         for (NotificationViewWrapper wrapper :
                 new NotificationViewWrapper[] {
                         mContractedWrapper, mExpandedWrapper, mHeadsUpWrapper}) {
             if (wrapper instanceof NotificationHeaderViewWrapper headerWrapper) {
-                headerWrapper.setTallyLiveLamp(live);
+                headerWrapper.setTallyLiveLamp(state);
             }
         }
     }
