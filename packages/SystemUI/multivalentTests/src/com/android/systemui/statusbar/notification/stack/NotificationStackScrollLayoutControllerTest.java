@@ -73,6 +73,7 @@ import com.android.systemui.statusbar.DragDownHelper;
 import com.android.systemui.statusbar.LockscreenShadeTransitionController;
 import com.android.systemui.statusbar.NotificationLockscreenUserManager;
 import com.android.systemui.statusbar.NotificationLockscreenUserManager.UserChangedListener;
+import com.android.systemui.statusbar.NotificationShadeWindowController;
 import com.android.systemui.statusbar.SysuiStatusBarStateController;
 import com.android.systemui.statusbar.notification.ColorUpdateLogger;
 import com.android.systemui.statusbar.notification.DynamicPrivacyController;
@@ -168,6 +169,7 @@ public class NotificationStackScrollLayoutControllerTest extends SysuiTestCase {
     @Mock private ExpandHelper mExpandHelper;
     @Mock private MagneticNotificationRowManager mMagneticNotificationRowManager;
     @Mock private NotificationSectionsManager mSectionsManager;
+    @Mock private NotificationShadeWindowController mNotificationShadeWindowController;
 
     @Captor
     private ArgumentCaptor<Runnable> mSensitiveStateListenerArgumentCaptor;
@@ -949,7 +951,8 @@ public class NotificationStackScrollLayoutControllerTest extends SysuiTestCase {
                 new ResourcesSplitShadeStateController(),
                 mSensitiveNotificationProtectionController,
                 mMagneticNotificationRowManager,
-                mSectionsManager);
+                mSectionsManager,
+                () -> mNotificationShadeWindowController);
     }
 
 
