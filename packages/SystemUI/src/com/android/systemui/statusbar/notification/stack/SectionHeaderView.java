@@ -34,6 +34,7 @@ import androidx.core.view.ViewCompat;
 
 import com.android.systemui.res.R;
 import com.android.systemui.statusbar.notification.row.StackScrollerDecorView;
+import com.android.systemui.tally.TallyShell;
 
 /**
  * Header displayed above a notification section in the shade. Currently used for Alerting and
@@ -71,6 +72,13 @@ public class SectionHeaderView extends StackScrollerDecorView {
         }
         if (mLabelTextId != null) {
             mLabelView.setText(mLabelTextId);
+        }
+        if (TallyShell.isEnabled()) {
+            // Tally: the words take the header's full height, their line and the space above and
+            // below it (tally_notification_section_header), so all of it opens the settings.
+            mLabelView.setMinHeight(getResources().getDimensionPixelSize(
+                    de.diamaneos.tally.R.dimen.tally_type_section_line_height)
+                    + mLabelView.getPaddingTop() + mLabelView.getPaddingBottom());
         }
         mLabelView.setAccessibilityHeading(true);
         ViewCompat.replaceAccessibilityAction(
@@ -145,7 +153,8 @@ public class SectionHeaderView extends StackScrollerDecorView {
     }
 
     void setForegroundColors(@ColorInt int onSurface, @ColorInt int onSurfaceVariant) {
-        mLabelView.setTextColor(onSurface);
+        // Tally: section headers are set in the muted colour, as the prototype's .sec-h.
+        mLabelView.setTextColor(TallyShell.isEnabled() ? onSurfaceVariant : onSurface);
         mClearAllButton.setImageTintList(ColorStateList.valueOf(onSurfaceVariant));
     }
 }
