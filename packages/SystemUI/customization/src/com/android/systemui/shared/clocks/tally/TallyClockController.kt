@@ -20,6 +20,7 @@ import android.content.Context
 import android.icu.text.DateFormat
 import android.icu.util.TimeZone
 import android.text.TextPaint
+import android.text.TextUtils
 import android.util.DisplayMetrics
 import android.util.TypedValue
 import android.view.View
@@ -137,6 +138,13 @@ class TallyClockFaceController(
     private var dateFormat: DateFormat = createDateFormat(Locale.getDefault())
     private var dozeFraction = 0f
     private val fitPaint = TextPaint()
+
+    // What the last fit was made for. The face is measured again whenever the lock screen's views
+    // are, also while the lock screen is hidden under the shade; with nothing new, the fit stands.
+    private var fittedText: String? = null
+    private var fittedSpec = 0
+    private var fittedScreen = 0
+    private var fittedFull = 0f
 
     private val dateView =
         TextView(ctx).apply {
@@ -268,6 +276,7 @@ class TallyClockFaceController(
         dateView.setPaddingRelative(dp(DATE_INSET_DP), 0, 0, 0)
         timeView.setTextAppearance(TallyR.style.TextAppearance_Tally_Clock)
         setTimeSize(glassSizePx(ctx, CLOCK_SIZE_DP))
+        fittedText = null
     }
 
     /**
@@ -290,18 +299,31 @@ class TallyClockFaceController(
      * Shrinks the time, before the face measures, when at its size on the glass it would be wider
      * than the room the face has: a long time (another numbering system, a wider fallback font)
      * never runs off the screen. The room is the width the face is measured with, never more than
-     * the screen less the clock's start inset, less the lock screen's side margin.
+     * the screen less the clock's start inset, less the lock screen's side margin. Nothing is
+     * measured when the time, the width and the sizes are those of the last fit.
      */
     private fun fitTime(widthMeasureSpec: Int) {
         val full = glassSizePx(ctx, CLOCK_SIZE_DP)
         val screen = ctx.resources.displayMetrics.widthPixels - dp(CLOCK_START_DP)
+        val text = timeView.text
+        if (
+            TextUtils.equals(text, fittedText) &&
+                widthMeasureSpec == fittedSpec &&
+                screen == fittedScreen &&
+                full == fittedFull
+        ) {
+            return
+        }
+        fittedText = text.toString()
+        fittedSpec = widthMeasureSpec
+        fittedScreen = screen
+        fittedFull = full
         val given =
             if (View.MeasureSpec.getMode(widthMeasureSpec) == View.MeasureSpec.UNSPECIFIED) screen
             else min(View.MeasureSpec.getSize(widthMeasureSpec), screen)
         val room = given - dp(SIDE_MARGIN_DP)
         fitPaint.set(timeView.paint)
         fitPaint.textSize = full
-        val text = timeView.text
         val natural = fitPaint.measureText(text, 0, text.length)
         val size = if (room <= 0 || natural <= room) full else full * room / natural
         if (abs(timeView.textSize - size) >= SIZE_STEP_PX) setTimeSize(size)
