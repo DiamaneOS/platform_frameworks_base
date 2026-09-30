@@ -121,6 +121,13 @@ public interface NotificationShadeWindowController extends RemoteInputController
     /** Sets the state of whether heads up is showing or not. */
     default void setHeadsUpShowing(boolean showing) {}
 
+    /**
+     * Called when a batch of notification stack animations starts (adding, removing, moving or
+     * resizing notifications, heads-up), and when all of them have ended. While they run, the
+     * window may ask for the display's peak refresh rate.
+     */
+    default void setNotificationStackAnimating(boolean animating) {}
+
     /** Gets whether the wallpaper is showing or not. */
     default boolean isShowingWallpaper() {
         return false;
