@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copyright (C) 2026 The DiamaneOS Project
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+  -->
+
+<!-- The Tally meter that SliderPreference draws on the expressive theme (SliderPreference
+     .applyTallyMeter), as the prototype's meters (design/prototypes/tally, app.css .cl-meter,
+     .vol-meter). Written by hand from the Tally token spec, whose token each value names: SettingsLib
+     does not link the token library. -->
+<resources>
+    <!-- The meter's height: the prototype's Settings meter (.cl-meter), 40 dp. -->
+    <dimen name="settingslib_tally_meter_height">40dp</dimen>
+    <!-- Its corners: radius 8 (tally_radius_s), not a pill. -->
+    <dimen name="settingslib_tally_meter_radius">8dp</dimen>
+    <!-- The value's lamp tick across the meter: 4 dp, as the volume meter's (.vol-tick). -->
+    <dimen name="settingslib_tally_meter_tick_width">4dp</dimen>
+    <!-- The tick's edge in the lamp outline colour (hairline, 1 dp); in dark theme the lamp outline
+         is the lamp itself. -->
+    <dimen name="settingslib_tally_meter_tick_edge">1dp</dimen>
+</resources>
