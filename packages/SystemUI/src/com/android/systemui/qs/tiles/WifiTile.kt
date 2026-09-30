@@ -122,6 +122,7 @@ constructor(
                 } ?: SignalIcon(SignalDrawable.getState(0, 4, false))
             label = tileState.label
             secondaryLabel = tileState.secondaryLabel
+            isTransient = (model as? WifiTileModel.Active)?.isTransient == true
             contentDescription = tileState.contentDescription
             expandedAccessibilityClassName = tileState.expandedAccessibilityClassName
             handlesSecondaryClick =
