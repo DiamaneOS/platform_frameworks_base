@@ -42,6 +42,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
+import com.android.settingslib.spa.framework.theme.SettingsShape
 import com.android.settingslib.spa.framework.theme.isSpaExpressiveEnabled
 
 data class AlertDialogButton(
@@ -145,6 +146,7 @@ private fun AlertDialogPresenter.Button(button: AlertDialogButton) {
             button.onClick()
         },
         enabled = button.enabled,
+        shape = SettingsShape.TallyKey,
     ) {
         Text(button.text)
     }
@@ -158,6 +160,7 @@ private fun AlertDialogPresenter.DismissButton(button: AlertDialogButton) {
             button.onClick()
         },
         enabled = button.enabled,
+        shape = SettingsShape.TallyKey,
     ) {
         Text(button.text)
     }
@@ -171,6 +174,7 @@ private fun AlertDialogPresenter.ConfirmButton(button: AlertDialogButton) {
             button.onClick()
         },
         enabled = button.enabled,
+        shape = SettingsShape.TallyKey,
     ) {
         Text(button.text)
     }

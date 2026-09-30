@@ -234,7 +234,8 @@ private fun RowScope.ActionButton(actionButton: ActionButton) {
 private fun IconButton(actionButton: ActionButton) {
     FilledIconButton(
         onClick = actionButton.onClick,
-        shapes = IconButtonDefaults.shapes(),
+        // Tally: an action key, not a circle.
+        shape = SettingsShape.TallyActionKey,
         modifier =
             Modifier
                 .size(
