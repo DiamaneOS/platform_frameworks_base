@@ -113,6 +113,9 @@
         <item name="android:layout_marginEnd">@dimen/settingslib_tally_icon_gap</item>
     </style>
 
+    <!-- The rows' icon is AndroidX's PreferenceImageView, which takes its largest size from its own
+         maxWidth and maxHeight and replaces the android: ones with them (no limit when unset), so
+         both are given: without these, an app icon showed at its full size (72 dp). -->
     <style name="ExpressivePreferenceIconStyle">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>
@@ -120,6 +123,8 @@
         <item name="android:minHeight">@dimen/settingslib_tally_icon_size</item>
         <item name="android:maxWidth">@dimen/settingslib_tally_icon_max_size</item>
         <item name="android:maxHeight">@dimen/settingslib_tally_icon_max_size</item>
+        <item name="maxWidth">@dimen/settingslib_tally_icon_max_size</item>
+        <item name="maxHeight">@dimen/settingslib_tally_icon_max_size</item>
         <item name="android:adjustViewBounds">true</item>
         <item name="android:scaleType">centerInside</item>
     </style>
