@@ -62,9 +62,9 @@ import kotlin.math.roundToInt
 
 /**
  * The Tally lock clock: the date (LockDate) above the time (Clock: Sofia Sans at weight 280,
- * tabular figures, -0.025 em), at the top start of the lock screen. The time is a display size, 118
- * dp at density 480, scaled by 480 / densityDpi so it keeps its size on the glass at any display
- * size.
+ * tabular figures, -0.025 em), at the top start of the lock screen. The time is a display size, the
+ * prototype's 118 dp of stock Sofia Sans at density 480 (118 / 1.08 dp of the system font), scaled
+ * by 480 / densityDpi so it keeps its size on the glass at any display size.
  *
  * Both faces look the same and sit in the same place, so the clock does not move when notifications
  * come and go; the large face only takes the small face's place (see [TallyClockFaceLayout]).
@@ -344,8 +344,13 @@ class TallyClockFaceController(
     companion object {
         private const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
 
-        /** The clock's size on the glass: 118 dp at density 480. */
-        private const val CLOCK_SIZE_DP = 118f
+        /**
+         * The clock's size on the glass at density 480: the prototype's 118 dp of
+         * stock Sofia Sans, the one text the prototype does not draw 1.08 times larger. The system
+         * font, Sofia Sans Tally, draws its glyphs 1.08 times larger, so the same glyphs take 118 /
+         * 1.08 dp (110 dp after the glass step).
+         */
+        private const val CLOCK_SIZE_DP = 118f / 1.08f
         private const val GLASS_DENSITY_DPI = DisplayMetrics.DENSITY_XXHIGH
         private const val GLASS_STEP_DP = 2f
 
