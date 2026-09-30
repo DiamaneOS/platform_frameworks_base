@@ -15,16 +15,16 @@
   ~ limitations under the License
   -->
 
-<!-- Tally: a notification section header, as the prototype's .sec-h. 12 dp, then the words on the
-     section type's 16 sp line; the 8 dp to the first card is the space every card keeps from the
-     next. The stock layout (status_bar_notification_section_header) is 48 dp tall. Silent's
-     clear-all key stays at the end, as stock, but no longer sets the height: it takes the
-     header's full height and centres its cross on the words' line. -->
+<!-- Tally: a notification section header, as the prototype's .sec-h. It takes the whole space
+     between the last card of one section and the first card of the next: 16 dp, the words on the
+     section type's 16 sp line, 8 dp (StackScrollAlgorithm starts it right under the card before
+     it, and the card after it right under it). The stock layout (status_bar_notification_section_
+     header) is 48 dp tall. The words and Silent's clear-all key take the header's full height to
+     tap; the key is 56 dp wide at the end, as stock's, its cross on the words' line. -->
 <com.android.systemui.statusbar.notification.stack.SectionHeaderView
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:paddingEnd="4dp"
     >
 
     <LinearLayout
@@ -38,14 +38,16 @@
         <FrameLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:paddingTop="@dimen/tally_notification_section_header_padding_top">
+            android:layout_weight="1">
 
+            <!-- SectionHeaderView makes it the words' line and these paddings tall -->
             <TextView
                 style="@style/TextAppearance.NotificationSectionHeaderLabel"
                 android:id="@+id/header_label"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:paddingTop="@dimen/tally_notification_section_header_padding_top"
+                android:paddingBottom="@dimen/tally_notification_section_header_padding_bottom"
                 android:focusable="true"
                 android:forceHasOverlappingRendering="false"
                 android:text="@string/notification_section_header_gentle"
@@ -54,9 +56,10 @@
         </FrameLayout>
         <ImageView
             android:id="@+id/btn_clear_all"
-            android:layout_width="48dp"
+            android:layout_width="@dimen/tally_notification_section_clear_all_width"
             android:layout_height="match_parent"
             android:paddingTop="@dimen/tally_notification_section_header_padding_top"
+            android:paddingBottom="@dimen/tally_notification_section_header_padding_bottom"
             android:src="@drawable/status_bar_notification_section_header_clear_btn"
             android:contentDescription="@string/accessibility_notification_section_header_gentle_clear_all"
             android:focusable="true"

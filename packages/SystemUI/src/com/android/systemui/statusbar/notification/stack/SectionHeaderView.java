@@ -73,6 +73,13 @@ public class SectionHeaderView extends StackScrollerDecorView {
         if (mLabelTextId != null) {
             mLabelView.setText(mLabelTextId);
         }
+        if (TallyShell.isEnabled()) {
+            // Tally: the words take the header's full height, their line and the space above and
+            // below it (tally_notification_section_header), so all of it opens the settings.
+            mLabelView.setMinHeight(getResources().getDimensionPixelSize(
+                    de.diamaneos.tally.R.dimen.tally_type_section_line_height)
+                    + mLabelView.getPaddingTop() + mLabelView.getPaddingBottom());
+        }
         mLabelView.setAccessibilityHeading(true);
         ViewCompat.replaceAccessibilityAction(
                 mLabelView,
