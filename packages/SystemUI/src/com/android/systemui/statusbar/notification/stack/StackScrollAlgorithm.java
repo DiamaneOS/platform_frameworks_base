@@ -42,6 +42,7 @@ import com.android.systemui.statusbar.notification.row.ExpandableNotificationRow
 import com.android.systemui.statusbar.notification.row.ExpandableView;
 import com.android.systemui.statusbar.notification.row.StackScrollerDecorView;
 import com.android.systemui.statusbar.notification.shared.NotificationHeadsUpCycling;
+import com.android.systemui.tally.TallyShell;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -66,6 +67,8 @@ public class StackScrollAlgorithm {
     private float mGapHeight;
     private float mGroupingDisabledSectionGapHeight;
     private float mGapHeightOnLockscreen;
+    /** Tally: the gap before a section header in the shade (see getTallyShadeGap) */
+    private float mTallySectionHeaderGap;
     private int mCollapsedSize;
     private boolean mEnableNotificationClipping;
 
@@ -124,6 +127,11 @@ public class StackScrollAlgorithm {
                 R.dimen.bundle_expanded_divider_height);
         mGroupingDisabledSectionGapHeight = res.getDimensionPixelSize(
                 R.dimen.grouping_disabled_section_gap_height);
+        if (TallyShell.isEnabled()) {
+            // The section's 4 dp margin, of which the 8 dp after every card is already part.
+            mTallySectionHeaderGap = res.getDimensionPixelSize(
+                    R.dimen.tally_notification_section_margin) - mPaddingBetweenElements;
+        }
         // TODO(b/488459485): make sidePaddings response to shadeMode if needed
         mNotificationScrimPadding =
                 res.getDimensionPixelSize(R.dimen.notification_side_paddings_single);
@@ -822,11 +830,54 @@ public class StackScrollAlgorithm {
             }
 
         } else if (childNeedsGapHeight(sectionProvider, visibleIndex, child, previousChild)) {
+            if (TallyShell.isEnabled()) {
+                return getTallyGapForLocation(fractionToShade, onKeyguard,
+                        sectionProvider.isGroupingDisabled(child),
+                        getTallyShadeGap(sectionProvider, child, previousChild));
+            }
             return getGapForLocation(fractionToShade, onKeyguard,
                     sectionProvider.isGroupingDisabled(child));
         } else {
             return 0;
         }
+    }
+
+    /**
+     * Tally: the gap before {@code child} in the shade, as the prototype spaces its sections.
+     * Every section there starts with its header, which keeps the space above its words itself:
+     * the header starts 4 dp under the card before it, its words 12 dp further down. Cards in one
+     * section are only the 8 dp every card keeps from the next apart, the Live section's
+     * (grouping disabled) and the conversations under the one "Conversations" header included.
+     * Where a section starts without a header, stock's gap stays.
+     */
+    private float getTallyShadeGap(SectionProvider sectionProvider, View child,
+            View previousChild) {
+        if (child instanceof SectionHeaderView) {
+            return mTallySectionHeaderGap;
+        }
+        if (sectionProvider.continuesShadeSection(child, previousChild)
+                || (sectionProvider.isGroupingDisabled(child)
+                        && !sectionProvider.beginsSection(child, previousChild))) {
+            return 0;
+        }
+        return mGapHeight;
+    }
+
+    /**
+     * Tally: {@link #getGapForLocation} with the shade's gap from {@link #getTallyShadeGap}. The
+     * lock screen keeps stock's gaps, and the gap moves between the two as stock's does.
+     */
+    private float getTallyGapForLocation(float fractionToShade, boolean onKeyguard,
+            boolean isGroupingDisabled, float shadeGap) {
+        final float gapOnLockscreen =
+                isGroupingDisabled ? mGroupingDisabledSectionGapHeight : mGapHeightOnLockscreen;
+        if (fractionToShade > 0f) {
+            return MathUtils.lerp(gapOnLockscreen, shadeGap, fractionToShade);
+        }
+        if (onKeyguard) {
+            return gapOnLockscreen;
+        }
+        return shadeGap;
     }
 
     private boolean childNeedsBundleGap(View child, View previousChild) {
@@ -1434,6 +1485,14 @@ public class StackScrollAlgorithm {
          * False if grouping is enabled.
          */
         boolean isGroupingDisabled(@NonNull View view);
+
+        /**
+         * Tally: true if this view starts a new bucket but, in the shade, continues the section
+         * of the view before it under the same header (priority and other conversations).
+         */
+        default boolean continuesShadeSection(@NonNull View view, @Nullable View previous) {
+            return false;
+        }
     }
     /**
      * Interface for telling the StackScrollAlgorithm information about the bypass state

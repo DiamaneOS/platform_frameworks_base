@@ -173,6 +173,15 @@ internal constructor(
             else -> null
         }
 
+    /**
+     * Tally: priority conversations and the other conversations share the one "Conversations"
+     * header, so in the shade the second continues the first's section, without a gap.
+     */
+    override fun continuesShadeSection(view: View, previous: View?): Boolean =
+        TallyShell.isEnabled &&
+            getBucket(previous) == BUCKET_PRIORITY_PEOPLE &&
+            getBucket(view) == BUCKET_PEOPLE
+
     /** Whether [view] is the Silent section's header, the one header clear-all hides. */
     fun isSilentHeader(view: View): Boolean = view === silentHeaderView
 

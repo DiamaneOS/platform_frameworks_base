@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ~ Copyright (C) 2026 The DiamaneOS Project
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~      http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License
+  -->
+
+<!-- Tally: a notification section header, as the prototype's .sec-h. 12 dp, then the words on the
+     section type's 16 sp line; the 8 dp to the first card is the space every card keeps from the
+     next. The stock layout (status_bar_notification_section_header) is 48 dp tall. Silent's
+     clear-all key stays at the end, as stock, but no longer sets the height: it takes the
+     header's full height and centres its cross on the words' line. -->
+<com.android.systemui.statusbar.notification.stack.SectionHeaderView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingEnd="4dp"
+    >
+
+    <LinearLayout
+        android:id="@+id/content"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:forceHasOverlappingRendering="false"
+        android:clipChildren="false"
+        >
+        <FrameLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:paddingTop="@dimen/tally_notification_section_header_padding_top">
+
+            <TextView
+                style="@style/TextAppearance.NotificationSectionHeaderLabel"
+                android:id="@+id/header_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:focusable="true"
+                android:forceHasOverlappingRendering="false"
+                android:text="@string/notification_section_header_gentle"
+            />
+
+        </FrameLayout>
+        <ImageView
+            android:id="@+id/btn_clear_all"
+            android:layout_width="48dp"
+            android:layout_height="match_parent"
+            android:paddingTop="@dimen/tally_notification_section_header_padding_top"
+            android:src="@drawable/status_bar_notification_section_header_clear_btn"
+            android:contentDescription="@string/accessibility_notification_section_header_gentle_clear_all"
+            android:focusable="true"
+            android:scaleType="center"
+            android:tintMode="src_in"
+            android:visibility="gone"
+            android:forceHasOverlappingRendering="false"
+        />
+    </LinearLayout>
+
+</com.android.systemui.statusbar.notification.stack.SectionHeaderView>
