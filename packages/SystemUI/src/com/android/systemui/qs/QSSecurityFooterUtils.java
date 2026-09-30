@@ -94,6 +94,7 @@ import com.android.systemui.statusbar.phone.SystemUIDialog;
 import com.android.systemui.statusbar.policy.SecurityController;
 import com.android.systemui.supervision.data.model.SupervisionModel;
 import com.android.systemui.supervision.shared.DeprecateDpmSupervisionApis;
+import com.android.systemui.tally.TallyShell;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
@@ -482,8 +483,11 @@ public class QSSecurityFooterUtils implements DialogInterface.OnClickListener {
             String settingsButtonText = getSettingsButton();
             final View dialogView = createDialogView(quickSettingsContext);
             mMainHandler.post(() -> {
+                // Tally: the SystemUI dialog theme, so this dialog has the same surface and keys
+                // as the other Quick Settings dialogs opened from the same footer.
                 mDialog = mSystemUIDialogFactory.create(new DialogDelegate<>() {
-                        }, mShadeDialogContextInteractor.getContext(), 0 /* theme */,
+                        }, mShadeDialogContextInteractor.getContext(),
+                        TallyShell.isEnabled() ? SystemUIDialog.DEFAULT_THEME : 0 /* theme */,
                         true /* dismissOnDeviceLock */, true /* shouldAcsdDismissDialog */);
                 mDialog.requestWindowFeature(Window.FEATURE_NO_TITLE);
                 mDialog.setButton(DialogInterface.BUTTON_POSITIVE, getPositiveButton(), this);
