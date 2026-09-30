@@ -15,13 +15,14 @@
   limitations under the License.
 -->
 
+<!-- Tally: the Up key as the prototype's back key: the arrow in the ink with no fill behind it
+     (stock sat it in a filled circle, and in Tally circles mean state), like Settings search's
+     Up. The press stays the platform's. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
         <shape>
             <size android:width="40dp" android:height="40dp" />
-            <solid android:color="@color/settingslib_materialColorSurfaceContainerHighest" />
-            <corners
-                android:radius="100dp" />
+            <solid android:color="@android:color/transparent" />
         </shape>
     </item>
 
@@ -34,7 +35,7 @@
             android:height="16dp"
             android:viewportWidth="16"
             android:viewportHeight="16"
-            android:tint="@color/settingslib_materialColorOnSurfaceVariant"
+            android:tint="@color/settingslib_tally_ink"
             android:autoMirrored="true">
             <path
                 android:fillColor="@android:color/white"
