@@ -143,6 +143,9 @@ public class Chronometer extends TextView {
         super(context, attrs, defStyleAttr, defStyleRes);
         mElapsedRealtimeClock = requireNonNull(elapsedRealtimeClock);
         mSystemClock = requireNonNull(systemClock);
+        // A tick usually keeps the text's width (e.g. with tabular digits): it then only redraws
+        // this view instead of laying out the whole window again.
+        mKeepSizeForSameWidthText = true;
 
         final TypedArray a = context.obtainStyledAttributes(
                 attrs, com.android.internal.R.styleable.Chronometer, defStyleAttr, defStyleRes);
