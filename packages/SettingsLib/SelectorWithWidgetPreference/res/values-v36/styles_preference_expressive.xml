@@ -126,12 +126,14 @@
         <item name="android:gravity">center_vertical</item>
     </style>
 
+    <!-- Tally: the card's hairline (1 dp, outlineVariant), standing between the text and the
+         settings key. -->
     <style name="ExpressiveSelectorWithWidgetPreferenceExtraWidgetDividerStyle">
-        <item name="android:layout_width">.75dp</item>
+        <item name="android:layout_width">@dimen/settingslib_tally_row_hairline</item>
         <item name="android:layout_height">32dp</item>
         <item name="android:layout_marginTop">@dimen/settingslib_expressive_space_small1</item>
         <item name="android:layout_marginBottom">@dimen/settingslib_expressive_space_small1</item>
-        <item name="android:background">?android:attr/dividerVertical</item>
+        <item name="android:background">@color/settingslib_tally_outline_variant</item>
     </style>
 
     <style name="ExpressiveSelectorWithWidgetPreferenceExtraWidgetImageStyle">
