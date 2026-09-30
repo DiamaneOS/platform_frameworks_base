@@ -49,6 +49,7 @@ import com.android.systemui.statusbar.pipeline.wifi.domain.interactor.WifiIntera
 import com.android.systemui.statusbar.pipeline.wifi.shared.model.WifiNetworkModel
 import com.android.systemui.statusbar.pipeline.wifi.ui.model.WifiTileIconModel
 import com.android.systemui.statusbar.policy.data.repository.FakeUserSetupRepository
+import com.android.systemui.tally.TallyShell
 import com.android.systemui.testKosmos
 import com.android.systemui.util.CarrierConfigTracker
 import com.google.common.truth.Truth.assertThat
@@ -179,6 +180,34 @@ class WifiTileDataInteractorTest(flags: FlagsParameterization) : SysuiTestCase()
                 )
 
             assertThat(tileData!!).isEqualTo(expectedModel)
+        }
+
+    @Test
+    @EnableFlags(TallyShell.FLAG_NAME)
+    fun tileData_wifiScanningBeforeRadioOn_isTransientWithTally() =
+        kosmos.runTest {
+            val tileData by collectLastValue(underTest.tileData())
+
+            wifiRepository.setIsWifiEnabled(false)
+            wifiRepository.setToggleState(WifiToggleState.Scanning)
+
+            assertThat((tileData as WifiTileModel.Active).isTransient).isTrue()
+
+            wifiRepository.setIsWifiEnabled(true)
+
+            assertThat((tileData as WifiTileModel.Active).isTransient).isFalse()
+        }
+
+    @Test
+    @DisableFlags(TallyShell.FLAG_NAME)
+    fun tileData_wifiScanningBeforeRadioOn_isNotTransientWithoutTally() =
+        kosmos.runTest {
+            val tileData by collectLastValue(underTest.tileData())
+
+            wifiRepository.setIsWifiEnabled(false)
+            wifiRepository.setToggleState(WifiToggleState.Scanning)
+
+            assertThat((tileData as WifiTileModel.Active).isTransient).isFalse()
         }
 
     @Test
