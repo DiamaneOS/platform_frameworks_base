@@ -105,6 +105,21 @@ object NotificationSectionHeadersModule {
             .headerText(R.string.notification_section_header_highlights)
             .build()
 
+    /** Tally: the header of the Live section (live updates, calls and ongoing services). */
+    @Provides
+    @LiveHeader
+    @SysUISingleton
+    @JvmStatic
+    fun providesLiveHeaderSubcomponent(
+        builder: Provider<SectionHeaderControllerSubcomponent.Builder>
+    ) =
+        builder
+            .get()
+            .nodeLabel("live header")
+            .headerText(R.string.notification_section_header_live)
+            .clickIntentAction(Settings.ACTION_NOTIFICATION_SETTINGS)
+            .build()
+
     @Provides
     @SilentHeader
     @JvmStatic
@@ -174,6 +189,20 @@ object NotificationSectionHeadersModule {
     fun providesHighlightsHeaderController(
         @HighlightsHeader subcomponent: SectionHeaderControllerSubcomponent
     ) = subcomponent.headerController
+
+    @Provides
+    @LiveHeader
+    @JvmStatic
+    fun providesLiveHeaderNodeController(
+        @LiveHeader subcomponent: SectionHeaderControllerSubcomponent
+    ) = subcomponent.nodeController
+
+    @Provides
+    @LiveHeader
+    @JvmStatic
+    fun providesLiveHeaderController(
+        @LiveHeader subcomponent: SectionHeaderControllerSubcomponent
+    ) = subcomponent.headerController
 }
 
 @Subcomponent(modules = [SectionHeaderBindingModule::class])
@@ -222,3 +251,6 @@ abstract class SectionHeaderBindingModule {
 @Scope @Retention(AnnotationRetention.BINARY) annotation class SectionHeaderScope
 
 @Qualifier @Retention(AnnotationRetention.BINARY) annotation class HighlightsHeader
+
+/** Tally: the Live section's header. */
+@Qualifier @Retention(AnnotationRetention.BINARY) annotation class LiveHeader
