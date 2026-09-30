@@ -190,13 +190,16 @@ constructor(
             locationIndicatorsEnabled() &&
                 event is PrivacyEvent &&
                 event.privacyItems.isNotEmpty() &&
-                hasPersistentDot
+                hasPersistentDot &&
+                currentlyDisplayedEvent == null
         ) {
             // Privacy events have different dot colors depending on the type of privacy event.
             // If we are already showing a persistent dot, we need to notify the listener to update
             // the UI if another privacy event comes in.
             // This happens for example when quickly switching between an app that requests only
             // location, and one that requests any other privacy item(s).
+            // While the chip is still displayed, the event updates the chip below instead: the dot
+            // is not shown yet, and the chip hands its items to the dot as it goes into it.
             logger?.logNotifyEvent(event)
             notifyTransitionToPersistentDot(event)
         } else if (priorityCondition && !hasPersistentDot) {
