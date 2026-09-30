@@ -15,7 +15,8 @@
   ~ limitations under the License
   -->
 
-<!-- Sizes only the Tally notification section headers use (the prototype's .nsec and .sec-h). -->
+<!-- Sizes only the Tally notification list uses: its section headers (the prototype's .nsec and
+     .sec-h) and where its cards meet the shelf. -->
 <resources>
     <!-- A header takes the whole space between the last card of one section and the first card
          of the next, so that all of it is its to tap: above its words the section's 4 dp margin
@@ -30,4 +31,8 @@
     <!-- Silent's clear-all key: 56 dp wide at the header's end, its cross 28 dp in from the
          cards' edge as stock's (a 48 dp key 4 dp in) -->
     <dimen name="tally_notification_section_clear_all_width">56dp</dimen>
+    <!-- A card shows above the shelf only when at least its top margin and the upper half of its
+         icon fit (16 dp and 20 dp); with less, it goes into the shelf instead of showing as a
+         sliver -->
+    <dimen name="tally_notification_shelf_min_visible">36dp</dimen>
 </resources>
