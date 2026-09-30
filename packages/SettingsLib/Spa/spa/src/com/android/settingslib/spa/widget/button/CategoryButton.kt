@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.tooling.preview.Preview
+import com.android.settingslib.spa.framework.theme.SettingsShape
 import com.android.settingslib.spa.framework.theme.SettingsSpace
 import com.android.settingslib.spa.framework.theme.SettingsTheme
 
@@ -47,7 +48,8 @@ fun CategoryButton(
     val size = ButtonDefaults.MediumContainerHeight
     TextButton(
         onClick = onClick,
-        shapes = ButtonDefaults.shapes(),
+        // Tally: a key, not a pill.
+        shape = SettingsShape.TallyKey,
         modifier = Modifier.heightIn(size).padding(horizontal = SettingsSpace.small1),
         colors =
             ButtonDefaults.textButtonColors()

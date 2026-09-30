@@ -26,4 +26,7 @@ object SettingsRadius {
     val large2 = 20.dp
     val large3 = 24.dp
     val extraLarge1 = 28.dp
+
+    /** Tally: a key, the token spec's radius 8 (tally_radius_s). */
+    val tallyKey = 8.dp
 }

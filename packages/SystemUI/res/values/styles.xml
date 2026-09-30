@@ -604,7 +604,12 @@
     <style name="Theme.SystemUI.DayNightDialog" parent="@android:style/Theme.DeviceDefault.Light.Dialog"/>
 
     <style name="Theme.SystemUI.Dialog" parent="@style/Theme.SystemUI.DayNightDialog">
-        <item name="android:buttonCornerRadius">28dp</item>
+        <item name="android:buttonCornerRadius"
+            android:featureFlag="!de.diamaneos.systemui.tally_shell">28dp</item>
+        <!-- Tally: the key radius on every SystemUI dialog key and the rows drawn with it
+             (qs_dialog_btn_filled/outline, internet_dialog_selected_effect), not pills -->
+        <item name="android:buttonCornerRadius"
+            android:featureFlag="de.diamaneos.systemui.tally_shell">@dimen/tally_radius_s</item>
         <item name="android:buttonBarPositiveButtonStyle">@style/Widget.Dialog.Button</item>
         <item name="android:buttonBarNegativeButtonStyle">@style/Widget.Dialog.Button.BorderButton</item>
         <item name="android:buttonBarNeutralButtonStyle">@style/Widget.Dialog.Button.BorderButton</item>
@@ -848,6 +853,17 @@
         <item name="android:textColor">@color/materialColorOnSurface</item>
 
         <item name="android:gravity">center</item>
+    </style>
+
+    <!-- The label of a notification long-press option (notification_2025_info and the other
+         guts layouts): nothing of its own in stock. -->
+    <style name="NotificationGutsOptionLabel" />
+    <!-- Tally: the option's state lamp at the label's end (tally_guts_option_lamp), lit only on
+         the chosen option, whose row is selected. -->
+    <style name="NotificationGutsOptionLabel"
+        android:featureFlag="de.diamaneos.systemui.tally_shell">
+        <item name="android:drawableEnd">@drawable/tally_guts_option_lamp</item>
+        <item name="android:drawablePadding">@dimen/tally_space_s</item>
     </style>
 
     <style
@@ -1400,7 +1416,10 @@
     <style name="Widget" />
     <style name="Widget.Dialog" />
     <style name="Widget.Dialog.Button">
-        <item name="android:buttonCornerRadius">28dp</item>
+        <item name="android:buttonCornerRadius"
+            android:featureFlag="!de.diamaneos.systemui.tally_shell">28dp</item>
+        <item name="android:buttonCornerRadius"
+            android:featureFlag="de.diamaneos.systemui.tally_shell">@dimen/tally_radius_s</item>
         <item name="android:background">@drawable/qs_dialog_btn_filled</item>
         <item name="android:textColor">@color/qs_dialog_btn_filled_text_color</item>
         <item name="android:textSize">14sp</item>

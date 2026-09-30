@@ -112,7 +112,7 @@ class TallySectionSpacingTest : SysuiTestCase() {
 
     /**
      * The words' line: the section type's 16 sp, unless the font's own height (from its ascent to
-     * its descent) is more, which Sofia Sans's (13.2 dp at 11 sp) never is.
+     * its descent) is more, which the system font's (12.9 dp at 11 sp, Roboto's metrics) never is.
      */
     private fun line(label: TextView, c: Context): Float {
         val font = label.paint.fontMetricsInt.let { it.descent - it.ascent }.toFloat()

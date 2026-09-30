@@ -76,7 +76,8 @@ fun SuggestionCard(model: SuggestionCardModel) {
                     )
                     .fillMaxWidth()
                     .heightIn(min = SettingsDimension.preferenceMinHeight)
-                    .clip(SettingsShape.CornerFull)
+                    // Tally: a card (radius 12), not a pill.
+                    .clip(SettingsShape.CornerMedium)
                     .background(MaterialTheme.colorScheme.secondaryContainer)
                     .then(model.onClick?.let { Modifier.clickable(onClick = it) } ?: Modifier)
                     .padding(SettingsSpace.extraSmall6),
@@ -138,7 +139,7 @@ private fun SuggestionCardDescription(description: String) {
 
 @Composable
 private fun SuggestionCardDismissButton(onDismiss: () -> Unit) {
-    IconButton(shape = CircleShape, onClick = onDismiss) {
+    IconButton(shape = SettingsShape.TallyKey, onClick = onDismiss) {
         Icon(
             imageVector = Icons.Filled.Close,
             contentDescription =

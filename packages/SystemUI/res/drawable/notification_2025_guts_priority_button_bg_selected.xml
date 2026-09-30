@@ -17,9 +17,23 @@
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
        xmlns:androidprv="http://schemas.android.com/apk/prv/res/android"
        android:shape="rectangle" >
-    <solid android:color="@color/materialColorSecondaryContainer" />
+    <solid android:color="@color/materialColorSecondaryContainer"
+        android:featureFlag="!de.diamaneos.systemui.tally_shell" />
 
-    <stroke android:width="1dp" android:color="@color/materialColorOutline"  />
+    <stroke android:width="1dp" android:color="@color/materialColorOutline"
+        android:featureFlag="!de.diamaneos.systemui.tally_shell" />
 
-    <corners android:radius="28dp" />
+    <corners android:radius="28dp"
+        android:featureFlag="!de.diamaneos.systemui.tally_shell" />
+
+    <!-- Tally: the chosen option as the prototype's chosen key (.ps-key.chosen): an r8 row with a
+         control border in ink; its lamp is at the end of the label (tally_guts_option_lamp) -->
+    <solid android:color="@color/tally_surface_high"
+        android:featureFlag="de.diamaneos.systemui.tally_shell" />
+
+    <stroke android:width="@dimen/tally_stroke_control" android:color="@color/tally_ink"
+        android:featureFlag="de.diamaneos.systemui.tally_shell" />
+
+    <corners android:radius="@dimen/tally_radius_s"
+        android:featureFlag="de.diamaneos.systemui.tally_shell" />
 </shape>
