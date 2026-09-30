@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import com.android.compose.theme.TallyShapes
 import com.android.compose.ui.graphics.painter.rememberDrawablePainter
 
 @Composable
@@ -44,7 +45,7 @@ fun PlatformButton(
     enabled: Boolean = true,
     colors: ButtonColors = filledButtonColors(),
     contentPadding: PaddingValues = ButtonPaddings,
-    shape: Shape = ButtonDefaults.shape,
+    shape: Shape = platformButtonShape(),
     content: @Composable RowScope.() -> Unit,
 ) {
     androidx.compose.material3.Button(
@@ -71,6 +72,7 @@ fun PlatformOutlinedButton(
     androidx.compose.material3.OutlinedButton(
         modifier = modifier.heightIn(min = 36.dp),
         enabled = enabled,
+        shape = if (TallyShapes.isEnabled) TallyShapes.key() else ButtonDefaults.outlinedShape,
         colors = colors,
         border = border,
         contentPadding = ButtonPaddings,
@@ -92,10 +94,16 @@ fun PlatformTextButton(
         onClick = onClick,
         modifier = modifier,
         enabled = enabled,
+        shape = if (TallyShapes.isEnabled) TallyShapes.key() else ButtonDefaults.textShape,
         content = content,
         colors = colors,
     )
 }
+
+/** The platform button's shape: the Tally key while Tally is on, else Material's button. */
+@Composable
+private fun platformButtonShape(): Shape =
+    if (TallyShapes.isEnabled) TallyShapes.key() else ButtonDefaults.shape
 
 @Composable
 fun PlatformIconButton(
