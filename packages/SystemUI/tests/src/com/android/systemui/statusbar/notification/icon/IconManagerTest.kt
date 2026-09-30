@@ -198,7 +198,7 @@ class IconManagerTest : SysuiTestCase() {
         entry?.channel?.isImportantConversation = true
         entry?.let { iconManager.createIcons(it) }
         testScope.runCurrent()
-        assertThat(entry?.icons?.statusBarIcon?.sourceIcon).isEqualTo(shortcutIc)
+        assertThat(entry?.icons?.statusBarIcon?.sourceIcon).isEqualTo(smallIc)
         assertThat(entry?.icons?.statusBarChipIcon).isNull()
         assertThat(entry?.icons?.shelfIcon?.sourceIcon).isEqualTo(smallIc)
         assertThat(entry?.icons?.aodIcon?.sourceIcon).isEqualTo(smallIc)
@@ -214,7 +214,7 @@ class IconManagerTest : SysuiTestCase() {
         // Updating the icons after creation shouldn't break anything
         entry?.let { iconManager.updateIcons(it) }
         testScope.runCurrent()
-        assertThat(entry?.icons?.statusBarIcon?.sourceIcon).isEqualTo(shortcutIc)
+        assertThat(entry?.icons?.statusBarIcon?.sourceIcon).isEqualTo(smallIc)
         assertThat(entry?.icons?.statusBarChipIcon).isNull()
         assertThat(entry?.icons?.shelfIcon?.sourceIcon).isEqualTo(smallIc)
         assertThat(entry?.icons?.aodIcon?.sourceIcon).isEqualTo(smallIc)
