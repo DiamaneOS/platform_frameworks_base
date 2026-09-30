@@ -69,6 +69,8 @@ public class StackScrollAlgorithm {
     private float mGapHeightOnLockscreen;
     /** Tally: the gap before a section header at the top of the list (see getGapHeightForChild) */
     private float mTallyTopHeaderGap;
+    /** Tally: the least of a card that shows above the shelf (see isTallySliverAboveShelf) */
+    private float mTallyMinVisibleAboveShelf;
     private int mCollapsedSize;
     private boolean mEnableNotificationClipping;
 
@@ -132,6 +134,8 @@ public class StackScrollAlgorithm {
                     R.dimen.tally_notification_section_header_first_padding_top)
                     - res.getDimensionPixelSize(
                             R.dimen.tally_notification_section_header_padding_top);
+            mTallyMinVisibleAboveShelf = res.getDimensionPixelSize(
+                    R.dimen.tally_notification_shelf_min_visible);
         }
         // TODO(b/488459485): make sidePaddings response to shadeMode if needed
         mNotificationScrimPadding =
@@ -530,7 +534,8 @@ public class StackScrollAlgorithm {
                 final float shelfStart = ambientState.getStackEndHeight()
                         - ambientState.getShelf().getIntrinsicHeight()
                         - mPaddingBetweenElements;
-                if (currentY >= shelfStart
+                if ((currentY >= shelfStart
+                                || isTallySliverAboveShelf(view, currentY, shelfStart))
                         && !(view instanceof FooterView)
                         && (!SceneContainerFlag.isEnabled()
                             || !(view instanceof StackScrollerDecorView))
@@ -795,6 +800,10 @@ public class StackScrollAlgorithm {
 
     @VisibleForTesting
     void updateViewWithShelf(ExpandableView view, ExpandableViewState viewState, float shelfStart) {
+        if (isTallySliverAboveShelf(view, viewState.getYTranslation(), shelfStart)) {
+            // Tally: the card goes into the shelf with the cards below it.
+            viewState.setYTranslation(shelfStart, "StackScrollAlgorithm.updateViewWithShelf.tally");
+        }
         viewState.setYTranslation(Math.min(viewState.getYTranslation(), shelfStart),
                 "StackScrollAlgorithm.updateViewWithShelf");
         if (viewState.getYTranslation() >= shelfStart) {
@@ -804,6 +813,23 @@ public class StackScrollAlgorithm {
             // Notifications in the shelf cannot be visible HUNs.
             viewState.headsUpIsVisible = false;
         }
+    }
+
+    /**
+     * Tally: whether only a sliver of {@code view}, a card starting at {@code viewStart}, would
+     * show above the shelf, which clips cards from {@code shelfStart}: less than its top margin and
+     * the upper half of its icon. Tally's cards stand apart, each with its edge all round, so such
+     * a sliver reads as a squashed card rather than one going under the shelf. A card that is
+     * expanding or opening an app stays where it is.
+     */
+    private boolean isTallySliverAboveShelf(ExpandableView view, float viewStart,
+            float shelfStart) {
+        return TallyShell.isEnabled()
+                && view instanceof ExpandableNotificationRow
+                && viewStart < shelfStart
+                && shelfStart - viewStart < mTallyMinVisibleAboveShelf
+                && !view.isExpandAnimationRunning()
+                && !view.hasExpandingChild();
     }
 
     /**
