@@ -311,13 +311,38 @@ public class NotificationHeaderViewWrapper extends NotificationViewWrapper imple
     }
 
     /**
-     * Tally: shows a live lamp after the app's name while the notification is live (an ongoing
-     * event), or takes it away.
+     * Tally: shows a lamp in {@code state} after the first name in the top line while the
+     * notification is live (an ongoing event), or takes it away when {@code state} is null. The
+     * name is the app's where the top line shows it, else the title the template puts in its
+     * place: the title of a collapsed or heads-up row, or the alt title of a promoted card.
      */
-    public void setTallyLiveLamp(boolean live) {
-        if (mAppNameText != null) {
-            TallyLiveCards.bindLamp(mRow.getContext(), mAppNameText,
-                    live ? TallyLampState.LIVE : null, /* atEnd= */ true);
+    public void setTallyLiveLamp(@Nullable TallyLampState state) {
+        TextView altTitle = mView.findViewById(com.android.internal.R.id.alt_title);
+        TextView title = mView.findViewById(com.android.internal.R.id.title);
+        if (title != null && (mNotificationTopLine == null
+                || title.getParent() != mNotificationTopLine)) {
+            // An expanded template's title sits under the top line, not in it.
+            title = null;
+        }
+        TextView[] names = {mAppNameText, altTitle, title};
+        TextView host = null;
+        if (state != null) {
+            for (TextView name : names) {
+                // The template hides a name with GONE; a transformation between the collapsed and
+                // expanded views may leave a shown one INVISIBLE for a while.
+                if (name != null && name.getVisibility() != GONE) {
+                    host = name;
+                    break;
+                }
+            }
+        }
+        for (TextView name : names) {
+            if (name != null && name != host) {
+                TallyLiveCards.bindLamp(mRow.getContext(), name, null, /* atEnd= */ true);
+            }
+        }
+        if (host != null) {
+            TallyLiveCards.bindLamp(mRow.getContext(), host, state, /* atEnd= */ true);
         }
     }
 

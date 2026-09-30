@@ -19,6 +19,8 @@ package com.android.systemui.tally.shade
 import android.content.Context
 import android.widget.TextView
 import com.android.systemui.res.R
+import com.android.systemui.statusbar.notification.promoted.shared.model.PromotedNotificationContentModels
+import com.android.systemui.statusbar.notification.shared.Metric
 import com.android.systemui.tally.lamp.TallyLampColors
 import com.android.systemui.tally.lamp.TallyLampDrawable
 import com.android.systemui.tally.lamp.TallyLampSize
@@ -29,7 +31,7 @@ import de.diamaneos.tally.R as TallyR
  * Tally's live cards (shade.js `buildLive`): the media card and every ongoing notification (a
  * timer, a call, navigation, a download) are neutral cards that carry a live lamp by their words,
  * never a lamp-filled band or a coloured card. The lamp is spent on state: live while the thing is
- * going on, off while media is paused.
+ * going on, off while media, a stopwatch or a timer is paused.
  */
 object TallyLiveCards {
     /**
@@ -71,6 +73,18 @@ object TallyLiveCards {
     @JvmStatic
     fun mediaLamp(playing: Boolean): TallyLampState =
         if (playing) TallyLampState.LIVE else TallyLampState.OFF
+
+    /**
+     * The lamp of an ongoing notification: live, or off while every time it counts is paused (a
+     * paused stopwatch or timer, whose card says "Paused"), as a paused media card's. [promoted] is
+     * the notification's promoted content, where a promoted card's times are read.
+     */
+    @JvmStatic
+    fun ongoingLamp(promoted: PromotedNotificationContentModels?): TallyLampState {
+        val times = promoted?.privateVersion?.metrics?.filterIsInstance<Metric.TimeDifference>()
+        val paused = !times.isNullOrEmpty() && times.all { it is Metric.TimeDifference.Paused }
+        return if (paused) TallyLampState.OFF else TallyLampState.LIVE
+    }
 
     private val TAG = R.id.tally_live_lamp
     private const val START = 0
