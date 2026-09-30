@@ -29,6 +29,7 @@ import com.android.systemui.statusbar.notification.dagger.HeaderText
 import com.android.systemui.statusbar.notification.dagger.NodeLabel
 import com.android.systemui.statusbar.notification.dagger.SectionHeaderScope
 import com.android.systemui.statusbar.notification.stack.SectionHeaderView
+import com.android.systemui.tally.TallyShell
 import javax.inject.Inject
 
 interface SectionHeaderController {
@@ -74,12 +75,12 @@ constructor(
                 parent.removeView(_view)
             }
         }
+        // Tally: the prototype's tight header (12 dp and the words' line) instead of stock's 48 dp.
+        val layout =
+            if (TallyShell.isEnabled) R.layout.tally_notification_section_header
+            else R.layout.status_bar_notification_section_header
         val inflated =
-            layoutInflater.inflate(
-                R.layout.status_bar_notification_section_header,
-                parent,
-                false, /* attachToRoot */
-            ) as SectionHeaderView
+            layoutInflater.inflate(layout, parent, false /* attachToRoot */) as SectionHeaderView
         inflated.setHeaderText(headerTextResId)
         inflated.setOnHeaderClickListener(onHeaderClickListener)
         clearAllClickListener?.let { inflated.setOnClearAllClickListener(it) }

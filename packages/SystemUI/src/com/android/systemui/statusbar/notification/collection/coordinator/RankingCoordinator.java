@@ -37,6 +37,7 @@ import com.android.systemui.statusbar.notification.dagger.AlertingHeader;
 import com.android.systemui.statusbar.notification.dagger.SilentHeader;
 import com.android.systemui.statusbar.notification.shared.NmContextualDisplay;
 import com.android.systemui.statusbar.notification.stack.NotificationPriorityBucketKt;
+import com.android.systemui.tally.TallyShell;
 
 import java.util.HashMap;
 import java.util.List;
@@ -125,7 +126,8 @@ public class RankingCoordinator implements Coordinator {
         @Override
         public NodeController getHeaderNodeController() {
             // TODO: remove SHOW_ALL_SECTIONS, this redundant method, and mAlertingHeaderController
-            if (SHOW_ALL_SECTIONS) {
+            // Tally: every section of the shade has its header, this one "Notifications".
+            if (SHOW_ALL_SECTIONS || TallyShell.isEnabled()) {
                 return mAlertingHeaderController;
             }
             return null;

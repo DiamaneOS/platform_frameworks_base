@@ -44,8 +44,10 @@ import com.android.systemui.statusbar.notification.collection.listbuilder.plugga
 import com.android.systemui.statusbar.notification.collection.listbuilder.pluggable.NotifSectioner
 import com.android.systemui.statusbar.notification.collection.makeClassifiedConversation
 import com.android.systemui.statusbar.notification.collection.notifPipeline
+import com.android.systemui.statusbar.notification.collection.render.NodeController
 import com.android.systemui.statusbar.notification.domain.interactor.renderNotificationListInteractor
 import com.android.systemui.statusbar.notification.promoted.domain.interactor.promotedNotificationsInteractor
+import com.android.systemui.tally.TallyShell
 import com.android.systemui.testKosmos
 import com.android.systemui.util.mockito.withArgCaptor
 import com.google.common.truth.Truth.assertThat
@@ -54,6 +56,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.mockito.kotlin.mock
 import org.mockito.kotlin.verify
 
 @SmallTest
@@ -66,6 +69,7 @@ class ColorizedFgsCoordinatorTest : SysuiTestCase() {
 
     private lateinit var colorizedFgsCoordinator: ColorizedFgsCoordinator
     private lateinit var sectioner: NotifSectioner
+    private val liveHeaderController: NodeController = mock()
 
     @Before
     fun setup() {
@@ -77,9 +81,16 @@ class ColorizedFgsCoordinatorTest : SysuiTestCase() {
             ColorizedFgsCoordinator(
                 kosmos.applicationCoroutineScope,
                 kosmos.promotedNotificationsInteractor,
+                liveHeaderController,
             )
         colorizedFgsCoordinator.attach(notifPipeline)
         sectioner = colorizedFgsCoordinator.sectioner
+    }
+
+    @Test
+    fun sectionHeader_isLiveInTally_noneInStock() {
+        assertThat(sectioner.headerNodeController)
+            .isEqualTo(if (TallyShell.isEnabled) liveHeaderController else null)
     }
 
     @Test

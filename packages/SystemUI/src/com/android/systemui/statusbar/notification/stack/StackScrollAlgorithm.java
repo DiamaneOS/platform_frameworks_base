@@ -42,6 +42,7 @@ import com.android.systemui.statusbar.notification.row.ExpandableNotificationRow
 import com.android.systemui.statusbar.notification.row.ExpandableView;
 import com.android.systemui.statusbar.notification.row.StackScrollerDecorView;
 import com.android.systemui.statusbar.notification.shared.NotificationHeadsUpCycling;
+import com.android.systemui.tally.TallyShell;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -66,6 +67,10 @@ public class StackScrollAlgorithm {
     private float mGapHeight;
     private float mGroupingDisabledSectionGapHeight;
     private float mGapHeightOnLockscreen;
+    /** Tally: the gap before a section header at the top of the list (see getGapHeightForChild) */
+    private float mTallyTopHeaderGap;
+    /** Tally: the least of a card that shows above the shelf (see isTallySliverAboveShelf) */
+    private float mTallyMinVisibleAboveShelf;
     private int mCollapsedSize;
     private boolean mEnableNotificationClipping;
 
@@ -124,6 +129,14 @@ public class StackScrollAlgorithm {
                 R.dimen.bundle_expanded_divider_height);
         mGroupingDisabledSectionGapHeight = res.getDimensionPixelSize(
                 R.dimen.grouping_disabled_section_gap_height);
+        if (TallyShell.isEnabled()) {
+            mTallyTopHeaderGap = res.getDimensionPixelSize(
+                    R.dimen.tally_notification_section_header_first_padding_top)
+                    - res.getDimensionPixelSize(
+                            R.dimen.tally_notification_section_header_padding_top);
+            mTallyMinVisibleAboveShelf = res.getDimensionPixelSize(
+                    R.dimen.tally_notification_shelf_min_visible);
+        }
         // TODO(b/488459485): make sidePaddings response to shadeMode if needed
         mNotificationScrimPadding =
                 res.getDimensionPixelSize(R.dimen.notification_side_paddings_single);
@@ -521,7 +534,8 @@ public class StackScrollAlgorithm {
                 final float shelfStart = ambientState.getStackEndHeight()
                         - ambientState.getShelf().getIntrinsicHeight()
                         - mPaddingBetweenElements;
-                if (currentY >= shelfStart
+                if ((currentY >= shelfStart
+                                || isTallySliverAboveShelf(view, currentY, shelfStart))
                         && !(view instanceof FooterView)
                         && (!SceneContainerFlag.isEnabled()
                             || !(view instanceof StackScrollerDecorView))
@@ -786,6 +800,10 @@ public class StackScrollAlgorithm {
 
     @VisibleForTesting
     void updateViewWithShelf(ExpandableView view, ExpandableViewState viewState, float shelfStart) {
+        if (isTallySliverAboveShelf(view, viewState.getYTranslation(), shelfStart)) {
+            // Tally: the card goes into the shelf with the cards below it.
+            viewState.setYTranslation(shelfStart, "StackScrollAlgorithm.updateViewWithShelf.tally");
+        }
         viewState.setYTranslation(Math.min(viewState.getYTranslation(), shelfStart),
                 "StackScrollAlgorithm.updateViewWithShelf");
         if (viewState.getYTranslation() >= shelfStart) {
@@ -795,6 +813,23 @@ public class StackScrollAlgorithm {
             // Notifications in the shelf cannot be visible HUNs.
             viewState.headsUpIsVisible = false;
         }
+    }
+
+    /**
+     * Tally: whether only a sliver of {@code view}, a card starting at {@code viewStart}, would
+     * show above the shelf, which clips cards from {@code shelfStart}: less than its top margin and
+     * the upper half of its icon. Tally's cards stand apart, each with its edge all round, so such
+     * a sliver reads as a squashed card rather than one going under the shelf. A card that is
+     * expanding or opening an app stays where it is.
+     */
+    private boolean isTallySliverAboveShelf(ExpandableView view, float viewStart,
+            float shelfStart) {
+        return TallyShell.isEnabled()
+                && view instanceof ExpandableNotificationRow
+                && viewStart < shelfStart
+                && shelfStart - viewStart < mTallyMinVisibleAboveShelf
+                && !view.isExpandAnimationRunning()
+                && !view.hasExpandingChild();
     }
 
     /**
@@ -821,12 +856,73 @@ public class StackScrollAlgorithm {
                 return mBundleGapHeight;
             }
 
+        } else if (TallyShell.isEnabled() && visibleIndex == 0
+                && child instanceof SectionHeaderView) {
+            // Tally: a header at the top of the list has only .sec-h's 12 dp above its words, as
+            // no section's margin comes before it. The 4 dp over them stay empty.
+            return getTallyGapForLocation(fractionToShade, onKeyguard,
+                    /* gapOnLockscreen= */ 0f, /* shadeGap= */ mTallyTopHeaderGap);
+        } else if (TallyShell.isEnabled()
+                && followsSectionHeader(visibleIndex, child, previousChild)) {
+            // Tally: the header reaches down to this card itself (see getTallyShadeGap).
+            return getTallyGapForLocation(fractionToShade, onKeyguard,
+                    /* gapOnLockscreen= */ 0f, /* shadeGap= */ -mPaddingBetweenElements);
         } else if (childNeedsGapHeight(sectionProvider, visibleIndex, child, previousChild)) {
+            if (TallyShell.isEnabled()) {
+                return getTallyGapForLocation(fractionToShade, onKeyguard,
+                        sectionProvider.isGroupingDisabled(child)
+                                ? mGroupingDisabledSectionGapHeight : mGapHeightOnLockscreen,
+                        getTallyShadeGap(sectionProvider, child, previousChild));
+            }
             return getGapForLocation(fractionToShade, onKeyguard,
                     sectionProvider.isGroupingDisabled(child));
         } else {
             return 0;
         }
+    }
+
+    /**
+     * Tally: the gap before {@code child} in the shade, as the prototype spaces its sections.
+     * Every section there starts with its header, and the header takes the whole space between
+     * the card before it and the card after it (16 dp, its words, 8 dp), so that all of that space
+     * is its to tap: it starts right under the card before it, and the card after it starts right
+     * under it, instead of the 8 dp every card keeps from the next. Cards in one section are only
+     * those 8 dp apart, the Live section's (grouping disabled) and the conversations under the one
+     * "Conversations" header included. Where a section starts without a header, stock's gap stays.
+     */
+    private float getTallyShadeGap(SectionProvider sectionProvider, View child,
+            View previousChild) {
+        if (child instanceof SectionHeaderView) {
+            return -mPaddingBetweenElements;
+        }
+        if (sectionProvider.continuesShadeSection(child, previousChild)
+                || (sectionProvider.isGroupingDisabled(child)
+                        && !sectionProvider.beginsSection(child, previousChild))) {
+            return 0;
+        }
+        return mGapHeight;
+    }
+
+    /** Tally: whether {@code child} is the first card under a section header. */
+    private static boolean followsSectionHeader(int visibleIndex, View child, View previousChild) {
+        return visibleIndex > 0
+                && previousChild instanceof SectionHeaderView
+                && !(child instanceof FooterView);
+    }
+
+    /**
+     * Tally: {@link #getGapForLocation} with the shade's gap from {@link #getTallyShadeGap}. The
+     * lock screen keeps stock's gaps, and the gap moves between the two as stock's does.
+     */
+    private float getTallyGapForLocation(float fractionToShade, boolean onKeyguard,
+            float gapOnLockscreen, float shadeGap) {
+        if (fractionToShade > 0f) {
+            return MathUtils.lerp(gapOnLockscreen, shadeGap, fractionToShade);
+        }
+        if (onKeyguard) {
+            return gapOnLockscreen;
+        }
+        return shadeGap;
     }
 
     private boolean childNeedsBundleGap(View child, View previousChild) {
@@ -1434,6 +1530,14 @@ public class StackScrollAlgorithm {
          * False if grouping is enabled.
          */
         boolean isGroupingDisabled(@NonNull View view);
+
+        /**
+         * Tally: true if this view starts a new bucket but, in the shade, continues the section
+         * of the view before it under the same header (priority and other conversations).
+         */
+        default boolean continuesShadeSection(@NonNull View view, @Nullable View previous) {
+            return false;
+        }
     }
     /**
      * Interface for telling the StackScrollAlgorithm information about the bypass state
