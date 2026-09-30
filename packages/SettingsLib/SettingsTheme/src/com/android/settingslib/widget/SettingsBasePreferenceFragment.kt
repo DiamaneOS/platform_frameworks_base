@@ -35,7 +35,10 @@ import com.android.settingslib.widget.theme.R
 abstract class SettingsBasePreferenceFragment : PreferenceFragmentCompat() {
 
     val footerDataMap = mutableMapOf<String, FooterData>()
-    // Tally: no gap between rows, so a section's rows join into one card (stock left 2 dp).
+    // Tally: no gap between rows, so a section's rows join into one card (stock left 2 dp). A page
+    // that asks for the gap (PermissionController's, from its config) does not get it either:
+    // Tally's card segments meet edge to edge, and with the gap every row showed as its own box,
+    // with a double edge between rows.
     protected open val isPreferenceSpacingEnabled = false
 
     @CallSuper
@@ -55,9 +58,7 @@ abstract class SettingsBasePreferenceFragment : PreferenceFragmentCompat() {
                 // Don't allow any divider in between the preferences in expressive design.
                 setDivider(null)
             }
-            if (isPreferenceSpacingEnabled) {
-                listView?.addItemDecoration(MarginItemDecoration())
-            }
+            // Tally: never the gap between rows (see isPreferenceSpacingEnabled).
         }
 
         preferenceScreen?.let { screen ->

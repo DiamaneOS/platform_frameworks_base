@@ -48,11 +48,15 @@
         </LinearLayout>
     </LinearLayout>
 
+    <!-- Tally: the extra widget behind a plain divider, not the two-target divider, whose chevron
+         and padding took 55 dp beside the text and squeezed a summary into a narrow column (Dark
+         theme's Expanded row: five lines). The chevron said the row opens a page; here the row
+         selects, and the settings key opens the page. -->
     <LinearLayout
         android:id="@+id/selector_extra_widget_container"
         style="?expressiveSelectorWithWidgetPreferenceExtraWidgetContainerStyle">
 
-        <include layout="@layout/settingslib_expressive_two_target_divider" />
+        <View style="?expressiveSelectorWithWidgetPreferenceExtraWidgetDividerStyle" />
 
         <ImageView
             android:id="@+id/selector_extra_widget"

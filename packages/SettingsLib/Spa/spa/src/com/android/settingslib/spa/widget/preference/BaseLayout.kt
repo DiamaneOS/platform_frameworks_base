@@ -60,12 +60,15 @@ internal fun BaseLayout(
     widget: @Composable () -> Unit = {},
 ) {
     val surfaceBright = MaterialTheme.colorScheme.surfaceBright
+    // Tally: a row that a view list hosts (Settings' ComposePreference on a SettingsLib page)
+    // takes that list's row metrics and type, so it matches the view rows around it.
+    val hostStyle = LocalHostRowStyle.current
     Row(
         modifier =
             modifier
                 .fillMaxWidth()
                 .semantics(mergeDescendants = true) {}
-                .thenIf(isSpaExpressiveEnabled) {
+                .thenIf(isSpaExpressiveEnabled && hostStyle == null) {
                     Modifier.heightIn(min = SettingsDimension.preferenceMinHeight)
                 }
                 .thenIf(isSpaExpressiveEnabled && LocalIsInCategory.current) {
@@ -74,24 +77,60 @@ internal fun BaseLayout(
                         shape = SettingsShape.CornerExtraSmall2,
                     )
                 }
-                .padding(end = paddingEnd),
+                .then(hostStyle?.let { Modifier.heightIn(min = it.minHeight) } ?: Modifier)
+                .padding(end = hostStyle?.paddingEnd ?: paddingEnd),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val alphaModifier = Modifier.alphaForEnabled(enabled())
         BaseIcon(icon, alphaModifier, paddingStart)
-        Titles(
-            title = title,
-            titleContentDescription = titleContentDescription,
-            subTitle = subTitle,
-            modifier = alphaModifier.weight(1f).padding(vertical = paddingVertical),
-        )
+        HostTypography(hostStyle) {
+            Titles(
+                title = title,
+                titleContentDescription = titleContentDescription,
+                subTitle = subTitle,
+                modifier =
+                    alphaModifier
+                        .weight(1f)
+                        .padding(vertical = hostStyle?.paddingVertical ?: paddingVertical),
+            )
+        }
         widget()
     }
 }
 
+/** Tally: the host list's type for the title and the summary (see [HostRowStyle]). */
+@Composable
+private fun HostTypography(hostStyle: HostRowStyle?, content: @Composable () -> Unit) {
+    if (hostStyle == null) {
+        content()
+        return
+    }
+    val typography = MaterialTheme.typography
+    MaterialTheme(
+        colorScheme = MaterialTheme.colorScheme,
+        shapes = MaterialTheme.shapes,
+        typography =
+            typography.copy(
+                titleMedium = typography.titleMedium.merge(hostStyle.titleStyle),
+                bodyMedium = typography.bodyMedium.merge(hostStyle.bodyStyle),
+            ),
+        content = content,
+    )
+}
+
 @Composable
 internal fun BaseIcon(icon: @Composable (() -> Unit)?, modifier: Modifier, paddingStart: Dp) {
-    if (isSpaExpressiveEnabled) {
+    val hostStyle = LocalHostRowStyle.current
+    if (hostStyle != null) {
+        // Tally: the host list's icon column (see HostRowStyle).
+        Spacer(modifier = Modifier.width(width = hostStyle.paddingStart))
+        if (icon != null) {
+            Box(modifier = modifier.size(hostStyle.iconSize), contentAlignment = Alignment.Center) {
+                icon()
+            }
+            Spacer(modifier = Modifier.width(width = hostStyle.iconGap))
+        }
+    } else if (isSpaExpressiveEnabled) {
         Spacer(modifier = Modifier.width(width = paddingStart))
         if (icon != null) {
             Box(

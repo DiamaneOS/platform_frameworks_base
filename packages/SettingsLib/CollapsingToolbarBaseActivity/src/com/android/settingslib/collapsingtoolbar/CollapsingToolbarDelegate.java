@@ -223,6 +223,8 @@ public class CollapsingToolbarDelegate {
             }
         }
         autoSetCollapsingToolbarLayoutScrolling(appBarLayout);
+        // Tally: a long title gets smaller to fit the collapsed bar instead of being cut.
+        CollapsedTitleFit.install(collapsingToolbarLayout);
     }
 
     /** Initialize toolbar buttons container. */
