@@ -36,6 +36,8 @@ import com.android.systemui.statusbar.events.shared.model.SystemEventAnimationSt
 import com.android.systemui.statusbar.events.shared.model.SystemEventAnimationState.RunningChipAnim
 import com.android.systemui.statusbar.events.shared.model.SystemEventAnimationState.ShowingPersistentDot
 import com.android.systemui.statusbar.window.StatusBarWindowControllerStore
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.privacy.TallySensorJoinsLocationEvent
 import com.android.systemui.util.Assert
 import com.android.systemui.util.time.SystemClock
 import java.io.PrintWriter
@@ -177,6 +179,14 @@ constructor(
         }
 
         if (
+            TallyShell.isEnabled &&
+                event is TallySensorJoinsLocationEvent &&
+                event.showAnimation &&
+                hasPersistentDot
+        ) {
+            // Tally: a camera or microphone that joins location alone runs its chip.
+            runChipOverPersistentDot(event)
+        } else if (
             locationIndicatorsEnabled() &&
                 event is PrivacyEvent &&
                 event.privacyItems.isNotEmpty() &&
@@ -243,6 +253,22 @@ constructor(
             // once the animation has ended in the onAnimationEnd callback
             notifyHidePersistentDot()
         }
+    }
+
+    /**
+     * Tally: schedules [event] as if no dot were showing. The dot goes; a privacy chip still in
+     * view gives way to it as a lower priority chip does (animating out, with no dot); and the new
+     * chip runs its full appear, display and disappear, into the dot again. Stock only updates the
+     * dot, whose colour then changes, but Tally's dot has one colour for every sensor.
+     */
+    private fun runChipOverPersistentDot(event: StatusEvent) {
+        logger?.logScheduleEvent(event)
+        hasPersistentDot = false
+        notifyHidePersistentDot()
+        if (_animationState.value == ShowingPersistentDot) {
+            _animationState.value = Idle
+        }
+        scheduleEvent(event)
     }
 
     protected fun isTooEarly(): Boolean {

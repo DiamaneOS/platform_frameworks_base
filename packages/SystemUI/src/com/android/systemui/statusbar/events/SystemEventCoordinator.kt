@@ -31,11 +31,14 @@ import com.android.systemui.display.domain.interactor.ConnectedDisplayInteractor
 import com.android.systemui.log.LogBuffer
 import com.android.systemui.log.core.LogLevel
 import com.android.systemui.privacy.PrivacyChipBuilder
+import com.android.systemui.privacy.PrivacyConfig
 import com.android.systemui.privacy.PrivacyItem
 import com.android.systemui.privacy.PrivacyItemController
 import com.android.systemui.privacy.PrivacyType
 import com.android.systemui.res.R
 import com.android.systemui.statusbar.policy.BatteryController
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.privacy.TallySensorJoinsLocationEvent
 import com.android.systemui.util.time.SystemClock
 import javax.inject.Inject
 import kotlin.coroutines.CoroutineContext
@@ -99,11 +102,19 @@ constructor(
         scope.launch(mainCoroutineContext) { scheduler.removePersistentDot() }
     }
 
-    fun notifyPrivacyItemsChanged(showAnimation: Boolean = true) {
+    fun notifyPrivacyItemsChanged(
+        showAnimation: Boolean = true,
+        sensorJoinsLocation: Boolean = false,
+    ) {
         // Disabling animation in case that the privacy indicator is implemented as a status bar
         // chip
         val shouldShowAnimation = showAnimation && !Flags.expandedPrivacyIndicatorsOnLargeScreen()
-        val event = PrivacyEvent(shouldShowAnimation)
+        val event =
+            if (sensorJoinsLocation) {
+                TallySensorJoinsLocationEvent(shouldShowAnimation)
+            } else {
+                PrivacyEvent(shouldShowAnimation)
+            }
         event.privacyItems = privacyStateListener.currentPrivacyItems
         event.contentDescription = run {
             val items = PrivacyChipBuilder(context, event.privacyItems).joinTypes()
@@ -157,11 +168,13 @@ constructor(
                     timeLastEmpty = systemClock.elapsedRealtime()
                 }
 
+                // Tally: whether the dot showed location alone before this change.
+                val wasLocationOnly = PrivacyConfig.privacyItemsAreLocationOnly(currentPrivacyItems)
                 currentPrivacyItems = privacyItems
-                notifyListeners()
+                notifyListeners(wasLocationOnly)
             }
 
-            private fun notifyListeners() {
+            private fun notifyListeners(wasLocationOnly: Boolean) {
                 if (currentPrivacyItems.isEmpty()) {
                     notifyPrivacyItemsEmpty()
                 } else {
@@ -192,7 +205,14 @@ constructor(
                             isChipAnimationEnabled() &&
                                 (shouldAnimateCameraMic || shouldAnimateLocation)
                         }
-                    notifyPrivacyItemsChanged(showAnimation)
+                    // Tally: a camera or microphone that joins location alone gets its chip even
+                    // over the dot (see TallySensorJoinsLocationEvent), with the camera and
+                    // microphone's own exemption and debounce in showAnimation.
+                    val sensorJoinsLocation =
+                        TallyShell.isEnabled &&
+                            wasLocationOnly &&
+                            nonExemptItems.any { isCameraOrMicrophoneRequest(it) }
+                    notifyPrivacyItemsChanged(showAnimation, sensorJoinsLocation)
 
                     // Update the last location usage time for all current location items.
                     val now = systemClock.elapsedRealtime()
