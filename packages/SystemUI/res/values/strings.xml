@@ -1911,6 +1911,10 @@
     <!-- Section title for highlighted notifications. [CHAR LIMIT=40] -->
     <string name="notification_section_header_highlights">Highlights</string>
 
+    <!-- Tally: section title for what is going on now: live updates, calls and ongoing
+         foreground services. [CHAR LIMIT=40] -->
+    <string name="notification_section_header_live">Live</string>
+
     <!-- Content description for accessibility: Tapping this button will dismiss all gentle notifications [CHAR LIMIT=NONE] -->
     <string name="accessibility_notification_section_header_gentle_clear_all">Clear all silent notifications</string>
 

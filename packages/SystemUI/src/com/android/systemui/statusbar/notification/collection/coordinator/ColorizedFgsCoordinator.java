@@ -32,8 +32,11 @@ import com.android.systemui.statusbar.notification.collection.coordinator.dagger
 import com.android.systemui.statusbar.notification.collection.listbuilder.pluggable.NotifComparator;
 import com.android.systemui.statusbar.notification.collection.listbuilder.pluggable.NotifPromoter;
 import com.android.systemui.statusbar.notification.collection.listbuilder.pluggable.NotifSectioner;
+import com.android.systemui.statusbar.notification.collection.render.NodeController;
+import com.android.systemui.statusbar.notification.dagger.LiveHeader;
 import com.android.systemui.statusbar.notification.promoted.domain.interactor.PromotedNotificationsInteractor;
 import com.android.systemui.statusbar.notification.stack.NotificationPriorityBucketKt;
+import com.android.systemui.tally.TallyShell;
 import com.android.systemui.util.kotlin.JavaAdapterKt;
 
 import kotlinx.coroutines.CoroutineScope;
@@ -53,16 +56,19 @@ public class ColorizedFgsCoordinator implements Coordinator {
     private static final String TAG = "ColorizedCoordinator";
     private final PromotedNotificationsInteractor mPromotedNotificationsInteractor;
     private final CoroutineScope mMainScope;
+    private final NodeController mLiveHeaderController;
 
     private List<String> mOrderedPromotedNotifKeys = Collections.emptyList();
 
     @Inject
     public ColorizedFgsCoordinator(
             @Application CoroutineScope mainScope,
-            PromotedNotificationsInteractor promotedNotificationsInteractor
+            PromotedNotificationsInteractor promotedNotificationsInteractor,
+            @LiveHeader NodeController liveHeaderController
     ) {
         mPromotedNotificationsInteractor = promotedNotificationsInteractor;
         mMainScope = mainScope;
+        mLiveHeaderController = liveHeaderController;
     }
 
     @Override
@@ -143,6 +149,13 @@ public class ColorizedFgsCoordinator implements Coordinator {
         @Override
         public NotifComparator getComparator() {
             return mOngoingComparator;
+        }
+
+        @Nullable
+        @Override
+        public NodeController getHeaderNodeController() {
+            // Tally: every section of the shade has its header, this one "Live".
+            return TallyShell.isEnabled() ? mLiveHeaderController : null;
         }
     };
 
