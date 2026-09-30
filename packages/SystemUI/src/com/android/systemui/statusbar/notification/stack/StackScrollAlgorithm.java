@@ -67,8 +67,8 @@ public class StackScrollAlgorithm {
     private float mGapHeight;
     private float mGroupingDisabledSectionGapHeight;
     private float mGapHeightOnLockscreen;
-    /** Tally: the gap before a section header in the shade (see getTallyShadeGap) */
-    private float mTallySectionHeaderGap;
+    /** Tally: the gap before a section header at the top of the list (see getGapHeightForChild) */
+    private float mTallyTopHeaderGap;
     private int mCollapsedSize;
     private boolean mEnableNotificationClipping;
 
@@ -128,9 +128,10 @@ public class StackScrollAlgorithm {
         mGroupingDisabledSectionGapHeight = res.getDimensionPixelSize(
                 R.dimen.grouping_disabled_section_gap_height);
         if (TallyShell.isEnabled()) {
-            // The section's 4 dp margin, of which the 8 dp after every card is already part.
-            mTallySectionHeaderGap = res.getDimensionPixelSize(
-                    R.dimen.tally_notification_section_margin) - mPaddingBetweenElements;
+            mTallyTopHeaderGap = res.getDimensionPixelSize(
+                    R.dimen.tally_notification_section_header_first_padding_top)
+                    - res.getDimensionPixelSize(
+                            R.dimen.tally_notification_section_header_padding_top);
         }
         // TODO(b/488459485): make sidePaddings response to shadeMode if needed
         mNotificationScrimPadding =
@@ -829,10 +830,22 @@ public class StackScrollAlgorithm {
                 return mBundleGapHeight;
             }
 
+        } else if (TallyShell.isEnabled() && visibleIndex == 0
+                && child instanceof SectionHeaderView) {
+            // Tally: a header at the top of the list has only .sec-h's 12 dp above its words, as
+            // no section's margin comes before it; the 4 dp over them stay empty.
+            return getTallyGapForLocation(fractionToShade, onKeyguard,
+                    /* gapOnLockscreen= */ 0f, /* shadeGap= */ mTallyTopHeaderGap);
+        } else if (TallyShell.isEnabled()
+                && followsSectionHeader(visibleIndex, child, previousChild)) {
+            // Tally: the header reaches down to this card itself (see getTallyShadeGap).
+            return getTallyGapForLocation(fractionToShade, onKeyguard,
+                    /* gapOnLockscreen= */ 0f, /* shadeGap= */ -mPaddingBetweenElements);
         } else if (childNeedsGapHeight(sectionProvider, visibleIndex, child, previousChild)) {
             if (TallyShell.isEnabled()) {
                 return getTallyGapForLocation(fractionToShade, onKeyguard,
-                        sectionProvider.isGroupingDisabled(child),
+                        sectionProvider.isGroupingDisabled(child)
+                                ? mGroupingDisabledSectionGapHeight : mGapHeightOnLockscreen,
                         getTallyShadeGap(sectionProvider, child, previousChild));
             }
             return getGapForLocation(fractionToShade, onKeyguard,
@@ -844,16 +857,17 @@ public class StackScrollAlgorithm {
 
     /**
      * Tally: the gap before {@code child} in the shade, as the prototype spaces its sections.
-     * Every section there starts with its header, which keeps the space above its words itself:
-     * the header starts 4 dp under the card before it, its words 12 dp further down. Cards in one
-     * section are only the 8 dp every card keeps from the next apart, the Live section's
-     * (grouping disabled) and the conversations under the one "Conversations" header included.
-     * Where a section starts without a header, stock's gap stays.
+     * Every section there starts with its header, and the header takes the whole space between
+     * the card before it and the card after it (16 dp, its words, 8 dp), so that all of that space
+     * is its to tap: it starts right under the card before it, and the card after it starts right
+     * under it, instead of the 8 dp every card keeps from the next. Cards in one section are only
+     * those 8 dp apart, the Live section's (grouping disabled) and the conversations under the one
+     * "Conversations" header included. Where a section starts without a header, stock's gap stays.
      */
     private float getTallyShadeGap(SectionProvider sectionProvider, View child,
             View previousChild) {
         if (child instanceof SectionHeaderView) {
-            return mTallySectionHeaderGap;
+            return -mPaddingBetweenElements;
         }
         if (sectionProvider.continuesShadeSection(child, previousChild)
                 || (sectionProvider.isGroupingDisabled(child)
@@ -863,14 +877,19 @@ public class StackScrollAlgorithm {
         return mGapHeight;
     }
 
+    /** Tally: whether {@code child} is the first card under a section header. */
+    private static boolean followsSectionHeader(int visibleIndex, View child, View previousChild) {
+        return visibleIndex > 0
+                && previousChild instanceof SectionHeaderView
+                && !(child instanceof FooterView);
+    }
+
     /**
      * Tally: {@link #getGapForLocation} with the shade's gap from {@link #getTallyShadeGap}. The
      * lock screen keeps stock's gaps, and the gap moves between the two as stock's does.
      */
     private float getTallyGapForLocation(float fractionToShade, boolean onKeyguard,
-            boolean isGroupingDisabled, float shadeGap) {
-        final float gapOnLockscreen =
-                isGroupingDisabled ? mGroupingDisabledSectionGapHeight : mGapHeightOnLockscreen;
+            float gapOnLockscreen, float shadeGap) {
         if (fractionToShade > 0f) {
             return MathUtils.lerp(gapOnLockscreen, shadeGap, fractionToShade);
         }

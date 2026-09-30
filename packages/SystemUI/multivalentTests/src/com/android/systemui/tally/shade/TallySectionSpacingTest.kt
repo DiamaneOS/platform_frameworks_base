@@ -46,8 +46,10 @@ import org.mockito.kotlin.whenever
  * The space a section header takes in the shade, against the prototype (.nsec and .sec-h in
  * app.css): from the last card of one section to the header's words 16 dp (the section's 4 dp
  * margin and the header's 12 dp), the words on the section type's 16 sp line, and 8 dp from the
- * words to the first card: 40 dp card to card at the default text size. Stock's header is 48 dp
- * with its section gap before it. Cards within a section stay 8 dp apart, the Live section's too.
+ * words to the first card: 40 dp card to card at the default text size. The header takes all of
+ * that space, and its words and Silent's clear-all key take all of the header to tap. Stock's
+ * header is 48 dp with its section gap before it. Cards within a section stay 8 dp apart, the Live
+ * section's too.
  */
 @SmallTest
 @RunWith(AndroidJUnit4::class)
@@ -141,16 +143,24 @@ class TallySectionSpacingTest : SysuiTestCase() {
     }
 
     @Test
-    fun header_isTwelveDpAndTheWordsLine() {
+    fun header_isSixteenDpTheWordsLineAndEightDp() {
         for (scale in floatArrayOf(1f, 1.5f, 2f)) {
             val (view, c) = header(scale)
             val label = view.label()
             if (TallyShell.isEnabled) {
                 val line = line(label, c)
-                assertThat(label.minHeight.toFloat()).isWithin(1f).of(sp(16f, c))
-                assertThat(top(label, view).toFloat()).isWithin(1f).of(dp(12f, c))
-                assertThat(label.height.toFloat()).isWithin(1f).of(line)
-                assertThat(view.height.toFloat()).isWithin(1f).of(dp(12f, c) + line)
+                // The words' line starts 16 dp down and is the line tall, 8 dp over the bottom.
+                assertThat((top(label, view) + label.paddingTop).toFloat())
+                    .isWithin(1f)
+                    .of(dp(16f, c))
+                assertThat((label.height - label.paddingTop - label.paddingBottom).toFloat())
+                    .isWithin(1f)
+                    .of(line)
+                assertThat(label.paddingBottom.toFloat()).isWithin(1f).of(dp(8f, c))
+                assertThat(view.height.toFloat()).isWithin(1f).of(dp(24f, c) + line)
+                // The words take the whole header to tap.
+                assertThat(top(label, view)).isEqualTo(0)
+                assertThat(label.height).isEqualTo(view.height)
             } else {
                 assertThat(view.height.toFloat()).isWithin(1f).of(dp(48f, c))
             }
@@ -173,8 +183,10 @@ class TallySectionSpacingTest : SysuiTestCase() {
     }
 
     @Test
-    fun clearAll_takesTheHeadersHeight_crossOnTheWordsLine() {
-        for (scale in floatArrayOf(1f, 2f)) {
+    fun clearAll_isTheHeadersHeightAnd56DpWide_crossOnTheWordsLine() {
+        // The key's size to tap at 100, 150 and 200 % text: 40, 47 and 52 dp tall (the line is
+        // 16 sp, which Android scales to 16, 23 and 28 dp), 56 dp wide.
+        for (scale in floatArrayOf(1f, 1.5f, 2f)) {
             val (view, c) = header(scale, clearAll = true)
             val x = view.clearAll()
             val label = view.label()
@@ -183,42 +195,78 @@ class TallySectionSpacingTest : SysuiTestCase() {
                 assertThat(view.height.toFloat()).isWithin(1f).of(dp(48f, c))
                 continue
             }
-            // The key doesn't make the header taller; it spans all of it, 48 dp wide.
-            assertThat(view.height.toFloat()).isWithin(1f).of(dp(12f, c) + line(label, c))
+            // The key doesn't make the header taller; it spans all of it.
+            assertThat(view.height.toFloat()).isWithin(1f).of(dp(24f, c) + line(label, c))
+            assertThat(top(x, view)).isEqualTo(0)
             assertThat(x.height).isEqualTo(view.height)
-            assertThat(x.width.toFloat()).isWithin(1f).of(dp(48f, c))
-            // Its cross is centred on the words' line, and its end 4 dp in, as stock's.
-            val crossCentre = top(x, view) + x.paddingTop + (x.height - x.paddingTop) / 2f
-            val lineCentre = top(label, view) + label.height / 2f
+            assertThat(x.width.toFloat()).isWithin(1f).of(dp(56f, c))
+            if (scale == 1f && line(label, c) == sp(16f, c)) {
+                assertThat(x.height.toFloat()).isWithin(1f).of(dp(40f, c))
+            }
+            assertThat(x.height.toFloat()).isAtLeast(dp(40f, c) - 1f)
+            // Its cross is centred on the words' line, and 28 dp in from the end, as stock's.
+            val crossCentre =
+                top(x, view) + x.paddingTop + (x.height - x.paddingTop - x.paddingBottom) / 2f
+            val lineCentre =
+                top(label, view) +
+                    label.paddingTop +
+                    (label.height - label.paddingTop - label.paddingBottom) / 2f
             assertThat(crossCentre).isWithin(1f).of(lineCentre)
-            assertThat((view.width - left(x, view) - x.width).toFloat()).isWithin(1f).of(dp(4f, c))
+            assertThat(view.width - (left(x, view) + x.width / 2f)).isWithin(1f).of(dp(28f, c))
         }
+        if (!TallyShell.isEnabled) return
+        // Right to left, the key is at the left end, its cross 28 dp in from the left edge.
+        val (rtl, c) = header(clearAll = true, rtl = true)
+        val x = rtl.clearAll()
+        assertThat(left(x, rtl) + x.width / 2f).isWithin(1f).of(dp(28f, c))
+        assertThat(x.height).isEqualTo(rtl.height)
     }
 
     private fun algorithm() =
         StackScrollAlgorithm(context, FrameLayout(context), mock<HeadsUpAnimator>())
 
     @Test
-    fun cardToCard_acrossAHeader_isFortyDp() {
+    fun cardToCard_acrossAHeader_isFortyDp_andTheHeaderFillsIt() {
         val (view, _) = header()
         // A header begins its section (NotificationSectionsManager.beginsSection).
         whenever(sections.beginsSection(view, card)).thenReturn(true)
-        val gap =
-            algorithm().getGapHeightForChild(sections, 1, view, card, 0f, /* onKeyguard= */ false)
+        val algorithm = algorithm()
+        val before = algorithm.getGapHeightForChild(sections, 1, view, card, 0f, false)
+        val after = algorithm.getGapHeightForChild(sections, 2, nextCard, view, 0f, false)
         val between = px(R.dimen.notification_divider_height)
-        val total = between + gap + view.height + between
         if (TallyShell.isEnabled) {
             val label = view.label()
             assertThat(between).isWithin(1f).of(dp(8f))
-            // 4 dp margin + 12 dp above the words, the words' line, 8 dp to the next card
-            assertThat(between + gap + top(label, view)).isWithin(1f).of(dp(16f))
-            assertThat(total).isWithin(1f).of(dp(16f) + line(label, context) + dp(8f))
-            assertThat(between + gap + top(label, view) + sp(16f, context) + between)
-                .isWithin(1f)
-                .of(dp(40f))
+            // The header starts right under the card before it, the card after right under it.
+            assertThat(between + before).isEqualTo(0f)
+            assertThat(between + after).isEqualTo(0f)
+            // 16 dp to the words, the words' line, 8 dp to the next card
+            assertThat((top(label, view) + label.paddingTop).toFloat()).isWithin(1f).of(dp(16f))
+            val total = between + before + view.height + between + after
+            assertThat(total).isWithin(1f).of(dp(24f) + line(label, context))
+            assertThat(dp(24f) + sp(16f, context)).isWithin(1f).of(dp(40f))
         } else {
-            assertThat(gap).isEqualTo(px(R.dimen.notification_section_divider_height))
+            assertThat(before).isEqualTo(px(R.dimen.notification_section_divider_height))
+            assertThat(after).isEqualTo(0f)
         }
+    }
+
+    @Test
+    fun aHeaderAtTheTop_hasTwelveDpOverItsWords() {
+        val (view, _) = header()
+        val gap = algorithm().getGapHeightForChild(sections, 0, view, null, 0f, false)
+        if (TallyShell.isEnabled) {
+            assertThat(gap + view.label().paddingTop).isWithin(1f).of(dp(12f))
+        } else {
+            assertThat(gap).isEqualTo(0f)
+        }
+    }
+
+    @Test
+    fun theCardUnderAHeader_onTheLockScreen_keepsStocksGap() {
+        val (view, _) = header()
+        assertThat(algorithm().getGapHeightForChild(sections, 2, nextCard, view, 0f, true))
+            .isEqualTo(0f)
     }
 
     @Test
