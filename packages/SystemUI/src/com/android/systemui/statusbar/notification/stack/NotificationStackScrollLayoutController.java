@@ -86,6 +86,7 @@ import com.android.systemui.statusbar.DragDownHelper;
 import com.android.systemui.statusbar.LockscreenShadeTransitionController;
 import com.android.systemui.statusbar.NotificationLockscreenUserManager;
 import com.android.systemui.statusbar.NotificationLockscreenUserManager.UserChangedListener;
+import com.android.systemui.statusbar.NotificationShadeWindowController;
 import com.android.systemui.statusbar.NotificationShelf;
 import com.android.systemui.statusbar.RemoteInputController;
 import com.android.systemui.statusbar.StatusBarState;
@@ -192,6 +193,7 @@ public class NotificationStackScrollLayoutController implements Dumpable {
     private final NotificationStackScrollLogger mLogger;
     private final MagneticNotificationRowManager mMagneticNotificationRowManager;
     private final NotificationSectionsManager mSectionsManager;
+    private final Provider<NotificationShadeWindowController> mNotificationShadeWindowController;
 
     private final GroupExpansionManager mGroupExpansionManager;
     private NotificationStackScrollLayout mView;
@@ -869,7 +871,8 @@ public class NotificationStackScrollLayoutController implements Dumpable {
             SplitShadeStateController splitShadeStateController,
             SensitiveNotificationProtectionController sensitiveNotificationProtectionController,
             MagneticNotificationRowManager magneticNotificationRowManager,
-            NotificationSectionsManager sectionsManager) {
+            NotificationSectionsManager sectionsManager,
+            Provider<NotificationShadeWindowController> notificationShadeWindowController) {
         mView = view;
         mViewBinder = viewBinder;
         mStackStateLogger = stackLogger;
@@ -923,6 +926,7 @@ public class NotificationStackScrollLayoutController implements Dumpable {
         }
         mMagneticNotificationRowManager = magneticNotificationRowManager;
         mSectionsManager = sectionsManager;
+        mNotificationShadeWindowController = notificationShadeWindowController;
         if (SceneContainerFlag.isEnabled()) {
             mWakeUpCoordinator.setStackScroller(this);
         }
@@ -939,6 +943,8 @@ public class NotificationStackScrollLayoutController implements Dumpable {
         mView.setTouchHandler(mTouchHandler);
         mView.setResetUserExpandedStatesRunnable(mNotificationsController::resetUserExpandedStates);
         mView.setClearAllAnimationListener(this::onAnimationEnd);
+        mView.setAnimationRunningListener(running ->
+                mNotificationShadeWindowController.get().setNotificationStackAnimating(running));
         mView.setClearAllListener((selection) -> mUiEventLogger.log(
                 NotificationPanelEvent.fromSelection(selection)));
         mView.setClearAllFinishedWhilePanelExpandedRunnable(() -> {
