@@ -43,6 +43,10 @@ android_library {
         "androidx.window_window-core",
         "//frameworks/libs/systemui:tracinglib-platform",
         "//frameworks/libs/systemui:mechanics",
+        // Tally: the shell's radii for PlatformTheme's shapes and PlatformButton
+        // (com.android.compose.theme.TallyShapes), behind the Tally flag.
+        "de_diamaneos_systemui_flags_lib",
+        "tallytokens",
     ],
 
     kotlincflags: [
