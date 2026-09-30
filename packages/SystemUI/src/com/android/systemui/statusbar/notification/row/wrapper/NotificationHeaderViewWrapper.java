@@ -342,7 +342,10 @@ public class NotificationHeaderViewWrapper extends NotificationViewWrapper imple
             }
         }
         if (host != null) {
-            TallyLiveCards.bindLamp(mRow.getContext(), host, state, /* atEnd= */ true);
+            // On a colourised card the lamp takes the card's content colour, as the words do.
+            TallyLiveCards.bindLamp(mRow.getContext(), host, state, /* atEnd= */ true,
+                    TallyLiveCards.cardLampColors(mRow.getContext(), getCustomBackgroundColor(),
+                            host.getCurrentTextColor()));
         }
     }
 
