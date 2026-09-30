@@ -860,9 +860,10 @@
         <item name="android:minWidth">0dp</item>
     </style>
     <!-- Tally: section headers in the section role (small capitals in the muted colour), on the
-         section type's own line (tally_notification_section_header), 4 dp in from the cards'
-         edge. The words are centred on the line from their ascent and descent, as the
-         prototype's line box does. -->
+         section type's own line (tally_notification_section_header, whose paddings above and
+         below it SectionHeaderView adds to the minimum height), 4 dp in from the cards' edge. The
+         words are centred on the line from their ascent and descent, as the prototype's line box
+         does. -->
     <style xmlns:android="http://schemas.android.com/apk/res/android"
         name="TextAppearance.NotificationSectionHeaderLabel"
         parent="@android:style/Widget.DeviceDefault.Button.Borderless"

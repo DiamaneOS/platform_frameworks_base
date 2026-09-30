@@ -17,12 +17,17 @@
 
 <!-- Sizes only the Tally notification section headers use (the prototype's .nsec and .sec-h). -->
 <resources>
-    <!-- The space under a section's last card before the next section's header (.nsec's 4 dp
-         margin). The header then adds its own 12 dp, so the words start 16 dp under the card. -->
-    <dimen name="tally_notification_section_margin">@dimen/tally_space_xs</dimen>
-    <!-- The space a header keeps above its words (.sec-h's 12 dp). Under the words there is only
-         the 8 dp every card keeps from the next, as .sec-h's 8 dp. -->
-    <dimen name="tally_notification_section_header_padding_top">@dimen/tally_space_m</dimen>
+    <!-- A header takes the whole space between the last card of one section and the first card
+         of the next, so that all of it is its to tap: above its words the section's 4 dp margin
+         (.nsec) and .sec-h's 12 dp, ... -->
+    <dimen name="tally_notification_section_header_padding_top">@dimen/tally_space_l</dimen>
+    <!-- ... and under them .sec-h's 8 dp, the 8 dp every card keeps from the next. -->
+    <dimen name="tally_notification_section_header_padding_bottom">@dimen/tally_space_s</dimen>
+    <!-- At the top of the list there is no section's margin: .sec-h's 12 dp above the words -->
+    <dimen name="tally_notification_section_header_first_padding_top">@dimen/tally_space_m</dimen>
     <!-- The header's words sit 4 dp in from the cards' edge (.sec-h's side padding) -->
     <dimen name="tally_notification_section_header_padding_side">@dimen/tally_space_xs</dimen>
+    <!-- Silent's clear-all key: 56 dp wide at the header's end, its cross 28 dp in from the
+         cards' edge as stock's (a 48 dp key 4 dp in) -->
+    <dimen name="tally_notification_section_clear_all_width">56dp</dimen>
 </resources>
