@@ -855,6 +855,17 @@
         <item name="android:gravity">center</item>
     </style>
 
+    <!-- The label of a notification long-press option (notification_2025_info and the other
+         guts layouts): nothing of its own in stock. -->
+    <style name="NotificationGutsOptionLabel" />
+    <!-- Tally: the option's state lamp at the label's end (tally_guts_option_lamp), lit only on
+         the chosen option, whose row is selected. -->
+    <style name="NotificationGutsOptionLabel"
+        android:featureFlag="de.diamaneos.systemui.tally_shell">
+        <item name="android:drawableEnd">@drawable/tally_guts_option_lamp</item>
+        <item name="android:drawablePadding">@dimen/tally_space_s</item>
+    </style>
+
     <style
         name="TextAppearance.NotificationSectionHeaderLabel"
         parent="@android:style/Widget.DeviceDefault.Button.Borderless">
