@@ -367,6 +367,7 @@ public class NotificationStackScrollLayout
     private final ArrayList<ExpandableNotificationRow> mTmpHeadsUpChangeAnimations =
             new ArrayList<>();
     private boolean mAnimationRunning;
+    @Nullable private Consumer<Boolean> mAnimationRunningListener;
     private final ViewTreeObserver.OnPreDrawListener mRunningAnimationUpdater
             = new ViewTreeObserver.OnPreDrawListener() {
         @Override
@@ -5740,7 +5741,8 @@ public class NotificationStackScrollLayout
     }
 
     public void setAnimationRunning(boolean animationRunning) {
-        if (animationRunning != mAnimationRunning) {
+        final boolean changed = animationRunning != mAnimationRunning;
+        if (changed) {
             if (animationRunning) {
                 getViewTreeObserver().addOnPreDrawListener(mRunningAnimationUpdater);
             } else {
@@ -5749,6 +5751,18 @@ public class NotificationStackScrollLayout
             mAnimationRunning = animationRunning;
             updateContinuousShadowDrawing();
         }
+        // Every new batch of animations is reported, their end once.
+        if (mAnimationRunningListener != null && (animationRunning || changed)) {
+            mAnimationRunningListener.accept(animationRunning);
+        }
+    }
+
+    /**
+     * Sets a listener told when a batch of stack animations starts (with {@code true}, also while
+     * others still run) and when all of them have ended (with {@code false}).
+     */
+    void setAnimationRunningListener(@Nullable Consumer<Boolean> listener) {
+        mAnimationRunningListener = listener;
     }
 
     public boolean isExpanded() {
