@@ -26,14 +26,19 @@ import static com.android.systemui.util.kotlin.JavaAdapterKt.collectFlow;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.IActivityManager;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
 import android.graphics.Rect;
 import android.graphics.Region;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.RemoteException;
 import android.os.Trace;
+import android.os.UserHandle;
+import android.provider.Settings;
 import android.util.Log;
 import android.view.Display;
 import android.view.IWindow;
@@ -117,6 +122,8 @@ public class NotificationShadeWindowControllerImpl
     private final long mLockScreenDisplayTimeout;
     private final float mKeyguardPreferredRefreshRate; // takes precedence over max
     private final float mKeyguardMaxRefreshRate;
+    private final Handler mNotificationAnimationHandler = new Handler(Looper.getMainLooper());
+    private final NotificationAnimationRefreshRate mNotificationAnimationRefreshRate;
     private final KeyguardViewMediator mKeyguardViewMediator;
     private final KeyguardBypassController mKeyguardBypassController;
     private final Executor mBackgroundExecutor;
@@ -229,6 +236,11 @@ public class NotificationShadeWindowControllerImpl
         // know that we're not falsing (because we unlocked.)
         mKeyguardMaxRefreshRate =
                 context.getResources().getInteger(R.integer.config_keyguardMaxRefreshRate);
+        // Applied from a message: stack animations start while the window traverses.
+        mNotificationAnimationRefreshRate = new NotificationAnimationRefreshRate(
+                mNotificationAnimationHandler,
+                this::getNotificationAnimationRefreshRate,
+                () -> mNotificationAnimationHandler.post(() -> apply(mCurrentState)));
         mTopUiController = topUiController;
         mKeyguardSurfaceBehindInteractor = keyguardSurfaceBehindInteractor;
 
@@ -448,6 +460,8 @@ public class NotificationShadeWindowControllerImpl
             mLpChanged.privateFlags &= ~LayoutParams.SYSTEM_FLAG_HIDE_NON_SYSTEM_OVERLAY_WINDOWS;
         }
 
+        float keyguardMinRefreshRate = 0;
+        float keyguardMaxRefreshRate = 0;
         if (mKeyguardPreferredRefreshRate > 0) {
             boolean onKeyguard =
                     state.statusBarState == StatusBarState.KEYGUARD
@@ -460,15 +474,10 @@ public class NotificationShadeWindowControllerImpl
                 // the preferred refresh rates below, the refresh rate will not override the max
                 // refresh rate in settings (ie: if smooth display is OFF).
                 // Both max and min display refresh rate must be set to take effect:
-                mLpChanged.preferredMaxDisplayRefreshRate = mKeyguardPreferredRefreshRate;
-                mLpChanged.preferredMinDisplayRefreshRate = mKeyguardPreferredRefreshRate;
-            } else {
-                mLpChanged.preferredMaxDisplayRefreshRate = 0;
-                mLpChanged.preferredMinDisplayRefreshRate = 0;
+                keyguardMaxRefreshRate = mKeyguardPreferredRefreshRate;
+                keyguardMinRefreshRate = mKeyguardPreferredRefreshRate;
             }
-            Trace.setCounter(
-                    "display_set_preferred_refresh_rate",
-                    (long) mLpChanged.preferredMaxDisplayRefreshRate);
+            Trace.setCounter("display_set_preferred_refresh_rate", (long) keyguardMaxRefreshRate);
         } else if (mKeyguardMaxRefreshRate > 0) {
             boolean bypassOnKeyguard =
                     mKeyguardBypassController.getBypassEnabled()
@@ -476,13 +485,17 @@ public class NotificationShadeWindowControllerImpl
                             && !state.keyguardFadingAway
                             && !state.keyguardGoingAway;
             if (state.dozing || bypassOnKeyguard) {
-                mLpChanged.preferredMaxDisplayRefreshRate = mKeyguardMaxRefreshRate;
-            } else {
-                mLpChanged.preferredMaxDisplayRefreshRate = 0;
+                keyguardMaxRefreshRate = mKeyguardMaxRefreshRate;
             }
-            Trace.setCounter(
-                    "display_max_refresh_rate", (long) mLpChanged.preferredMaxDisplayRefreshRate);
+            Trace.setCounter("display_max_refresh_rate", (long) keyguardMaxRefreshRate);
         }
+        // Notification animations may raise the minimum, within the keyguard's maximum.
+        mLpChanged.preferredMaxDisplayRefreshRate = keyguardMaxRefreshRate;
+        mLpChanged.preferredMinDisplayRefreshRate =
+                NotificationAnimationRefreshRate.combineMinRefreshRate(
+                        keyguardMinRefreshRate,
+                        keyguardMaxRefreshRate,
+                        getNotificationAnimationMinRefreshRate(state));
 
         if (state.bouncerShowing) {
             mLpChanged.flags |= LayoutParams.FLAG_SECURE;
@@ -495,6 +508,47 @@ public class NotificationShadeWindowControllerImpl
         } else {
             mLpChanged.inputFeatures &= ~LayoutParams.INPUT_FEATURE_SENSITIVE_FOR_PRIVACY;
         }
+    }
+
+    /**
+     * The minimum refresh rate notification animations ask for, or 0. The request ends at once
+     * when the device dozes or the window hides, so it never outlasts them.
+     */
+    private float getNotificationAnimationMinRefreshRate(NotificationShadeWindowState state) {
+        if (mNotificationAnimationRefreshRate.getMinRefreshRate() == 0) {
+            return 0;
+        }
+        if (state.dozing || !isExpanded(state)) {
+            mNotificationAnimationRefreshRate.clear();
+            return 0;
+        }
+        return mNotificationAnimationRefreshRate.getMinRefreshRate();
+    }
+
+    /**
+     * The refresh rate for notification animations: the display's highest, within the user's
+     * limit (Smooth display off caps it at 60 Hz), or 0 where the display adapts its refresh rate
+     * to the toolkit's own votes.
+     */
+    private float getNotificationAnimationRefreshRate() {
+        final Display display = mContext.getDisplay();
+        if (display == null || display.hasArrSupport()) {
+            return 0;
+        }
+        float highestRefreshRate = 0;
+        for (Display.Mode mode : display.getSupportedModes()) {
+            highestRefreshRate = Math.max(highestRefreshRate, mode.getRefreshRate());
+        }
+        final ContentResolver resolver = mContext.getContentResolver();
+        final float minSetting = Settings.System.getFloatForUser(resolver,
+                Settings.System.MIN_REFRESH_RATE, 0f, UserHandle.USER_CURRENT);
+        final float peakSetting = Settings.System.getFloatForUser(resolver,
+                Settings.System.PEAK_REFRESH_RATE,
+                mContext.getResources().getInteger(
+                        com.android.internal.R.integer.config_defaultPeakRefreshRate),
+                UserHandle.USER_CURRENT);
+        return NotificationAnimationRefreshRate.peakRefreshRate(
+                highestRefreshRate, minSetting, peakSetting);
     }
 
     private void adjustScreenOrientation(NotificationShadeWindowState state) {
@@ -952,6 +1006,14 @@ public class NotificationShadeWindowControllerImpl
     }
 
     @Override
+    public void setNotificationStackAnimating(boolean animating) {
+        if (animating && mCurrentState.dozing) {
+            return;
+        }
+        mNotificationAnimationRefreshRate.onStackAnimating(animating);
+    }
+
+    @Override
     public void setLightRevealScrimOpaque(boolean opaque) {
         if (mCurrentState.lightRevealScrimOpaque == opaque) {
             return;
@@ -1076,6 +1138,8 @@ public class NotificationShadeWindowControllerImpl
         pw.println("  mKeyguardPreferredRefreshRate=" + mKeyguardPreferredRefreshRate);
         pw.println("  preferredMinDisplayRefreshRate=" + mLpChanged.preferredMinDisplayRefreshRate);
         pw.println("  preferredMaxDisplayRefreshRate=" + mLpChanged.preferredMaxDisplayRefreshRate);
+        pw.println("  notificationAnimationMinRefreshRate="
+                + mNotificationAnimationRefreshRate.getMinRefreshRate());
         pw.println("  mDeferWindowLayoutParams=" + mDeferWindowLayoutParams);
         pw.println(mCurrentState);
         if (mWindowRootView != null && mWindowRootView.getViewRootImpl() != null) {
