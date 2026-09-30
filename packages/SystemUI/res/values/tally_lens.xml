@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ~ Copyright (C) 2026 The DiamaneOS Project
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~      http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+  -->
+<resources>
+    <!-- Tally: the front camera's lens, as a circle, for the lens ring and the location lamp by
+         the lens (TallyLensIndicator). A device overlay sets all three. They are in pixels of the
+         display's highest resolution in its natural orientation, as config_mainBuiltInDisplayCutout
+         is: the centre's x from the display's horizontal centre (negative to the left) and its y
+         from the top edge, then the radius. SystemUI scales and rotates them as the framework does
+         the cutout path. With the radius at 0 the lens is inferred from the cutout's shape.
+
+         The ring keeps clear of the lens and of the declared cutout: it is always drawn at least
+         2 dp outside config_mainBuiltInDisplayCutout, so a true ring around the lens needs a round
+         cutout path around it. The lamp sits beside the lens, level with its centre. -->
+    <dimen name="tally_lens_center_x">0px</dimen>
+    <dimen name="tally_lens_center_y">0px</dimen>
+    <dimen name="tally_lens_radius">0px</dimen>
+</resources>
