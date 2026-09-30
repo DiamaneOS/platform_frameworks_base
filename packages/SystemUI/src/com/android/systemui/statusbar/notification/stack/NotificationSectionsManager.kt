@@ -32,6 +32,7 @@ import com.android.systemui.statusbar.notification.collection.render.SectionHead
 import com.android.systemui.statusbar.notification.dagger.AlertingHeader
 import com.android.systemui.statusbar.notification.dagger.HighlightsHeader
 import com.android.systemui.statusbar.notification.dagger.IncomingHeader
+import com.android.systemui.statusbar.notification.dagger.LiveHeader
 import com.android.systemui.statusbar.notification.dagger.PeopleHeader
 import com.android.systemui.statusbar.notification.dagger.SilentHeader
 import com.android.systemui.statusbar.notification.row.ExpandableNotificationRow
@@ -39,6 +40,7 @@ import com.android.systemui.statusbar.notification.row.ExpandableView
 import com.android.systemui.statusbar.notification.shared.NmContextualDisplay
 import com.android.systemui.statusbar.notification.stack.StackScrollAlgorithm.SectionProvider
 import com.android.systemui.statusbar.policy.ConfigurationController
+import com.android.systemui.tally.TallyShell
 import com.android.systemui.util.foldToSparseArray
 import javax.inject.Inject
 
@@ -57,6 +59,7 @@ internal constructor(
     @AlertingHeader private val alertingHeaderController: SectionHeaderController,
     @SilentHeader private val silentHeaderController: SectionHeaderController,
     @HighlightsHeader private val highlightsHeaderController: SectionHeaderController,
+    @LiveHeader private val liveHeaderController: SectionHeaderController,
 ) : SectionProvider {
 
     private val groupingDisabledBuckets =
@@ -101,6 +104,11 @@ internal constructor(
     val highlightsHeaderView: SectionHeaderView?
         get() = highlightsHeaderController.headerView
 
+    /** Tally: the Live section's header; only Tally inflates it. */
+    @VisibleForTesting
+    val liveHeaderView: SectionHeaderView?
+        get() = liveHeaderController.headerView
+
     /** Must be called before use. */
     fun initialize(parent: NotificationStackScrollLayout) {
         check(!initialized) { "NotificationSectionsManager already initialized" }
@@ -130,6 +138,9 @@ internal constructor(
         if (NmContextualDisplayLaunch.isEnabled) {
             highlightsHeaderController.reinflateView(parent)
         }
+        if (TallyShell.isEnabled) {
+            liveHeaderController.reinflateView(parent)
+        }
     }
 
     override fun isGroupingDisabled(view: View): Boolean {
@@ -143,6 +154,7 @@ internal constructor(
             view === alertingHeaderView ||
             view === incomingHeaderView ||
             (NmContextualDisplayLaunch.isEnabled && view === highlightsHeaderView) ||
+            (TallyShell.isEnabled && view === liveHeaderView) ||
             getBucket(view) != getBucket(previous)) &&
             // don't consider the first notification after onboarding to be a new section, so that
             // the onboarding affordance remains close to the notification
@@ -156,9 +168,22 @@ internal constructor(
             view === peopleHeaderView -> BUCKET_PEOPLE
             view === alertingHeaderView -> BUCKET_ALERTING
             view === highlightsHeaderView -> BUCKET_HIGHLIGHTS
+            TallyShell.isEnabled && view === liveHeaderView -> BUCKET_FOREGROUND_SERVICE
             view is ExpandableNotificationRow -> view.entryAdapter?.sectionBucket
             else -> null
         }
+
+    /**
+     * Tally: priority conversations and the other conversations share the one "Conversations"
+     * header, so in the shade the second continues the first's section, without a gap.
+     */
+    override fun continuesShadeSection(view: View, previous: View?): Boolean =
+        TallyShell.isEnabled &&
+            getBucket(previous) == BUCKET_PRIORITY_PEOPLE &&
+            getBucket(view) == BUCKET_PEOPLE
+
+    /** Whether [view] is the Silent section's header, the one header clear-all hides. */
+    fun isSilentHeader(view: View): Boolean = view === silentHeaderView
 
     private sealed class SectionBounds {
 
@@ -360,6 +385,9 @@ internal constructor(
     }
 
     fun setHeaderForegroundColors(@ColorInt onSurface: Int, @ColorInt onSurfaceVariant: Int) {
+        if (TallyShell.isEnabled) {
+            liveHeaderView?.setForegroundColors(onSurface, onSurfaceVariant)
+        }
         peopleHeaderView?.setForegroundColors(onSurface, onSurfaceVariant)
         silentHeaderView?.setForegroundColors(onSurface, onSurfaceVariant)
         alertingHeaderView?.setForegroundColors(onSurface, onSurfaceVariant)

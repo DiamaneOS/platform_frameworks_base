@@ -138,6 +138,7 @@ import com.android.systemui.statusbar.notification.stack.ui.viewmodel.Notificati
 import com.android.systemui.statusbar.phone.HeadsUpAppearanceController;
 import com.android.systemui.statusbar.policy.ScrollAdapter;
 import com.android.systemui.statusbar.policy.SplitShadeStateController;
+import com.android.systemui.tally.TallyShell;
 import com.android.systemui.util.Assert;
 import com.android.systemui.util.ColorUtilKt;
 import com.android.systemui.util.DumpUtilsKt;
@@ -6243,7 +6244,10 @@ public class NotificationStackScrollLayout
 
             if (view instanceof SectionHeaderView) {
                 // The only SectionHeaderView we have is the silent section header.
-                if (hideSilentSection) {
+                // Tally: every section has its header, and only Silent's goes with its section;
+                // the others stay with the cards clear-all leaves, or go with their section.
+                if (hideSilentSection
+                        && (!TallyShell.isEnabled() || mSectionsManager.isSilentHeader(view))) {
                     viewsToHide.add(view);
                 }
             }
