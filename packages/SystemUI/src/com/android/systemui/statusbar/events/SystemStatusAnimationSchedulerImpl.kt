@@ -36,6 +36,8 @@ import com.android.systemui.statusbar.events.shared.model.SystemEventAnimationSt
 import com.android.systemui.statusbar.events.shared.model.SystemEventAnimationState.RunningChipAnim
 import com.android.systemui.statusbar.events.shared.model.SystemEventAnimationState.ShowingPersistentDot
 import com.android.systemui.statusbar.window.StatusBarWindowControllerStore
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.privacy.TallySensorJoinsLocationEvent
 import com.android.systemui.util.Assert
 import com.android.systemui.util.time.SystemClock
 import java.io.PrintWriter
@@ -177,16 +179,27 @@ constructor(
         }
 
         if (
+            TallyShell.isEnabled &&
+                event is TallySensorJoinsLocationEvent &&
+                event.showAnimation &&
+                hasPersistentDot
+        ) {
+            // Tally: a camera or microphone that joins location alone runs its chip.
+            runChipOverPersistentDot(event)
+        } else if (
             locationIndicatorsEnabled() &&
                 event is PrivacyEvent &&
                 event.privacyItems.isNotEmpty() &&
-                hasPersistentDot
+                hasPersistentDot &&
+                currentlyDisplayedEvent == null
         ) {
             // Privacy events have different dot colors depending on the type of privacy event.
             // If we are already showing a persistent dot, we need to notify the listener to update
             // the UI if another privacy event comes in.
             // This happens for example when quickly switching between an app that requests only
             // location, and one that requests any other privacy item(s).
+            // While the chip is still displayed, the event updates the chip below instead: the dot
+            // is not shown yet, and the chip hands its items to the dot as it goes into it.
             logger?.logNotifyEvent(event)
             notifyTransitionToPersistentDot(event)
         } else if (priorityCondition && !hasPersistentDot) {
@@ -243,6 +256,22 @@ constructor(
             // once the animation has ended in the onAnimationEnd callback
             notifyHidePersistentDot()
         }
+    }
+
+    /**
+     * Tally: schedules [event] as if no dot were showing. The dot goes; a privacy chip still in
+     * view gives way to it as a lower priority chip does (animating out, with no dot); and the new
+     * chip runs its full appear, display and disappear, into the dot again. Stock only updates the
+     * dot, whose colour then changes, but Tally's dot has one colour for every sensor.
+     */
+    private fun runChipOverPersistentDot(event: StatusEvent) {
+        logger?.logScheduleEvent(event)
+        hasPersistentDot = false
+        notifyHidePersistentDot()
+        if (_animationState.value == ShowingPersistentDot) {
+            _animationState.value = Idle
+        }
+        scheduleEvent(event)
     }
 
     protected fun isTooEarly(): Boolean {
