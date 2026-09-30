@@ -115,6 +115,7 @@ class StackScrollAlgorithmTest(flags: FlagsParameterization) : SysuiTestCase() {
     private val smallGap = px(R.dimen.notification_section_divider_height_lockscreen)
     private val groupingDisabledSectionGapHeight = px(R.dimen.grouping_disabled_section_gap_height)
     private val headsUpCyclingPadding = px(R.dimen.heads_up_cycling_padding)
+    private val paddingBetweenElements = px(R.dimen.notification_divider_height)
 
     companion object {
         @JvmStatic
@@ -317,7 +318,9 @@ class StackScrollAlgorithmTest(flags: FlagsParameterization) : SysuiTestCase() {
             )
 
         // Assert
-        assertThat(gapHeight).isEqualTo(0f) // childNeedsBundleGap should return false
+        // childNeedsBundleGap should return false. Tally: a header reaches down to the card after
+        // it, which then starts right under it.
+        assertThat(gapHeight).isEqualTo(if (TallyShell.isEnabled) -paddingBetweenElements else 0f)
     }
 
     @Test
@@ -366,7 +369,9 @@ class StackScrollAlgorithmTest(flags: FlagsParameterization) : SysuiTestCase() {
             )
 
         // Assert
-        assertThat(gapHeight).isEqualTo(0f) // childNeedsGapHeight should return false
+        // childNeedsGapHeight should return false. Tally: a header reaches down to the card after
+        // it, which then starts right under it.
+        assertThat(gapHeight).isEqualTo(if (TallyShell.isEnabled) -paddingBetweenElements else 0f)
     }
 
     @Test
