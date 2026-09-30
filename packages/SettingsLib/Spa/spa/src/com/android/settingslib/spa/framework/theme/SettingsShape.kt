@@ -27,4 +27,13 @@ object SettingsShape {
     val CornerLarge2 = RoundedCornerShape(SettingsRadius.large2)
     val CornerLarge3 = RoundedCornerShape(SettingsRadius.large3)
     val CornerExtraLarge1 = RoundedCornerShape(SettingsRadius.extraLarge1)
+
+    /**
+     * Tally: a key, in place of Material's full-round buttons and the circles of dismiss keys. No
+     * pills in the shell's own controls, and circles mean state.
+     */
+    val TallyKey = RoundedCornerShape(SettingsRadius.tallyKey)
+
+    /** Tally: an action key, an icon over its label (radius 12), as the prototype's quick keys. */
+    val TallyActionKey = CornerMedium
 }
