@@ -54,11 +54,10 @@ internal fun getTextForFormat(date: Date?, format: DateFormat): String {
 }
 
 @VisibleForTesting
-internal fun getFormatFromPattern(pattern: String?): DateFormat {
+internal fun getFormatFromPattern(pattern: String?, l: Locale = Locale.getDefault()): DateFormat {
     if (TextUtils.equals(pattern, "")) {
         return EMPTY_FORMAT
     }
-    val l = Locale.getDefault()
     val format = DateFormat.getInstanceForSkeleton(pattern, l)
     // The use of CAPITALIZATION_FOR_BEGINNING_OF_SENTENCE instead of
     // CAPITALIZATION_FOR_STANDALONE is to address
@@ -117,6 +116,13 @@ class VariableDateViewController(
         get() = mView.shorterPattern
 
     private fun post(block: () -> Unit) = mView.handler?.post(block)
+
+    /**
+     * The view's language, which its date follows. The process's default can still be the old one
+     * when the locale broadcast comes.
+     */
+    private val locale: Locale
+        get() = mView.resources?.configuration?.locales?.get(0) ?: Locale.getDefault()
 
     private val intentReceiver: BroadcastReceiver =
         object : BroadcastReceiver() {
@@ -202,17 +208,23 @@ class VariableDateViewController(
         }
         post(::updateClock)
         mView.onAttach(onMeasureListener)
+        // A new language reaches the view with its resources: the date takes it at once.
+        mView.onLocalesChanged = {
+            dateFormat = null
+            updateClock()
+        }
     }
 
     override fun onViewDetached() {
         dateFormat = null
         mView.onAttach(null)
+        mView.onLocalesChanged = null
         broadcastDispatcher.unregisterReceiver(intentReceiver)
     }
 
     private fun updateClock() {
         if (dateFormat == null) {
-            dateFormat = getFormatFromPattern(datePattern)
+            dateFormat = getFormatFromPattern(datePattern, locale)
         }
 
         currentTime.time = systemClock.currentTimeMillis()
@@ -235,14 +247,14 @@ class VariableDateViewController(
         }
         if (DEBUG) Log.d(TAG, "Width changed. Maybe changing pattern")
         // Start with longer pattern and see what fits
-        var text = getTextForFormat(currentTime, getFormatFromPattern(longerPattern))
+        var text = getTextForFormat(currentTime, getFormatFromPattern(longerPattern, locale))
         var length = mView.getDesiredWidthForText(text)
         if (length <= availableWidth) {
             changePattern(longerPattern)
             return
         }
 
-        text = getTextForFormat(currentTime, getFormatFromPattern(shorterPattern))
+        text = getTextForFormat(currentTime, getFormatFromPattern(shorterPattern, locale))
         length = mView.getDesiredWidthForText(text)
         if (length <= availableWidth) {
             changePattern(shorterPattern)
