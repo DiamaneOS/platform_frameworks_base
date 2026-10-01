@@ -18,6 +18,17 @@
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:androidprv="http://schemas.android.com/apk/prv/res/android"
     android:shape="rectangle">
-    <solid android:color="@color/materialColorSecondary"/>
-    <corners android:radius="10dp"/>
+    <solid android:color="@color/materialColorSecondary"
+        android:featureFlag="!de.diamaneos.systemui.tally_shell"/>
+    <corners android:radius="10dp"
+        android:featureFlag="!de.diamaneos.systemui.tally_shell"/>
+    <!-- Tally: a key on the high surface with the hairline edge, so it is dark in dark theme (the
+         secondary role's light box was the shell's last light surface there), with the key radius -->
+    <solid android:color="@color/tally_surface_high"
+        android:featureFlag="de.diamaneos.systemui.tally_shell"/>
+    <stroke android:width="@dimen/tally_stroke_hairline"
+        android:color="@color/tally_outline_variant"
+        android:featureFlag="de.diamaneos.systemui.tally_shell"/>
+    <corners android:radius="@dimen/tally_radius_s"
+        android:featureFlag="de.diamaneos.systemui.tally_shell"/>
 </shape>
