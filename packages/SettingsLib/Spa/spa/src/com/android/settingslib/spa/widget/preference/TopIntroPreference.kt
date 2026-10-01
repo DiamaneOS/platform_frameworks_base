@@ -47,6 +47,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.tooling.preview.Preview
 import com.android.settingslib.spa.framework.theme.SettingsDimension
 import com.android.settingslib.spa.framework.theme.SettingsSpace
+import com.android.settingslib.spa.framework.theme.settingsBackground
 import com.android.settingslib.spa.framework.util.annotatedStringResource
 import com.android.settingslib.spa.widget.ui.SettingsIntro
 
@@ -72,7 +73,8 @@ interface TopIntroPreferenceModel {
 @Composable
 fun TopIntroPreference(model: TopIntroPreferenceModel) {
     var expanded by remember { mutableStateOf(model.alwaysExpand) }
-    Column(Modifier.background(MaterialTheme.colorScheme.surfaceContainer)) {
+    // Tally: on the page's own colour.
+    Column(Modifier.background(MaterialTheme.colorScheme.settingsBackground)) {
         // TopIntroPreference content.
         Column(
             modifier =
