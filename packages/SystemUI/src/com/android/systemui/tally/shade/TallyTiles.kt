@@ -75,6 +75,7 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onPlaced
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.semantics.Role
@@ -89,6 +90,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import com.android.compose.modifiers.thenIf
 import com.android.systemui.common.shared.model.Icon
@@ -104,6 +106,7 @@ import com.android.systemui.qs.tileimpl.SubtitleArrayMapping
 import com.android.systemui.qs.tiles.CameraToggleTile
 import com.android.systemui.qs.tiles.MicrophoneToggleTile
 import com.android.systemui.qs.ui.compose.borderOnFocus
+import com.android.systemui.res.R
 import com.android.systemui.tally.lamp.TallyLamp
 import com.android.systemui.tally.lamp.TallyLampDefaults
 import com.android.systemui.tally.lamp.TallyLampSize
@@ -489,6 +492,7 @@ private fun LargeContent(
     val ink = if (lit) palette.onLamp else palette.ink
     val secondaryInk = if (lit) palette.onLamp else palette.muted
     val gap = dimensionResource(TallyR.dimen.tally_space_s)
+    val lines = rememberLargeTileLines()
     Row(
         modifier =
             Modifier.fillMaxSize()
@@ -507,13 +511,8 @@ private fun LargeContent(
                 Spacer(Modifier.width(gap))
                 TileText(
                     text = uiState.label,
-                    style = tallyTextStyle(TallyR.style.TextAppearance_Tally_Label, LABEL_LINE),
-                    condensedStyle =
-                        tallyTextStyle(
-                            TallyR.style.TextAppearance_Tally_Label,
-                            LABEL_LINE,
-                            TallyR.string.tally_font_family_condensed,
-                        ),
+                    style = lines.label,
+                    condensedStyle = lines.labelCondensed,
                     color = ink,
                     isVisible = isVisible,
                     modifier = Modifier.weight(1f),
@@ -532,13 +531,8 @@ private fun LargeContent(
             if (secondary.isNotEmpty()) {
                 TileText(
                     text = secondary,
-                    style = tallyTextStyle(TallyR.style.TextAppearance_Tally_Caption, CAPTION_LINE),
-                    condensedStyle =
-                        tallyTextStyle(
-                            TallyR.style.TextAppearance_Tally_Caption,
-                            CAPTION_LINE,
-                            TallyR.string.tally_font_family_condensed,
-                        ),
+                    style = lines.caption,
+                    condensedStyle = lines.captionCondensed,
                     color = secondaryInk,
                     isVisible = isVisible,
                     modifier =
@@ -679,6 +673,63 @@ private fun Modifier.fadedEnd(): Modifier =
             )
         }
 
+/** A tile with words' two lines: its label and its state, each also in the condensed face. */
+@Immutable
+private class LargeTileLines(
+    val label: TextStyle,
+    val labelCondensed: TextStyle,
+    val caption: TextStyle,
+    val captionCondensed: TextStyle,
+)
+
+/**
+ * The lines of a tile with words at the type's line heights where both fit the tile. Under
+ * Android's non-linear font scaling a line height keeps its proportion to its text, so at 200 %
+ * text the two lines would need 71 dp of the tile's 64 and the state would be cut at its foot.
+ * Tiles do not grow, so there the lines take their type's own height: the words keep their size and
+ * only the space between the lines tightens.
+ */
+@Composable
+private fun rememberLargeTileLines(): LargeTileLines {
+    val label = tallyTextStyle(TallyR.style.TextAppearance_Tally_Label, LABEL_LINE)
+    val labelCondensed =
+        tallyTextStyle(
+            TallyR.style.TextAppearance_Tally_Label,
+            LABEL_LINE,
+            TallyR.string.tally_font_family_condensed,
+        )
+    val caption = tallyTextStyle(TallyR.style.TextAppearance_Tally_Caption, CAPTION_LINE)
+    val captionCondensed =
+        tallyTextStyle(
+            TallyR.style.TextAppearance_Tally_Caption,
+            CAPTION_LINE,
+            TallyR.string.tally_font_family_condensed,
+        )
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    // The tile's height, which CommonTileDefaults.TileHeight reads too.
+    val tileHeight =
+        with(density) { dimensionResource(R.dimen.common_tile_default_tile_height).roundToPx() }
+    val gap = with(density) { LINE_GAP.roundToPx() }
+    return remember(label, labelCondensed, caption, captionCondensed, measurer, tileHeight, gap) {
+        fun lineHeight(style: TextStyle) =
+            measurer.measure(LINE_SAMPLE, style, softWrap = false, maxLines = 1).size.height
+        if (lineHeight(label) + gap + lineHeight(caption) <= tileHeight) {
+            LargeTileLines(label, labelCondensed, caption, captionCondensed)
+        } else {
+            LargeTileLines(
+                label.withTypeLineHeight(),
+                labelCondensed.withTypeLineHeight(),
+                caption.withTypeLineHeight(),
+                captionCondensed.withTypeLineHeight(),
+            )
+        }
+    }
+}
+
+private fun TextStyle.withTypeLineHeight(): TextStyle =
+    copy(lineHeight = TextUnit.Unspecified, lineHeightStyle = null)
+
 /**
  * The tile's state in words: its own secondary label, else stock's translated word for its state
  * ("Off", "On", "Unavailable"), as lamps in Tally always carry words.
@@ -713,6 +764,7 @@ private val LARGE_ICON_SIZE = 20.dp
 private val LINE_GAP = 2.dp
 private val LABEL_LINE = TallyR.dimen.tally_type_label_line_height
 private val CAPTION_LINE = TallyR.dimen.tally_type_caption_line_height
+private const val LINE_SAMPLE = "Hg"
 private const val LIGHT_DELAY_MILLIS = 50L
 private const val WIPE_THRESHOLD = 0.002f
 private const val PERCENT = 100

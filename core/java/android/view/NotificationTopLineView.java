@@ -52,6 +52,7 @@ public class NotificationTopLineView extends ViewGroup {
     private View mVerificationText;
     private View mExtraToplineContent;
     private int mHeaderTextMarginEnd;
+    private int mContentWidth;
 
     private Set<View> mViewsToDisappear = new HashSet<>();
 
@@ -142,6 +143,7 @@ public class NotificationTopLineView extends ViewGroup {
             maxChildHeight = Math.max(maxChildHeight, childHeight);
         }
 
+        mContentWidth = totalWidth;
         mViewsToDisappear.clear();
         // Ensure that there is at least enough space for the icons
         int endMargin = Math.max(mHeaderTextMarginEnd, getPaddingEnd());
@@ -279,6 +281,14 @@ public class NotificationTopLineView extends ViewGroup {
      */
     public int getHeaderTextMarginEnd() {
         return mHeaderTextMarginEnd;
+    }
+
+    /**
+     * Returns the width the visible views and the start padding needed at the last measure,
+     * before any of them was shortened to fit.
+     */
+    public int getContentWidth() {
+        return mContentWidth;
     }
 
     /**

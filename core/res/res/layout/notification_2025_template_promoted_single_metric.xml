@@ -39,13 +39,16 @@
             <include layout="@layout/notification_2025_template_header" />
 
             <!-- Note: the top margin is being set in code based on the estimated space needed for
-            the header text. -->
+            the header text. The bottom margin keeps the label (and the value, when it has its own
+            line under the label) clear of the actions, which overlap this frame's bottom: at the
+            default text size it ends inside the header's height, so nothing moves there. -->
             <LinearLayout
                 android:id="@+id/notification_main_column"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="@dimen/notification_2025_content_margin_start"
                 android:layout_marginEnd="@dimen/notification_2025_margin"
+                android:layout_marginBottom="@dimen/notification_2025_reduced_margin"
                 android:orientation="vertical"
                 >
                 <com.android.internal.widget.ImageFloatingTextView

@@ -246,15 +246,10 @@ public class Clock extends TextView implements
                     }
                 });
             } else if (action.equals(Intent.ACTION_CONFIGURATION_CHANGED)) {
-                final Locale newLocale = getResources().getConfiguration().locale;
-                handler.post(() -> {
-                    if (!newLocale.equals(mLocale)) {
-                        mLocale = newLocale;
-                        // Force refresh of dependent variables.
-                        mContentDescriptionFormatString = "";
-                        mDateTimePatternGenerator = null;
-                    }
-                });
+                // Read on the main thread: this broadcast can arrive before the view's resources
+                // have the new configuration, and a language read too early stayed until the
+                // next configuration change.
+                handler.post(() -> updateLocale(getResources().getConfiguration().locale));
             }
             handler.post(() -> updateClock());
         }
@@ -333,6 +328,23 @@ public class Clock extends TextView implements
         if (shouldReloadDimensions) {
             reloadDimens();
         }
+        // A new language reaches the view here, with its resources, so the time takes its
+        // format at once.
+        if (updateLocale(newConfig.locale) && mAttached) {
+            updateClock();
+        }
+    }
+
+    /** Takes {@code locale} for the time's formats; returns whether it is new. */
+    private boolean updateLocale(Locale locale) {
+        if (locale == null || locale.equals(mLocale)) {
+            return false;
+        }
+        mLocale = locale;
+        // Force refresh of dependent variables.
+        mContentDescriptionFormatString = "";
+        mDateTimePatternGenerator = null;
+        return true;
     }
 
     private void updateShowSeconds() {
