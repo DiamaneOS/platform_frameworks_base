@@ -371,6 +371,23 @@
         <item name="android:paddingEnd">@dimen/settingslib_expressive_space_small1</item>
     </style>
 
+    <!-- Tally: a usage meter (Battery's and Storage's bars, Storage's category meters) as the
+         prototype's meters, not an accent pill: the high surface for the track, the level in ink
+         at 16 %, the key radius, no stop dot and no gap, square where the level meets the track.
+         UsageProgressBarPreference adds the value's lamp tick. -->
+    <style name="SettingsLibProgressBarStyle.Linear.Expressive"
+        parent="Widget.Material3.LinearProgressIndicator">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">@dimen/settingslib_expressive_space_medium3</item>
+        <item name="trackThickness">@dimen/settingslib_expressive_space_medium3</item>
+        <item name="trackColor">@color/settingslib_tally_surface_high</item>
+        <item name="indicatorColor">@color/settingslib_tally_meter_level</item>
+        <item name="trackCornerRadius">@dimen/settingslib_tally_usage_meter_radius</item>
+        <item name="trackInnerCornerRadius">0dp</item>
+        <item name="trackStopIndicatorSize">0dp</item>
+        <item name="indicatorTrackGapSize">0dp</item>
+    </style>
+
     <!-- dropdownPreference dropdown item -->
     <!-- Tally: the entries in Tally's item type, and the current one marked with the check the
          other dropdowns show before it (stock marked none). -->
