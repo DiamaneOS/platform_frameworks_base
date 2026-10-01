@@ -52,6 +52,8 @@ import com.android.systemui.statusbar.notification.TransformState;
 import com.android.systemui.statusbar.notification.row.ExpandableNotificationRow;
 import com.android.systemui.statusbar.notification.shared.NotificationAddXOnHoverToDismiss;
 import com.android.systemui.statusbar.notification.shared.NotificationXButtonClipFix;
+import com.android.systemui.tally.lamp.TallyLampState;
+import com.android.systemui.tally.shade.TallyLiveCards;
 
 import java.util.Stack;
 
@@ -305,6 +307,45 @@ public class NotificationHeaderViewWrapper extends NotificationViewWrapper imple
     public void setRecentlyAudiblyAlerted(boolean audiblyAlerted) {
         if (mAudiblyAlertedIcon != null) {
             mAudiblyAlertedIcon.setVisibility(audiblyAlerted ? VISIBLE : GONE);
+        }
+    }
+
+    /**
+     * Tally: shows a lamp in {@code state} after the first name in the top line while the
+     * notification is live (an ongoing event), or takes it away when {@code state} is null. The
+     * name is the app's where the top line shows it, else the title the template puts in its
+     * place: the title of a collapsed or heads-up row, or the alt title of a promoted card.
+     */
+    public void setTallyLiveLamp(@Nullable TallyLampState state) {
+        TextView altTitle = mView.findViewById(com.android.internal.R.id.alt_title);
+        TextView title = mView.findViewById(com.android.internal.R.id.title);
+        if (title != null && (mNotificationTopLine == null
+                || title.getParent() != mNotificationTopLine)) {
+            // An expanded template's title sits under the top line, not in it.
+            title = null;
+        }
+        TextView[] names = {mAppNameText, altTitle, title};
+        TextView host = null;
+        if (state != null) {
+            for (TextView name : names) {
+                // The template hides a name with GONE. A transformation between the collapsed and
+                // expanded views may leave a shown one INVISIBLE for a while.
+                if (name != null && name.getVisibility() != GONE) {
+                    host = name;
+                    break;
+                }
+            }
+        }
+        for (TextView name : names) {
+            if (name != null && name != host) {
+                TallyLiveCards.bindLamp(mRow.getContext(), name, null, /* atEnd= */ true);
+            }
+        }
+        if (host != null) {
+            // On a colourised card the lamp takes the card's content colour, as the words do.
+            TallyLiveCards.bindLamp(mRow.getContext(), host, state, /* atEnd= */ true,
+                    TallyLiveCards.cardLampColors(mRow.getContext(), getCustomBackgroundColor(),
+                            host.getCurrentTextColor()));
         }
     }
 

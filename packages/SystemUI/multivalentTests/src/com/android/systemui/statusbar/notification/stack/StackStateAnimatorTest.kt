@@ -32,6 +32,7 @@ import com.android.systemui.statusbar.notification.stack.NotificationStackScroll
 import com.android.systemui.statusbar.notification.stack.StackStateAnimator.ANIMATION_DURATION_HEADS_UP_APPEAR
 import com.android.systemui.statusbar.notification.stack.StackStateAnimator.ANIMATION_DURATION_HEADS_UP_DISAPPEAR
 import com.android.systemui.statusbar.ui.fakeSystemBarUtilsProxy
+import com.android.systemui.tally.TallyShell
 import com.android.systemui.testKosmos
 import com.android.systemui.util.mockito.argumentCaptor
 import com.android.systemui.util.mockito.mock
@@ -93,7 +94,7 @@ class StackStateAnimatorTest : SysuiTestCase() {
     @Test
     fun startAnimationForEvents_headsUpFromTop_startsHeadsUpAppearAnim() {
         val topMargin = 50f
-        val expectedStartY = -topMargin - HEADS_UP_ABOVE_SCREEN
+        val expectedStartY = topStartY(topMargin)
         val event = AnimationEvent(view, AnimationEvent.ANIMATION_TYPE_HEADS_UP_APPEAR)
         headsUpAnimator.stackTopMargin = topMargin.toInt()
 
@@ -115,7 +116,7 @@ class StackStateAnimatorTest : SysuiTestCase() {
     fun startAnimationForEvents_headsUpFromTop_andHasStatusBarChipFalse() {
         val statusBarHeight = 156
         val topMargin = 50f
-        val expectedStartY = -topMargin - HEADS_UP_ABOVE_SCREEN
+        val expectedStartY = topStartY(topMargin)
 
         headsUpAnimator.stackTopMargin = topMargin.toInt()
         kosmos.fakeSystemBarUtilsProxy.fakeStatusBarHeight = statusBarHeight
@@ -214,7 +215,7 @@ class StackStateAnimatorTest : SysuiTestCase() {
         runnableCaptor.value.run() // execute the end runnable
 
         verify(view, description("should be translated to the heads up appear start"))
-            .translationY = -stackStateAnimator.mHeadsUpAppearStartAboveScreen
+            .translationY = topStartY(topMargin = 0f)
         verify(view, description("should be called at the end of the disappear animation"))
             .removeFromTransientContainer()
     }
@@ -261,5 +262,16 @@ class StackStateAnimatorTest : SysuiTestCase() {
         // Then: the resource values are updated
         assertThat(stackStateAnimator.mGoToFullShadeAppearingTranslation).isEqualTo(200)
         assertThat(stackStateAnimator.mHeadsUpAppearStartAboveScreen).isEqualTo(100)
+    }
+
+    /**
+     * Where a heads-up at the top of the screen starts its appear animation and ends its disappear
+     * animation: stock's HEADS_UP_ABOVE_SCREEN above the screen, or with Tally, whose heads-up
+     * slides in and out whole, the whole card and the gap under the status bar above it.
+     */
+    private fun topStartY(topMargin: Float): Float {
+        if (!TallyShell.isEnabled) return -topMargin - HEADS_UP_ABOVE_SCREEN
+        val gap = context.resources.getDimensionPixelSize(R.dimen.heads_up_status_bar_padding)
+        return -topMargin - VIEW_HEIGHT - gap
     }
 }
