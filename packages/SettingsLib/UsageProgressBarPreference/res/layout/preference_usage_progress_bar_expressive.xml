@@ -60,11 +60,13 @@
             app:layout_constraintBottom_toBottomOf="@id/total_summary"/>
     </androidx.constraintlayout.widget.ConstraintLayout>
 
+    <!-- Tally: the meter lines up with the words above and below it -->
     <com.google.android.material.progressindicator.LinearProgressIndicator
         android:theme="@style/Theme.Material3.DynamicColors.DayNight"
         android:id="@android:id/progress"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginHorizontal="@dimen/settingslib_expressive_space_extrasmall4"
         android:max="100"
         android:scaleY="1"
         style="@style/SettingsLibProgressBarStyle.Linear.Expressive" />
