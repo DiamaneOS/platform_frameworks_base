@@ -124,6 +124,8 @@ import com.android.systemui.surfaceeffects.view.ripple.MultiRippleView;
 import com.android.systemui.surfaceeffects.view.ripple.RippleAnimation;
 import com.android.systemui.surfaceeffects.view.turbulencenoise.TurbulenceNoiseController;
 import com.android.systemui.surfaceeffects.view.turbulencenoise.TurbulenceNoiseView;
+import com.android.systemui.tally.TallyShell;
+import com.android.systemui.tally.shade.TallyLiveCards;
 import com.android.systemui.util.ColorUtilKt;
 import com.android.systemui.util.animation.TransitionLayout;
 import com.android.systemui.util.concurrency.DelayableExecutor;
@@ -469,6 +471,13 @@ public class MediaControlPanel {
 
         mTurbulenceNoiseController = new TurbulenceNoiseController(turbulenceNoiseView);
 
+        if (TallyShell.isEnabled()) {
+            // Tally: a neutral card with a hairline and a tonal output key.
+            player.setForeground(mContext.getDrawable(R.drawable.tally_media_card_outline));
+            vh.getSeamlessButton().setBackgroundResource(
+                    R.drawable.tally_media_seamless_background);
+        }
+
         mColorSchemeTransition = new ColorSchemeTransition(
                 mContext, mMediaViewHolder, mMultiRippleController, mTurbulenceNoiseController);
         mMetadataAnimationHandler = new MetadataAnimationHandler(exit, enter);
@@ -562,6 +571,11 @@ public class MediaControlPanel {
 
         boolean isSongUpdated = bindSongMetadata(data);
         bindArtworkAndColors(data, key, isSongUpdated);
+        if (TallyShell.isEnabled()) {
+            // Tally: the card's lamp before its title, live while it plays.
+            TallyLiveCards.bindLamp(mContext, mMediaViewHolder.getTitleText(),
+                    TallyLiveCards.mediaLamp(isPlaying()), /* atEnd= */ false);
+        }
 
         // TODO: We don't need to refresh this state constantly, only if the state actually changed
         // to something which might impact the measurement
@@ -883,7 +897,8 @@ public class MediaControlPanel {
             Drawable artwork;
             boolean isArtworkBound;
             Icon artworkIcon = data.getArtwork();
-            WallpaperColors wallpaperColors = getWallpaperColor(artworkIcon);
+            WallpaperColors wallpaperColors =
+                    TallyShell.isEnabled() ? null : getWallpaperColor(artworkIcon);
             boolean darkTheme = false;
             if (wallpaperColors != null) {
                 mutableColorScheme = new ColorScheme(wallpaperColors, darkTheme,
@@ -891,6 +906,10 @@ public class MediaControlPanel {
                 artwork = addGradientToPlayerAlbum(artworkIcon, mutableColorScheme, finalWidth,
                         finalHeight);
                 isArtworkBound = true;
+            } else if (TallyShell.isEnabled()) {
+                // Tally: a neutral card, with no artwork and no colours taken from the app.
+                artwork = new ColorDrawable(Color.TRANSPARENT);
+                isArtworkBound = false;
             } else {
                 // If there's no artwork, use colors from the app icon
                 artwork = new ColorDrawable(Color.TRANSPARENT);
@@ -1204,6 +1223,10 @@ public class MediaControlPanel {
             button.setContentDescription(mediaAction.getContentDescription());
             final Drawable bgDrawable = mediaAction.getBackground();
             button.setBackground(bgDrawable);
+            if (TallyShell.isEnabled() && button.getId() == R.id.actionPlayPause) {
+                // Tally: the play key is a tonal key, not a morphing pill.
+                button.setBackgroundResource(R.drawable.tally_media_play_background);
+            }
 
             Runnable action = mediaAction.getAction();
             if (action == null) {
@@ -1258,7 +1281,8 @@ public class MediaControlPanel {
     }
 
     private boolean shouldPlayTurbulenceNoise() {
-        return mButtonClicked && !mWasPlaying && isPlaying();
+        // Tally: no noise effect over the card.
+        return !TallyShell.isEnabled() && mButtonClicked && !mWasPlaying && isPlaying();
     }
 
     private TurbulenceNoiseAnimationConfig createTurbulenceNoiseConfig() {

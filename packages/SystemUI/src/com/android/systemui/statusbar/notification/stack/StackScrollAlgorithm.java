@@ -1122,6 +1122,13 @@ public class StackScrollAlgorithm {
                                     row.hasStatusBarChipDuringHeadsUpAnimation());
                     childState.setYTranslation(yTranslation,
                             "StackScrollAlgorithm.updateHeadsUpStates.notDozing");
+                    if (mHeadsUpAnimator.isTallySlide(shouldHunAppearFromBottom,
+                            row.hasStatusBarChipDuringHeadsUpAnimation())) {
+                        // Tally: the whole card slides away, to just above the screen.
+                        childState.setYTranslation(
+                                mHeadsUpAnimator.getTallySlideYTranslation(childState.height),
+                                "StackScrollAlgorithm.updateHeadsUpStates.tallySlide");
+                    }
                 } else {
                     // Make sure row yTranslation is at maximum the HUN yTranslation,
                     // which accounts for AmbientState.stackTopMargin in split-shade.
