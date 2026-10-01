@@ -47,6 +47,12 @@ class AppIconCache(systemClock: SystemClock) : Dumpable {
         drawableCache.purgeUnless { getPackageFromKey(it) in wantedPackages }
     }
 
+    /** Empties the cache, as when what its icons were drawn for has changed. */
+    fun clear() {
+        bitmapInfoCache.clear()
+        drawableCache.clear()
+    }
+
     private fun createKey(
         packageName: String,
         userHandle: UserHandle?,
