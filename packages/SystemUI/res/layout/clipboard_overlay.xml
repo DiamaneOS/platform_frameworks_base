@@ -189,12 +189,12 @@
         android:background="@drawable/clipboard_minimized_background_inset">
         <ImageView
             android:src="@drawable/ic_content_paste"
-            android:tint="@color/materialColorOnSecondary"
+            android:tint="@color/clipboard_minimized_icon"
             android:layout_width="24dp"
             android:layout_height="24dp"/>
         <ImageView
             android:src="@*android:drawable/ic_chevron_end"
-            android:tint="@color/materialColorOnSecondary"
+            android:tint="@color/clipboard_minimized_icon"
             android:layout_width="24dp"
             android:layout_height="24dp"
             android:paddingEnd="-8dp"
