@@ -587,7 +587,10 @@ private class AODPromotedNotificationViewUpdater(root: View) {
                     val hasText = !content.text.isNullOrEmpty()
                     val hasProgress = content.oldProgress != null
                     updateTitle(headerTitleView, content)
-                    val showingAppName = updateAppName(content, maybeHide = true)
+                    // Without a title (the public version of a redacted notification), the app
+                    // name is the card's only words, as in the shade's redacted row.
+                    val showingAppName =
+                        updateAppName(content, maybeHide = !content.title.isNullOrEmpty())
                     updateTextView(altSubtext, content.subText)
                     updateTimeAndChronometer(content)
                     updateProfileBadge(content)
