@@ -40,6 +40,7 @@ import com.android.systemui.statusbar.notification.headsup.HeadsUpAnimator;
 import com.android.systemui.statusbar.notification.row.ExpandableNotificationRow;
 import com.android.systemui.statusbar.notification.row.ExpandableView;
 import com.android.systemui.statusbar.notification.row.StackScrollerDecorView;
+import com.android.systemui.tally.TallyShell;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -556,10 +557,20 @@ public class StackStateAnimator {
                 mTmpState.setYTranslation(getHeadsUpYTranslationStart(
                                 event.headsUpFromBottom, event.headsUpHasStatusBarChip),
                         "StackStateAnimator.processAnimationEvents.headsUpAppear");
+                boolean tallySlide = prepareTallySlide(changingView, event);
+                if (tallySlide) {
+                    // Tally: the whole card starts just above the screen.
+                    mTmpState.setYTranslation(
+                            mHeadsUpAnimator.getTallySlideYTranslation(mTmpState.height),
+                            "StackStateAnimator.processAnimationEvents.tallyHeadsUpAppear");
+                }
                 // set the height and the initial position
                 mTmpState.applyToView(changingView);
                 mAnimationProperties.setCustomInterpolator(View.TRANSLATION_Y,
                         Interpolators.FAST_OUT_SLOW_IN);
+                if (tallySlide) {
+                    mHeadsUpAnimator.applyTallySpring(mAnimationProperties);
+                }
 
                 Runnable onAnimationEnd = null;
                 if (loggable) {
@@ -658,6 +669,7 @@ public class StackStateAnimator {
                 mHeadsUpDisappearChildren.add(changingView);
                 Runnable endRunnable = null;
                 mTmpState.copyFrom(changingView.getViewState());
+                boolean tallySlide = prepareTallySlide(changingView, event);
                 if (changingView.getParent() == null) {
                     // This notification was actually removed, so we need to add it
                     // transiently
@@ -670,6 +682,12 @@ public class StackStateAnimator {
                             getHeadsUpYTranslationStart(
                                     event.headsUpFromBottom, event.headsUpHasStatusBarChip),
                                     "StackStateAnimator.processAnimationEvents.disappear");
+                    if (tallySlide) {
+                        // Tally: the whole card ends just above the screen.
+                        mTmpState.setYTranslation(
+                                mHeadsUpAnimator.getTallySlideYTranslation(mTmpState.height),
+                                "StackStateAnimator.processAnimationEvents.tallyDisappear");
+                    }
                     endRunnable = changingView::removeFromTransientContainer;
                 }
 
@@ -736,6 +754,9 @@ public class StackStateAnimator {
                     mAnimationProperties.duration = ANIMATION_DURATION_HEADS_UP_DISAPPEAR;
                     mAnimationProperties.setCustomInterpolator(View.TRANSLATION_Y,
                             Interpolators.FAST_OUT_SLOW_IN_REVERSE);
+                    if (tallySlide) {
+                        mHeadsUpAnimator.applyTallySpring(mAnimationProperties);
+                    }
                     mAnimationProperties.getAnimationFilter().animateY = true;
                     mTmpState.animateTo(changingView, mAnimationProperties);
                     mAnimationProperties.resetCustomInterpolators();
@@ -747,6 +768,25 @@ public class StackStateAnimator {
             mNewEvents.add(event);
         }
         return needsCustomAnimation;
+    }
+
+    /**
+     * Tally: whether this heads-up appears or goes away as Tally's does, sliding in whole from
+     * above the screen and back out above it on the stone spring (see
+     * HeadsUpAnimator#isTallySlide). The row is told, so that the appear or disappear animation it
+     * starts next neither reveals nor fades the card.
+     */
+    private boolean prepareTallySlide(ExpandableView changingView,
+            NotificationStackScrollLayout.AnimationEvent event) {
+        if (!TallyShell.isEnabled()) {
+            return false;
+        }
+        boolean slide = mHeadsUpAnimator.isTallySlide(
+                event.headsUpFromBottom, event.headsUpHasStatusBarChip);
+        if (changingView instanceof ExpandableNotificationRow row) {
+            row.setTallyHeadsUpSlide(slide);
+        }
+        return slide;
     }
 
     private float getHeadsUpYTranslationStart(boolean headsUpFromBottom, boolean hasStatusBarChip) {

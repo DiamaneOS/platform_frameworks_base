@@ -45,6 +45,7 @@ import com.android.systemui.statusbar.TransformableView;
 import com.android.systemui.statusbar.notification.NotificationFadeAware;
 import com.android.systemui.statusbar.notification.TransformState;
 import com.android.systemui.statusbar.notification.row.ExpandableNotificationRow;
+import com.android.systemui.tally.TallyShell;
 
 /**
  * Wraps the actual notification content view; used to implement behaviors which are different for
@@ -344,6 +345,12 @@ public abstract class NotificationViewWrapper implements TransformableView {
         int customBackgroundColor = getCustomBackgroundColor();
         if (customBackgroundColor != 0) {
             return customBackgroundColor;
+        }
+        // Tally: the card's surface colour, a SystemUI resource, so it is read through the row's
+        // context: the view's is the posting app's (an app's custom view has it), where SystemUI's
+        // resource ids do not exist.
+        if (TallyShell.isEnabled()) {
+            return mRow.getContext().getColor(de.diamaneos.tally.R.color.tally_surface);
         }
         return mView.getContext().getColor(
                 com.android.internal.R.color.materialColorSurfaceContainerHigh);

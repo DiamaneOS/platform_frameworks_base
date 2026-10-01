@@ -193,6 +193,7 @@
                     >
                     <TextView
                         android:id="@+id/automatic_label"
+                        style="@style/NotificationGutsOptionLabel"
                         android:layout_width="match_parent"
                         android:layout_height="0dp"
                         android:layout_weight="1"
@@ -246,6 +247,7 @@
                     >
                     <TextView
                         android:id="@+id/alert_label"
+                        style="@style/NotificationGutsOptionLabel"
                         android:layout_width="match_parent"
                         android:layout_height="0dp"
                         android:layout_weight="1"
@@ -300,6 +302,7 @@
                     >
                     <TextView
                         android:id="@+id/silence_label"
+                        style="@style/NotificationGutsOptionLabel"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:ellipsize="end"

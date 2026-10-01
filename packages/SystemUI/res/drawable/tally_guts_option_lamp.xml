@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ~ Copyright (C) 2026 The DiamaneOS Project
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~      http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License
+  -->
+<!-- Tally: the state lamp at the end of a notification long-press option's label. As on the
+     prototype's permission keys, the lamp is lit only on the chosen option (the option row is
+     selected): a disc in the lamp colour, edged in the lamp outline colour in light theme, at the
+     large lamp size. Other options keep the same room with nothing drawn, so the label does not
+     move when the choice changes. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_selected="true">
+        <shape android:shape="oval">
+            <size
+                android:width="@dimen/tally_lamp_size_large"
+                android:height="@dimen/tally_lamp_size_large" />
+            <solid android:color="@color/tally_lamp" />
+            <stroke
+                android:width="@dimen/tally_stroke_hairline"
+                android:color="@color/tally_lamp_outline" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="oval">
+            <size
+                android:width="@dimen/tally_lamp_size_large"
+                android:height="@dimen/tally_lamp_size_large" />
+            <solid android:color="@android:color/transparent" />
+        </shape>
+    </item>
+</selector>
