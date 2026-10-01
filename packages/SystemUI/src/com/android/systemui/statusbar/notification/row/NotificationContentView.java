@@ -59,7 +59,9 @@ import com.android.systemui.statusbar.notification.collection.render.GroupMember
 import com.android.systemui.statusbar.notification.people.PeopleNotificationIdentifier;
 import com.android.systemui.statusbar.notification.row.wrapper.NotificationCompactHeadsUpTemplateViewWrapper;
 import com.android.systemui.statusbar.notification.row.wrapper.NotificationCustomViewWrapper;
+import com.android.systemui.statusbar.notification.row.wrapper.NotificationDecoratedCustomViewWrapper;
 import com.android.systemui.statusbar.notification.row.wrapper.NotificationHeaderViewWrapper;
+import com.android.systemui.statusbar.notification.row.wrapper.NotificationTemplateViewWrapper;
 import com.android.systemui.statusbar.notification.row.wrapper.NotificationViewWrapper;
 import com.android.systemui.statusbar.phone.ExpandHeadsUpOnInlineReply;
 import com.android.systemui.statusbar.policy.InflatedSmartReplyState;
@@ -314,6 +316,14 @@ public class NotificationContentView extends FrameLayout implements Notification
                 heightSpec = MeasureSpec.makeMeasureSpec(size, MeasureSpec.AT_MOST);
             }
             measureChildWithMargins(mContractedChild, widthMeasureSpec, 0, heightSpec, 0);
+            if (!useExactly && !shouldContractedBeFixedSize() && contractedTemplateIsCut()) {
+                // A template whose lines are taller than the collapsed height allows, as a script
+                // taller than the font's own lines makes them (Arabic in its fallback font): the
+                // row grows to show them instead of cutting the last one at its foot.
+                heightSpec = MeasureSpec.makeMeasureSpec(Math.max(size, mNotificationMaxHeight),
+                        MeasureSpec.AT_MOST);
+                measureChildWithMargins(mContractedChild, widthMeasureSpec, 0, heightSpec, 0);
+            }
             int measuredHeight = mContractedChild.getMeasuredHeight();
             if (measuredHeight < mMinContractedHeight) {
                 heightSpec = MeasureSpec.makeMeasureSpec(mMinContractedHeight, MeasureSpec.EXACTLY);
@@ -382,6 +392,16 @@ public class NotificationContentView extends FrameLayout implements Notification
 
     private boolean shouldContractedBeFixedSize() {
         return mBeforeN && mContractedWrapper instanceof NotificationCustomViewWrapper;
+    }
+
+    /**
+     * Whether the collapsed view, one of the platform's templates (not an app's own view), had
+     * its title or text cut by the height of its last measure.
+     */
+    private boolean contractedTemplateIsCut() {
+        return mContractedWrapper instanceof NotificationTemplateViewWrapper template
+                && !(mContractedWrapper instanceof NotificationDecoratedCustomViewWrapper)
+                && template.isTextCutByHeight();
     }
 
     @Override
