@@ -14,8 +14,7 @@
   See the License for the specific language governing permissions and
   limitations under the License.
   -->
-<selector xmlns:android="http://schemas.android.com/apk/res/android">
-
-    <!-- Highlight the selected item -->
-    <item android:state_activated="true" android:drawable="@drawable/settings_expressive_spinner_dropdown_item_selected"/>
-</selector>
+<!-- Tally: no fill behind the selected entry. As in every Tally menu (the prototype's .mc-menu, and
+     a dropdown row's popup), the check before it is the one mark of the selection; the list's own
+     press feedback stays. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android" />
