@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Copyright (C) 2025 The Android Open Source Project
+  Copyright (C) 2026 The DiamaneOS Project
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -14,7 +14,10 @@
   See the License for the specific language governing permissions and
   limitations under the License.
   -->
-<!-- Tally: no fill behind the selected entry. As in every Tally menu (the prototype's .mc-menu, and
-     a dropdown row's popup), the check before it is the one mark of the selection; the list's own
-     press feedback stays. -->
-<selector xmlns:android="http://schemas.android.com/apk/res/android" />
+
+<!-- The padding SettingsPreferenceGroupAdapter gives a row inside a section card whose layout is not
+     a Tally row (a slider, a dropdown, an app's own layout). Stock's two 16 dp steps here; on the
+     expressive theme, where the cards are Tally's, the Tally row inset (values-v36/tally_rows.xml). -->
+<resources>
+    <dimen name="settingslib_tally_group_row_padding">32dp</dimen>
+</resources>

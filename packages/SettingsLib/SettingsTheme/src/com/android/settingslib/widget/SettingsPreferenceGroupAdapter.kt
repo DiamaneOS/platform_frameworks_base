@@ -66,10 +66,13 @@ open class SettingsPreferenceGroupAdapter @JvmOverloads constructor(
         val context = preferenceGroup.context
         mNormalPaddingStart =
             context.resources.getDimensionPixelSize(R.dimen.settingslib_expressive_space_small1)
-        mGroupPaddingStart = mNormalPaddingStart * 2
+        // Tally: a row in a card whose layout is not a Tally row (a slider, a dropdown, an app's
+        // own layout) starts where the card's Tally rows start, 28 dp in, not stock's 32 dp.
+        mGroupPaddingStart =
+            context.resources.getDimensionPixelSize(R.dimen.settingslib_tally_group_row_padding)
         mNormalPaddingEnd =
             context.resources.getDimensionPixelSize(R.dimen.settingslib_expressive_space_small1)
-        mGroupPaddingEnd = mNormalPaddingEnd * 2
+        mGroupPaddingEnd = mGroupPaddingStart
         val outValue = TypedValue()
         context.theme.resolveAttribute(
             android.R.attr.selectableItemBackground,

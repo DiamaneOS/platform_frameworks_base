@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copyright (C) 2026 The DiamaneOS Project
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+  -->
+
+<!-- The Tally usage meter that SettingsLib's linear progress style and UsageProgressBarPreference
+     draw (Battery's and Storage's bars), as the prototype's meters (design/prototypes/tally, app.css
+     .cl-meter, .sh-bright) and SettingsLib's slider. Written by hand from the Tally token spec. -->
+<resources>
+    <!-- Its corners: radius 8 (tally_radius_s), not a pill. -->
+    <dimen name="settingslib_tally_usage_meter_radius">8dp</dimen>
+    <!-- The value's lamp tick across the meter: 4 dp, as the slider's and the volume meter's. -->
+    <dimen name="settingslib_tally_usage_meter_tick_width">4dp</dimen>
+    <!-- The tick's edge in the lamp outline colour (hairline, 1 dp); in dark theme the lamp outline
+         is the lamp itself. -->
+    <dimen name="settingslib_tally_usage_meter_tick_edge">1dp</dimen>
+</resources>
