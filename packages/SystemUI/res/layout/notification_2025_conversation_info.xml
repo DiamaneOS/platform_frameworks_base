@@ -256,6 +256,7 @@
                     >
                     <TextView
                         android:id="@+id/priority_label"
+                        style="@style/NotificationGutsOptionLabel"
                         android:layout_width="match_parent"
                         android:layout_height="0dp"
                         android:layout_weight="1"
@@ -308,6 +309,7 @@
                     >
                     <TextView
                         android:id="@+id/default_label"
+                        style="@style/NotificationGutsOptionLabel"
                         android:layout_width="match_parent"
                         android:layout_height="0dp"
                         android:layout_weight="1"
@@ -361,6 +363,7 @@
                     >
                     <TextView
                         android:id="@+id/silence_label"
+                        style="@style/NotificationGutsOptionLabel"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:ellipsize="end"

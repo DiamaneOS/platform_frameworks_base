@@ -29,6 +29,7 @@ import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.drawable.Icon;
+import android.text.Layout;
 import android.service.notification.StatusBarNotification;
 import android.util.ArraySet;
 import android.view.View;
@@ -283,6 +284,26 @@ public class NotificationTemplateViewWrapper extends NotificationHeaderViewWrapp
         if (row.getHeaderVisibleAmount() != DEFAULT_HEADER_VISIBLE_AMOUNT) {
             setHeaderVisibleAmount(row.getHeaderVisibleAmount());
         }
+    }
+
+    /**
+     * Whether the title or the text got less height at the last measure than their lines need,
+     * as a script taller than the template's font (Arabic in its fallback font) can make them in
+     * a collapsed row.
+     */
+    public boolean isTextCutByHeight() {
+        return isCutByHeight(mTitle) || isCutByHeight(mText);
+    }
+
+    private static boolean isCutByHeight(@Nullable TextView view) {
+        if (view == null || view.getVisibility() != VISIBLE || view.getLayout() == null) {
+            return false;
+        }
+        final Layout layout = view.getLayout();
+        final int lines = Math.min(layout.getLineCount(), view.getMaxLines());
+        final int needed = layout.getLineTop(lines) + view.getCompoundPaddingTop()
+                + view.getCompoundPaddingBottom();
+        return view.getMeasuredHeight() < needed;
     }
 
     @Override
