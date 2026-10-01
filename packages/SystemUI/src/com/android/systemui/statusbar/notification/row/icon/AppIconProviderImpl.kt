@@ -121,12 +121,49 @@ constructor(
     /** Cache of black and white icons for use on AOD */
     private val skeletonCache = AppIconCache(systemClock = systemClock)
 
+    /** What the cached icons were drawn for, see [IconLook]. */
+    @Volatile private var cachedLook: IconLook? = null
+
+    /**
+     * What an icon's drawing depends on beyond its app: the display density and icon size, and the
+     * two colours a themed icon takes, which the theme's dark or light mode and its palette set. A
+     * drawable takes these when it is created, and the caches keep it, so an icon cached before a
+     * change of any of them would keep the old look in the rows that rebind for it.
+     */
+    private data class IconLook(
+        val densityDpi: Int,
+        val iconSize: Int,
+        val background: Int,
+        val foreground: Int,
+    )
+
+    /** Empties the caches when the look icons are drawn with has changed since they were filled. */
+    private fun clearCachesIfLookChanged() {
+        val res = sysuiContext.resources
+        val look =
+            IconLook(
+                densityDpi = res.configuration.densityDpi,
+                iconSize = iconSize,
+                background = res.getColor(R.color.materialColorPrimary, null),
+                foreground = res.getColor(R.color.materialColorSurfaceContainerHigh, null),
+            )
+        if (look == cachedLook) return
+        synchronized(this) {
+            if (look != cachedLook) {
+                standardCache.clear()
+                skeletonCache.clear()
+                cachedLook = look
+            }
+        }
+    }
+
     override fun getOrFetchAppIcon(
         packageName: String,
         userHandle: UserHandle,
         instanceKey: String,
-    ): Drawable =
-        standardCache.getOrFetchAppIcon(
+    ): Drawable {
+        clearCachesIfLookChanged()
+        return standardCache.getOrFetchAppIcon(
             packageName = packageName,
             userHandle = userHandle,
             drawableInstanceKey = instanceKey,
@@ -136,9 +173,11 @@ constructor(
         ) {
             fetchAppIconBitmapInfo(standardIconFactory, packageName, userHandle)
         }
+    }
 
-    override fun getOrFetchSkeletonAppIcon(packageName: String, userHandle: UserHandle): Drawable =
-        skeletonCache.getOrFetchAppIcon(
+    override fun getOrFetchSkeletonAppIcon(packageName: String, userHandle: UserHandle): Drawable {
+        clearCachesIfLookChanged()
+        return skeletonCache.getOrFetchAppIcon(
             packageName = packageName,
             userHandle = null, // these aren't badged, so they don't need to be sharded by user
             drawableInstanceKey = "SKELETON",
@@ -148,6 +187,7 @@ constructor(
         ) {
             fetchAppIconBitmapInfo(skeletonIconFactory, packageName, userHandle)
         }
+    }
 
     @WorkerThread
     private fun fetchAppIconBitmapInfo(
