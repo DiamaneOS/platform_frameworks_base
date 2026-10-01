@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copyright (C) 2026 The DiamaneOS Project
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+  -->
+
+<!-- Tally shapes for values that SettingsLib defines in values-v31, where SystemUI's own
+     unqualified values never apply: only a v31 value in SystemUI takes their place. -->
+<resources xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- The rows of the Quick Settings dialogs drawn with SettingsLib's switch bar backgrounds:
+         the connected network in Internet, the devices in Bluetooth, the hearing device spinner.
+         Tally draws them with the key radius, as the dialog keys and the selected-row ripple,
+         instead of pills. -->
+    <dimen name="settingslib_switch_bar_radius"
+        android:featureFlag="de.diamaneos.systemui.tally_shell">@dimen/tally_radius_s</dimen>
+</resources>

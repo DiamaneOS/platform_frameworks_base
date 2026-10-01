@@ -20,12 +20,20 @@
     <item android:id="@android:id/mask">
         <shape android:shape="rectangle">
             <solid android:color="@android:color/white"/>
-            <corners android:radius="18dp"/>
+            <corners android:radius="18dp"
+                android:featureFlag="!de.diamaneos.systemui.tally_shell"/>
+            <!-- Tally: the key radius, not a pill -->
+            <corners android:radius="@dimen/tally_radius_s"
+                android:featureFlag="de.diamaneos.systemui.tally_shell"/>
         </shape>
     </item>
     <item>
         <shape android:shape="rectangle">
-            <corners android:radius="18dp"/>
+            <corners android:radius="18dp"
+                android:featureFlag="!de.diamaneos.systemui.tally_shell"/>
+            <!-- Tally: the key radius, not a pill -->
+            <corners android:radius="@dimen/tally_radius_s"
+                android:featureFlag="de.diamaneos.systemui.tally_shell"/>
             <solid android:color="@color/qs_dialog_btn_filled_large_background"/>
         </shape>
     </item>
