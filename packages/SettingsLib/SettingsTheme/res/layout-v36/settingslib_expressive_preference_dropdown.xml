@@ -22,7 +22,9 @@
     android:layout_height="wrap_content">
     <!-- This spinner should be invisible in the layout and take up no space, when the Preference
          is clicked the dropdown will appear from this location on screen. -->
-    <Spinner
+    <!-- Tally: the spinner whose popup is the Tally menu: as wide as its entries with their check
+         column, 16 dp from the window's sides, long entries wrapped. -->
+    <com.android.settingslib.widget.TallyDropDownSpinner
         android:id="@+id/spinner"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
