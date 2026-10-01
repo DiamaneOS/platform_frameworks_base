@@ -682,6 +682,10 @@
     <dimen name="volume_tool_tip_arrow_corner_radius">2dp</dimen>
 
     <dimen name="bottom_sheet_corner_radius">28dp</dimen>
+    <!-- Tally: the dialog and sheet radius, as PlatformTheme's large shapes (TallyShapes) -->
+    <dimen xmlns:android="http://schemas.android.com/apk/res/android"
+        name="bottom_sheet_corner_radius"
+        android:featureFlag="de.diamaneos.systemui.tally_shell">@dimen/tally_radius_l</dimen>
 
     <!-- Size of each item in the ringer selector drawer. -->
     <dimen name="volume_ringer_drawer_item_size">42dp</dimen>

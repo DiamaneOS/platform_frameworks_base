@@ -315,6 +315,12 @@
     <color name="bouncer_fallback_bg"
         android:featureFlag="de.diamaneos.systemui.tally_shell">@color/tally_background</color>
 
+    <!-- The clipboard overlay's minimised chip: its icons, on clipboard_minimized_background -->
+    <color name="clipboard_minimized_icon">@color/materialColorOnSecondary</color>
+    <!-- Tally: the ink, on the chip's Tally surface -->
+    <color name="clipboard_minimized_icon"
+        android:featureFlag="de.diamaneos.systemui.tally_shell">@color/tally_ink</color>
+
     <array name="screen_record_color_palette">
         <item>#8E3E92</item>
         <item>#232D67</item>
