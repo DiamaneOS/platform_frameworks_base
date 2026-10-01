@@ -103,8 +103,10 @@ public class SettingsSpinnerAdapter<T> extends ArrayAdapter<T> {
         ImageView iconView = view.findViewById(android.R.id.icon);
         boolean isSelected = position == mSelectedPosition;
         if (iconView != null) {
-            iconView.setImageTintList(mDropdownSelectedColor);
-            iconView.setVisibility(isSelected ? View.VISIBLE : View.GONE);
+            // Tally: the check marks the selected entry in the entries' own colour, and the other
+            // entries keep its room, so every entry's words start in one place (the Tally menu).
+            iconView.setImageTintList(mDropdownColor);
+            iconView.setVisibility(isSelected ? View.VISIBLE : View.INVISIBLE);
         }
         ViewCompat.setAccessibilityDelegate(view, new AccessibilityDelegateCompat() {
             @Override
@@ -149,8 +151,8 @@ public class SettingsSpinnerAdapter<T> extends ArrayAdapter<T> {
         T item = getItem(position);
         textView.setText(item == null ? "" : item.toString());
         if (sIsExpressive) {
-            textView.setTextColor(
-                    (position == mSelectedPosition) ? mDropdownSelectedColor : mDropdownColor);
+            // Tally: one colour for every entry; the check is the selection's mark.
+            textView.setTextColor(mDropdownColor);
         }
         return view;
     }

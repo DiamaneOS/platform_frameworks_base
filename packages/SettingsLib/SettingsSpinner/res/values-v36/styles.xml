@@ -41,18 +41,20 @@
         <item name="android:textColor">@color/settingslib_expressive_color_button_outlined_text_icon</item>
     </style>
 
+    <!-- Tally: an entry of the Tally menu, as a dropdown row's popup's entries: 16 dp inside the
+         popup's padding, the check column, then the words in Tally's item type. -->
     <style name="SettingsSpinnerDropdown.Expressive">
         <item name="android:background">@drawable/settings_expressive_spinner_dropdown_background</item>
         <item name="android:minHeight">@dimen/spinner_dropdown_height</item>
-        <item name="android:paddingStart">@dimen/settingslib_expressive_space_extrasmall4</item>
-        <item name="android:paddingEnd">@dimen/settingslib_expressive_space_extrasmall4</item>
+        <item name="android:paddingStart">@dimen/settingslib_expressive_space_small1</item>
+        <item name="android:paddingEnd">@dimen/settingslib_expressive_space_small1</item>
         <item name="android:paddingTop">@dimen/settingslib_expressive_space_extrasmall7</item>
         <item name="android:paddingBottom">@dimen/settingslib_expressive_space_extrasmall7</item>
     </style>
 
     <style name="SettingsSpinnerDropdownText">
-        <item name="android:textAppearance">@style/TextAppearance.SettingsLib.LabelLarge</item>
-        <item name="android:textColor">@color/settingslib_spinner_dropdown_color</item>
+        <item name="android:textAppearance">@style/TextAppearance.SettingsLib.Tally.Item</item>
+        <item name="android:textColor">@color/settingslib_materialColorOnSurface</item>
         <item name="android:maxLines">1</item>
         <item name="android:ellipsize">marquee</item>
     </style>
