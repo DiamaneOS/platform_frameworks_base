@@ -32,6 +32,8 @@
     <dimen name="settingslib_tally_card_margin">12dp</dimen>
     <!-- Row content starts 16 dp inside the card (space 16): 28 dp from the screen's side. -->
     <dimen name="settingslib_tally_row_inset">28dp</dimen>
+    <!-- A row whose layout is not a Tally row starts there too (SettingsPreferenceGroupAdapter). -->
+    <dimen name="settingslib_tally_group_row_padding">@dimen/settingslib_tally_row_inset</dimen>
     <!-- Above and below a row's text (space 8), inside the 64 dp minimum. -->
     <dimen name="settingslib_tally_row_padding_vertical">8dp</dimen>
     <!-- Row icons: 24 dp glyphs (icon), 16 dp before the text (space 16); an app icon may be up

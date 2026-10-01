@@ -17,6 +17,17 @@
 package com.android.settingslib.widget;
 
 import android.content.Context;
+import android.content.res.Resources;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.ColorFilter;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.PixelFormat;
+import android.graphics.Rect;
+import android.graphics.RectF;
+import android.graphics.drawable.Drawable;
+import android.os.Build;
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.TextUtils;
@@ -29,10 +40,14 @@ import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.preference.Preference;
 import androidx.preference.PreferenceViewHolder;
 
 import com.android.settingslib.widget.preference.usage.R;
+
+import com.google.android.material.progressindicator.LinearProgressIndicator;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -205,6 +220,11 @@ public class UsageProgressBarPreference extends Preference implements GroupSecti
             progressBar.setIndeterminate(false);
             progressBar.setProgress(mPercent);
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+                && progressBar instanceof LinearProgressIndicator
+                && SettingsThemeHelper.isExpressiveTheme(getContext())) {
+            applyTallyMeter((LinearProgressIndicator) progressBar, mPercent);
+        }
 
         final FrameLayout customLayout = (FrameLayout) holder.findViewById(R.id.custom_content);
         if (mCustomImageView == null) {
@@ -233,5 +253,143 @@ public class UsageProgressBarPreference extends Preference implements GroupSecti
             return spannableSummary;
         }
         return summary;
+    }
+
+    /**
+     * Tally: the bar as the prototype's meters, as SettingsLib's slider draws them, in place of an
+     * accent pill with a stop dot: an r8 track on the high surface, the level in ink at 16 % over
+     * it, and the value as a lamp tick across the meter. A level is a value, neither a state nor
+     * an action, so it takes no accent colour. The colours are the Tally roles SettingsTheme
+     * exports from API 34 (res/values-v34/tally_switch.xml).
+     */
+    private static void applyTallyMeter(@NonNull LinearProgressIndicator indicator, int percent) {
+        final Context context = indicator.getContext();
+        final Resources res = context.getResources();
+        final int surface = context.getColor(
+                com.android.settingslib.widget.theme.R.color.settingslib_tally_surface_high);
+        final int ink = context.getColor(
+                com.android.settingslib.widget.theme.R.color.settingslib_tally_ink);
+        final int radius = res.getDimensionPixelSize(
+                com.android.settingslib.widget.theme.R.dimen.settingslib_tally_usage_meter_radius);
+        indicator.setTrackColor(surface);
+        indicator.setIndicatorColor(over(withAlpha(ink, 0.16f), surface));
+        indicator.setTrackCornerRadius(radius);
+        indicator.setTrackInnerCornerRadius(0);
+        indicator.setTrackStopIndicatorSize(0);
+        indicator.setIndicatorTrackGapSize(0);
+
+        final Drawable foreground = indicator.getForeground();
+        TallyMeterTick tick =
+                foreground instanceof TallyMeterTick ? (TallyMeterTick) foreground : null;
+        if (tick == null) {
+            tick = new TallyMeterTick(
+                    context.getColor(
+                            com.android.settingslib.widget.theme.R.color.settingslib_tally_lamp),
+                    context.getColor(com.android.settingslib.widget.theme.R.color
+                            .settingslib_tally_lamp_outline),
+                    res.getDimensionPixelSize(com.android.settingslib.widget.theme.R.dimen
+                            .settingslib_tally_usage_meter_tick_width),
+                    res.getDimension(com.android.settingslib.widget.theme.R.dimen
+                            .settingslib_tally_usage_meter_tick_edge),
+                    radius);
+            indicator.setForeground(tick);
+        }
+        tick.setFraction(percent < 0 ? -1f : Math.min(percent, 100) / 100f);
+    }
+
+    private static int withAlpha(int color, float alpha) {
+        return (Math.round(alpha * 255f) << 24) | (color & 0x00ffffff);
+    }
+
+    /** {@code top} drawn over the opaque {@code bottom}. */
+    private static int over(int top, int bottom) {
+        final float a = Color.alpha(top) / 255f;
+        return Color.rgb(
+                Math.round(Color.red(top) * a + Color.red(bottom) * (1f - a)),
+                Math.round(Color.green(top) * a + Color.green(bottom) * (1f - a)),
+                Math.round(Color.blue(top) * a + Color.blue(bottom) * (1f - a)));
+    }
+
+    /**
+     * Tally: the value's lamp tick across a meter, centred on the end of the level and kept inside
+     * the meter's rounded corners, with the lamp outline as its edge (the slider's thumb). None
+     * while the bar is indeterminate. Mirrored right to left.
+     */
+    private static final class TallyMeterTick extends Drawable {
+        private final Paint mFill = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint mEdge = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final int mWidth;
+        private final float mEdgeWidth;
+        private final float mRadius;
+        private final Path mClip = new Path();
+        private final RectF mRect = new RectF();
+        private float mFraction = -1f;
+
+        TallyMeterTick(int lamp, int lampOutline, int width, float edgeWidth, float radius) {
+            mFill.setColor(lamp);
+            mEdge.setColor(lampOutline);
+            mEdge.setStyle(Paint.Style.STROKE);
+            mEdge.setStrokeWidth(edgeWidth);
+            mWidth = width;
+            mEdgeWidth = edgeWidth;
+            mRadius = radius;
+        }
+
+        void setFraction(float fraction) {
+            if (fraction != mFraction) {
+                mFraction = fraction;
+                invalidateSelf();
+            }
+        }
+
+        @Override
+        protected void onBoundsChange(@NonNull Rect bounds) {
+            mClip.reset();
+            mClip.addRoundRect(new RectF(bounds), mRadius, mRadius, Path.Direction.CW);
+        }
+
+        @Override
+        public void draw(@NonNull Canvas canvas) {
+            final Rect b = getBounds();
+            if (mFraction < 0f || b.isEmpty()) return;
+            final float span = b.width();
+            float start = mFraction * span - mWidth / 2f;
+            start = Math.max(0f, Math.min(start, span - mWidth));
+            final float left = getLayoutDirection() == View.LAYOUT_DIRECTION_RTL
+                    ? b.right - start - mWidth
+                    : b.left + start;
+            mRect.set(left, b.top, left + mWidth, b.bottom);
+            canvas.save();
+            canvas.clipPath(mClip);
+            canvas.drawRect(mRect, mFill);
+            mRect.inset(mEdgeWidth / 2f, mEdgeWidth / 2f);
+            canvas.drawRect(mRect, mEdge);
+            canvas.restore();
+        }
+
+        @Override
+        public boolean onLayoutDirectionChanged(int layoutDirection) {
+            invalidateSelf();
+            return true;
+        }
+
+        @Override
+        public void setAlpha(int alpha) {
+            mFill.setAlpha(alpha);
+            mEdge.setAlpha(alpha);
+            invalidateSelf();
+        }
+
+        @Override
+        public void setColorFilter(@Nullable ColorFilter colorFilter) {
+            mFill.setColorFilter(colorFilter);
+            mEdge.setColorFilter(colorFilter);
+            invalidateSelf();
+        }
+
+        @Override
+        public int getOpacity() {
+            return PixelFormat.TRANSLUCENT;
+        }
     }
 }
