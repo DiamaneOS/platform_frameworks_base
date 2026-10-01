@@ -25,6 +25,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 
 @Composable
@@ -48,6 +49,12 @@ val ColorScheme.divider: Color
 val ColorScheme.surfaceTone: Color
     get() = primary.copy(SettingsOpacity.SurfaceTone)
 
-/** The overall background color in Settings. */
+/**
+ * The overall background color in Settings.
+ *
+ * Tally: the page colour of SettingsLib's pages (SettingsTheme's settingslib_tally_background),
+ * surface container lowest in dark theme and low in light theme, so Spa pages lie on the same page
+ * as the rest of Settings. Stock's surface container was a lighter page in dark theme.
+ */
 val ColorScheme.settingsBackground: Color
-    get() = surfaceContainer
+    get() = if (surface.luminance() < 0.5f) surfaceContainerLowest else surfaceContainerLow
