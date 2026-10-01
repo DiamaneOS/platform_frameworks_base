@@ -17,6 +17,8 @@
 package com.android.systemui.statusbar.policy
 
 import android.content.Context
+import android.content.res.Configuration
+import android.os.LocaleList
 import android.text.StaticLayout
 import android.util.AttributeSet
 import android.widget.TextView
@@ -57,8 +59,24 @@ class VariableDateView(context: Context, attrs: AttributeSet) : TextView(context
 
     private var onMeasureListener: OnMeasureListener? = null
 
+    /**
+     * Called when the view's configuration brings new locales, on the main thread and with the
+     * view's resources already in them.
+     */
+    var onLocalesChanged: (() -> Unit)? = null
+
+    private var locales: LocaleList = context.resources.configuration.locales
+
     fun onAttach(listener: OnMeasureListener?) {
         onMeasureListener = listener
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (newConfig.locales != locales) {
+            locales = newConfig.locales
+            onLocalesChanged?.invoke()
+        }
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
