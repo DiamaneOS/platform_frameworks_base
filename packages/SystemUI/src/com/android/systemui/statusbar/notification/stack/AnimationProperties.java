@@ -36,6 +36,10 @@ public class AnimationProperties {
     private ArrayMap<Property, Interpolator> mInterpolatorMap;
     private Consumer<Property> mAnimationCancelAction;
     private Consumer<Property> mAnimationEndAction;
+    // Tally: a spring of its own for movement that animates physically (see setCustomSpring).
+    private float mCustomSpringStiffness;
+    private float mCustomSpringDampingRatio;
+    private float mCustomSpringImpulse;
 
     /**
      * @return an animation filter for this animation.
@@ -168,6 +172,38 @@ public class AnimationProperties {
 
     public AnimationProperties resetCustomInterpolators() {
         mInterpolatorMap = null;
+        // Tally: the custom spring goes with them.
+        mCustomSpringStiffness = 0f;
         return this;
+    }
+
+    /**
+     * Tally: moves every view that moves physically in this animation on a spring of this
+     * stiffness and damping ratio instead of the default one. A view that is not moving yet starts
+     * with a push of {@code impulse * sqrt(stiffness) * distance}, so that its first frame moves.
+     * Cleared by {@link #resetCustomInterpolators}.
+     */
+    public AnimationProperties setCustomSpring(float stiffness, float dampingRatio, float impulse) {
+        mCustomSpringStiffness = stiffness;
+        mCustomSpringDampingRatio = dampingRatio;
+        mCustomSpringImpulse = impulse;
+        return this;
+    }
+
+    /** Tally: whether this animation has a spring of its own, see {@link #setCustomSpring}. */
+    public boolean hasCustomSpring() {
+        return mCustomSpringStiffness > 0f;
+    }
+
+    public float getCustomSpringStiffness() {
+        return mCustomSpringStiffness;
+    }
+
+    public float getCustomSpringDampingRatio() {
+        return mCustomSpringDampingRatio;
+    }
+
+    public float getCustomSpringImpulse() {
+        return mCustomSpringImpulse;
     }
 }
