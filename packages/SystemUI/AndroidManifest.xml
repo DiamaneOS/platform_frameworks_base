@@ -627,6 +627,23 @@
             </meta-data>
         </service>
 
+        <!-- Tally: the plain wallpaper, DiamaneOS's default (the framework overlay's
+             default_wallpaper_component). Only holders of BIND_WALLPAPER (signature|privileged:
+             the system and the wallpaper picker) may bind it; the intent filter makes it a
+             wallpaper the system accepts and lists it in Wallpaper & style. -->
+        <service android:name=".tally.wallpaper.TallyWallpaper"
+            android:featureFlag="de.diamaneos.systemui.tally_shell"
+            android:label="@string/tally_wallpaper_label"
+            android:singleUser="true"
+            android:permission="android.permission.BIND_WALLPAPER"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.wallpaper.WallpaperService" />
+            </intent-filter>
+            <meta-data android:name="android.service.wallpaper"
+                android:resource="@xml/tally_wallpaper" />
+        </service>
+
         <activity android:name=".tuner.TunerActivity"
                   android:enabled="false"
                   android:icon="@drawable/tuner"
