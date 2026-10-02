@@ -22,6 +22,7 @@ import com.android.internal.widget.MessagingGroup
 import com.android.internal.widget.MessagingMessage
 import com.android.keyguard.KeyguardUpdateMonitor
 import com.android.keyguard.KeyguardUpdateMonitorCallback
+import com.android.systemui.dagger.qualifiers.Application
 import com.android.systemui.shade.ShadeDisplayAware
 import com.android.systemui.statusbar.NotificationLockscreenUserManager
 import com.android.systemui.statusbar.NotificationLockscreenUserManager.UserChangedListener
@@ -30,8 +31,13 @@ import com.android.systemui.statusbar.notification.collection.NotifPipeline
 import com.android.systemui.statusbar.notification.collection.coordinator.dagger.CoordinatorScope
 import com.android.systemui.statusbar.notification.row.NotificationGutsManager
 import com.android.systemui.statusbar.policy.ConfigurationController
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.icons.TallyIconStyleRepository
 import com.android.systemui.util.Compile
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.launch
 
 /**
  * A coordinator which ensures that notifications within the new pipeline are correctly inflated for
@@ -47,6 +53,8 @@ internal constructor(
     private val mGutsManager: NotificationGutsManager,
     private val mKeyguardUpdateMonitor: KeyguardUpdateMonitor,
     private val colorUpdateLogger: ColorUpdateLogger,
+    @Application private val applicationScope: CoroutineScope,
+    private val tallyIconStyle: TallyIconStyleRepository,
 ) : Coordinator, ConfigurationController.ConfigurationListener {
 
     private var mIsSwitchingUser = false
@@ -86,6 +94,22 @@ internal constructor(
         mLockscreenUserManager.addUserChangedListener(mUserChangedListener)
         mConfigurationController.addCallback(this)
         mKeyguardUpdateMonitor.registerCallback(mKeyguardUpdateCallback)
+        if (TallyShell.isEnabled) {
+            // DiamaneOS Tally: app icons follow the icon style chosen for Home; rows inflated
+            // before a change of style get their icons again, as after a theme change.
+            applicationScope.launch {
+                tallyIconStyle.style.drop(1).collect { onTallyIconStyleChanged() }
+            }
+        }
+    }
+
+    private fun onTallyIconStyleChanged() {
+        colorUpdateLogger.logTriggerEvent("VCC.onTallyIconStyleChanged()")
+        if (!mIsSwitchingUser) {
+            updateNotificationsOnDensityOrFontScaleChanged()
+        } else {
+            mReinflateNotificationsOnUserSwitched = true
+        }
     }
 
     override fun onDensityOrFontScaleChanged() {
