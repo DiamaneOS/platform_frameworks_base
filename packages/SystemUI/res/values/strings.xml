@@ -1915,8 +1915,8 @@
          foreground services. [CHAR LIMIT=40] -->
     <string name="notification_section_header_live">Live</string>
 
-    <!-- Tally: name of the default wallpaper in Wallpaper & style: one plain colour, the page
-         colour of the current light or dark theme. [CHAR LIMIT=30] -->
+    <!-- Tally: name of the default wallpaper in Wallpaper & style: one plain colour, the same in
+         light and dark theme. [CHAR LIMIT=30] -->
     <string name="tally_wallpaper_label">Plain</string>
 
     <!-- Content description for accessibility: Tapping this button will dismiss all gentle notifications [CHAR LIMIT=NONE] -->
