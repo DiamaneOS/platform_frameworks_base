@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ~ Copyright (C) 2026 The DiamaneOS Project
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~      http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License
+  -->
+
+<!-- The Paper wallpaper (TallyWallpaper, TallyPaper): the design prototype's "Paper · fine". The
+     colours are written for Sodium; on the phone each keeps its tone and chroma and takes the hue
+     of tally_paper_hue, the colour preset's. Both themes are here: the wallpaper picks one by the
+     current dark theme setting, so there is no values-night variant. -->
+<resources>
+    <!-- The colour whose hue the paper takes: the palette's primary, at the preset's hue -->
+    <color name="tally_paper_hue">@android:color/system_accent1_500</color>
+
+    <!-- Light theme: a vertical gradient, a grain of 16 levels and a warm vignette, 14 % at the
+         edge (rgba(60, 45, 30, .14)) -->
+    <color name="tally_paper_light_top">#D3CCC2</color>
+    <color name="tally_paper_light_bottom">#C9C1B6</color>
+    <color name="tally_paper_light_vignette">#243C2D1E</color>
+    <integer name="tally_paper_light_grain">16</integer>
+
+    <!-- Dark theme: a vertical gradient, a grain of 14 levels and a black vignette, 32 % at the
+         edge (rgba(0, 0, 0, .32)) -->
+    <color name="tally_paper_dark_top">#2C2926</color>
+    <color name="tally_paper_dark_bottom">#24211E</color>
+    <color name="tally_paper_dark_vignette">#52000000</color>
+    <integer name="tally_paper_dark_grain">14</integer>
+</resources>

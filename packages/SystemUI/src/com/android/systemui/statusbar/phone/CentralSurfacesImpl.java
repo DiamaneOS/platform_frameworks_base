@@ -194,6 +194,8 @@ import com.android.systemui.statusbar.policy.ExtensionController;
 import com.android.systemui.statusbar.policy.KeyguardStateController;
 import com.android.systemui.statusbar.policy.UserInfoControllerImpl;
 import com.android.systemui.surfaceeffects.core.ripple.RippleShader.RippleShape;
+import com.android.systemui.tally.TallyShell;
+import com.android.systemui.tally.wallpaper.TallyWallpaper;
 import com.android.systemui.topui.TopUiController;
 import com.android.systemui.util.DumpUtilsKt;
 import com.android.systemui.util.WallpaperController;
@@ -1930,9 +1932,14 @@ public class CentralSurfacesImpl implements CoreStartable, CentralSurfaces {
                     dimAmount = mWallpaperManager.getWallpaperDimAmount();
                 }
                 final float scrimDimAmount = dimAmount;
+                // Tally: the Paper wallpaper takes no scrim on the lock screen
+                final boolean paperWallpaper = TallyShell.isEnabled() && mWallpaperSupported
+                        && TallyWallpaper.isOnLockScreen(
+                                mContext, mWallpaperManager, mUserTracker.getUserId());
                 mMainExecutor.execute(() -> {
                     mScrimController.setAdditionalScrimBehindAlphaKeyguard(scrimDimAmount);
                     mScrimController.applyCompositeAlphaOnScrimBehindKeyguard();
+                    mScrimController.setTallyPaperWallpaper(paperWallpaper);
                 });
             });
         }
