@@ -1932,14 +1932,14 @@ public class CentralSurfacesImpl implements CoreStartable, CentralSurfaces {
                     dimAmount = mWallpaperManager.getWallpaperDimAmount();
                 }
                 final float scrimDimAmount = dimAmount;
-                // Tally: the plain wallpaper takes no scrim on the lock screen
-                final boolean plainWallpaper = TallyShell.isEnabled() && mWallpaperSupported
+                // Tally: the Paper wallpaper takes no scrim on the lock screen
+                final boolean paperWallpaper = TallyShell.isEnabled() && mWallpaperSupported
                         && TallyWallpaper.isOnLockScreen(
                                 mContext, mWallpaperManager, mUserTracker.getUserId());
                 mMainExecutor.execute(() -> {
                     mScrimController.setAdditionalScrimBehindAlphaKeyguard(scrimDimAmount);
                     mScrimController.applyCompositeAlphaOnScrimBehindKeyguard();
-                    mScrimController.setTallyPlainWallpaper(plainWallpaper);
+                    mScrimController.setTallyPaperWallpaper(paperWallpaper);
                 });
             });
         }

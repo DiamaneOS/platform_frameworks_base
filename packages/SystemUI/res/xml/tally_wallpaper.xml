@@ -15,7 +15,7 @@
   ~ limitations under the License
   -->
 
-<!-- Tally's plain wallpaper (TallyWallpaper): no settings, no ambient mode. -->
+<!-- Tally's Paper wallpaper (TallyWallpaper): no settings, no ambient mode. -->
 <wallpaper
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:thumbnail="@drawable/tally_wallpaper_thumbnail"
