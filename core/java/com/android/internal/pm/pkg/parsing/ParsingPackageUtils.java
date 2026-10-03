@@ -1068,7 +1068,13 @@ public class ParsingPackageUtils {
             }
         }
 
-        if (pkg.isDeclaredHavingCode() && !pkg.getUsesPermissionMapping().containsKey(android.Manifest.permission.OTHER_SENSORS)) {
+        // Downstream opt-out from compatibility insertion only. Apps may still
+        // explicitly request OTHER_SENSORS; no existing request is removed.
+        Bundle appMetadata = pkg.getMetaData();
+        boolean noImplicitOtherSensors = appMetadata != null && appMetadata.getBoolean(
+                "de.diamaneos.permission.NO_IMPLICIT_OTHER_SENSORS", false);
+        if (pkg.isDeclaredHavingCode() && !noImplicitOtherSensors
+                && !pkg.getUsesPermissionMapping().containsKey(android.Manifest.permission.OTHER_SENSORS)) {
             pkg.addImplicitPermission(android.Manifest.permission.OTHER_SENSORS);
         }
 
