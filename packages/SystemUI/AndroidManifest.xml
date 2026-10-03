@@ -627,7 +627,7 @@
             </meta-data>
         </service>
 
-        <!-- Tally: the plain wallpaper, DiamaneOS's default (the framework overlay's
+        <!-- Tally: the Paper wallpaper, DiamaneOS's default (the framework overlay's
              default_wallpaper_component). Only holders of BIND_WALLPAPER (signature|privileged:
              the system and the wallpaper picker) may bind it; the intent filter makes it a
              wallpaper the system accepts and lists it in Wallpaper & style. -->

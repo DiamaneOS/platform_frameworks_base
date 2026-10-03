@@ -15,11 +15,25 @@
   ~ limitations under the License
   -->
 
+<!-- The Paper wallpaper (TallyWallpaper, TallyPaper): the design prototype's "Paper · fine". The
+     colours are written for Sodium; on the phone each keeps its tone and chroma and takes the hue
+     of tally_paper_hue, the colour preset's. Both themes are here: the wallpaper picks one by the
+     current dark theme setting, so there is no values-night variant. -->
 <resources>
-    <!-- The plain wallpaper's one colour (TallyWallpaper), the same in light and dark theme:
-         Stone, tone 40 of the palette's neutral variant (#635E57 for Sodium), so it takes the
-         colour preset's hue as every Tally neutral does. White and the dark theme's ink stay at
-         5:1 or better on it. A fixed colour goes here as a plain #RRGGBB value. No values-night
-         variant: it does not change with dark theme. -->
-    <color name="tally_wallpaper_plain">@android:color/system_neutral2_600</color>
+    <!-- The colour whose hue the paper takes: the palette's primary, at the preset's hue -->
+    <color name="tally_paper_hue">@android:color/system_accent1_500</color>
+
+    <!-- Light theme: a vertical gradient, a grain of 16 levels and a warm vignette, 14 % at the
+         edge (rgba(60, 45, 30, .14)) -->
+    <color name="tally_paper_light_top">#D3CCC2</color>
+    <color name="tally_paper_light_bottom">#C9C1B6</color>
+    <color name="tally_paper_light_vignette">#243C2D1E</color>
+    <integer name="tally_paper_light_grain">16</integer>
+
+    <!-- Dark theme: a vertical gradient, a grain of 14 levels and a black vignette, 32 % at the
+         edge (rgba(0, 0, 0, .32)) -->
+    <color name="tally_paper_dark_top">#2C2926</color>
+    <color name="tally_paper_dark_bottom">#24211E</color>
+    <color name="tally_paper_dark_vignette">#52000000</color>
+    <integer name="tally_paper_dark_grain">14</integer>
 </resources>
