@@ -15,13 +15,11 @@
   ~ limitations under the License
   -->
 
-<!-- The plain wallpaper's thumbnail in Wallpaper & style: its one colour. -->
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="108dp"
-    android:height="240dp"
-    android:viewportWidth="108"
-    android:viewportHeight="240">
-    <path
-        android:fillColor="@color/tally_wallpaper_plain"
-        android:pathData="M0,0H108V240H0Z" />
-</vector>
+<resources>
+    <!-- The plain wallpaper's one colour (TallyWallpaper), the same in light and dark theme:
+         Stone, tone 40 of the palette's neutral variant (#635E57 for Sodium), so it takes the
+         colour preset's hue as every Tally neutral does. White and the dark theme's ink stay at
+         5:1 or better on it. A fixed colour goes here as a plain #RRGGBB value. No values-night
+         variant: it does not change with dark theme. -->
+    <color name="tally_wallpaper_plain">@android:color/system_neutral2_600</color>
+</resources>
