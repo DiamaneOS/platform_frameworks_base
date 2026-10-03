@@ -17,6 +17,9 @@
 package com.android.systemui.tally.wallpaper
 
 import android.app.WallpaperColors
+import android.app.WallpaperManager
+import android.content.ComponentName
+import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.Color
@@ -28,26 +31,27 @@ import android.os.Looper
 import android.service.wallpaper.WallpaperService
 import android.util.Log
 import android.view.SurfaceHolder
-import de.diamaneos.tally.R as TallyR
+import com.android.systemui.res.R
 
 /**
  * Tally's plain wallpaper, the DiamaneOS default (the framework overlay's
- * default_wallpaper_component): the whole screen in the page colour, tally_background, the ground
- * Settings' pages sit on, so Home and the lock screen sit on the same ground. It follows dark theme
- * and the palette as the page does, and reports colours whose hints give dark text on the light
- * page and white text on the dark one.
+ * default_wallpaper_component): the whole screen in one colour, tally_wallpaper_plain, the same in
+ * light and dark theme. Its colours carry the hints a picture of that colour gets, so Launcher, the
+ * lock screen and the status bar take the ink that suits it. The lock screen draws no dim over it
+ * ([isOnLockScreen]).
  *
- * It is static. It draws when the system asks (a new or resized surface) and when the page colour
- * changes (dark theme or the palette), and never animates. It turns offset updates off, ignores
- * zoom and touch, and answers colour requests for any area with the page colour, so nothing reads
- * its pixels back. SystemUI declares it only with the Tally flag on (android:featureFlag).
+ * It is static. It draws when the system asks (a new or resized surface) and never animates; it
+ * draws again only if the colour itself changes, which happens when the colour follows the palette
+ * and the palette changes. It turns offset updates off, ignores zoom and touch, and answers colour
+ * requests for any area with its colour, so nothing reads its pixels back. SystemUI declares it
+ * only with the Tally flag on (android:featureFlag).
  */
 class TallyWallpaper : WallpaperService() {
     private var worker: HandlerThread? = null
     private var handler: Handler? = null
 
     /** The live engines (one per display, and previews); used on the worker thread only. */
-    private val engines = mutableSetOf<PageEngine>()
+    private val engines = mutableSetOf<PlainEngine>()
 
     override fun onCreate() {
         super.onCreate()
@@ -58,9 +62,9 @@ class TallyWallpaper : WallpaperService() {
     /** Engine messages run on this service's own thread, not SystemUI's main thread. */
     override fun onProvideEngineLooper(): Looper = worker?.looper ?: super.onProvideEngineLooper()
 
-    override fun onCreateEngine(): Engine = PageEngine()
+    override fun onCreateEngine(): Engine = PlainEngine()
 
-    /** Dark theme or the palette may have changed: each engine checks its colour. */
+    /** The palette may have changed (the colour can be a palette tone): each engine checks it. */
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         handler?.post { engines.forEach { it.update() } }
@@ -73,11 +77,11 @@ class TallyWallpaper : WallpaperService() {
         handler = null
     }
 
-    private fun pageColour(): Int = getColor(TallyR.color.tally_background)
+    private fun plainColour(): Int = getColor(R.color.tally_wallpaper_plain)
 
-    private inner class PageEngine : Engine() {
+    private inner class PlainEngine : Engine() {
         /** The colour drawn and reported. */
-        @Volatile private var colour = pageColour()
+        @Volatile private var colour = plainColour()
 
         /** The areas whose colours the system asked for (lock clock, status bar sampling). */
         private val areas = mutableListOf<RectF>()
@@ -103,10 +107,6 @@ class TallyWallpaper : WallpaperService() {
             if (changed) report()
         }
 
-        override fun onVisibilityChanged(visible: Boolean) {
-            if (visible) update()
-        }
-
         override fun onComputeColors(): WallpaperColors = colorsOf(colour)
 
         override fun supportsLocalColorExtraction() = true
@@ -122,16 +122,16 @@ class TallyWallpaper : WallpaperService() {
             handler?.post { areas -= regions.toSet() }
         }
 
-        /** Draws and reports the page colour again if it changed. */
+        /** Draws and reports the colour again if it changed. */
         fun update() {
             if (!takeColour()) return
             draw(surfaceHolder)
             report()
         }
 
-        /** Takes the current page colour; true if it changed. */
+        /** Takes the current colour; true if it changed. */
         private fun takeColour(): Boolean {
-            val now = pageColour()
+            val now = plainColour()
             if (now == colour) return false
             colour = now
             return true
@@ -183,6 +183,24 @@ class TallyWallpaper : WallpaperService() {
                     else -> 0
                 }
             return WallpaperColors(Color.valueOf(colour), null, null, hints)
+        }
+
+        /**
+         * Whether the lock screen of [userId] (the current user) shows the plain wallpaper: as its
+         * own lock wallpaper, or as Home's when there is none. Calls the wallpaper service; not on
+         * the main thread.
+         */
+        @JvmStatic
+        fun isOnLockScreen(
+            context: Context,
+            wallpaperManager: WallpaperManager,
+            userId: Int,
+        ): Boolean {
+            val which =
+                if (wallpaperManager.lockScreenWallpaperExists()) WallpaperManager.FLAG_LOCK
+                else WallpaperManager.FLAG_SYSTEM
+            return wallpaperManager.getWallpaperInfo(which, userId)?.component ==
+                ComponentName(context, TallyWallpaper::class.java)
         }
     }
 }
