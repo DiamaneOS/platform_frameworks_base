@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="de.diamaneos.sensorspermissiontests">
+    <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="36" />
+    <application android:label="Sensor permission parser tests" android:allowBackup="false">
+        <meta-data android:name="de.diamaneos.permission.NO_IMPLICIT_OTHER_SENSORS"
+            android:value="true" />
+    </application>
+    <instrumentation android:name=".SensorOptOutTests"
+        android:targetPackage="de.diamaneos.sensorspermissiontests" />
+</manifest>
