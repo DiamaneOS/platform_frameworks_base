@@ -251,8 +251,8 @@ public class ScrimController implements ViewTreeObserver.OnPreDrawListener, Dump
     private float mAdditionalScrimBehindAlphaKeyguard = 0f;
     // Combined scrim behind keyguard alpha of default scrim + additional scrim
     private float mScrimBehindAlphaKeyguard = KEYGUARD_SCRIM_ALPHA;
-    // Tally: whether the lock screen shows the plain wallpaper, which takes no default scrim
-    private boolean mTallyPlainWallpaper;
+    // Tally: whether the lock screen shows the Paper wallpaper, which takes no default scrim
+    private boolean mTallyPaperWallpaper;
 
     private float mRawPanelExpansionFraction;
     private float mPanelScrimMinFraction;
@@ -751,8 +751,8 @@ public class ScrimController implements ViewTreeObserver.OnPreDrawListener, Dump
      * This is used to apply additional keyguard dimming on top of the default scrim alpha value.
      */
     protected void applyCompositeAlphaOnScrimBehindKeyguard() {
-        // Tally: no default scrim over the plain wallpaper (setTallyPlainWallpaper)
-        float defaultAlpha = mTallyPlainWallpaper ? 0f : KEYGUARD_SCRIM_ALPHA;
+        // Tally: no default scrim over the Paper wallpaper (setTallyPaperWallpaper)
+        float defaultAlpha = mTallyPaperWallpaper ? 0f : KEYGUARD_SCRIM_ALPHA;
         int compositeAlpha = ColorUtils.compositeAlpha(
                 (int) (255 * mAdditionalScrimBehindAlphaKeyguard),
                 (int) (255 * defaultAlpha));
@@ -761,15 +761,15 @@ public class ScrimController implements ViewTreeObserver.OnPreDrawListener, Dump
     }
 
     /**
-     * Tally: sets whether the lock screen shows the plain wallpaper (TallyWallpaper). It takes no
-     * default scrim behind the keyguard: it is one flat colour whose hints already give the lock
-     * screen's text its ink. Every other wallpaper keeps the scrim.
+     * Tally: sets whether the lock screen shows the Paper wallpaper (TallyWallpaper). It takes no
+     * default scrim behind the keyguard: it is a quiet, even ground whose hints already give the
+     * lock screen's text its ink. Every other wallpaper keeps the scrim.
      */
-    public void setTallyPlainWallpaper(boolean plain) {
-        if (!TallyShell.isEnabled() || plain == mTallyPlainWallpaper) {
+    public void setTallyPaperWallpaper(boolean paper) {
+        if (!TallyShell.isEnabled() || paper == mTallyPaperWallpaper) {
             return;
         }
-        mTallyPlainWallpaper = plain;
+        mTallyPaperWallpaper = paper;
         applyCompositeAlphaOnScrimBehindKeyguard();
         if (mState == ScrimState.KEYGUARD) {
             // Already on the lock screen: take the new alpha now, as setClipsQsScrim does.
