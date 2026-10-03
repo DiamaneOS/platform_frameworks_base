@@ -29,15 +29,22 @@ import com.android.internal.R
 import com.android.launcher3.icons.BaseIconFactory
 import com.android.launcher3.icons.BaseIconFactory.IconOptions
 import com.android.launcher3.icons.BitmapInfo
+import com.android.launcher3.icons.IconThemeController
 import com.android.launcher3.icons.mono.ColorList
 import com.android.launcher3.icons.mono.MonoIconThemeController
+import com.android.launcher3.icons.tally.TallyAppKeys
+import com.android.launcher3.icons.tally.TallyColourIconThemeController
 import com.android.launcher3.util.UserIconInfo
 import com.android.systemui.Dumpable
 import com.android.systemui.Flags
 import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.dump.DumpManager
 import com.android.systemui.notifications.content.icon.AppIconProvider
+import com.android.systemui.res.R as SystemUiR
 import com.android.systemui.shade.ShadeDisplayAware
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.icons.TallyIconStyle
+import com.android.systemui.tally.icons.TallyIconStyleRepository
 import com.android.systemui.util.asIndenting
 import com.android.systemui.util.dpToPx
 import com.android.systemui.util.printSection
@@ -54,6 +61,7 @@ constructor(
     dumpManager: DumpManager,
     systemClock: SystemClock,
     private val appIconHelper: AppIconHelper,
+    private val tallyIconStyle: TallyIconStyleRepository,
 ) : AppIconProvider, Dumpable {
     init {
         dumpManager.registerNormalDumpable(TAG, this)
@@ -68,31 +76,81 @@ constructor(
 
     private val standardIconFactory: BaseIconFactory
         get() =
-            BaseIconFactory(
-                context = sysuiContext,
-                fullResIconDpi = densityDpi,
-                iconBitmapSize = iconSize,
-                // Initialize the controller so that we can support themed icons.
+            standardIconFactory(
                 themeController =
-                    if (notificationsRedesignThemedAppIcons())
-                        MonoIconThemeController(
-                            shouldForceThemeIcon = true,
-                            colorProvider = { ctx ->
-                                val res = ctx.resources
-                                val bgColor = res.getColor(R.color.materialColorPrimary, null)
-                                val foregroundColor =
-                                    res.getColor(R.color.materialColorSurfaceContainerHigh, null)
-                                ColorList(
-                                    iconBackgroundColor = bgColor,
-                                    iconForegroundColor = foregroundColor,
-                                    iconAdaptiveBackgroundColor = bgColor,
-                                    badgeBackgroundColor = bgColor,
-                                    badgeForegroundColor = foregroundColor,
-                                )
-                            },
-                        )
-                    else null,
+                    if (notificationsRedesignThemedAppIcons()) themedController() else null
             )
+
+    /** The factory for standard-appearance icons, themed by [themeController]. */
+    private fun standardIconFactory(themeController: IconThemeController?) =
+        BaseIconFactory(
+            context = sysuiContext,
+            fullResIconDpi = densityDpi,
+            iconBitmapSize = iconSize,
+            // Initialize the controller so that we can support themed icons.
+            themeController = themeController,
+        )
+
+    /** Themed icons: every app's monochrome glyph on the theme's primary colour. */
+    private fun themedController(): IconThemeController =
+        MonoIconThemeController(
+            shouldForceThemeIcon = true,
+            colorProvider = { ctx ->
+                val res = ctx.resources
+                val bgColor = res.getColor(R.color.materialColorPrimary, null)
+                val foregroundColor = res.getColor(R.color.materialColorSurfaceContainerHigh, null)
+                ColorList(
+                    iconBackgroundColor = bgColor,
+                    iconForegroundColor = foregroundColor,
+                    iconAdaptiveBackgroundColor = bgColor,
+                    badgeBackgroundColor = bgColor,
+                    badgeForegroundColor = foregroundColor,
+                )
+            },
+        )
+
+    /**
+     * DiamaneOS Tally: the icon style of the current user's Home, or null with Tally off (stock:
+     * the themed icons flag decides).
+     */
+    private val tallyStyle: TallyIconStyle?
+        get() = if (TallyShell.isEnabled) tallyIconStyle.style.value else null
+
+    /** DiamaneOS Tally: the Colour style's keys, from the Tally tokens. */
+    private val colourController by lazy {
+        TallyColourIconThemeController(
+            TallyAppKeys.load(
+                sysuiContext.resources,
+                SystemUiR.array.tally_app_key_packages,
+                SystemUiR.array.tally_app_key_plates,
+                SystemUiR.array.tally_app_key_glyphs,
+            )
+        )
+    }
+
+    /**
+     * The factory for [packageName]'s standard-appearance icon. With Tally, its icon follows the
+     * icon style: Minimal is stock's themed icon; Colour is the app's key for one of DiamaneOS's
+     * own apps and the app's own icon for any other; with no style, every app's own icon.
+     */
+    @WorkerThread
+    private fun standardIconFactoryFor(packageName: String): BaseIconFactory =
+        when (tallyStyle) {
+            null -> standardIconFactory
+            TallyIconStyle.MINIMAL -> standardIconFactory(themedController())
+            TallyIconStyle.COLOUR ->
+                standardIconFactory(colourController.forPackage(sysuiContext, packageName))
+            TallyIconStyle.NONE -> standardIconFactory(themeController = null)
+        }
+
+    /** Whether standard-appearance icons are drawn themed, where their factory themed them. */
+    private val isStandardIconThemed: Boolean
+        get() =
+            when (tallyStyle) {
+                null -> notificationsRedesignThemedAppIcons()
+                TallyIconStyle.NONE -> false
+                else -> true
+            }
 
     private val skeletonIconFactory: BaseIconFactory
         get() =
@@ -125,16 +183,18 @@ constructor(
     @Volatile private var cachedLook: IconLook? = null
 
     /**
-     * What an icon's drawing depends on beyond its app: the display density and icon size, and the
-     * two colours a themed icon takes, which the theme's dark or light mode and its palette set. A
-     * drawable takes these when it is created, and the caches keep it, so an icon cached before a
-     * change of any of them would keep the old look in the rows that rebind for it.
+     * What an icon's drawing depends on beyond its app: the display density and icon size, the two
+     * colours a themed icon takes, which the theme's dark or light mode and its palette set, and
+     * the Tally icon style. A drawable takes these when it is created, and the caches keep it, so
+     * an icon cached before a change of any of them would keep the old look in the rows that rebind
+     * for it.
      */
     private data class IconLook(
         val densityDpi: Int,
         val iconSize: Int,
         val background: Int,
         val foreground: Int,
+        val tallyStyle: TallyIconStyle?,
     )
 
     /** Empties the caches when the look icons are drawn with has changed since they were filled. */
@@ -146,6 +206,7 @@ constructor(
                 iconSize = iconSize,
                 background = res.getColor(R.color.materialColorPrimary, null),
                 foreground = res.getColor(R.color.materialColorSurfaceContainerHigh, null),
+                tallyStyle = tallyStyle,
             )
         if (look == cachedLook) return
         synchronized(this) {
@@ -167,11 +228,9 @@ constructor(
             packageName = packageName,
             userHandle = userHandle,
             drawableInstanceKey = instanceKey,
-            createDrawable = {
-                it.createIconDrawable(themed = notificationsRedesignThemedAppIcons())
-            },
+            createDrawable = { it.createIconDrawable(themed = isStandardIconThemed) },
         ) {
-            fetchAppIconBitmapInfo(standardIconFactory, packageName, userHandle)
+            fetchAppIconBitmapInfo(standardIconFactoryFor(packageName), packageName, userHandle)
         }
     }
 
