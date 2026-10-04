@@ -7590,6 +7590,13 @@
     <permission android:name="android.permission.SOUNDTRIGGER_DELEGATE_IDENTITY"
         android:protectionLevel="signature|privileged" />
 
+    <!-- Internal vendor voice-session control. The signed system bridge is the
+         only allowlisted application; AudioFlinger also verifies its package
+         identity. This grants no general phone or audio-routing authority.
+         @hide -->
+    <permission android:name="android.permission.DIAMANEOS_CONTROL_CALL_AUDIO"
+        android:protectionLevel="signature|privileged" />
+
     <!-- @SystemApi Allows an application to modify audio routing and override policy decisions.
          <p>Not for use by third-party applications.</p>
          @hide -->
