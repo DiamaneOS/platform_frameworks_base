@@ -40,7 +40,6 @@ import com.android.systemui.Flags
 import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.dump.DumpManager
 import com.android.systemui.notifications.content.icon.AppIconProvider
-import com.android.systemui.res.R as SystemUiR
 import com.android.systemui.shade.ShadeDisplayAware
 import com.android.systemui.tally.TallyShell
 import com.android.systemui.tally.icons.TallyIconStyle
@@ -49,6 +48,7 @@ import com.android.systemui.util.asIndenting
 import com.android.systemui.util.dpToPx
 import com.android.systemui.util.printSection
 import com.android.systemui.util.time.SystemClock
+import de.diamaneos.tally.R as TallyR
 import java.io.PrintWriter
 import javax.inject.Inject
 import kotlin.math.ceil
@@ -121,9 +121,9 @@ constructor(
         TallyColourIconThemeController(
             TallyAppKeys.load(
                 sysuiContext.resources,
-                SystemUiR.array.tally_app_key_packages,
-                SystemUiR.array.tally_app_key_plates,
-                SystemUiR.array.tally_app_key_glyphs,
+                TallyR.array.tally_app_key_packages,
+                TallyR.array.tally_app_key_plates,
+                TallyR.array.tally_app_key_glyphs,
             )
         )
     }
