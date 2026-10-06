@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ~ Copyright (C) 2026 The DiamaneOS Project
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~      http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License
+  -->
+
+<!-- Text the Moments switch shows (com.android.systemui.tally.moments). -->
+<resources>
+    <!-- Toast after the Moments switch turns Moments on -->
+    <string name="tally_moments_toast_on">Moments on</string>
+    <!-- Toast after the Moments switch turns Moments off -->
+    <string name="tally_moments_toast_off">Moments off</string>
+    <!-- Toast after the Moments switch blocks camera and microphone access (a software
+         setting, not a hardware cut-off) -->
+    <string name="tally_moments_toast_sensors_blocked">Camera and microphone access off</string>
+    <!-- Toast after the Moments switch gives camera and microphone access back -->
+    <string name="tally_moments_toast_sensors_unblocked">Camera and microphone access on</string>
+    <!-- Toast after the Moments switch silences the ringer -->
+    <string name="tally_moments_toast_silent_on">Silent mode on</string>
+    <!-- Toast after the Moments switch restores the ringer -->
+    <string name="tally_moments_toast_silent_off">Silent mode off</string>
+    <!-- Toast after the Moments switch turns airplane mode on -->
+    <string name="tally_moments_toast_airplane_on">Airplane mode on</string>
+    <!-- Toast after the Moments switch turns airplane mode off -->
+    <string name="tally_moments_toast_airplane_off">Airplane mode off</string>
+    <!-- Toast after the Moments switch locks the phone down -->
+    <string name="tally_moments_toast_lockdown">Locked down</string>
+    <!-- Toast when the Moments switch is turned back on the lock screen: changes that lower
+         protection wait for the unlock -->
+    <string name="tally_moments_toast_after_unlock">The rest changes back after you unlock</string>
+
+    <!-- Title of the one-time notification when the switch is on before the user chose what it
+         does -->
+    <string name="tally_moments_notice_title">Moments switch is on</string>
+    <!-- Text of that notification; tapping it opens the Moments switch settings -->
+    <string name="tally_moments_notice_text">Choose what it does</string>
+
+    <!-- Title of the dialog when the user opens an app that Moments paused -->
+    <string name="tally_moments_paused_title">Paused for Moments</string>
+    <!-- Text of that dialog -->
+    <string name="tally_moments_paused_message">This app is paused while the Moments switch is on.</string>
+</resources>

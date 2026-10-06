@@ -198,6 +198,10 @@
     <!-- Listen for keyboard attachment / detachment -->
     <uses-permission android:name="android.permission.TABLET_MODE" />
 
+    <!-- DiamaneOS: read the Moments switch and pause the apps the user chose for Moments -->
+    <uses-permission android:name="de.diamaneos.permission.MOMENTS_SWITCH" />
+    <uses-permission android:name="android.permission.SUSPEND_APPS" />
+
     <!-- Self permission for internal broadcasts. -->
     <permission android:name="com.android.systemui.permission.SELF"
             android:protectionLevel="signature" />
