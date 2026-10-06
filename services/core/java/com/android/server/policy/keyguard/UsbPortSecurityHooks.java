@@ -11,12 +11,14 @@ import android.hardware.usb.UsbManager;
 import android.hardware.usb.UsbPort;
 import android.hardware.usb.UsbPortStatus;
 import android.os.Binder;
+import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.SystemProperties;
 import android.os.UserHandle;
+import android.provider.Settings;
 import android.util.ArraySet;
 import android.util.Log;
 import android.util.Slog;
@@ -72,6 +74,21 @@ public class UsbPortSecurityHooks {
         int initialMode = UsbPortSecurity.MODE_SETTING.get();
         Slogf.d(TAG, "initial value of persist.security.usb_mode: %d", initialMode);
 
+        // DiamaneOS: on debuggable builds a restrictive mode never outlives a reboot, so a test
+        // phone always comes back with USB data on. Clearing the property restores the build's
+        // default, which is On here. User builds keep the stored mode.
+        if (Build.IS_DEBUGGABLE && initialMode != UsbPortSecurity.MODE_ALL_PORTS_ENABLED) {
+            Slogf.w(TAG, "debuggable build: resetting persist.security.usb_mode %d to On",
+                    initialMode);
+            try {
+                SystemProperties.set(UsbPortSecurity.MODE_SETTING.getKey(), "");
+            } catch (RuntimeException e) {
+                // the ports still come up enabled for this boot
+                Slog.e(TAG, "unable to reset persist.security.usb_mode", e);
+            }
+            initialMode = UsbPortSecurity.MODE_ALL_PORTS_ENABLED;
+        }
+
         switch (initialMode) {
             case UsbPortSecurity.MODE_CHARGING_ONLY:
             case UsbPortSecurity.MODE_CHARGING_ONLY_WHEN_LOCKED:
@@ -113,7 +130,8 @@ public class UsbPortSecurityHooks {
                     ++usbConnectEventCount;
                     Slog.d(TAG, "usbConnectEventCount: " + usbConnectEventCount);
                 } else {
-                    if (keyguardDismissedAtLeastOnce && prevKeyguardShowing != null && prevKeyguardShowing.booleanValue()) {
+                    if (keyguardDismissedAtLeastOnce && prevKeyguardShowing != null && prevKeyguardShowing.booleanValue()
+                            && !lockInertForDebugging) {
                         int setting = UsbPortSecurity.MODE_SETTING.get();
                         if (setting == UsbPortSecurity.MODE_CHARGING_ONLY_WHEN_LOCKED_AFU || setting == UsbPortSecurity.MODE_CHARGING_ONLY_WHEN_LOCKED) {
                             if (!isAnyUsbPortConnected()) {
@@ -232,6 +250,20 @@ public class UsbPortSecurityHooks {
     private int usbConnectEventCountBeforeLocked;
     private int usbConnectEventCount;
 
+    // DiamaneOS: on debuggable builds the lock-triggered modes do nothing while USB debugging is
+    // on, so a test phone keeps ADB when it locks. Setting debug.diamaneos.usb_port_security.test
+    // to 1 (cleared by a reboot) lets them act, for testing. User builds always apply them.
+    private boolean lockInertForDebugging;
+
+    private boolean isLockModeInertForDebugging() {
+        if (!Build.IS_DEBUGGABLE
+                || SystemProperties.getBoolean("debug.diamaneos.usb_port_security.test", false)) {
+            return false;
+        }
+        return Settings.Global.getInt(context.getContentResolver(),
+                Settings.Global.ADB_ENABLED, 0) != 0;
+    }
+
     void onKeyguardShowingStateChangedInner(Context ctx, boolean showing, int userId) {
         int setting = UsbPortSecurity.MODE_SETTING.get();
 
@@ -250,8 +282,17 @@ public class UsbPortSecurityHooks {
               || (keyguardDismissedAtLeastOnce && setting == UsbPortSecurity.MODE_CHARGING_ONLY_WHEN_LOCKED_AFU))
         {
             if (showing) {
-                setSecurityStateForAllPorts(PortSecurityState.CHARGING_ONLY);
-                usbConnectEventCountBeforeLocked = usbConnectEventCount;
+                lockInertForDebugging = isLockModeInertForDebugging();
+                if (lockInertForDebugging) {
+                    Slog.d(TAG, "USB debugging is on, ports stay enabled while locked");
+                } else {
+                    setSecurityStateForAllPorts(PortSecurityState.CHARGING_ONLY);
+                    usbConnectEventCountBeforeLocked = usbConnectEventCount;
+                }
+            } else if (lockInertForDebugging) {
+                // nothing was restricted at lock time
+                lockInertForDebugging = false;
+                setSecurityStateForAllPorts(PortSecurityState.PORTS_ENABLED);
             } else {
                 boolean forceReconnect = false;
                 if (!keyguardDismissedAtLeastOnce) {
