@@ -87,6 +87,7 @@ import com.android.systemui.statusbar.phone.KeyguardBypassController;
 import com.android.systemui.statusbar.phone.KeyguardIndicationTextView;
 import com.android.systemui.statusbar.phone.StatusBarKeyguardViewManager;
 import com.android.systemui.statusbar.policy.KeyguardStateController;
+import com.android.systemui.tally.lock.TallyLockInk;
 import com.android.systemui.tally.lock.TallySideFpsHintCounter;
 import com.android.systemui.user.domain.interactor.UserLogoutInteractor;
 import com.android.systemui.util.concurrency.FakeExecutor;
@@ -312,7 +313,8 @@ public class KeyguardIndicationControllerBaseTest extends SysuiTestCase {
                 mDeviceEntryFaceAuthInteractor,
                 mUserLogoutInteractor,
                 () -> mSecureLockDeviceInteractor,
-                mock(TallySideFpsHintCounter.class)
+                mock(TallySideFpsHintCounter.class),
+                () -> mock(TallyLockInk.class)
         );
         mController.init();
         mController.setIndicationArea(mIndicationArea);

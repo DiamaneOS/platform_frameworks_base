@@ -129,6 +129,7 @@ import com.android.systemui.statusbar.phone.KeyguardIndicationTextView;
 import com.android.systemui.statusbar.phone.StatusBarKeyguardViewManager;
 import com.android.systemui.statusbar.policy.KeyguardStateController;
 import com.android.systemui.tally.TallyShell;
+import com.android.systemui.tally.lock.TallyLockInk;
 import com.android.systemui.tally.lock.TallySideFpsHintCounter;
 import com.android.systemui.tally.lock.TallyWallTheme;
 import com.android.systemui.user.domain.interactor.UserLogoutInteractor;
@@ -220,6 +221,8 @@ public class KeyguardIndicationController {
     private BiometricSourceType mBiometricMessageSource;
     // Tally: the side fingerprint sensor's hint, see maybeShowSideFpsHint.
     private final TallySideFpsHintCounter mSideFpsHintCounter;
+    // Tally: the lock screen's ink, from the lock wallpaper's colours.
+    private final Lazy<TallyLockInk> mTallyLockInk;
     private CharSequence mSideFpsHint;
     private ColorStateList mInitialTextColorState;
     private boolean mVisible;
@@ -347,7 +350,8 @@ public class KeyguardIndicationController {
             DeviceEntryFaceAuthInteractor deviceEntryFaceAuthInteractor,
             UserLogoutInteractor userLogoutInteractor,
             Lazy<SecureLockDeviceInteractor> secureLockDeviceInteractor,
-            TallySideFpsHintCounter sideFpsHintCounter
+            TallySideFpsHintCounter sideFpsHintCounter,
+            Lazy<TallyLockInk> tallyLockInk
     ) {
         mContext = context;
         mBroadcastDispatcher = broadcastDispatcher;
@@ -383,6 +387,7 @@ public class KeyguardIndicationController {
         mUserLogoutInteractor = userLogoutInteractor;
         mSecureLockDeviceInteractor = secureLockDeviceInteractor;
         mSideFpsHintCounter = sideFpsHintCounter;
+        mTallyLockInk = tallyLockInk;
 
         mFaceAcquiredMessageDeferral = faceHelpMessageDeferral.create();
 
@@ -1805,13 +1810,13 @@ public class KeyguardIndicationController {
 
     /**
      * Tally: a fingerprint message on the lock screen means the touch did not unlock (not
-     * recognized, a help message, too many attempts), so it takes the error colour of the theme
-     * the lock wallpaper calls for. Every other message keeps the stock colour.
+     * recognized, a help message, too many attempts), so it takes the error colour of the ink the
+     * lock wallpaper calls for (TallyLockInk). Every other message keeps the stock colour.
      */
     private ColorStateList getBiometricMessageTextColor() {
         if (TallyShell.isEnabled() && mBiometricMessageSource == FINGERPRINT) {
             return ColorStateList.valueOf(TallyWallTheme.context(mContext,
-                    TallyWallTheme.isLightWallpaper(mContext))
+                    mTallyLockInk.get().isLightWallpaper())
                     .getColor(de.diamaneos.tally.R.color.tally_error));
         }
         return getInitialTextColorState();

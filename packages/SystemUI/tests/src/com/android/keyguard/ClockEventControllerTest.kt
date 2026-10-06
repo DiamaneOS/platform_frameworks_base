@@ -66,6 +66,7 @@ import com.android.systemui.statusbar.policy.ConfigurationController
 import com.android.systemui.statusbar.policy.ZenModeController
 import com.android.systemui.statusbar.policy.data.repository.fakeZenModeRepository
 import com.android.systemui.statusbar.policy.domain.interactor.zenModeInteractor
+import com.android.systemui.tally.lock.TallyLockInk
 import com.android.systemui.testKosmos
 import com.android.systemui.util.concurrency.DelayableExecutor
 import java.util.TimeZone
@@ -188,6 +189,7 @@ class ClockEventControllerTest : SysuiTestCase() {
                 userTracker,
                 { dozingToLockscreenViewModel },
                 kosmos.fakeDisplayWindowPropertiesRepository,
+                { mock<TallyLockInk>() },
             )
         underTest.clock = clock
 

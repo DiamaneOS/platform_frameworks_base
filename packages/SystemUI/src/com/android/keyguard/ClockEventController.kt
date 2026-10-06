@@ -76,6 +76,8 @@ import com.android.systemui.statusbar.policy.BatteryController.BatteryStateChang
 import com.android.systemui.statusbar.policy.ConfigurationController
 import com.android.systemui.statusbar.policy.ZenModeController
 import com.android.systemui.statusbar.policy.domain.interactor.ZenModeInteractor
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.lock.TallyLockInk
 import com.android.systemui.util.annotations.DeprecatedSysuiVisibleForTesting
 import com.android.systemui.util.concurrency.DelayableExecutor
 import dagger.Lazy
@@ -115,6 +117,8 @@ constructor(
     private val dozingToLockscreenViewModel: Lazy<DozingToLockscreenTransitionViewModel>,
     // TODO b/444332073 - We should move all clock classes to the display subcomponent instead.
     private val displayWindowPropertiesRepository: DisplayWindowPropertiesRepository,
+    // Tally: the lock screen's ink, from the lock wallpaper's colours.
+    private val tallyLockInk: Lazy<TallyLockInk>,
 ) {
     val logger = Logger(clockBuffers.infraMessageBuffer, TAG)
     var isPreview: Boolean = false
@@ -257,6 +261,9 @@ constructor(
     val largeClockMaxSize = MutableStateFlow<VPointF>(VPointF.ZERO)
 
     private fun isDarkTheme(): Boolean {
+        // Tally: the ink the lock wallpaper calls for, not the theme's (see TallyLockInk). A
+        // preview colours its clock from the previewed wallpaper itself.
+        if (TallyShell.isEnabled && !isPreview) return !tallyLockInk.get().isLightWallpaper
         val isLightTheme = TypedValue()
         context.theme.resolveAttribute(R.attr.isLightTheme, isLightTheme, true)
         return isLightTheme.data == 0
@@ -348,6 +355,12 @@ constructor(
                 updateFontSizes()
             }
         }
+
+    /** Tally: recolours the clock when the lock wallpaper calls for other ink. */
+    private val tallyLockInkListener = Runnable {
+        logger.i("onTallyLockInkChanged")
+        updateColors()
+    }
 
     private val batteryCallback =
         object : BatteryStateChangeCallback {
@@ -499,6 +512,9 @@ constructor(
             IntentFilter(Intent.ACTION_LOCALE_CHANGED),
         )
         configurationController.addCallback(configListener)
+        if (TallyShell.isEnabled && !isPreview) {
+            tallyLockInk.get().addListener(tallyLockInkListener)
+        }
         // The clock may have taken its colours before this listener was added, and missed a theme
         // change since (SystemUI's first theme is set after the lock screen is built).
         updateColors()
@@ -530,6 +546,9 @@ constructor(
 
         broadcastDispatcher.unregisterReceiver(localeBroadcastReceiver)
         configurationController.removeCallback(configListener)
+        if (TallyShell.isEnabled && !isPreview) {
+            tallyLockInk.get().removeListener(tallyLockInkListener)
+        }
         batteryController.removeCallback(batteryCallback)
         keyguardUpdateMonitor.removeCallback(keyguardUpdateMonitorCallback)
         zenModeController.removeCallback(zenModeCallback)
