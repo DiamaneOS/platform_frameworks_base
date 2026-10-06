@@ -90,6 +90,13 @@ public class UsbPortSecurityHooks {
         }
 
         switch (initialMode) {
+            // DiamaneOS: on Pixels first-stage init starts user builds with the port off, so
+            // GrapheneOS sets no state for Off at boot. The FP6 keeps charging and the data path
+            // up until here, so Off is applied at boot as well.
+            case UsbPortSecurity.MODE_ALL_PORTS_DISABLED:
+                Slog.d(TAG, "USB-C port Off at boot");
+                setSecurityStateForAllPortsInner(ctx, PortSecurityState.PORTS_DISABLED);
+                break;
             case UsbPortSecurity.MODE_CHARGING_ONLY:
             case UsbPortSecurity.MODE_CHARGING_ONLY_WHEN_LOCKED:
                 setSecurityStateForAllPortsInner(ctx, PortSecurityState.CHARGING_ONLY_IMMEDIATE);
