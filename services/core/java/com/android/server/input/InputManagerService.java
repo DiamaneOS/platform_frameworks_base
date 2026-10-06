@@ -62,6 +62,7 @@ import android.hardware.input.IKeyGestureEventListener;
 import android.hardware.input.IKeyGestureHandler;
 import android.hardware.input.IKeyboardBacklightListener;
 import android.hardware.input.IStickyModifierStateListener;
+import android.hardware.input.IMomentsSwitchListener;
 import android.hardware.input.ITabletModeChangedListener;
 import android.hardware.input.IVirtualDpad;
 import android.hardware.input.IVirtualGamepad;
@@ -400,6 +401,7 @@ public class InputManagerService extends IInputManager.Stub
 
     // Manages loading PointerIcons
     private final PointerIconCache mPointerIconCache;
+    private final MomentsSwitchController mMomentsSwitchController;
 
     // Manages storage and retrieval of input data.
     private final InputDataStore mInputDataStore;
@@ -592,6 +594,8 @@ public class InputManagerService extends IInputManager.Stub
                 injector.getIoLooper(), mInputDataStore);
         mKeyboardGlyphManager = new KeyboardGlyphManager(mContext, injector.getLooper());
         mPointerIconCache = new PointerIconCache(mContext, mNative);
+        mMomentsSwitchController = new MomentsSwitchController(mContext, mNative,
+                injector.getLooper(), this::getInputDevices);
 
         mUseDevInputEventForAudioJack =
                 mContext.getResources().getBoolean(R.bool.config_useDevInputEventForAudioJack);
@@ -720,6 +724,7 @@ public class InputManagerService extends IInputManager.Stub
         mPointerIconCache.systemRunning();
         mKeyboardGlyphManager.systemRunning();
         mKeyGestureController.systemRunning();
+        mMomentsSwitchController.systemRunning();
 
         if (AttentionManagerService.isInteractionProviderServiceEnabled(mContext)) {
             mNative.setInteractionProviderService(
@@ -1314,6 +1319,21 @@ public class InputManagerService extends IInputManager.Stub
     @Override // Binder call
     public int isMicMuted() {
         return getSwitchState(-1, InputDevice.SOURCE_ANY, SW_MUTE_DEVICE);
+    }
+
+    @Override // Binder call
+    public int getMomentsSwitchState() {
+        return mMomentsSwitchController.getState();
+    }
+
+    @Override // Binder call
+    public void registerMomentsSwitchListener(@NonNull IMomentsSwitchListener listener) {
+        mMomentsSwitchController.registerListener(listener);
+    }
+
+    @Override // Binder call
+    public void unregisterMomentsSwitchListener(@NonNull IMomentsSwitchListener listener) {
+        mMomentsSwitchController.unregisterListener(listener);
     }
 
     @Override // Binder call
@@ -2387,6 +2407,7 @@ public class InputManagerService extends IInputManager.Stub
         mKeyboardGlyphManager.dump(ipw);
         mKeyGestureController.dump(ipw);
         mVirtualInputDeviceController.dump(ipw);
+        mMomentsSwitchController.dump(ipw);
         if (com.android.hardware.input.Flags.controllerRemapping()) {
             mInputDeviceRemapper.dump(ipw);
         }
@@ -2541,6 +2562,7 @@ public class InputManagerService extends IInputManager.Stub
 
             mInputDevices = inputDevices;
         }
+        mMomentsSwitchController.onInputDevicesChanged();
     }
 
     // Native callback.
@@ -2606,6 +2628,8 @@ public class InputManagerService extends IInputManager.Stub
             mHandler.obtainMessage(MSG_DELIVER_TABLET_MODE_CHANGED,
                     args).sendToTarget();
         }
+
+        mMomentsSwitchController.notifySwitch(whenNanos, switchMask);
 
         if ((switchMask & SW_MUTE_DEVICE_BIT) != 0) {
             final boolean micMute = ((switchValues & SW_MUTE_DEVICE_BIT) != 0);

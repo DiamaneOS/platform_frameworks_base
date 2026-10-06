@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- DiamaneOS device options. Kept in their own file so upstream rebases stay quiet. -->
+<resources>
+    <!-- Linux EV_SW code of a built-in slider that drives Moments, or -1 when the device has
+         none. Only a switch on an internal input device counts. -->
+    <integer name="config_momentsSwitchCode">-1</integer>
+    <java-symbol type="integer" name="config_momentsSwitchCode" />
+
+    <!-- The EV_SW value (0 or 1) that means "Moments on". Flip it if the device's slider is
+         mounted the other way round. -->
+    <integer name="config_momentsSwitchActiveValue">1</integer>
+    <java-symbol type="integer" name="config_momentsSwitchActiveValue" />
+</resources>
