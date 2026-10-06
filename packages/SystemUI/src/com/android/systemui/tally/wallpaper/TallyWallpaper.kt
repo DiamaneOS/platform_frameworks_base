@@ -16,21 +16,25 @@
 
 package com.android.systemui.tally.wallpaper
 
+import android.app.UiModeManager
 import android.app.WallpaperColors
 import android.app.WallpaperManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.res.Configuration
+import android.content.theming.ThemeStyle
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.RectF
+import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import android.service.wallpaper.WallpaperService
 import android.util.Log
 import android.view.SurfaceHolder
+import com.android.systemui.monet.ColorScheme
 
 /**
  * Tally's Paper wallpaper, the DiamaneOS default (the framework overlay's
@@ -46,6 +50,10 @@ import android.view.SurfaceHolder
  * updates off, ignores zoom and touch, and answers colour requests for any area with the paper's
  * colours, so nothing reads its pixels back. SystemUI declares it only with the Tally flag on
  * (android:featureFlag).
+ *
+ * In Wallpaper & style, a preview engine shows the colours the picker previews
+ * ([COMMAND_PREVIEW_COLOURS]): the paper of that colour's hue and theme, until the picker previews
+ * none again. Only the preview changes; it reports no colours for them.
  */
 class TallyWallpaper : WallpaperService() {
     private var worker: HandlerThread? = null
@@ -96,6 +104,9 @@ class TallyWallpaper : WallpaperService() {
         /** The areas whose colours the system asked for (lock clock, status bar sampling). */
         private val areas = mutableListOf<RectF>()
 
+        /** The paper of the colours Wallpaper & style previews on this preview engine, or null. */
+        private var previewed: PaperLook? = null
+
         init {
             setShowForAllUsers(true)
         }
@@ -120,6 +131,21 @@ class TallyWallpaper : WallpaperService() {
 
         override fun onComputeColors(): WallpaperColors = colors
 
+        override fun onCommand(
+            action: String?,
+            x: Int,
+            y: Int,
+            z: Int,
+            extras: Bundle?,
+            resultRequested: Boolean,
+        ): Bundle? {
+            if (action == COMMAND_PREVIEW_COLOURS && isPreview) {
+                previewed = extras?.let(::previewLook)
+                update()
+            }
+            return super.onCommand(action, x, y, z, extras, resultRequested)
+        }
+
         override fun supportsLocalColorExtraction() = true
 
         override fun addLocalColorsAreas(regions: List<RectF>) {
@@ -140,9 +166,12 @@ class TallyWallpaper : WallpaperService() {
             report()
         }
 
-        /** Takes the current theme's paper; true if it changed (the old bitmap is freed). */
+        /**
+         * Takes the current theme's paper, or the previewed colours'; true if it changed (the old
+         * bitmap is freed).
+         */
         private fun takeLook(): Boolean {
-            val now = currentLook()
+            val now = previewed ?: currentLook()
             if (now == look) return false
             look = now
             colors = colorsOf(TallyPaper.average(now))
@@ -156,6 +185,8 @@ class TallyWallpaper : WallpaperService() {
         }
 
         private fun report() {
+            // Previewed colours are not the wallpaper's: the picker shows them, nothing reads them.
+            if (previewed != null) return
             notifyColorsChanged()
             if (areas.isNotEmpty()) notifyAreas(areas.toList())
         }
@@ -166,6 +197,32 @@ class TallyWallpaper : WallpaperService() {
                 notifyLocalColorsChanged(regions, regions.map { current })
             } catch (e: RuntimeException) {
                 Log.w(TAG, "Could not report the colours of ${regions.size} areas", e)
+            }
+        }
+
+        /**
+         * The paper of the colours in a [COMMAND_PREVIEW_COLOURS] command's [extras]: its seed and
+         * style give the palette's accent1_500 as applying them would (ThemeOverlayController, at
+         * the system's contrast), whose hue the paper takes, in the previewed theme. Null without a
+         * seed.
+         */
+        private fun previewLook(extras: Bundle): PaperLook? {
+            if (!extras.containsKey(EXTRA_SEED_COLOR)) return null
+            val dark =
+                if (extras.containsKey(EXTRA_DARK_MODE)) extras.getBoolean(EXTRA_DARK_MODE)
+                else currentLook().dark
+            return try {
+                val scheme =
+                    ColorScheme(
+                        extras.getInt(EXTRA_SEED_COLOR),
+                        dark,
+                        extras.getInt(EXTRA_THEME_STYLE, ThemeStyle.TONAL_SPOT),
+                        getSystemService(UiModeManager::class.java)?.contrast?.toDouble() ?: 0.0,
+                    )
+                PaperLook.of(resources, dark, PaperColour.hue(scheme.accent1.s500))
+            } catch (e: RuntimeException) {
+                Log.w(TAG, "Could not preview the colours", e)
+                null
             }
         }
 
@@ -200,6 +257,16 @@ class TallyWallpaper : WallpaperService() {
 
     companion object {
         private const val TAG = "TallyWallpaper"
+
+        /**
+         * The command Wallpaper & style sends a preview engine with the colours it previews:
+         * [EXTRA_SEED_COLOR], [EXTRA_THEME_STYLE] and [EXTRA_DARK_MODE]; without a seed, the paper
+         * shows the applied colours again.
+         */
+        const val COMMAND_PREVIEW_COLOURS = "de.diamaneos.wallpaper.PREVIEW_COLOURS"
+        const val EXTRA_SEED_COLOR = "seed_color"
+        const val EXTRA_THEME_STYLE = "theme_style"
+        const val EXTRA_DARK_MODE = "dark_mode"
 
         /**
          * The colours of a wallpaper whose average colour is [average], hinting the ink that reads
