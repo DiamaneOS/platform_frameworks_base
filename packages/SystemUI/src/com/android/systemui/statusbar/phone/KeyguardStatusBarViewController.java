@@ -91,6 +91,8 @@ import com.android.systemui.statusbar.policy.ConfigurationController;
 import com.android.systemui.statusbar.policy.KeyguardStateController;
 import com.android.systemui.statusbar.policy.UserInfoController;
 import com.android.systemui.statusbar.systemstatusicons.SystemStatusIconsInCompose;
+import com.android.systemui.tally.TallyShell;
+import com.android.systemui.tally.lock.TallyLockInk;
 import com.android.systemui.user.ui.viewmodel.StatusBarUserChipViewModel;
 import com.android.systemui.util.ViewController;
 import com.android.systemui.util.settings.SecureSettings;
@@ -336,6 +338,10 @@ public class KeyguardStatusBarViewController extends ViewController<KeyguardStat
         setAlphaByCommunal(alpha);
     }
 
+    // Tally: the lock screen's ink, from the lock wallpaper's colours.
+    private final Lazy<TallyLockInk> mTallyLockInk;
+    private final Runnable mTallyLockInkListener = this::onTallyLockInkChanged;
+
     /**
      * The alpha value to be set on the View. If -1, this value is to be ignored.
      */
@@ -382,7 +388,8 @@ public class KeyguardStatusBarViewController extends ViewController<KeyguardStat
             GoneToGlanceableHubTransitionViewModel goneToGlanceableHubTransitionViewModel,
             OccludedToLockscreenTransitionViewModel occludedToLockscreenTransitionViewModel,
             DreamViewModel dreamViewModel,
-            KeyguardInteractor keyguardInteractor) {
+            KeyguardInteractor keyguardInteractor,
+            Lazy<TallyLockInk> tallyLockInk) {
         super(view);
         mCoroutineDispatcher = dispatcher;
         mContext = context;
@@ -413,6 +420,7 @@ public class KeyguardStatusBarViewController extends ViewController<KeyguardStat
         mOccludedToLockscreenTransitionViewModel = occludedToLockscreenTransitionViewModel;
         mDreamViewModel = dreamViewModel;
         mKeyguardInteractor = keyguardInteractor;
+        mTallyLockInk = tallyLockInk;
 
         mFirstBypassAttempt = mKeyguardBypassController.getBypassEnabled();
         if (!SceneContainerFlag.isEnabled()) {
@@ -466,6 +474,10 @@ public class KeyguardStatusBarViewController extends ViewController<KeyguardStat
         }
         mView.init(mStatusBarUserChipViewModel);
         mConfigurationController.addCallback(mConfigurationListener);
+        if (TallyShell.isEnabled()) {
+            mView.setTallyLightWallpaper(mTallyLockInk.get().isLightWallpaper());
+            mTallyLockInk.get().addListener(mTallyLockInkListener);
+        }
         if (mAnimationScheduler == null) {
             mAnimationScheduler = getAnimationSchedulerForDisplay(mContext.getDisplayId());
         }
@@ -549,6 +561,9 @@ public class KeyguardStatusBarViewController extends ViewController<KeyguardStat
     protected void onViewDetached() {
         mSystemIconsContainer.setOnHoverListener(null);
         mConfigurationController.removeCallback(mConfigurationListener);
+        if (TallyShell.isEnabled()) {
+            mTallyLockInk.get().removeListener(mTallyLockInkListener);
+        }
         if (mAnimationScheduler != null) {
             mAnimationScheduler.removeCallback(mAnimationCallback);
         }
@@ -571,6 +586,12 @@ public class KeyguardStatusBarViewController extends ViewController<KeyguardStat
     /** Should be called when the theme changes. */
     public void onThemeChanged() {
         mView.onThemeChanged(mTintedIconManager);
+    }
+
+    /** Tally: the lock wallpaper calls for other ink. */
+    private void onTallyLockInkChanged() {
+        mView.setTallyLightWallpaper(mTallyLockInk.get().isLightWallpaper());
+        onThemeChanged();
     }
 
     /** Sets whether user switcher is enabled. */
