@@ -7523,6 +7523,66 @@ public final class Settings {
         @Protected(readWrite = KnownSystemPackage.SETTINGS)
         public static final String DISALLOW_DELAYED_LOCKING_ON_USER_STOP = "disallow_delayed_locking_on_user_stop";
 
+        // DiamaneOS: the Moments switch. Apps cannot read any of these.
+
+        /**
+         * What the Moments switch does, one of the MOMENTS_ACTION_* values. Unset until the user
+         * saves a choice.
+         * @hide
+         */
+        @Protected(read = KnownSystemPackage.SYSTEM_UI, readWrite = KnownSystemPackage.SETTINGS)
+        public static final String TALLY_MOMENTS_ACTION = "tally_moments_action";
+        /** @hide */
+        public static final int MOMENTS_ACTION_MOMENTS = 0;
+        /** @hide */
+        public static final int MOMENTS_ACTION_SENSORS_OFF = 1;
+        /** @hide */
+        public static final int MOMENTS_ACTION_SILENT = 2;
+        /** @hide */
+        public static final int MOMENTS_ACTION_OFFLINE = 3;
+        /** @hide */
+        public static final int MOMENTS_ACTION_NOTHING = 4;
+
+        /**
+         * Packages Home shows while Moments is on, comma-separated. Empty: Home stays as it is.
+         * @hide
+         */
+        @Protected(read = KnownSystemPackage.LAUNCHER, readWrite = KnownSystemPackage.SETTINGS)
+        public static final String TALLY_MOMENTS_HOME_APPS = "tally_moments_home_apps";
+
+        /**
+         * Packages paused while Moments is on, comma-separated.
+         * @hide
+         */
+        @Protected(read = KnownSystemPackage.SYSTEM_UI, readWrite = KnownSystemPackage.SETTINGS)
+        public static final String TALLY_MOMENTS_PAUSED_APPS = "tally_moments_paused_apps";
+
+        /**
+         * Whether Moments turns the screen grey (1) or not (0, the default).
+         * @hide
+         */
+        @Protected(read = KnownSystemPackage.SYSTEM_UI, readWrite = KnownSystemPackage.SETTINGS)
+        public static final String TALLY_MOMENTS_GREYSCALE = "tally_moments_greyscale";
+
+        /**
+         * What the offline action turns on: MOMENTS_OFFLINE_AIRPLANE, MOMENTS_OFFLINE_LOCKDOWN or
+         * both (bit flags). Defaults to airplane mode.
+         * @hide
+         */
+        @Protected(read = KnownSystemPackage.SYSTEM_UI, readWrite = KnownSystemPackage.SETTINGS)
+        public static final String TALLY_MOMENTS_OFFLINE = "tally_moments_offline";
+        /** @hide */
+        public static final int MOMENTS_OFFLINE_AIRPLANE = 1;
+        /** @hide */
+        public static final int MOMENTS_OFFLINE_LOCKDOWN = 2;
+
+        /**
+         * 1 while Moments' Home filter is on; written by SystemUI, read by Launcher.
+         * @hide
+         */
+        @Protected(read = KnownSystemPackage.LAUNCHER, readWrite = KnownSystemPackage.SYSTEM_UI)
+        public static final String TALLY_MOMENTS_HOME_ACTIVE = "tally_moments_home_active";
+
         // ExtSettings END
 
         // NOTE: If you add new settings here, be sure to add them to
