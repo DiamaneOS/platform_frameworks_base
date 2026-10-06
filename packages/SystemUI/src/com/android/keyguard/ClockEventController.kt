@@ -337,6 +337,12 @@ constructor(
                 updateColors()
             }
 
+            // A night mode change re-applies SystemUI's theme without a theme change event.
+            override fun onUiModeChanged() {
+                logger.i("onUiModeChanged")
+                updateColors()
+            }
+
             override fun onDensityOrFontScaleChanged() {
                 logger.i("onDensityOrFontScaleChanged")
                 updateFontSizes()
@@ -493,6 +499,9 @@ constructor(
             IntentFilter(Intent.ACTION_LOCALE_CHANGED),
         )
         configurationController.addCallback(configListener)
+        // The clock may have taken its colours before this listener was added, and missed a theme
+        // change since (SystemUI's first theme is set after the lock screen is built).
+        updateColors()
         batteryController.addCallback(batteryCallback)
         keyguardUpdateMonitor.registerCallback(keyguardUpdateMonitorCallback)
         zenModeController.addCallback(zenModeCallback)
