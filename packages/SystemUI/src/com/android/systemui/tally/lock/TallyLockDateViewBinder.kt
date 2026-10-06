@@ -16,7 +16,6 @@
 
 package com.android.systemui.tally.lock
 
-import android.content.Context
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.android.app.tracing.coroutines.launchTraced as launch
@@ -31,10 +30,10 @@ object TallyLockDateViewBinder {
     private const val TAG = "TallyLockDateViewBinder"
 
     /**
-     * Shows the date, once a minute and on each always-on display tick, in the theme the lock
-     * wallpaper calls for ([appContext]'s, which CentralSurfaces sets and announces through
-     * [configurationController]). On the always-on display the line stays, as the stock date line
-     * did, toward the dark theme's ink and moved with the clock for burn-in protection.
+     * Shows the date, once a minute and on each always-on display tick, in the ink the lock
+     * wallpaper calls for ([lockInk], from its colours and kept current). On the always-on display
+     * the line stays, as the stock date line did, toward the dark theme's ink and moved with the
+     * clock for burn-in protection.
      */
     @JvmStatic
     fun bind(
@@ -43,12 +42,12 @@ object TallyLockDateViewBinder {
         keyguardInteractor: KeyguardInteractor,
         aodBurnInViewModel: AodBurnInViewModel,
         configurationController: ConfigurationController,
-        appContext: Context,
+        lockInk: TallyLockInk,
     ): DisposableHandle {
         val configurationListener =
             object : ConfigurationController.ConfigurationListener {
                 override fun onThemeChanged() {
-                    view.setLightWallpaper(TallyWallTheme.isLightWallpaper(appContext))
+                    view.refresh()
                 }
 
                 override fun onUiModeChanged() {
@@ -64,12 +63,15 @@ object TallyLockDateViewBinder {
                 }
             }
         configurationController.addCallback(configurationListener)
-        view.setLightWallpaper(TallyWallTheme.isLightWallpaper(appContext))
+        view.setLightWallpaper(lockInk.isLightWallpaper)
 
         val attachHandle =
             view.repeatWhenAttached {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
                     launch("$TAG#minutes") { viewModel.minutes.collect { view.setTime(it) } }
+                    launch("$TAG#lockInk") {
+                        lockInk.lightWallpaper.collect { view.setLightWallpaper(it) }
+                    }
                     launch("$TAG#dozeAmount") {
                         keyguardInteractor.dozeAmount.collect { view.setDozeAmount(it) }
                     }
