@@ -30,6 +30,7 @@ import android.hardware.input.IKeyboardBacklightState;
 import android.hardware.input.IKeyGestureEventListener;
 import android.hardware.input.IKeyGestureHandler;
 import android.hardware.input.IStickyModifierStateListener;
+import android.hardware.input.IMomentsSwitchListener;
 import android.hardware.input.ITabletModeChangedListener;
 import android.hardware.input.IVirtualGamepad;
 import android.hardware.input.IVirtualKeyboard;
@@ -390,4 +391,12 @@ interface IInputManager {
     PointF getCursorPositionInPhysicalDisplay(int displayId);
 
     PointF getCursorPositionInLogicalDisplay(int displayId);
+
+    // DiamaneOS: the Moments switch, a built-in slider. Each requires MOMENTS_SWITCH.
+    // Returns an InputManager.SWITCH_STATE_* value; UNKNOWN when the device has no such switch.
+    int getMomentsSwitchState();
+
+    void registerMomentsSwitchListener(IMomentsSwitchListener listener);
+
+    void unregisterMomentsSwitchListener(IMomentsSwitchListener listener);
 }
