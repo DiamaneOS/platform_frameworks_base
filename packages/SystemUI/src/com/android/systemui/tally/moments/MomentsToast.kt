@@ -57,14 +57,15 @@ object MomentsToast {
                     on -> R.string.tally_moments_toast_silent_on
                     else -> R.string.tally_moments_toast_silent_off
                 }
-            Secure.MOMENTS_ACTION_OFFLINE ->
+            Secure.MOMENTS_ACTION_AIRPLANE ->
                 when {
-                    AIRPLANE in kinds ->
-                        if (on) R.string.tally_moments_toast_airplane_on
-                        else R.string.tally_moments_toast_airplane_off
-                    on && LOCKDOWN in kinds -> R.string.tally_moments_toast_lockdown
-                    else -> null
+                    AIRPLANE !in kinds -> null
+                    on -> R.string.tally_moments_toast_airplane_on
+                    else -> R.string.tally_moments_toast_airplane_off
                 }
+            // Lockdown is never undone by the switch, so it has no "off" toast.
+            Secure.MOMENTS_ACTION_LOCKDOWN ->
+                if (on && LOCKDOWN in kinds) R.string.tally_moments_toast_lockdown else null
             else -> null
         }
     }

@@ -232,7 +232,13 @@ constructor(
     private fun readConfig(user: Int): MomentsConfig {
         val resolver = context.contentResolver
         val action =
-            Secure.getStringForUser(resolver, Secure.TALLY_MOMENTS_ACTION, user)?.toIntOrNull()
+            MomentsConfig.migratedAction(
+                Secure.getStringForUser(resolver, Secure.TALLY_MOMENTS_ACTION, user)
+                    ?.toIntOrNull(),
+                Secure.getStringForUser(resolver, Secure.TALLY_MOMENTS_OFFLINE, user)
+                    ?.toIntOrNull(),
+                keyguardStateController.isMethodSecure,
+            )
         val paused =
             Secure.getStringForUser(resolver, Secure.TALLY_MOMENTS_PAUSED_APPS, user)
                 ?.split(',')
@@ -241,13 +247,6 @@ constructor(
             action = action,
             pausedApps = paused,
             greyscale = Secure.getIntForUser(resolver, Secure.TALLY_MOMENTS_GREYSCALE, 0, user) == 1,
-            offline =
-                Secure.getIntForUser(
-                    resolver,
-                    Secure.TALLY_MOMENTS_OFFLINE,
-                    Secure.MOMENTS_OFFLINE_AIRPLANE,
-                    user,
-                ),
         )
     }
 
