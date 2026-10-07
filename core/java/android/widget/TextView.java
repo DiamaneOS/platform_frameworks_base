@@ -955,6 +955,14 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     private boolean mSingleLine;
     @UnsupportedAppUsage
     private int mDesiredHeightAtMeasure = -1;
+    // The text's own width at the last measure that depended on it (wrap_content or a limited
+    // width, no hint), else -1, and the width limit it was measured with. See checkForRelayout().
+    private int mTextWidthAtMeasure = -1;
+    private float mTextWidthLimitAtMeasure;
+    // Whether new text that needs the same width as the text at the last measure keeps the view's
+    // size although its width is wrap_content: set by Chronometer, whose text changes every
+    // second and usually keeps its width.
+    /* package */ boolean mKeepSizeForSameWidthText;
     @UnsupportedAppUsage
     private boolean mIncludePad = true;
     private int mDeferScroll = -1;
@@ -11382,6 +11390,7 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
         if (widthMode == MeasureSpec.EXACTLY) {
             // Parent has told us how big to be. So be it.
             width = widthSize;
+            mTextWidthAtMeasure = -1;
         } else {
             if (mLayout != null && mEllipsize == null) {
                 des = desired(mLayout, mUseBoundsForWidth);
@@ -11415,6 +11424,11 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
                     width = boring.width;
                 }
             }
+
+            // Without a hint, the rest of the width depends only on attributes whose setters
+            // request a new layout themselves.
+            mTextWidthAtMeasure = mHint == null ? width : -1;
+            mTextWidthLimitAtMeasure = widthLimit;
 
             final Drawables dr = mDrawables;
             if (dr != null) {
@@ -11770,9 +11784,11 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
     private void checkForRelayout() {
         // If we have a fixed width, we can just swap in a new text layout
         // if the text height stays the same or if the view height is fixed.
+        // The same holds for a view that keeps its size for new text of the same width.
 
         if ((mLayoutParams.width != LayoutParams.WRAP_CONTENT
-                || (mMaxWidthMode == mMinWidthMode && mMaxWidth == mMinWidth))
+                || (mMaxWidthMode == mMinWidthMode && mMaxWidth == mMinWidth)
+                || isTextWidthUnchangedSinceMeasure())
                 && (mHint == null || mHintLayout != null)
                 && (mRight - mLeft - getCompoundPaddingLeft() - getCompoundPaddingRight() > 0)) {
             // Static width, so try making a new text layout.
@@ -11820,6 +11836,37 @@ public class TextView extends View implements ViewTreeObserver.OnPreDrawListener
             requestLayout();
             invalidate();
         }
+    }
+
+    /**
+     * Returns whether this view opted in to keeping its size for new text of the same width
+     * (mKeepSizeForSameWidthText) and the current text needs exactly the width the last measure
+     * found for the text, so a new measure would give this view the same width.
+     */
+    private boolean isTextWidthUnchangedSinceMeasure() {
+        if (!mKeepSizeForSameWidthText || mHint != null || mTextWidthAtMeasure < 0
+                || mTextDir == null) {
+            return false;
+        }
+        // The same computation as onMeasure() makes for new text.
+        final BoringLayout.Metrics boring = BoringLayout.isBoring(mTransformed, mTextPaint,
+                mTextDir, isFallbackLineSpacingForBoringLayout(), getResolvedMinimumFontMetrics(),
+                null);
+        final int width;
+        if (boring == null) {
+            width = (int) Math.ceil(Layout.getDesiredWidthWithLimit(mTransformed, 0,
+                    mTransformed.length(), mTextPaint, mTextDir, mTextWidthLimitAtMeasure,
+                    mUseBoundsForWidth));
+        } else if (mUseBoundsForWidth) {
+            RectF bbox = boring.getDrawingBoundingBox();
+            float rightMax = Math.max(bbox.right, boring.width);
+            float leftMin = Math.min(bbox.left, 0);
+            width = Math.max(boring.width, (int) Math.ceil(rightMax - leftMin));
+        } else {
+            width = boring.width;
+        }
+        // Text wider than its limit is clipped or wrapped: leave that to a new measure.
+        return width == mTextWidthAtMeasure && width <= mTextWidthLimitAtMeasure;
     }
 
     @Override
