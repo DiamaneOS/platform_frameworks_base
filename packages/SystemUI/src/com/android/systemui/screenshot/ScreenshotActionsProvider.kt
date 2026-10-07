@@ -170,6 +170,19 @@ constructor(
                     )
                 }
             }
+
+            // Tally: delete the screenshot just taken and close the preview.
+            actionsCallback.provideActionButton(
+                ActionButtonAppearance(
+                    AppCompatResources.getDrawable(context, R.drawable.ic_screenshot_delete),
+                    context.resources.getString(R.string.tally_screenshot_delete_label),
+                    context.resources.getString(R.string.tally_screenshot_delete_description),
+                ),
+                showDuringEntrance = true,
+            ) {
+                debugLog(LogConfig.DEBUG_ACTIONS) { "Delete tapped" }
+                onDeferrableActionTapped { result -> actionExecutor.deleteScreenshot(result.uri) }
+            }
         }
 
         // Check if there is an appropriate package to open up the screenshot's directory before

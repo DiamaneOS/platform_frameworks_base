@@ -35,12 +35,15 @@ import com.android.app.tracing.coroutines.launchTraced as launch
 import com.android.internal.app.ChooserActivity
 import com.android.systemui.clipboardoverlay.ClipboardListener.EXTRA_SUPPRESS_OVERLAY
 import com.android.systemui.dagger.qualifiers.Application
+import com.android.systemui.dagger.qualifiers.Background
 import com.android.systemui.user.data.repository.UserRepository
 import com.android.systemui.user.utils.UserScopedService
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.withContext
 
 class ActionExecutor
 @AssistedInject
@@ -50,6 +53,7 @@ constructor(
     private val userRepository: UserRepository,
     private val clipboardManager: UserScopedService<ClipboardManager>,
     @Application private val applicationScope: CoroutineScope,
+    @Background private val backgroundDispatcher: CoroutineDispatcher,
     @Assisted val window: Window,
     @Assisted val viewProxy: ScreenshotShelfViewProxy,
     @Assisted val finishDismiss: () -> Unit,
@@ -98,6 +102,25 @@ constructor(
             PersistableBundle().apply { putBoolean(EXTRA_SUPPRESS_OVERLAY, true) }
         clipboardManager.forUser(currentUserHandle).setPrimaryClip(clipData)
         viewProxy.requestDismissal(null)
+    }
+
+    /**
+     * Tally: deletes the just-saved screenshot and dismisses the overlay. SystemUI wrote the file,
+     * so it deletes it the same way the long screenshot flow deletes its original.
+     */
+    fun deleteScreenshot(uri: Uri) {
+        viewProxy.requestDismissal(null)
+        applicationScope.launch("$TAG#deleteScreenshot") {
+            withContext(backgroundDispatcher) {
+                try {
+                    if (context.contentResolver.delete(uri, null) < 1) {
+                        Log.w(TAG, "Screenshot to delete was already gone")
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to delete screenshot", e)
+                }
+            }
+        }
     }
 
     /**

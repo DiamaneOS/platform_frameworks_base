@@ -134,6 +134,34 @@ class ActionExecutorTest : SysuiTestCase() {
             .isTrue()
     }
 
+    @Test
+    fun deleteScreenshot_deletesUriAndRequestsDismissal() = runTest {
+        whenever(fakeContext.contentResolver).thenReturn(contentResolver)
+        val uri = Uri.parse("content://media/external/images/media/123")
+        whenever(contentResolver.delete(eq(uri), anyOrNull<Bundle>())).thenReturn(1)
+        actionExecutor = createActionExecutor()
+
+        actionExecutor.deleteScreenshot(uri)
+        scheduler.advanceUntilIdle()
+
+        verify(viewProxy).requestDismissal(null)
+        verify(contentResolver).delete(eq(uri), anyOrNull<Bundle>())
+    }
+
+    @Test
+    fun deleteScreenshot_whenDeleteFails_stillDismisses() = runTest {
+        whenever(fakeContext.contentResolver).thenReturn(contentResolver)
+        val uri = Uri.parse("content://media/external/images/media/123")
+        whenever(contentResolver.delete(eq(uri), anyOrNull<Bundle>()))
+            .thenThrow(SecurityException("no access"))
+        actionExecutor = createActionExecutor()
+
+        actionExecutor.deleteScreenshot(uri)
+        scheduler.advanceUntilIdle()
+
+        verify(viewProxy).requestDismissal(null)
+    }
+
     private fun createActionExecutor(): ActionExecutor {
         return ActionExecutor(
             fakeContext,
@@ -141,6 +169,7 @@ class ActionExecutorTest : SysuiTestCase() {
             userRepository,
             clipboardManagerService,
             testScope,
+            mainDispatcher,
             window,
             viewProxy,
             onDismiss,
