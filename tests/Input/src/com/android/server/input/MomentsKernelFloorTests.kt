@@ -77,6 +77,10 @@ class MomentsKernelFloorTests {
         override fun cancelAndroidOnlyMicNotice() {
             noticesCancelled++
         }
+
+        var now = 1_000_000L
+
+        override fun elapsedRealtime() = now
     }
 
     private val platform = FakePlatform()
@@ -294,7 +298,7 @@ class MomentsKernelFloorTests {
     }
 
     @Test
-    fun notArmed_switchDown_noticeOncePerBoot() {
+    fun notArmed_eachMoveDown_postsAgain_atMostOnceAMinute() {
         platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
         // Sealed without the microphone: the kernel enforces nothing.
         val floor = floor()
@@ -302,8 +306,33 @@ class MomentsKernelFloorTests {
         floor.onSwitchChanged(false)
         assertThat(platform.noticesPosted).isEqualTo(0)
         floor.onSwitchChanged(true)
+        assertThat(platform.noticesPosted).isEqualTo(1)
+        // Repeated reports while down are not a move down.
         floor.onSwitchChanged(true)
+        assertThat(platform.noticesPosted).isEqualTo(1)
+
+        // Up and down again within the minute: nothing new.
+        platform.now += 30_000
         floor.onSwitchChanged(false)
+        floor.onSwitchChanged(true)
+        assertThat(platform.noticesPosted).isEqualTo(1)
+
+        // After a minute, the next move down posts it again (also after the user dismissed it).
+        platform.now += MomentsKernelFloor.NOTICE_MIN_GAP_MS
+        floor.onSwitchChanged(false)
+        assertThat(platform.noticesPosted).isEqualTo(1)
+        floor.onSwitchChanged(true)
+        assertThat(platform.noticesPosted).isEqualTo(2)
+        // Moving up leaves it.
+        floor.onSwitchChanged(false)
+        assertThat(platform.noticesCancelled).isEqualTo(0)
+    }
+
+    @Test
+    fun firstReportAtBoot_switchAlreadyDown_posts() {
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        val floor = floor()
+
         floor.onSwitchChanged(true)
 
         assertThat(platform.noticesPosted).isEqualTo(1)
@@ -341,11 +370,14 @@ class MomentsKernelFloorTests {
         platform.onActionChanged!!.run()
 
         assertThat(platform.noticesCancelled).isEqualTo(1)
-        // Choosing it again in the same boot does not post a second notice.
+        // Choosing it again posts nothing by itself; the next move down does, after a minute.
         platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
         platform.onActionChanged!!.run()
-        floor.onSwitchChanged(true)
         assertThat(platform.noticesPosted).isEqualTo(1)
+        platform.now += MomentsKernelFloor.NOTICE_MIN_GAP_MS
+        floor.onSwitchChanged(false)
+        floor.onSwitchChanged(true)
+        assertThat(platform.noticesPosted).isEqualTo(2)
     }
 
     @Test
