@@ -23,6 +23,10 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.anyBoolean;
+import static org.mockito.Mockito.anyInt;
+import static org.mockito.Mockito.anyString;
+import static org.mockito.Mockito.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -32,6 +36,8 @@ import android.app.KeyguardManager;
 import android.content.ClipData;
 import android.content.ClipDescription;
 import android.content.ClipboardManager;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
 import android.content.pm.UserInfo;
 import android.os.Build;
 import android.os.PersistableBundle;
@@ -442,5 +448,107 @@ public class ClipboardListenerTest extends SysuiTestCase {
                 ClipboardOverlayEvent.CLIPBOARD_TOAST_SHOWN, 0, mSampleSource);
         verify(mClipboardToast, times(1)).showCopiedToast();
         verifyNoMoreInteractions(mOverlayControllerProvider);
+    }
+
+    private static ClipData quietCopyClip(boolean marker) {
+        ClipDescription desc = new ClipDescription("Screenshot", new String[]{"image/png"});
+        PersistableBundle bundle = new PersistableBundle();
+        bundle.putBoolean(ClipboardListener.EXTRA_QUIET_COPY, marker);
+        desc.setExtras(bundle);
+        return new ClipData(desc, new ClipData.Item("Test Item"));
+    }
+
+    // Every package resolves with the given flags, so only the package name check can reject.
+    private static PackageManager packageManagerWithFlags(int flags) throws Exception {
+        PackageManager pm = mock(PackageManager.class);
+        ApplicationInfo info = new ApplicationInfo();
+        info.flags = flags;
+        when(pm.getApplicationInfoAsUser(anyString(), anyInt(), anyInt())).thenReturn(info);
+        return pm;
+    }
+
+    @Test
+    public void test_isQuietCopy_systemCanvasWithMarker_returnsTrue() throws Exception {
+        PackageManager pm = packageManagerWithFlags(ApplicationInfo.FLAG_SYSTEM);
+
+        assertTrue(ClipboardListener.isQuietCopy(quietCopyClip(true),
+                ClipboardListener.CANVAS_PACKAGE, pm, 0));
+        verify(pm).getApplicationInfoAsUser(eq(ClipboardListener.CANVAS_PACKAGE), anyInt(),
+                eq(0));
+    }
+
+    @Test
+    public void test_isQuietCopy_markerFromOtherApp_returnsFalse() throws Exception {
+        PackageManager pm = packageManagerWithFlags(ApplicationInfo.FLAG_SYSTEM);
+
+        assertFalse(ClipboardListener.isQuietCopy(quietCopyClip(true), mSampleSource, pm, 0));
+        assertFalse(ClipboardListener.isQuietCopy(quietCopyClip(true),
+                ClipboardListener.SHELL_PACKAGE, pm, 0));
+        assertFalse(ClipboardListener.isQuietCopy(quietCopyClip(true),
+                ClipboardListener.SYSTEMUI_PACKAGE, pm, 0));
+        assertFalse(ClipboardListener.isQuietCopy(quietCopyClip(true), null, pm, 0));
+    }
+
+    @Test
+    public void test_isQuietCopy_canvasWithoutMarker_returnsFalse() throws Exception {
+        PackageManager pm = packageManagerWithFlags(ApplicationInfo.FLAG_SYSTEM);
+
+        assertFalse(ClipboardListener.isQuietCopy(mSampleClipData,
+                ClipboardListener.CANVAS_PACKAGE, pm, 0));
+        assertFalse(ClipboardListener.isQuietCopy(quietCopyClip(false),
+                ClipboardListener.CANVAS_PACKAGE, pm, 0));
+        assertFalse(ClipboardListener.isQuietCopy(null, ClipboardListener.CANVAS_PACKAGE, pm, 0));
+    }
+
+    @Test
+    public void test_isQuietCopy_canvasNotSystemApp_returnsFalse() throws Exception {
+        assertFalse(ClipboardListener.isQuietCopy(quietCopyClip(true),
+                ClipboardListener.CANVAS_PACKAGE, packageManagerWithFlags(0), 0));
+
+        PackageManager missing = mock(PackageManager.class);
+        when(missing.getApplicationInfoAsUser(anyString(), anyInt(), anyInt()))
+                .thenThrow(new PackageManager.NameNotFoundException());
+        assertFalse(ClipboardListener.isQuietCopy(quietCopyClip(true),
+                ClipboardListener.CANVAS_PACKAGE, missing, 0));
+    }
+
+    @Test
+    public void test_onPrimaryClipChanged_quietCopyFromSystemCanvas_showsNothing()
+            throws Exception {
+        mContext.setMockPackageManager(packageManagerWithFlags(ApplicationInfo.FLAG_SYSTEM));
+        when(mClipboardManager.getPrimaryClip()).thenReturn(quietCopyClip(true));
+        when(mClipboardManager.getPrimaryClipSource())
+                .thenReturn(ClipboardListener.CANVAS_PACKAGE);
+
+        mClipboardListener.start();
+        mClipboardListener.onPrimaryClipChanged();
+
+        verifyNoMoreInteractions(mOverlayControllerProvider);
+        verifyNoMoreInteractions(mClipboardToast);
+    }
+
+    @Test
+    public void test_onPrimaryClipChanged_quietMarkerFromOtherApp_showsOverlay()
+            throws Exception {
+        mContext.setMockPackageManager(packageManagerWithFlags(ApplicationInfo.FLAG_SYSTEM));
+        ClipData clip = quietCopyClip(true);
+        when(mClipboardManager.getPrimaryClip()).thenReturn(clip);
+
+        mClipboardListener.start();
+        mClipboardListener.onPrimaryClipChanged();
+
+        verify(mOverlayController).setClipData(clip, mSampleSource);
+    }
+
+    @Test
+    public void test_onPrimaryClipChanged_canvasWithoutMarker_showsOverlay() throws Exception {
+        mContext.setMockPackageManager(packageManagerWithFlags(ApplicationInfo.FLAG_SYSTEM));
+        when(mClipboardManager.getPrimaryClipSource())
+                .thenReturn(ClipboardListener.CANVAS_PACKAGE);
+
+        mClipboardListener.start();
+        mClipboardListener.onPrimaryClipChanged();
+
+        verify(mOverlayController).setClipData(mSampleClipData, ClipboardListener.CANVAS_PACKAGE);
     }
 }
