@@ -41,6 +41,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * The Moments switch's kernel floor: the kernel blocks the built-in microphones while the switch
@@ -51,13 +53,15 @@ import java.nio.file.Path;
  *       early in boot and the kernel seals it. This class keeps that property equal to the
  *       system user's Moments action, so a change reaches the kernel at the next boot.
  *   <li>While the kernel blocks the microphone, Android shows it as a hardware toggle: the
- *       "unblock" prompt then points to the switch, as on devices with a mute switch. The
- *       software toggle path stays for when the floor is not armed.
+ *       "unblock" prompt then points to the switch, as on devices with a mute switch. Only the
+ *       kernel's own report counts, re-read at every switch report: Android's view of the switch
+ *       can differ (injected input events), and then the software toggle stays in charge, so
+ *       Android never claims a kernel block that is not there.
  *   <li>{@link #ENFORCED_PROPERTY} tells Settings what the kernel enforces this boot.
  * </ul>
  *
- * <p>The kernel's mask comes from {@code config_momentsKernelFloorPath}; empty (the default)
- * turns all of this off. Changes arrive on the input service's handler.
+ * <p>The kernel's state comes from {@code config_momentsKernelFloorPath} (the switch driver's
+ * {@code state} file); empty (the default) turns all of this off. Changes arrive on the input service's handler.
  */
 final class MomentsKernelFloor {
     private static final String TAG = "MomentsKernelFloor";
@@ -73,8 +77,8 @@ final class MomentsKernelFloor {
 
     /** What the kernel blocks, as one platform hook. Separate for tests. */
     interface Platform {
-        /** The kernel's enforced mask, or -1 when it cannot be read. */
-        int readEnforced();
+        /** The kernel's state line, or null when it cannot be read. */
+        String readState();
         int[] userIds();
         void setPhysicalMicToggle(int userId, boolean blocked);
         /** The system user's Moments action, or -1 when unset. */
@@ -89,6 +93,10 @@ final class MomentsKernelFloor {
     private final Object mLock = new Object();
     @GuardedBy("mLock")
     private int mEnforced;
+    @GuardedBy("mLock")
+    private int mBlocked;
+    @GuardedBy("mLock")
+    private boolean mEnforcedPublished;
     @GuardedBy("mLock")
     private Boolean mSwitchOn;
     @GuardedBy("mLock")
@@ -120,41 +128,74 @@ final class MomentsKernelFloor {
         }
         mirrorPolicy();
         synchronized (mLock) {
-            refreshEnforcedLocked();
+            refreshKernelLocked();
         }
         mPlatform.watch(this::mirrorPolicy, this::onUserSwitched);
     }
 
-    /** The switch moved (or was read first). {@code on}: Moments on. Handler thread. */
+    /**
+     * A report of the switch, repeats included. {@code on} is Android's view (Moments on), kept
+     * for dumps only: the hardware toggle follows what the kernel blocks. Handler thread.
+     */
     void onSwitchChanged(boolean on) {
         if (!mEnabled) {
             return;
         }
         synchronized (mLock) {
             mSwitchOn = on;
-            // A client module can register after boot; the mask only grows.
-            refreshEnforcedLocked();
+            refreshKernelLocked();
             applyLocked();
         }
     }
 
-    @GuardedBy("mLock")
-    private void refreshEnforcedLocked() {
-        int enforced = mPlatform.readEnforced();
-        if (enforced < 0) {
-            Slog.w(TAG, "Cannot read what the kernel enforces");
-            enforced = 0;
+    /**
+     * Parses the switch driver's state line ("sealed=1 policy=0x3 ... enforced=0x1 ...
+     * blocked=0x3"); returns {enforced, blocked}, or null when a field is missing or malformed.
+     */
+    @VisibleForTesting
+    static int[] parseState(String line) {
+        if (line == null) {
+            return null;
         }
+        Map<String, String> fields = new HashMap<>();
+        for (String token : line.trim().split("\\s+")) {
+            int eq = token.indexOf('=');
+            if (eq > 0) {
+                fields.put(token.substring(0, eq), token.substring(eq + 1));
+            }
+        }
+        try {
+            int enforced = Integer.decode(fields.get("enforced"));
+            int blocked = Integer.decode(fields.get("blocked"));
+            return enforced < 0 || blocked < 0 ? null : new int[] {enforced, blocked};
+        } catch (NumberFormatException | NullPointerException e) {
+            return null;
+        }
+    }
+
+    @GuardedBy("mLock")
+    private void refreshKernelLocked() {
+        int[] state = parseState(mPlatform.readState());
+        if (state == null) {
+            Slog.w(TAG, "Cannot read the kernel's state");
+            // Claim nothing: no kernel block, nothing enforced.
+            state = new int[] {0, 0};
+        }
+        int enforced = state[0];
         if (enforced != mEnforced) {
             Slog.i(TAG, "Kernel blocks " + maskToString(enforced) + " while the switch is on");
         }
+        if (!mEnforcedPublished || enforced != mEnforced) {
+            mPlatform.setProperty(ENFORCED_PROPERTY, Integer.toString(enforced));
+            mEnforcedPublished = true;
+        }
         mEnforced = enforced;
-        mPlatform.setProperty(ENFORCED_PROPERTY, Integer.toString(enforced));
+        mBlocked = state[1] & enforced;
     }
 
     @GuardedBy("mLock")
     private void applyLocked() {
-        boolean blocked = Boolean.TRUE.equals(mSwitchOn) && (mEnforced & KERNEL_MIC) != 0;
+        boolean blocked = (mBlocked & KERNEL_MIC) != 0;
         if (blocked == mMicApplied) {
             return;
         }
@@ -164,6 +205,7 @@ final class MomentsKernelFloor {
             mPlatform.setPhysicalMicToggle(userId, blocked);
         }
         mMicApplied = blocked;
+        Slog.i(TAG, "Kernel " + (blocked ? "blocks" : "releases") + " the microphone");
     }
 
     private void onUserSwitched(int userId) {
@@ -197,7 +239,8 @@ final class MomentsKernelFloor {
         pw.increaseIndent();
         synchronized (mLock) {
             pw.println("enforced: " + maskToString(mEnforced));
-            pw.println("switch on: " + mSwitchOn);
+            pw.println("blocked now: " + maskToString(mBlocked));
+            pw.println("switch on (Android's view): " + mSwitchOn);
             pw.println("hardware mic toggle set: " + mMicApplied);
             pw.println("policy for next boot: " + mPolicy);
         }
@@ -230,12 +273,11 @@ final class MomentsKernelFloor {
         }
 
         @Override
-        public int readEnforced() {
+        public String readState() {
             try {
-                String text = Files.readString(Path.of(mPath), StandardCharsets.US_ASCII).trim();
-                return Integer.parseInt(text);
-            } catch (IOException | NumberFormatException | SecurityException e) {
-                return -1;
+                return Files.readString(Path.of(mPath), StandardCharsets.US_ASCII);
+            } catch (IOException | SecurityException e) {
+                return null;
             }
         }
 

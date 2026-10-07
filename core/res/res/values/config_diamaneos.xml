@@ -11,8 +11,9 @@
     <integer name="config_momentsSwitchActiveValue">1</integer>
     <java-symbol type="integer" name="config_momentsSwitchActiveValue" />
 
-    <!-- File where the kernel reports what it blocks while the Moments switch is on (a decimal
-         mask: 1 microphone, 2 camera), or empty when the device has no such kernel floor. -->
+    <!-- The privacy switch driver's state file, where the kernel reports what it enforces and
+         what it blocks now ("enforced=" and "blocked=" masks: 1 microphone, 2 camera), or empty
+         when the device has no such kernel floor. -->
     <string name="config_momentsKernelFloorPath" translatable="false"></string>
     <java-symbol type="string" name="config_momentsKernelFloorPath" />
 </resources>

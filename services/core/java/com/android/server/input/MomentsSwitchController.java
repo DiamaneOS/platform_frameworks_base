@@ -77,7 +77,8 @@ final class MomentsSwitchController {
     private int mChangesSent;
     @GuardedBy("mLock")
     private int mReportsDropped;
-    // In system_server, on the handler thread: hears every real change, as listeners do.
+    // In system_server, on the handler thread: hears every report of the code with the
+    // position read then, repeats included (the kernel floor re-reads the kernel each time).
     private Consumer<Boolean> mInternalListener;
 
     MomentsSwitchController(Context context, NativeInputManagerService nativeService,
@@ -193,8 +194,15 @@ final class MomentsSwitchController {
     private void refresh(long whenNanos) {
         final List<ListenerRecord> toNotify;
         final boolean on;
+        final int read;
         synchronized (mLock) {
-            int state = readStateLocked();
+            read = readStateLocked();
+        }
+        if (mInternalListener != null && read != InputManager.SWITCH_STATE_UNKNOWN) {
+            mInternalListener.accept(read == InputManager.SWITCH_STATE_ON);
+        }
+        synchronized (mLock) {
+            int state = read;
             if (state == InputManager.SWITCH_STATE_UNKNOWN || state == mState) {
                 if (whenNanos != 0) {
                     mReportsDropped++;
@@ -213,9 +221,6 @@ final class MomentsSwitchController {
             }
         }
         Slog.i(TAG, "Switch " + (on ? "on" : "off"));
-        if (mInternalListener != null) {
-            mInternalListener.accept(on);
-        }
         for (ListenerRecord record : toNotify) {
             record.notify(whenNanos, on);
         }

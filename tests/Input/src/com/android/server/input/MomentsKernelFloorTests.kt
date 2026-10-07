@@ -30,6 +30,9 @@ class MomentsKernelFloorTests {
 
     private class FakePlatform : MomentsKernelFloor.Platform {
         var enforced = 0
+        // What the kernel blocks now; the switch driver blocks only while the line is down.
+        var blocked = 0
+        var unreadable = false
         var users = intArrayOf(0, 10)
         var action = -1
         val properties = mutableMapOf<String, String>()
@@ -38,7 +41,13 @@ class MomentsKernelFloorTests {
         var onActionChanged: Runnable? = null
         var onUserSwitched: IntConsumer? = null
 
-        override fun readEnforced() = enforced
+        override fun readState(): String? =
+            if (unreadable) null
+            else "sealed=1 policy=0x3 armed=0x3 enforced=${hex(enforced)} switch=present " +
+                "down=${if (blocked != 0) 1 else 0} blocked=${hex(blocked)}\n"
+
+        // The kernel prints %#x: "0" for zero, "0x1" otherwise.
+        private fun hex(v: Int) = if (v == 0) "0" else "0x" + Integer.toHexString(v)
 
         override fun userIds() = users
 
@@ -120,20 +129,22 @@ class MomentsKernelFloorTests {
         floor()
         assertThat(enforced).isEqualTo("1")
 
-        platform.enforced = -1
+        platform.unreadable = true
         floor()
         assertThat(enforced).isEqualTo("0")
     }
 
     @Test
-    fun micEnforced_switchOnSetsTheHardwareToggleForEveryUser() {
+    fun kernelBlocks_setsTheHardwareToggleForEveryUser() {
         platform.enforced = MomentsKernelFloor.KERNEL_MIC
         val floor = floor()
 
+        platform.blocked = 3
         floor.onSwitchChanged(true)
         assertThat(platform.toggles).containsExactly(0 to true, 10 to true).inOrder()
 
         platform.toggles.clear()
+        platform.blocked = 0
         floor.onSwitchChanged(false)
         assertThat(platform.toggles).containsExactly(0 to false, 10 to false).inOrder()
     }
@@ -143,6 +154,7 @@ class MomentsKernelFloorTests {
         platform.enforced = 0
         val floor = floor()
 
+        platform.blocked = 3
         floor.onSwitchChanged(true)
         floor.onSwitchChanged(false)
 
@@ -154,6 +166,7 @@ class MomentsKernelFloorTests {
         platform.enforced = MomentsKernelFloor.KERNEL_CAMERA
         val floor = floor()
 
+        platform.blocked = 3
         floor.onSwitchChanged(true)
 
         assertThat(platform.toggles).isEmpty()
@@ -172,14 +185,14 @@ class MomentsKernelFloorTests {
     }
 
     @Test
-    fun clientRegisteredAfterBoot_isPickedUpOnTheNextChange() {
+    fun clientRegisteredAfterBoot_isPickedUpOnTheNextReport() {
         platform.enforced = 0
+        platform.blocked = 3
         val floor = floor()
         floor.onSwitchChanged(true)
         assertThat(platform.toggles).isEmpty()
 
         platform.enforced = MomentsKernelFloor.KERNEL_MIC
-        floor.onSwitchChanged(false)
         floor.onSwitchChanged(true)
 
         assertThat(platform.toggles).containsExactly(0 to true, 10 to true).inOrder()
@@ -193,10 +206,79 @@ class MomentsKernelFloorTests {
         platform.onUserSwitched!!.accept(11)
         assertThat(platform.toggles).isEmpty()
 
+        platform.blocked = 3
         floor.onSwitchChanged(true)
         platform.toggles.clear()
         platform.onUserSwitched!!.accept(11)
 
         assertThat(platform.toggles).containsExactly(11 to true)
+    }
+
+    @Test
+    fun injectedSwitch_kernelNotBlocking_noHardwareClaim() {
+        // An EV_SW injected on the evdev node moves Android's view only; the GPIO, and so the
+        // kernel, still say "not blocked".
+        platform.enforced = MomentsKernelFloor.KERNEL_MIC
+        platform.blocked = 0
+        val floor = floor()
+
+        floor.onSwitchChanged(true)
+
+        assertThat(platform.toggles).isEmpty()
+    }
+
+    @Test
+    fun kernelBlocksWhileAndroidSaysOff_hardwareToggleFollowsTheKernel() {
+        // The reverse: an injected "up" while the line is down; the kernel still blocks.
+        platform.enforced = MomentsKernelFloor.KERNEL_MIC
+        platform.blocked = 3
+        val floor = floor()
+
+        floor.onSwitchChanged(false)
+
+        assertThat(platform.toggles).containsExactly(0 to true, 10 to true).inOrder()
+    }
+
+    @Test
+    fun repeatedReport_readsTheKernelAgain() {
+        platform.enforced = MomentsKernelFloor.KERNEL_MIC
+        val floor = floor()
+        floor.onSwitchChanged(true)
+        assertThat(platform.toggles).isEmpty()
+
+        // The real line goes down later; Android's view was already "on".
+        platform.blocked = 3
+        floor.onSwitchChanged(true)
+
+        assertThat(platform.toggles).containsExactly(0 to true, 10 to true).inOrder()
+    }
+
+    @Test
+    fun unreadableState_claimsNoKernelBlock() {
+        platform.enforced = MomentsKernelFloor.KERNEL_MIC
+        platform.blocked = 3
+        platform.unreadable = true
+        val floor = floor()
+
+        floor.onSwitchChanged(true)
+
+        assertThat(platform.toggles).isEmpty()
+    }
+
+    @Test
+    fun parseState_readsTheDriversLine() {
+        assertThat(
+                MomentsKernelFloor.parseState(
+                    "sealed=1 policy=0x3 armed=0x3 enforced=0x1 switch=present down=1 blocked=0x3\n"
+                )
+            )
+            .asList()
+            .containsExactly(1, 3)
+            .inOrder()
+        assertThat(MomentsKernelFloor.parseState("enforced=0 blocked=0")).asList()
+            .containsExactly(0, 0)
+        assertThat(MomentsKernelFloor.parseState("enforced=0x1")).isNull()
+        assertThat(MomentsKernelFloor.parseState("enforced=x blocked=0")).isNull()
+        assertThat(MomentsKernelFloor.parseState(null)).isNull()
     }
 }
