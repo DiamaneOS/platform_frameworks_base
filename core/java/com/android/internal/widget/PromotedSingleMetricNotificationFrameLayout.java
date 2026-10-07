@@ -78,6 +78,18 @@ public final class PromotedSingleMetricNotificationFrameLayout
     }
 
     @Override
+    protected int getMaxValueWidthForHeader() {
+        final int lineWidth = mNotificationToplineView.getMeasuredWidth();
+        final int contentWidth = mNotificationToplineView.getContentWidth();
+        if (mNotificationToplineView.getVisibility() == GONE
+                || contentWidth > lineWidth - mNotificationToplineView.getPaddingEnd()) {
+            // Too long for the line even without the value: moving the value would not help.
+            return Integer.MAX_VALUE;
+        }
+        return lineWidth - contentWidth;
+    }
+
+    @Override
     protected View getMetricLabelContainer() {
         return requireViewById(R.id.notification_main_column);
     }
