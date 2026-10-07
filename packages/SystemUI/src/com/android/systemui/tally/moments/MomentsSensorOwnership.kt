@@ -40,16 +40,13 @@ class MomentsSensorOwnership {
 
     /**
      * Takes the sensors the switch's record says it blocked ([inRecord]). The first call (start
-     * of SystemUI) counts those still blocked; later calls count the ones newly recorded.
+     * of SystemUI) trusts the record, which the switch keeps on disk: reading the toggles that
+     * early can give a stale answer. Later calls count the ones newly recorded.
      */
-    fun onRecord(inRecord: Set<MomentsEffectKind>, softwareBlocked: (MomentsEffectKind) -> Boolean) {
+    fun onRecord(inRecord: Set<MomentsEffectKind>) {
         val previous = lastInRecord
         for (kind in inRecord) {
-            if (previous == null) {
-                if (softwareBlocked(kind)) owned += kind
-            } else if (kind !in previous) {
-                owned += kind
-            }
+            if (previous == null || kind !in previous) owned += kind
         }
         owned.retainAll(inRecord)
         lastInRecord = inRecord
@@ -78,6 +75,7 @@ class MomentsSensorOwnership {
  * switch blocks: at most one per [minGapMs] unless it names more sensors than the last one.
  */
 class MomentsSensorNoteThrottle(private val minGapMs: Long = MIN_GAP_MS) {
+
     private var lastAt = Long.MIN_VALUE
     private var lastKinds: Set<MomentsEffectKind> = emptySet()
 
@@ -93,6 +91,29 @@ class MomentsSensorNoteThrottle(private val minGapMs: Long = MIN_GAP_MS) {
 
     companion object {
         const val MIN_GAP_MS = 10_000L
+
+        /**
+         * What a note names when [packageName] tries [kind]: that sensor, plus the camera when
+         * the app has a camera open ([openCameraPackages]) and the switch blocks the camera, as
+         * when a video recording adds the microphone to a muted camera. Only sensors
+         * [isSwitchBlock] says the switch blocks.
+         */
+        fun kindsFor(
+            kind: MomentsEffectKind,
+            packageName: String?,
+            openCameraPackages: Collection<String>,
+            isSwitchBlock: (MomentsEffectKind) -> Boolean,
+        ): Set<MomentsEffectKind> = buildSet {
+            if (isSwitchBlock(kind)) add(kind)
+            if (
+                kind != CAMERA &&
+                    packageName != null &&
+                    packageName in openCameraPackages &&
+                    isSwitchBlock(CAMERA)
+            ) {
+                add(CAMERA)
+            }
+        }
 
         @StringRes
         fun text(kinds: Set<MomentsEffectKind>): Int =
