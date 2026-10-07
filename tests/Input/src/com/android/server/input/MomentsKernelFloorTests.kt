@@ -16,6 +16,7 @@
 
 package com.android.server.input
 
+import android.hardware.SensorPrivacyManager
 import android.provider.Settings
 import com.google.common.truth.Truth.assertThat
 import java.util.function.IntConsumer
@@ -38,6 +39,7 @@ class MomentsKernelFloorTests {
         val properties = mutableMapOf<String, String>()
         var propertyWrites = 0
         val toggles = mutableListOf<Pair<Int, Boolean>>()
+        val cameraToggles = mutableListOf<Pair<Int, Boolean>>()
         var onActionChanged: Runnable? = null
         var onUserSwitched: IntConsumer? = null
 
@@ -51,8 +53,12 @@ class MomentsKernelFloorTests {
 
         override fun userIds() = users
 
-        override fun setPhysicalMicToggle(userId: Int, blocked: Boolean) {
-            toggles += userId to blocked
+        override fun setPhysicalToggle(userId: Int, sensor: Int, blocked: Boolean) {
+            if (sensor == SensorPrivacyManager.Sensors.MICROPHONE) {
+                toggles += userId to blocked
+            } else {
+                cameraToggles += userId to blocked
+            }
         }
 
         override fun momentsAction() = action
@@ -177,7 +183,7 @@ class MomentsKernelFloorTests {
     }
 
     @Test
-    fun cameraOnlyEnforced_noMicToggle() {
+    fun cameraOnlyEnforced_cameraToggleOnly() {
         platform.enforced = MomentsKernelFloor.KERNEL_CAMERA
         val floor = floor()
 
@@ -185,6 +191,44 @@ class MomentsKernelFloorTests {
         floor.onSwitchChanged(true)
 
         assertThat(platform.toggles).isEmpty()
+        assertThat(platform.cameraToggles).containsExactly(0 to true, 10 to true).inOrder()
+    }
+
+    @Test
+    fun bothEnforced_eachSensorFollowsItsOwnBit() {
+        platform.enforced = MomentsKernelFloor.KERNEL_MIC or MomentsKernelFloor.KERNEL_CAMERA
+        val floor = floor()
+
+        // Only the camera bit blocked (a kernel with the camera client only blocking).
+        platform.blocked = MomentsKernelFloor.KERNEL_CAMERA
+        floor.onSwitchChanged(true)
+        assertThat(platform.toggles).isEmpty()
+        assertThat(platform.cameraToggles).containsExactly(0 to true, 10 to true).inOrder()
+
+        platform.cameraToggles.clear()
+        platform.blocked = 3
+        floor.onSwitchChanged(true)
+        assertThat(platform.toggles).containsExactly(0 to true, 10 to true).inOrder()
+        assertThat(platform.cameraToggles).isEmpty()
+
+        platform.blocked = 0
+        floor.onSwitchChanged(false)
+        assertThat(platform.cameraToggles).containsExactly(0 to false, 10 to false).inOrder()
+    }
+
+    @Test
+    fun userSwitch_newUserGetsBothHardwareToggles() {
+        platform.enforced = MomentsKernelFloor.KERNEL_MIC or MomentsKernelFloor.KERNEL_CAMERA
+        val floor = floor()
+        platform.blocked = 3
+        floor.onSwitchChanged(true)
+        platform.toggles.clear()
+        platform.cameraToggles.clear()
+
+        platform.onUserSwitched!!.accept(11)
+
+        assertThat(platform.toggles).containsExactly(11 to true)
+        assertThat(platform.cameraToggles).containsExactly(11 to true)
     }
 
     @Test
