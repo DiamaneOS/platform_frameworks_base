@@ -16,10 +16,13 @@
 
 package com.android.systemui.tally.moments
 
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings.Secure
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.SmallTest
 import com.android.systemui.SysuiTestCase
+import com.android.systemui.res.R
 import com.android.systemui.tally.moments.MomentsEffectKind.AIRPLANE
 import com.android.systemui.tally.moments.MomentsEffectKind.CAMERA
 import com.android.systemui.tally.moments.MomentsEffectKind.DND
@@ -45,13 +48,15 @@ class MomentsReconcilerTest : SysuiTestCase() {
     private class FakePlatform : MomentsPlatform {
         val settings = mutableMapOf<MomentsEffectKind, Boolean>()
         val calls = mutableListOf<String>()
+        val unsupported = mutableSetOf<MomentsEffectKind>()
 
-        override fun apply(effect: MomentsEffect): String? {
+        override fun apply(effect: MomentsEffect): MomentsOutcome {
             calls += "apply ${effect.kind}"
-            if (effect.kind == LOCKDOWN) return null
-            if (settings[effect.kind] == true) return null
+            if (effect.kind in unsupported) return MomentsOutcome.UNSUPPORTED
+            if (effect.kind == LOCKDOWN) return MomentsOutcome.ALREADY
+            if (settings[effect.kind] == true) return MomentsOutcome.ALREADY
             settings[effect.kind] = true
-            return "1"
+            return MomentsOutcome.changed("1")
         }
 
         override fun revert(effect: MomentsEffect, undo: String) {
@@ -117,11 +122,11 @@ class MomentsReconcilerTest : SysuiTestCase() {
         val r = reconciler()
 
         val on = r.reconcile(USER, inputs(on = true, flipped = true, pausedApps = listOf("a.b")))
-        assertThat(on.applied).isTrue()
+        assertThat(on.inEffect).containsExactly(DND, HOME, PAUSE_APPS)
         assertThat(platform.settings).containsExactly(DND, true, HOME, true, PAUSE_APPS, true)
 
         val off = r.reconcile(USER, inputs(on = false, flipped = true, pausedApps = listOf("a.b")))
-        assertThat(off.reverted).isTrue()
+        assertThat(off.reverted).containsExactly(DND, HOME, PAUSE_APPS)
         assertThat(platform.settings.values).containsExactly(false, false, false)
         assertThat(store.record(USER)).isEmpty()
     }
@@ -147,8 +152,8 @@ class MomentsReconcilerTest : SysuiTestCase() {
         // A new reconciler on the same store, as after a reboot or a SystemUI restart.
         val again = reconciler().reconcile(USER, inputs(on = true, greyscale = true))
 
-        assertThat(again.applied).isFalse()
-        assertThat(again.reverted).isFalse()
+        assertThat(again.inEffect).isEmpty()
+        assertThat(again.reverted).isEmpty()
         // Only greyscale, which the system forgets on reboot, is set again.
         assertThat(platform.calls).containsExactly("reassert GREYSCALE")
     }
@@ -256,8 +261,86 @@ class MomentsReconcilerTest : SysuiTestCase() {
         val result =
             reconciler().reconcile(USER, inputs(on = true, action = Secure.MOMENTS_ACTION_NOTHING))
 
-        assertThat(result.applied).isFalse()
+        assertThat(result.inEffect).isEmpty()
         assertThat(platform.calls).isEmpty()
+    }
+
+    @Test
+    fun sensorsOff_unsupported_isNotInEffectAndNoToast() {
+        platform.unsupported += setOf(CAMERA, MICROPHONE)
+        val action = Secure.MOMENTS_ACTION_SENSORS_OFF
+
+        val result = reconciler().reconcile(USER, inputs(on = true, action = action))
+
+        assertThat(result.inEffect).isEmpty()
+        assertThat(MomentsToast.text(true, action, result)).isNull()
+    }
+
+    @Test
+    fun sensorsOff_cameraOnly_toastNamesOnlyTheCamera() {
+        platform.unsupported += MICROPHONE
+        val action = Secure.MOMENTS_ACTION_SENSORS_OFF
+        val r = reconciler()
+
+        val on = r.reconcile(USER, inputs(on = true, action = action))
+        val off = r.reconcile(USER, inputs(on = false, action = action))
+
+        assertThat(MomentsToast.text(true, action, on))
+            .isEqualTo(R.string.tally_moments_toast_camera_blocked)
+        assertThat(MomentsToast.text(false, action, off))
+            .isEqualTo(R.string.tally_moments_toast_camera_unblocked)
+    }
+
+    @Test
+    fun lockdownWithoutSecureLock_noToast() {
+        platform.unsupported += LOCKDOWN
+        val action = Secure.MOMENTS_ACTION_OFFLINE
+
+        val result =
+            reconciler()
+                .reconcile(
+                    USER,
+                    inputs(on = true, action = action, offline = Secure.MOMENTS_OFFLINE_LOCKDOWN),
+                )
+
+        assertThat(result.inEffect).isEmpty()
+        assertThat(MomentsToast.text(true, action, result)).isNull()
+    }
+
+    @Test
+    fun toasts_nameWhatHappened() {
+        val r = reconciler()
+
+        val on = r.reconcile(USER, inputs(on = true))
+        assertThat(MomentsToast.text(true, null, on)).isEqualTo(R.string.tally_moments_toast_on)
+        val off = r.reconcile(USER, inputs(on = false))
+        assertThat(MomentsToast.text(false, null, off)).isEqualTo(R.string.tally_moments_toast_off)
+
+        // The ringer was already silent: nothing to say either way.
+        platform.settings[RINGER] = true
+        val silent = Secure.MOMENTS_ACTION_SILENT
+        val silentOn = r.reconcile(USER, inputs(on = true, action = silent))
+        assertThat(MomentsToast.text(true, silent, silentOn))
+            .isEqualTo(R.string.tally_moments_toast_silent_on)
+        val silentOff = r.reconcile(USER, inputs(on = false, action = silent))
+        assertThat(MomentsToast.text(false, silent, silentOff)).isNull()
+    }
+
+    @Test
+    fun settingsObserver_firesForAnAppThatIsNotSystemUid() {
+        var changes = 0
+        val observer = MomentsSettingsObserver(Handler(Looper.getMainLooper())) { changes++ }
+
+        // ContentService's delivery path: the hidden user-id form, which for any uid but the
+        // system's goes on to the Uri forms, never the UserHandle one.
+        observer.onChange(
+            false,
+            listOf(Secure.getUriFor(Secure.TALLY_MOMENTS_ACTION)),
+            0,
+            USER,
+        )
+
+        assertThat(changes).isEqualTo(1)
     }
 
     @Test
@@ -298,7 +381,7 @@ class MomentsReconcilerTest : SysuiTestCase() {
 
         val saved = r.reconcile(USER, inputs(on = true, action = Secure.MOMENTS_ACTION_SILENT))
 
-        assertThat(saved.applied).isTrue()
+        assertThat(saved.inEffect).containsExactly(RINGER)
         assertThat(saved.dismissNotice).isTrue()
         assertThat(platform.settings).containsExactly(RINGER, true)
     }

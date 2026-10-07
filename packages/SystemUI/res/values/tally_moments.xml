@@ -26,6 +26,15 @@
     <string name="tally_moments_toast_sensors_blocked">Camera and microphone access off</string>
     <!-- Toast after the Moments switch gives camera and microphone access back -->
     <string name="tally_moments_toast_sensors_unblocked">Camera and microphone access on</string>
+    <!-- Toast after the Moments switch blocks camera access only (the phone offers no
+         microphone toggle) -->
+    <string name="tally_moments_toast_camera_blocked">Camera access off</string>
+    <!-- Toast after the Moments switch gives camera access back -->
+    <string name="tally_moments_toast_camera_unblocked">Camera access on</string>
+    <!-- Toast after the Moments switch blocks microphone access only -->
+    <string name="tally_moments_toast_mic_blocked">Microphone access off</string>
+    <!-- Toast after the Moments switch gives microphone access back -->
+    <string name="tally_moments_toast_mic_unblocked">Microphone access on</string>
     <!-- Toast after the Moments switch silences the ringer -->
     <string name="tally_moments_toast_silent_on">Silent mode on</string>
     <!-- Toast after the Moments switch restores the ringer -->
