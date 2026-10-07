@@ -38,6 +38,7 @@ constructor(
     private val layoutInflater: LayoutInflater,
     private val dialogFactory: SystemUIDialog.Factory,
     @Assisted val sensor: Int,
+    @Assisted val hardwareBlocked: Boolean,
     @Assisted val clickListener: DialogInterface.OnClickListener,
     @Assisted val dismissListener: DialogInterface.OnDismissListener,
 ) : SystemUIDialog.Delegate {
@@ -46,6 +47,7 @@ constructor(
     interface Factory {
         fun create(
             sensor: Int,
+            hardwareBlocked: Boolean,
             clickListener: DialogInterface.OnClickListener,
             dismissListener: DialogInterface.OnDismissListener,
         ): SensorUseDialogDelegate
@@ -62,7 +64,17 @@ constructor(
         customTitleView
             .requireViewById<DialogTitle>(R.id.sensor_use_started_title_message)
             .setText(
-                when (sensor) {
+                if (hardwareBlocked) {
+                    when (sensor) {
+                        SensorUseStartedActivity.MICROPHONE ->
+                            R.string.sensor_privacy_start_use_mic_blocked_dialog_title
+                        SensorUseStartedActivity.CAMERA ->
+                            R.string.sensor_privacy_start_use_camera_blocked_dialog_title
+                        SensorUseStartedActivity.ALL_SENSORS ->
+                            R.string.sensor_privacy_start_use_mic_camera_blocked_dialog_title
+                        else -> Resources.ID_NULL
+                    }
+                } else when (sensor) {
                     SensorUseStartedActivity.MICROPHONE ->
                         R.string.sensor_privacy_start_use_mic_dialog_title
                     SensorUseStartedActivity.CAMERA ->
@@ -93,6 +105,18 @@ constructor(
 
         with(dialog) {
             setCustomTitle(customTitleView)
+            if (hardwareBlocked) {
+                setMessage(context.getString(hardwareBlockedMessage(context)))
+                // Only the switch unblocks; nothing to offer but OK.
+                setButton(
+                    BUTTON_NEGATIVE,
+                    context.getString(android.R.string.ok),
+                    clickListener,
+                )
+                setOnDismissListener(dismissListener)
+                setCancelable(false)
+                return dialog
+            }
             setMessage(
                 Html.fromHtml(
                     context.getString(
@@ -132,5 +156,23 @@ constructor(
         }
 
         return dialog
+    }
+
+    private fun hardwareBlockedMessage(context: android.content.Context): Int {
+        val moments =
+            context.resources.getInteger(
+                com.android.internal.R.integer.config_momentsSwitchCode
+            ) >= 0
+        return when (sensor) {
+            SensorUseStartedActivity.MICROPHONE ->
+                if (moments) R.string.tally_moments_mic_blocked_by_switch
+                else R.string.sensor_privacy_start_use_mic_blocked_dialog_content
+            SensorUseStartedActivity.CAMERA ->
+                if (moments) R.string.tally_moments_camera_blocked_by_switch
+                else R.string.sensor_privacy_start_use_camera_blocked_dialog_content
+            else ->
+                if (moments) R.string.tally_moments_mic_camera_blocked_by_switch
+                else R.string.sensor_privacy_start_use_mic_camera_blocked_dialog_content
+        }
     }
 }

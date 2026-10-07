@@ -49,6 +49,14 @@
          protection wait for the unlock -->
     <string name="tally_moments_toast_after_unlock">The rest changes back after you unlock</string>
 
+    <!-- Dialog text when an app tries the microphone while the Moments switch blocks it in the
+         kernel; there is no unblock button -->
+    <string name="tally_moments_mic_blocked_by_switch">The Moments switch turns the microphone off. To use it, slide the switch back.</string>
+    <!-- Same, for the camera -->
+    <string name="tally_moments_camera_blocked_by_switch">The Moments switch turns the camera off. To use it, slide the switch back.</string>
+    <!-- Same, for the camera and the microphone -->
+    <string name="tally_moments_mic_camera_blocked_by_switch">The Moments switch turns the camera and microphone off. To use them, slide the switch back.</string>
+
     <!-- Title of the one-time notification when the switch is on before the user chose what it
          does -->
     <string name="tally_moments_notice_title">Moments switch is on</string>
