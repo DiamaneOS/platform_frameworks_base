@@ -16,8 +16,15 @@
 
 package com.android.server.input
 
+import android.app.Notification
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
 import android.hardware.SensorPrivacyManager
+import android.platform.test.annotations.DisabledOnRavenwood
 import android.provider.Settings
+import androidx.test.core.app.ApplicationProvider
+import com.android.internal.R
 import com.google.common.truth.Truth.assertThat
 import java.util.function.IntConsumer
 import org.junit.Test
@@ -73,20 +80,19 @@ class MomentsKernelFloorTests {
             this.onUserSwitched = onUserSwitched
         }
 
-        var noticesPosted = 0
+        // What each post named (kernel bits).
+        val notices = mutableListOf<Int>()
+        val noticesPosted
+            get() = notices.size
         var noticesCancelled = 0
 
-        override fun postAndroidOnlyMicNotice() {
-            noticesPosted++
+        override fun postAndroidOnlyNotice(missing: Int) {
+            notices += missing
         }
 
-        override fun cancelAndroidOnlyMicNotice() {
+        override fun cancelAndroidOnlyNotice() {
             noticesCancelled++
         }
-
-        var now = 1_000_000L
-
-        override fun elapsedRealtime() = now
     }
 
     private val platform = FakePlatform()
@@ -342,34 +348,69 @@ class MomentsKernelFloorTests {
     }
 
     @Test
-    fun notArmed_eachMoveDown_postsAgain_atMostOnceAMinute() {
+    fun notArmed_eachMoveDown_posts() {
         platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
-        // Sealed without the microphone: the kernel enforces nothing.
+        // Sealed without the camera and microphone: the kernel enforces nothing.
         val floor = floor()
 
         floor.onSwitchChanged(false)
         assertThat(platform.noticesPosted).isEqualTo(0)
         floor.onSwitchChanged(true)
-        assertThat(platform.noticesPosted).isEqualTo(1)
+        assertThat(platform.notices).containsExactly(BOTH)
         // Repeated reports while down are not a move down.
         floor.onSwitchChanged(true)
         assertThat(platform.noticesPosted).isEqualTo(1)
 
-        // Up and down again within the minute: nothing new.
-        platform.now += 30_000
-        floor.onSwitchChanged(false)
-        floor.onSwitchChanged(true)
-        assertThat(platform.noticesPosted).isEqualTo(1)
-
-        // After a minute, the next move down posts it again (also after the user dismissed it).
-        platform.now += MomentsKernelFloor.NOTICE_MIN_GAP_MS
+        // Up and down again at once: posted again. If the user dismissed it,
+        // this alerts; if it still shows, the post only updates it (it alerts once).
         floor.onSwitchChanged(false)
         assertThat(platform.noticesPosted).isEqualTo(1)
         floor.onSwitchChanged(true)
-        assertThat(platform.noticesPosted).isEqualTo(2)
+        assertThat(platform.notices).containsExactly(BOTH, BOTH)
         // Moving up leaves it.
         floor.onSwitchChanged(false)
         assertThat(platform.noticesCancelled).isEqualTo(0)
+    }
+
+    @Test
+    fun silentThenSensorsOff_downUpDown_postsOnEachMoveDown() {
+        platform.action = Settings.Secure.MOMENTS_ACTION_SILENT
+        val floor = floor()
+        floor.onSwitchChanged(false)
+
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        platform.onActionChanged!!.run()
+        assertThat(platform.noticesPosted).isEqualTo(0)
+
+        floor.onSwitchChanged(true)
+        floor.onSwitchChanged(false)
+        floor.onSwitchChanged(true)
+
+        assertThat(platform.notices).containsExactly(BOTH, BOTH)
+        assertThat(platform.noticesCancelled).isEqualTo(0)
+    }
+
+    @Test
+    fun cameraEnforced_namesOnlyTheMicrophone() {
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        platform.enforced = MomentsKernelFloor.KERNEL_CAMERA
+        val floor = floor()
+
+        floor.onSwitchChanged(true)
+
+        assertThat(platform.notices).containsExactly(MomentsKernelFloor.KERNEL_MIC)
+    }
+
+    @Test
+    fun micEnforced_namesOnlyTheCamera() {
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        platform.enforced = MomentsKernelFloor.KERNEL_MIC
+        val floor = floor()
+
+        platform.blocked = MomentsKernelFloor.KERNEL_MIC
+        floor.onSwitchChanged(true)
+
+        assertThat(platform.notices).containsExactly(MomentsKernelFloor.KERNEL_CAMERA)
     }
 
     @Test
@@ -385,13 +426,30 @@ class MomentsKernelFloorTests {
     @Test
     fun armed_noNotice() {
         platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
-        platform.enforced = MomentsKernelFloor.KERNEL_MIC
+        platform.enforced = BOTH
         val floor = floor()
 
-        platform.blocked = MomentsKernelFloor.KERNEL_MIC
+        platform.blocked = BOTH
         floor.onSwitchChanged(true)
 
         assertThat(platform.noticesPosted).isEqualTo(0)
+    }
+
+    @Test
+    fun kernelEnforcesBothLater_cancelsTheNotice() {
+        // A kernel client registered after boot: the next report sees both enforced.
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        platform.enforced = MomentsKernelFloor.KERNEL_MIC
+        val floor = floor()
+        floor.onSwitchChanged(true)
+        assertThat(platform.notices).containsExactly(MomentsKernelFloor.KERNEL_CAMERA)
+
+        platform.enforced = BOTH
+        platform.blocked = BOTH
+        floor.onSwitchChanged(true)
+
+        assertThat(platform.noticesCancelled).isEqualTo(1)
+        assertThat(platform.noticesPosted).isEqualTo(1)
     }
 
     @Test
@@ -412,31 +470,100 @@ class MomentsKernelFloorTests {
 
         platform.action = Settings.Secure.MOMENTS_ACTION_SILENT
         platform.onActionChanged!!.run()
-
         assertThat(platform.noticesCancelled).isEqualTo(1)
-        // Choosing it again posts nothing by itself; the next move down does, after a minute.
+        // Another change away does not cancel again.
+        platform.action = Settings.Secure.MOMENTS_ACTION_NOTHING
+        platform.onActionChanged!!.run()
+        assertThat(platform.noticesCancelled).isEqualTo(1)
+
+        // Choosing it again posts nothing by itself; the next move down does.
         platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
         platform.onActionChanged!!.run()
         assertThat(platform.noticesPosted).isEqualTo(1)
-        platform.now += MomentsKernelFloor.NOTICE_MIN_GAP_MS
         floor.onSwitchChanged(false)
         floor.onSwitchChanged(true)
         assertThat(platform.noticesPosted).isEqualTo(2)
     }
 
     @Test
-    fun androidOnlyMicBlock_readsOnlyTheKernelForArming() {
+    fun actionChangedAway_neverPosted_noCancel() {
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        floor()
+
+        platform.action = Settings.Secure.MOMENTS_ACTION_SILENT
+        platform.onActionChanged!!.run()
+
+        assertThat(platform.noticesCancelled).isEqualTo(0)
+    }
+
+    @Test
+    fun androidOnlyBlock_readsOnlyTheKernelForArming() {
         val sensors = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
-        assertThat(MomentsKernelFloor.androidOnlyMicBlock(sensors, true, 0)).isTrue()
+        val mic = MomentsKernelFloor.KERNEL_MIC
+        val camera = MomentsKernelFloor.KERNEL_CAMERA
+        assertThat(MomentsKernelFloor.androidOnlyBlock(sensors, true, 0)).isEqualTo(BOTH)
+        assertThat(MomentsKernelFloor.androidOnlyBlock(sensors, true, mic)).isEqualTo(camera)
+        assertThat(MomentsKernelFloor.androidOnlyBlock(sensors, true, camera)).isEqualTo(mic)
+        assertThat(MomentsKernelFloor.androidOnlyBlock(sensors, true, BOTH)).isEqualTo(0)
+        assertThat(MomentsKernelFloor.androidOnlyBlock(sensors, false, 0)).isEqualTo(0)
+        assertThat(MomentsKernelFloor.androidOnlyBlock(sensors, null, 0)).isEqualTo(0)
         assertThat(
-                MomentsKernelFloor.androidOnlyMicBlock(sensors, true, MomentsKernelFloor.KERNEL_MIC)
+                MomentsKernelFloor.androidOnlyBlock(Settings.Secure.MOMENTS_ACTION_MOMENTS, true, 0)
             )
-            .isFalse()
-        assertThat(MomentsKernelFloor.androidOnlyMicBlock(sensors, false, 0)).isFalse()
-        assertThat(MomentsKernelFloor.androidOnlyMicBlock(sensors, null, 0)).isFalse()
-        assertThat(
-                MomentsKernelFloor.androidOnlyMicBlock(Settings.Secure.MOMENTS_ACTION_MOMENTS, true, 0)
-            )
-            .isFalse()
+            .isEqualTo(0)
+    }
+
+    @Test
+    @DisabledOnRavenwood(blockedBy = [Notification::class])
+    fun notice_staysUntilDismissed_alertsOnce_hasRestart() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val open = PendingIntent.getActivity(context, 0, Intent("test.OPEN"),
+            PendingIntent.FLAG_IMMUTABLE)
+        val restart = PendingIntent.getBroadcast(context, 0,
+            Intent("test.RESTART").setPackage(context.packageName), PendingIntent.FLAG_IMMUTABLE)
+
+        val n = MomentsKernelFloor.buildNotice(context, "channel", BOTH, open, restart)
+
+        assertThat(n.flags and Notification.FLAG_AUTO_CANCEL).isEqualTo(0)
+        assertThat(n.flags and Notification.FLAG_ONLY_ALERT_ONCE).isNotEqualTo(0)
+        assertThat(n.flags and Notification.FLAG_ONGOING_EVENT).isEqualTo(0)
+        assertThat(n.contentIntent).isSameInstanceAs(open)
+        assertThat(n.actions).hasLength(1)
+        assertThat(n.actions[0].title.toString())
+            .isEqualTo(context.getString(R.string.moments_restart_action))
+        assertThat(n.actions[0].actionIntent).isSameInstanceAs(restart)
+        assertThat(n.actions[0].actionIntent.isImmutable).isTrue()
+    }
+
+    @Test
+    @DisabledOnRavenwood(blockedBy = [Notification::class])
+    fun notice_namesWhatOnlyAndroidBlocks() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val pending = PendingIntent.getBroadcast(context, 0,
+            Intent("test.RESTART").setPackage(context.packageName), PendingIntent.FLAG_IMMUTABLE)
+        fun texts(missing: Int) =
+            MomentsKernelFloor.buildNotice(context, "channel", missing, pending, pending).extras
+                .let {
+                    it.getCharSequence(Notification.EXTRA_TITLE).toString() to
+                        it.getCharSequence(Notification.EXTRA_TEXT).toString()
+                }
+
+        assertThat(texts(BOTH)).isEqualTo(
+            context.getString(R.string.moments_android_only_title) to
+                context.getString(R.string.moments_android_only_text))
+        assertThat(texts(MomentsKernelFloor.KERNEL_MIC)).isEqualTo(
+            context.getString(R.string.moments_android_only_mic_title) to
+                context.getString(R.string.moments_android_only_mic_text))
+        assertThat(texts(MomentsKernelFloor.KERNEL_CAMERA)).isEqualTo(
+            context.getString(R.string.moments_android_only_camera_title) to
+                context.getString(R.string.moments_android_only_camera_text))
+        for (missing in listOf(BOTH, MomentsKernelFloor.KERNEL_MIC,
+                MomentsKernelFloor.KERNEL_CAMERA)) {
+            assertThat(texts(missing).toList().joinToString(" ")).doesNotContain("hardware")
+        }
+    }
+
+    private companion object {
+        const val BOTH = MomentsKernelFloor.KERNEL_MIC or MomentsKernelFloor.KERNEL_CAMERA
     }
 }

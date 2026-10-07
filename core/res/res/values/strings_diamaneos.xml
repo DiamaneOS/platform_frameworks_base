@@ -2,14 +2,32 @@
 <!-- DiamaneOS text shown by the system. English only for now. -->
 <resources>
     <!-- Notification title: with the Moments switch down and "Camera and microphone off" chosen,
-         the kernel does not block the microphone in this boot, so only Android blocks it.
+         the kernel blocks neither the camera nor the microphone in this boot, so only Android
+         blocks them. Never say "hardware": the kernel enforces the block, there is no hardware
+         cut. [CHAR LIMIT=60] -->
+    <string name="moments_android_only_title" translatable="false">Restart to lock the camera and microphone off</string>
+    <java-symbol type="string" name="moments_android_only_title" />
+    <!-- Its text; tapping opens the Moments switch page. Keep this wording.
+         [CHAR LIMIT=NONE] -->
+    <string name="moments_android_only_text" translatable="false">Until you restart, only Android blocks the camera and microphone.</string>
+    <java-symbol type="string" name="moments_android_only_text" />
+    <!-- The same title when the kernel already blocks the camera but not the microphone.
          [CHAR LIMIT=60] -->
-    <string name="moments_android_only_mic_title" translatable="false">Restart for full microphone protection</string>
+    <string name="moments_android_only_mic_title" translatable="false">Restart to lock the microphone off</string>
     <java-symbol type="string" name="moments_android_only_mic_title" />
-    <!-- Its text; tapping opens the Moments switch page. Keep this wording. Never say
-         "hardware": the kernel enforces the block, there is no hardware cut. [CHAR LIMIT=NONE] -->
+    <!-- Its text. Keep this wording. [CHAR LIMIT=NONE] -->
     <string name="moments_android_only_mic_text" translatable="false">Until you restart, only Android blocks the microphone.</string>
     <java-symbol type="string" name="moments_android_only_mic_text" />
+    <!-- The same title when the kernel already blocks the microphone but not the camera.
+         [CHAR LIMIT=60] -->
+    <string name="moments_android_only_camera_title" translatable="false">Restart to lock the camera off</string>
+    <java-symbol type="string" name="moments_android_only_camera_title" />
+    <!-- Its text. [CHAR LIMIT=NONE] -->
+    <string name="moments_android_only_camera_text" translatable="false">Until you restart, only Android blocks the camera.</string>
+    <java-symbol type="string" name="moments_android_only_camera_text" />
+    <!-- The notice's button: restarts the phone at once. [CHAR LIMIT=20] -->
+    <string name="moments_restart_action" translatable="false">Restart</string>
+    <java-symbol type="string" name="moments_restart_action" />
     <!-- Name of the notification channel for the Moments switch's protection notices.
          [CHAR LIMIT=60] -->
     <string name="moments_protection_channel" translatable="false">Moments switch protection</string>
