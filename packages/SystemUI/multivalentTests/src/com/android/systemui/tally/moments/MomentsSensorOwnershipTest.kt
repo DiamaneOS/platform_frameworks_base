@@ -43,9 +43,9 @@ class MomentsSensorOwnershipTest : SysuiTestCase() {
 
     @Test
     fun switchBlock_isTheSwitchs() {
-        ownership.onRecord(record()) { it in blocked }
+        ownership.onRecord(record())
         blocked += setOf(CAMERA, MICROPHONE)
-        ownership.onRecord(record(CAMERA, MICROPHONE)) { it in blocked }
+        ownership.onRecord(record(CAMERA, MICROPHONE))
 
         assertThat(isSwitchBlock(CAMERA)).isTrue()
         assertThat(isSwitchBlock(MICROPHONE)).isTrue()
@@ -53,7 +53,7 @@ class MomentsSensorOwnershipTest : SysuiTestCase() {
 
     @Test
     fun usersOwnBlock_keepsThePrompt() {
-        ownership.onRecord(record()) { it in blocked }
+        ownership.onRecord(record())
         blocked += CAMERA // from Quick Settings, switch off
 
         assertThat(isSwitchBlock(CAMERA)).isFalse()
@@ -63,57 +63,61 @@ class MomentsSensorOwnershipTest : SysuiTestCase() {
     fun alreadyBlockedByUser_whenTheSwitchCameOn_staysTheUsers() {
         // The switch found the camera blocked, so its record holds no change for it.
         blocked += CAMERA
-        ownership.onRecord(record()) { it in blocked }
-        ownership.onRecord(MomentsSensorOwnership.inRecord(listOf(
-            MomentsApplied(MomentsEffect(CAMERA), null),
-        ))) { it in blocked }
+        ownership.onRecord(record())
+        ownership.onRecord(
+            MomentsSensorOwnership.inRecord(listOf(MomentsApplied(MomentsEffect(CAMERA), null)))
+        )
 
         assertThat(isSwitchBlock(CAMERA)).isFalse()
     }
 
     @Test
     fun userUnblocksAndBlocksAgainWhileOn_becomesTheUsers() {
-        ownership.onRecord(record()) { it in blocked }
+        ownership.onRecord(record())
         blocked += CAMERA
-        ownership.onRecord(record(CAMERA)) { it in blocked }
+        ownership.onRecord(record(CAMERA))
 
         blocked -= CAMERA
         ownership.onSoftwareUnblocked(CAMERA)
         blocked += CAMERA
-        ownership.onRecord(record(CAMERA)) { it in blocked }
+        ownership.onRecord(record(CAMERA))
 
         assertThat(isSwitchBlock(CAMERA)).isFalse()
     }
 
     @Test
     fun flipOffAndOn_isTheSwitchsAgain() {
-        ownership.onRecord(record()) { it in blocked }
+        ownership.onRecord(record())
         blocked += CAMERA
-        ownership.onRecord(record(CAMERA)) { it in blocked }
+        ownership.onRecord(record(CAMERA))
         ownership.onSoftwareUnblocked(CAMERA)
         blocked -= CAMERA
-        ownership.onRecord(record()) { it in blocked }
+        ownership.onRecord(record())
 
         blocked += CAMERA
-        ownership.onRecord(record(CAMERA)) { it in blocked }
+        ownership.onRecord(record(CAMERA))
 
         assertThat(isSwitchBlock(CAMERA)).isTrue()
     }
 
     @Test
-    fun systemUiRestart_countsRecordedBlocksStillOn() {
-        blocked += MICROPHONE
-        ownership.onRecord(record(CAMERA, MICROPHONE)) { it in blocked }
+    fun systemUiRestart_trustsTheRecord() {
+        // The toggles may read stale this early; the switch's record on disk decides.
+        ownership.onRecord(record(CAMERA, MICROPHONE))
+        blocked += setOf(CAMERA, MICROPHONE)
 
+        assertThat(isSwitchBlock(CAMERA)).isTrue()
         assertThat(isSwitchBlock(MICROPHONE)).isTrue()
-        // The camera was unblocked while SystemUI was down; a later block is the user's.
-        blocked += CAMERA
-        assertThat(isSwitchBlock(CAMERA)).isFalse()
+        // A sensor the switch never recorded stays the user's.
+        val other = MomentsSensorOwnership()
+        other.onRecord(record(MICROPHONE))
+        assertThat(other.isSwitchBlock(CAMERA, softwareBlocked = true, hardwareBlocked = false))
+            .isFalse()
     }
 
     @Test
     fun kernelHardwareBlock_isAlwaysTheSwitchs() {
-        ownership.onRecord(record()) { it in blocked }
+        ownership.onRecord(record())
 
         assertThat(isSwitchBlock(MICROPHONE, hardware = true)).isTrue()
     }
@@ -145,5 +149,55 @@ class MomentsSensorOwnershipTest : SysuiTestCase() {
         assertThat(throttle.shouldShow(setOf(CAMERA, MICROPHONE), 0, enabled = false)).isFalse()
         // Turning it back on shows the next one at once.
         assertThat(throttle.shouldShow(setOf(CAMERA), 1_000, enabled = true)).isTrue()
+    }
+
+    @Test
+    fun videoRecording_micAttemptNamesTheOpenMutedCameraToo() {
+        val switchBlocks = setOf(CAMERA, MICROPHONE)
+        val open = listOf("app.grapheneos.camera")
+
+        // The camera service reports the muted camera's use once, when it opens.
+        assertThat(
+                MomentsSensorNoteThrottle.kindsFor(CAMERA, "app.grapheneos.camera", open) {
+                    it in switchBlocks
+                }
+            )
+            .containsExactly(CAMERA)
+        // Recording adds the microphone: the note names both.
+        assertThat(
+                MomentsSensorNoteThrottle.kindsFor(MICROPHONE, "app.grapheneos.camera", open) {
+                    it in switchBlocks
+                }
+            )
+            .containsExactly(CAMERA, MICROPHONE)
+        // Another app with no camera open: the microphone only.
+        assertThat(
+                MomentsSensorNoteThrottle.kindsFor(MICROPHONE, "recorder", open) {
+                    it in switchBlocks
+                }
+            )
+            .containsExactly(MICROPHONE)
+    }
+
+    @Test
+    fun kindsFor_onlyWhatTheSwitchBlocks() {
+        val open = listOf("app")
+
+        // Camera blocked by the user, not the switch: the note names the microphone only.
+        assertThat(MomentsSensorNoteThrottle.kindsFor(MICROPHONE, "app", open) { it == MICROPHONE })
+            .containsExactly(MICROPHONE)
+        // Microphone not the switch's: nothing for a microphone attempt alone.
+        assertThat(MomentsSensorNoteThrottle.kindsFor(MICROPHONE, "other", open) { it == CAMERA })
+            .isEmpty()
+        assertThat(MomentsSensorNoteThrottle.kindsFor(CAMERA, "app", open) { false }).isEmpty()
+    }
+
+    @Test
+    fun recordingAfterTheCameraNote_namesBothAgain() {
+        val throttle = MomentsSensorNoteThrottle(minGapMs = 10_000)
+
+        assertThat(throttle.shouldShow(setOf(CAMERA), 0)).isTrue()
+        // Two seconds later the recording starts: camera and microphone, more than before.
+        assertThat(throttle.shouldShow(setOf(CAMERA, MICROPHONE), 2_000)).isTrue()
     }
 }

@@ -21,6 +21,7 @@ import android.content.Context
 import android.hardware.ISensorPrivacyManager
 import android.hardware.SensorPrivacyManager
 import android.hardware.SensorPrivacyManager.Sensors
+import android.hardware.camera2.CameraManager
 import android.os.Binder
 import android.os.Process
 import android.os.RemoteException
@@ -60,8 +61,26 @@ constructor(
     private val userTracker: UserTracker,
     private val sensorPrivacyManager: SensorPrivacyManager,
     private val appOpsManager: AppOpsManager,
+    private val cameraManager: CameraManager,
     private val systemClock: SystemClock,
 ) {
+    // Cameras open now, by camera id: the app that opened each. With camera mute (the camera
+    // stays connected and gets black frames) the camera service reports a blocked camera's use
+    // once, when it opens; this is how a later microphone attempt by the same app (a video
+    // recording) names the camera too. Background thread.
+    private val openCameras = mutableMapOf<String, String>()
+
+    private val cameraCallback =
+        object : CameraManager.AvailabilityCallback() {
+            override fun onCameraOpened(cameraId: String, packageId: String) {
+                openCameras[cameraId] = packageId
+                onAttempt(CAMERA, packageId)
+            }
+
+            override fun onCameraClosed(cameraId: String) {
+                openCameras.remove(cameraId)
+            }
+        }
     private val token = Binder()
     private val ownership = mutableMapOf<Int, MomentsSensorOwnership>()
     private val suppressed = mutableSetOf<Pair<Int, MomentsEffectKind>>()
@@ -90,8 +109,8 @@ constructor(
         }
 
     private val opStarted =
-        AppOpsManager.OnOpStartedListener { op, uid, _, _, flags, result ->
-            onSensorOp(op, uid, flags, result)
+        AppOpsManager.OnOpStartedListener { op, uid, packageName, _, flags, result ->
+            onSensorOp(op, uid, packageName, flags, result)
         }
 
     private val opNoted =
@@ -103,7 +122,7 @@ constructor(
                 attributionTag: String?,
                 flags: Int,
                 result: Int,
-            ) = onSensorOp(code, uid, flags, result)
+            ) = onSensorOp(code, uid, packageName, flags, result)
         }
 
     /** Starts watching; [record] gives the switch's record for a user. */
@@ -116,6 +135,7 @@ constructor(
         sensorPrivacyManager.addSensorPrivacyListener(bgExecutor, privacyListener)
         appOpsManager.startWatchingStarted(OPS, opStarted)
         appOpsManager.startWatchingNoted(OPS, opNoted)
+        cameraManager.registerAvailabilityCallback(bgExecutor, cameraCallback)
         bgExecutor.execute { refresh() }
     }
 
@@ -126,7 +146,7 @@ constructor(
         val user = userTracker.userId
         ownership
             .getOrPut(user) { MomentsSensorOwnership() }
-            .onRecord(MomentsSensorOwnership.inRecord(recordOf(user))) { softwareBlocked(it) }
+            .onRecord(MomentsSensorOwnership.inRecord(recordOf(user)))
         updateSuppression()
     }
 
@@ -159,7 +179,7 @@ constructor(
 
     // Binder thread. The platform reports a blocked sensor use as an ignored op, as the prompt's
     // own trigger does.
-    private fun onSensorOp(op: Int, uid: Int, flags: Int, result: Int) {
+    private fun onSensorOp(op: Int, uid: Int, packageName: String?, flags: Int, result: Int) {
         if (result != AppOpsManager.MODE_IGNORED) return
         if (flags and AppOpsManager.OP_FLAGS_ALL_TRUSTED == 0) return
         if (uid == Process.SYSTEM_UID) return
@@ -171,12 +191,19 @@ constructor(
                 AppOpsManager.OP_PHONE_CALL_MICROPHONE -> MICROPHONE
                 else -> return
             }
-        bgExecutor.execute {
-            if (!isSwitchBlock(kind)) return@execute
-            pending += kind
-            // A camera and its microphone start together: one note for both.
-            if (flush == null) flush = bgExecutor.executeDelayed(::showNote, GATHER_MS)
-        }
+        bgExecutor.execute { onAttempt(kind, packageName) }
+    }
+
+    // Background thread.
+    private fun onAttempt(kind: MomentsEffectKind, packageName: String?) {
+        val kinds =
+            MomentsSensorNoteThrottle.kindsFor(kind, packageName, openCameras.values) {
+                isSwitchBlock(it)
+            }
+        if (kinds.isEmpty()) return
+        pending += kinds
+        // A camera and its microphone start together: one note for both.
+        if (flush == null) flush = bgExecutor.executeDelayed(::showNote, GATHER_MS)
     }
 
     private fun showNote() {
