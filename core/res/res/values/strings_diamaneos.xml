@@ -4,9 +4,10 @@
     <!-- Notification title: with the Moments switch down and "Camera and microphone off" chosen,
          the kernel does not block the microphone in this boot, so only Android blocks it.
          [CHAR LIMIT=60] -->
-    <string name="moments_android_only_mic_title" translatable="false">Microphone blocked by Android only</string>
+    <string name="moments_android_only_mic_title" translatable="false">Restart for full microphone protection</string>
     <java-symbol type="string" name="moments_android_only_mic_title" />
-    <!-- Its text; tapping opens the Moments switch page. [CHAR LIMIT=NONE] -->
-    <string name="moments_android_only_mic_text" translatable="false">Until you restart your phone, the Moments switch blocks the microphone in Android only. Restart to turn on hardware protection for the microphone.</string>
+    <!-- Its text; tapping opens the Moments switch page. Keep this wording. Never say
+         "hardware": the kernel enforces the block, there is no hardware cut. [CHAR LIMIT=NONE] -->
+    <string name="moments_android_only_mic_text" translatable="false">Until you restart, only Android blocks the microphone.</string>
     <java-symbol type="string" name="moments_android_only_mic_text" />
 </resources>
