@@ -30,6 +30,8 @@ import android.app.KeyguardManager;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.PersistableBundle;
 import android.os.UserHandle;
@@ -68,6 +70,12 @@ public class ClipboardListener implements
             Set.of(SHELL_PACKAGE, SYSTEMUI_PACKAGE);
     public static final String EXTRA_SUPPRESS_OVERLAY =
             "com.android.systemui.SUPPRESS_CLIPBOARD_OVERLAY";
+    // DiamaneOS: Canvas (screenshot editor) marks the clip of its "Copy and delete" action with
+    // this extra and shows its own "Copied" toast. Only honoured for the system Canvas package.
+    @VisibleForTesting
+    static final String CANVAS_PACKAGE = "org.lineageos.canvas";
+    @VisibleForTesting
+    static final String EXTRA_QUIET_COPY = "de.diamaneos.clipboard.extra.QUIET_COPY";
 
     private final Context mContext;
     private final Provider<ClipboardOverlayController> mOverlayProvider;
@@ -79,6 +87,7 @@ public class ClipboardListener implements
     private ClipboardOverlay mClipboardOverlay;
     private ClipboardManager mClipboardManagerForUser;
     private KeyguardManager mKeyguardManagerForUser;
+    private int mUserIdForClipboard;
 
     private final UserTracker mUserTracker;
     private final Executor mMainExecutor;
@@ -119,6 +128,7 @@ public class ClipboardListener implements
     private void setUser(UserHandle user) {
         mClipboardManagerForUser = mClipboardManagerProvider.forUser(user);
         mKeyguardManagerForUser = mKeyguardManagerProvider.forUser(user);
+        mUserIdForClipboard = user.getIdentifier();
     }
 
     @Override
@@ -137,6 +147,12 @@ public class ClipboardListener implements
 
         String clipSource = mClipboardManagerForUser.getPrimaryClipSource();
         ClipData clipData = mClipboardManagerForUser.getPrimaryClip();
+
+        if (isQuietCopy(clipData, clipSource, mContext.getPackageManager(),
+                mUserIdForClipboard)) {
+            Log.i(TAG, "Clipboard overlay suppressed for quiet copy.");
+            return;
+        }
 
         if (overrideSuppressOverlayCondition()) {
             if (mClipboardOverlaySuppressionController.shouldSuppressOverlay(clipData, clipSource,
@@ -196,6 +212,27 @@ public class ClipboardListener implements
         }
 
         return extras.getBoolean(EXTRA_SUPPRESS_OVERLAY, false);
+    }
+
+    // DiamaneOS: true only if the clip carries EXTRA_QUIET_COPY and its source is the Canvas package
+    // installed as a system app. The source is the package the clipboard service verified against
+    // the writing uid; a system package can only be updated with the same (or a rotated) signer.
+    @VisibleForTesting
+    static boolean isQuietCopy(ClipData clipData, String clipSource, PackageManager pm,
+            int userId) {
+        if (clipData == null || !CANVAS_PACKAGE.equals(clipSource)) {
+            return false;
+        }
+        PersistableBundle extras = clipData.getDescription().getExtras();
+        if (extras == null || !extras.getBoolean(EXTRA_QUIET_COPY, false)) {
+            return false;
+        }
+        try {
+            ApplicationInfo info = pm.getApplicationInfoAsUser(clipSource, 0, userId);
+            return (info.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
+        } catch (PackageManager.NameNotFoundException e) {
+            return false;
+        }
     }
 
     boolean shouldShowToast(ClipData clipData) {
