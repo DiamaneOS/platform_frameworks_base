@@ -25,6 +25,7 @@ import android.os.Binder
 import android.os.Process
 import android.os.RemoteException
 import android.os.ServiceManager
+import android.provider.Settings.Secure
 import android.util.Log
 import android.widget.Toast
 import com.android.systemui.dagger.SysUISingleton
@@ -43,7 +44,8 @@ import javax.inject.Inject
  * While the Moments switch blocks the camera or microphone, apps get black frames and silence
  * without interruption: the platform's "Unblock" prompt (an activity over the app, which pauses
  * it) is suppressed for those sensors, through the platform's own reminder suppression, and a
- * short toast names what the switch blocks instead. A block the user made themselves keeps
+ * short toast names what the switch blocks instead, unless the user turned the note off
+ * (`tally_moments_sensor_note`; then the block is silent). A block the user made themselves keeps
  * GrapheneOS's prompt. See [MomentsSensorOwnership].
  *
  * All state changes run on the background executor.
@@ -181,7 +183,14 @@ constructor(
         flush = null
         val kinds = pending.toSet()
         pending.clear()
-        if (!throttle.shouldShow(kinds, systemClock.elapsedRealtime())) return
+        val enabled =
+            Secure.getIntForUser(
+                context.contentResolver,
+                Secure.TALLY_MOMENTS_SENSOR_NOTE,
+                1,
+                userTracker.userId,
+            ) != 0
+        if (!throttle.shouldShow(kinds, systemClock.elapsedRealtime(), enabled)) return
         val text = MomentsSensorNoteThrottle.text(kinds)
         mainExecutor.execute { Toast.makeText(context, text, Toast.LENGTH_SHORT).show() }
     }

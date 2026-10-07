@@ -7580,6 +7580,15 @@ public final class Settings {
         public static final int MOMENTS_OFFLINE_LOCKDOWN = 2;
 
         /**
+         * Whether a short note shows (1, the default) or nothing at all (0) when an app tries a
+         * camera or microphone the Moments switch blocks. Either way there is no "Unblock" prompt
+         * while the switch holds the block.
+         * @hide
+         */
+        @Protected(read = KnownSystemPackage.SYSTEM_UI, readWrite = KnownSystemPackage.SETTINGS)
+        public static final String TALLY_MOMENTS_SENSOR_NOTE = "tally_moments_sensor_note";
+
+        /**
          * 1 while Moments' Home filter is on; written by SystemUI, read by Launcher.
          * @hide
          */

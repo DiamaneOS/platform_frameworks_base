@@ -137,4 +137,13 @@ class MomentsSensorOwnershipTest : SysuiTestCase() {
         assertThat(MomentsSensorNoteThrottle.text(setOf(MICROPHONE)))
             .isEqualTo(R.string.tally_moments_note_mic_off)
     }
+
+    @Test
+    fun note_turnedOff_isSilent() {
+        val throttle = MomentsSensorNoteThrottle(minGapMs = 10_000)
+
+        assertThat(throttle.shouldShow(setOf(CAMERA, MICROPHONE), 0, enabled = false)).isFalse()
+        // Turning it back on shows the next one at once.
+        assertThat(throttle.shouldShow(setOf(CAMERA), 1_000, enabled = true)).isTrue()
+    }
 }
