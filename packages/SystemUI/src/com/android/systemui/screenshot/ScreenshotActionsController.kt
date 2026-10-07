@@ -73,6 +73,13 @@ constructor(
         }
     }
 
+    fun isCurrentScreenshot(screenshotId: UUID): Boolean = screenshotId == currentScreenshotId
+
+    /** Tally: the saved screenshot was deleted; its actions must not run any more. */
+    fun onScreenshotDeleted(screenshotId: UUID) {
+        actionProviders[screenshotId]?.onScreenshotDeleted()
+    }
+
     fun setCompletedScreenshot(screenshotId: UUID, result: ScreenshotSavedResult) {
         if (screenshotId == currentScreenshotId) {
             actionProviders[screenshotId]?.setCompletedScreenshot(result)

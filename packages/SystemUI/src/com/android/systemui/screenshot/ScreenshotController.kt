@@ -85,6 +85,7 @@ internal constructor(
     private val announcementResolver: AnnouncementResolver,
     @Main private val mainExecutor: Executor,
     private val actionIntentCreator: ActionIntentCreator,
+    private val deletionWatcher: ScreenshotDeletionWatcher,
     @Assisted private val display: Display,
 ) : InteractiveScreenshotHandler {
     private val context: WindowContext
@@ -197,12 +198,17 @@ internal constructor(
         currentBitmap.prepareToDraw()
 
         prepareViewForNewScreenshot(screenshot, oldPackageName)
+        // Tally: the preview now shows the new screenshot, not the one watched so far.
+        deletionWatcher.stop()
         val requestId = actionsController.setCurrentScreenshot(screenshot)
         saveScreenshotInBackground(screenshot, requestId, finisher) { result ->
             if (result.uri != null) {
                 val savedScreenshot =
                     ScreenshotSavedResult(result.uri, screenshot.userHandle, result.timestamp)
                 actionsController.setCompletedScreenshot(requestId, savedScreenshot)
+                if (actionsController.isCurrentScreenshot(requestId)) {
+                    deletionWatcher.watch(result.uri) { onScreenshotDeleted(requestId) }
+                }
             }
         }
 
@@ -292,8 +298,22 @@ internal constructor(
         return actionExecutor.isPendingSharedTransition
     }
 
+    /**
+     * Tally: the screenshot the preview shows was deleted, by the preview's Delete or by another
+     * app. Its actions would act on a missing file, so stop them and close the preview.
+     */
+    private fun onScreenshotDeleted(requestId: UUID) {
+        if (!actionsController.isCurrentScreenshot(requestId)) {
+            return
+        }
+        Log.d(TAG, "Screenshot deleted, dismissing its preview")
+        actionsController.onScreenshotDeleted(requestId)
+        viewProxy.requestDismissal(ScreenshotEvent.SCREENSHOT_DISMISSED_OTHER)
+    }
+
     // Any cleanup needed when the service is being destroyed.
     override fun onDestroy() {
+        deletionWatcher.stop()
         removeWindow()
         screenshotSoundController.releaseScreenshotSoundAsync()
         releaseContext()
@@ -492,6 +512,8 @@ internal constructor(
     /** Reset screenshot view and then call onCompleteRunnable */
     private fun finishDismiss() {
         Log.d(TAG, "finishDismiss")
+        deletionWatcher.stop()
+        actionExecutor.onPreviewDismissed()
         actionsController.endScreenshotSession()
         scrollCaptureExecutor.close()
         currentRequestCallbacks.forEach { it.onFinish() }

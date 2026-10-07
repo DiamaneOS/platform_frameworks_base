@@ -63,6 +63,12 @@ interface ScreenshotActionsProvider {
      */
     fun onAssistContent(assistContent: AssistContent?) {}
 
+    /**
+     * Tally: the saved screenshot was deleted while its preview showed. Actions tapped from now on,
+     * or still waiting for the file, must not run.
+     */
+    fun onScreenshotDeleted() {}
+
     interface Factory {
         fun create(
             requestId: UUID,
@@ -92,6 +98,7 @@ constructor(
     private var pendingAction: (suspend (ScreenshotSavedResult) -> Unit)? = null
     private var result: ScreenshotSavedResult? = null
     private var webUri: Uri? = null
+    private var isDeleted = false
 
     init {
         actionsCallback.providePreviewAction(
@@ -251,7 +258,16 @@ constructor(
         webUri = assistContent?.webUri
     }
 
+    override fun onScreenshotDeleted() {
+        isDeleted = true
+        pendingAction = null
+    }
+
     private fun onDeferrableActionTapped(onResult: suspend (ScreenshotSavedResult) -> Unit) {
+        if (isDeleted) {
+            debugLog(LogConfig.DEBUG_ACTIONS) { "Screenshot was deleted, ignoring action" }
+            return
+        }
         result?.let { applicationScope.launch { onResult.invoke(it) } }
             ?: run { pendingAction = onResult }
     }

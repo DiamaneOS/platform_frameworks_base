@@ -517,6 +517,45 @@ class DefaultScreenshotActionsProviderTest : SysuiTestCase() {
             verify(actionExecutor).deleteScreenshot(eq(validResult.uri))
         }
 
+    @Test
+    @EnableFlags(SysuiFlags.FLAG_LARGE_SCREEN_SCREENCAPTURE)
+    fun actions_afterScreenshotDeleted_doNothing() =
+        kosmos.runTest {
+            actionsProvider = createActionsProvider()
+            actionsProvider.setCompletedScreenshot(validResult)
+
+            actionsProvider.onScreenshotDeleted()
+
+            val previewActionCaptor = argumentCaptor<PreviewAction>()
+            verify(actionsCallback).providePreviewAction(previewActionCaptor.capture())
+            val actionButtonCaptor = argumentCaptor<() -> Unit>()
+            // share, edit, delete
+            verify(actionsCallback, times(3))
+                .provideActionButton(any(), any(), actionButtonCaptor.capture())
+            previewActionCaptor.firstValue.onClick.invoke()
+            actionButtonCaptor.allValues.forEach { it.invoke() }
+
+            verifyNoMoreInteractions(actionExecutor)
+        }
+
+    @Test
+    @EnableFlags(SysuiFlags.FLAG_LARGE_SCREEN_SCREENCAPTURE)
+    fun pendingAction_whenScreenshotDeleted_isDropped() =
+        kosmos.runTest {
+            actionsProvider = createActionsProvider()
+
+            val actionButtonCaptor = argumentCaptor<() -> Unit>()
+            // share, edit, delete
+            verify(actionsCallback, times(3))
+                .provideActionButton(any(), any(), actionButtonCaptor.capture())
+            // Edit, tapped before saving finished.
+            actionButtonCaptor.secondValue.invoke()
+            actionsProvider.onScreenshotDeleted()
+            actionsProvider.setCompletedScreenshot(validResult)
+
+            verifyNoMoreInteractions(actionExecutor)
+        }
+
     private fun createActionsProvider(): ScreenshotActionsProvider {
         return kosmos.screenshotActionsProviderFactory.create(
             UUID.randomUUID(),
