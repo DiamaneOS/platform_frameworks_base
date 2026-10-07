@@ -107,6 +107,13 @@ class TallyWallpaper : WallpaperService() {
         /** The paper of the colours Wallpaper & style previews on this preview engine, or null. */
         private var previewed: PaperLook? = null
 
+        /**
+         * Whether this engine has reported its colours yet. The system keeps the last colours it
+         * was told across reboots, so an engine that starts in dark theme must report its own
+         * once, or Home, the status bar and the lock screen keep the light paper's dark ink.
+         */
+        private var reported = false
+
         init {
             setShowForAllUsers(true)
         }
@@ -126,7 +133,7 @@ class TallyWallpaper : WallpaperService() {
         override fun onSurfaceRedrawNeeded(holder: SurfaceHolder) {
             val changed = takeLook()
             draw(holder)
-            if (changed) report()
+            if (changed || !reported) report()
         }
 
         override fun onComputeColors(): WallpaperColors = colors
@@ -187,6 +194,7 @@ class TallyWallpaper : WallpaperService() {
         private fun report() {
             // Previewed colours are not the wallpaper's: the picker shows them, nothing reads them.
             if (previewed != null) return
+            reported = true
             notifyColorsChanged()
             if (areas.isNotEmpty()) notifyAreas(areas.toList())
         }
