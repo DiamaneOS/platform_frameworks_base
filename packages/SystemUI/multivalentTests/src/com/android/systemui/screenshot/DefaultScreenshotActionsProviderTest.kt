@@ -93,7 +93,7 @@ class DefaultScreenshotActionsProviderTest : SysuiTestCase() {
             actionsProvider = createActionsProvider()
 
             val actionButtonCaptor = argumentCaptor<() -> Unit>()
-            verify(actionsCallback, times(2))
+            verify(actionsCallback, times(3))
                 .provideActionButton(any(), any(), actionButtonCaptor.capture())
             actionButtonCaptor.allValues.forEach { it.invoke() }
             verifyNoMoreInteractions(actionExecutor)
@@ -108,7 +108,7 @@ class DefaultScreenshotActionsProviderTest : SysuiTestCase() {
             actionsProvider.setCompletedScreenshot(validResult)
 
             val actionButtonCaptor = argumentCaptor<() -> Unit>()
-            verify(actionsCallback, times(2))
+            verify(actionsCallback, times(3))
                 .provideActionButton(any(), any(), actionButtonCaptor.capture())
             actionButtonCaptor.firstValue.invoke()
 
@@ -217,7 +217,7 @@ class DefaultScreenshotActionsProviderTest : SysuiTestCase() {
             val previewActionCaptor = argumentCaptor<PreviewAction>()
             verify(actionsCallback).providePreviewAction(previewActionCaptor.capture())
             val actionButtonCaptor = argumentCaptor<() -> Unit>()
-            verify(actionsCallback, times(2))
+            verify(actionsCallback, times(3))
                 .provideActionButton(any(), any(), actionButtonCaptor.capture())
 
             actionButtonCaptor.firstValue.invoke()
@@ -243,10 +243,10 @@ class DefaultScreenshotActionsProviderTest : SysuiTestCase() {
             val onScrollClick = mock<ScrollClickCallback>()
             actionsProvider.onScrollChipReady(onScrollClick)
             val actionButtonCaptor = argumentCaptor<() -> Unit>()
-            // share, edit, scroll
-            verify(actionsCallback, times(3))
+            // share, edit, delete, scroll
+            verify(actionsCallback, times(4))
                 .provideActionButton(any(), any(), actionButtonCaptor.capture())
-            actionButtonCaptor.thirdValue.invoke()
+            actionButtonCaptor.allValues[3].invoke()
 
             verify(onScrollClick).invoke(Uri.EMPTY)
         }
@@ -264,10 +264,10 @@ class DefaultScreenshotActionsProviderTest : SysuiTestCase() {
             actionsProvider.onScrollChipReady(onScrollClick)
             actionsProvider.setCompletedScreenshot(validResult)
             val actionButtonCaptor = argumentCaptor<() -> Unit>()
-            // share, edit, scroll
-            verify(actionsCallback, times(3))
+            // share, edit, delete, scroll
+            verify(actionsCallback, times(4))
                 .provideActionButton(any(), any(), actionButtonCaptor.capture())
-            actionButtonCaptor.thirdValue.invoke()
+            actionButtonCaptor.allValues[3].invoke()
 
             verify(onScrollClick).invoke(validResult.uri)
         }
@@ -282,10 +282,10 @@ class DefaultScreenshotActionsProviderTest : SysuiTestCase() {
             actionsProvider.onScrollChipReady(onScrollClick)
             val actionButtonCaptor = argumentCaptor<() -> Unit>()
             actionsProvider.onScrollChipInvalidated()
-            // share, edit, scroll
-            verify(actionsCallback, times(3))
+            // share, edit, delete, scroll
+            verify(actionsCallback, times(4))
                 .provideActionButton(any(), any(), actionButtonCaptor.capture())
-            actionButtonCaptor.thirdValue.invoke()
+            actionButtonCaptor.allValues[3].invoke()
 
             verify(onScrollClick, never()).invoke(any())
         }
@@ -304,10 +304,10 @@ class DefaultScreenshotActionsProviderTest : SysuiTestCase() {
             actionsProvider.onScrollChipInvalidated()
             actionsProvider.onScrollChipReady(onScrollClick2)
             val actionButtonCaptor = argumentCaptor<() -> Unit>()
-            // share, edit, scroll
-            verify(actionsCallback, times(3))
+            // share, edit, delete, scroll
+            verify(actionsCallback, times(4))
                 .provideActionButton(any(), any(), actionButtonCaptor.capture())
-            actionButtonCaptor.thirdValue.invoke()
+            actionButtonCaptor.allValues[3].invoke()
 
             verify(onScrollClick2).invoke(Uri.EMPTY)
             verify(onScrollClick, never()).invoke(any())
@@ -330,10 +330,10 @@ class DefaultScreenshotActionsProviderTest : SysuiTestCase() {
             actionsProvider.onScrollChipReady(onScrollClick2)
             actionsProvider.setCompletedScreenshot(validResult)
             val actionButtonCaptor = argumentCaptor<() -> Unit>()
-            // share, edit, scroll
-            verify(actionsCallback, times(3))
+            // share, edit, delete, scroll
+            verify(actionsCallback, times(4))
                 .provideActionButton(any(), any(), actionButtonCaptor.capture())
-            actionButtonCaptor.thirdValue.invoke()
+            actionButtonCaptor.allValues[3].invoke()
 
             verify(onScrollClick2).invoke(validResult.uri)
             verify(onScrollClick, never()).invoke(any())
@@ -449,6 +449,72 @@ class DefaultScreenshotActionsProviderTest : SysuiTestCase() {
             val uriCaptor = argumentCaptor<Uri>()
             verify(actionExecutor).copyScreenshotToClipboard(uriCaptor.capture())
             assertThat(uriCaptor.firstValue).isEqualTo(validResult.uri)
+        }
+
+    @Test
+    @EnableFlags(SysuiFlags.FLAG_LARGE_SCREEN_SCREENCAPTURE)
+    fun deleteAction_smallScreen_includesButton() =
+        kosmos.runTest {
+            actionsProvider = createActionsProvider()
+
+            val actionButtonAppearanceCaptor = argumentCaptor<ActionButtonAppearance>()
+            verify(actionsCallback, atLeastOnce())
+                .provideActionButton(actionButtonAppearanceCaptor.capture(), any(), any())
+
+            val buttonDescriptions = actionButtonAppearanceCaptor.allValues.map { it.description }
+            assertThat(buttonDescriptions)
+                .contains(context.getString(R.string.tally_screenshot_delete_description))
+        }
+
+    @Test
+    @EnableFlags(SysuiFlags.FLAG_LARGE_SCREEN_SCREENCAPTURE)
+    fun deleteAction_largeScreen_doesNotIncludeButton() =
+        kosmos.runTest {
+            fakeScreenCaptureDeviceStateRepository.setLargeScreen(true)
+            actionsProvider = createActionsProvider()
+
+            val actionButtonAppearanceCaptor = argumentCaptor<ActionButtonAppearance>()
+            verify(actionsCallback, atLeastOnce())
+                .provideActionButton(actionButtonAppearanceCaptor.capture(), any(), any())
+
+            val buttonDescriptions = actionButtonAppearanceCaptor.allValues.map { it.description }
+            assertThat(buttonDescriptions)
+                .doesNotContain(context.getString(R.string.tally_screenshot_delete_description))
+        }
+
+    @Test
+    @EnableFlags(SysuiFlags.FLAG_LARGE_SCREEN_SCREENCAPTURE)
+    fun deleteAction_beforeScreenshotCompleted_deletesOnceSaved() =
+        kosmos.runTest {
+            actionsProvider = createActionsProvider()
+
+            val actionButtonCaptor = argumentCaptor<() -> Unit>()
+            // share, edit, delete
+            verify(actionsCallback, times(3))
+                .provideActionButton(any(), any(), actionButtonCaptor.capture())
+            actionButtonCaptor.thirdValue.invoke()
+            verify(actionExecutor, never()).deleteScreenshot(any())
+
+            actionsProvider.setCompletedScreenshot(validResult)
+
+            verify(actionExecutor).deleteScreenshot(eq(validResult.uri))
+            verify(actionExecutor, never()).startSharedTransition(any(), any(), any())
+        }
+
+    @Test
+    @EnableFlags(SysuiFlags.FLAG_LARGE_SCREEN_SCREENCAPTURE)
+    fun deleteAction_withResult_deletesScreenshot() =
+        kosmos.runTest {
+            actionsProvider = createActionsProvider()
+            actionsProvider.setCompletedScreenshot(validResult)
+
+            val actionButtonCaptor = argumentCaptor<() -> Unit>()
+            // share, edit, delete
+            verify(actionsCallback, times(3))
+                .provideActionButton(any(), any(), actionButtonCaptor.capture())
+            actionButtonCaptor.thirdValue.invoke()
+
+            verify(actionExecutor).deleteScreenshot(eq(validResult.uri))
         }
 
     private fun createActionsProvider(): ScreenshotActionsProvider {
