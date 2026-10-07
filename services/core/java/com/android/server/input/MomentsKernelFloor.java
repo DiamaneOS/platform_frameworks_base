@@ -50,8 +50,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * The Moments switch's kernel floor: the kernel blocks the built-in microphones while the switch
- * is on, if it was armed at boot.
+ * The Moments switch's kernel floor: the kernel blocks the built-in microphones and cameras while
+ * the switch is on, if it was armed at boot.
  *
  * <ul>
  *   <li>The kernel learns its policy once per boot: init writes {@link #POLICY_PROPERTY} to it
@@ -85,7 +85,8 @@ final class MomentsKernelFloor {
         /** The kernel's state line, or null when it cannot be read. */
         String readState();
         int[] userIds();
-        void setPhysicalMicToggle(int userId, boolean blocked);
+        /** {@code sensor}: a {@link Sensors} value. */
+        void setPhysicalToggle(int userId, int sensor, boolean blocked);
         /** The system user's Moments action, or -1 when unset. */
         int momentsAction();
         void setProperty(String key, String value);
@@ -110,6 +111,8 @@ final class MomentsKernelFloor {
     private Boolean mSwitchOn;
     @GuardedBy("mLock")
     private boolean mMicApplied;
+    @GuardedBy("mLock")
+    private boolean mCameraApplied;
     @GuardedBy("mLock")
     private String mPolicy;
     @GuardedBy("mLock")
@@ -252,23 +255,34 @@ final class MomentsKernelFloor {
 
     @GuardedBy("mLock")
     private void applyLocked() {
-        boolean blocked = (mBlocked & KERNEL_MIC) != 0;
-        if (blocked == mMicApplied) {
-            return;
+        mMicApplied = applySensorLocked(Sensors.MICROPHONE, KERNEL_MIC, mMicApplied);
+        mCameraApplied = applySensorLocked(Sensors.CAMERA, KERNEL_CAMERA, mCameraApplied);
+    }
+
+    // Returns whether the hardware toggle is now set for the sensor.
+    @GuardedBy("mLock")
+    private boolean applySensorLocked(int sensor, int kernelBit, boolean applied) {
+        boolean blocked = (mBlocked & kernelBit) != 0;
+        if (blocked == applied) {
+            return applied;
         }
         // Turning the hardware toggle off also turns the software one off, so only do it after
         // turning it on.
         for (int userId : mPlatform.userIds()) {
-            mPlatform.setPhysicalMicToggle(userId, blocked);
+            mPlatform.setPhysicalToggle(userId, sensor, blocked);
         }
-        mMicApplied = blocked;
-        Slog.i(TAG, "Kernel " + (blocked ? "blocks" : "releases") + " the microphone");
+        Slog.i(TAG, "Kernel " + (blocked ? "blocks" : "releases") + " the "
+                + (sensor == Sensors.CAMERA ? "camera" : "microphone"));
+        return blocked;
     }
 
     private void onUserSwitched(int userId) {
         synchronized (mLock) {
             if (mMicApplied) {
-                mPlatform.setPhysicalMicToggle(userId, true);
+                mPlatform.setPhysicalToggle(userId, Sensors.MICROPHONE, true);
+            }
+            if (mCameraApplied) {
+                mPlatform.setPhysicalToggle(userId, Sensors.CAMERA, true);
             }
         }
     }
@@ -301,6 +315,7 @@ final class MomentsKernelFloor {
             pw.println("blocked now: " + maskToString(mBlocked));
             pw.println("switch on (Android's view): " + mSwitchOn);
             pw.println("hardware mic toggle set: " + mMicApplied);
+            pw.println("hardware camera toggle set: " + mCameraApplied);
             pw.println("policy for next boot: " + mPolicy);
             pw.println("android-only notice last posted: "
                     + (mNoticeAt == Long.MIN_VALUE ? "never" : mNoticeAt));
@@ -356,9 +371,9 @@ final class MomentsKernelFloor {
         }
 
         @Override
-        public void setPhysicalMicToggle(int userId, boolean blocked) {
+        public void setPhysicalToggle(int userId, int sensor, boolean blocked) {
             LocalServices.getService(SensorPrivacyManagerInternal.class)
-                    .setPhysicalToggleSensorPrivacy(userId, Sensors.MICROPHONE, blocked);
+                    .setPhysicalToggleSensorPrivacy(userId, sensor, blocked);
         }
 
         @Override
