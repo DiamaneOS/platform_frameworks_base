@@ -37,6 +37,7 @@ import com.android.internal.annotations.VisibleForTesting;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
@@ -76,6 +77,8 @@ final class MomentsSwitchController {
     private int mChangesSent;
     @GuardedBy("mLock")
     private int mReportsDropped;
+    // In system_server, on the handler thread: hears every real change, as listeners do.
+    private Consumer<Boolean> mInternalListener;
 
     MomentsSwitchController(Context context, NativeInputManagerService nativeService,
             Looper looper, Supplier<InputDevice[]> inputDevices) {
@@ -98,6 +101,11 @@ final class MomentsSwitchController {
 
     boolean isEnabled() {
         return mCode >= 0;
+    }
+
+    /** Sets the in-process listener (the kernel floor). Before {@link #systemRunning()}. */
+    void setInternalListener(Consumer<Boolean> listener) {
+        mInternalListener = listener;
     }
 
     /** Finds the switch and reads its first state, once the input reader is running. */
@@ -205,6 +213,9 @@ final class MomentsSwitchController {
             }
         }
         Slog.i(TAG, "Switch " + (on ? "on" : "off"));
+        if (mInternalListener != null) {
+            mInternalListener.accept(on);
+        }
         for (ListenerRecord record : toNotify) {
             record.notify(whenNanos, on);
         }

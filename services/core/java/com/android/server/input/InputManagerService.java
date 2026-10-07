@@ -402,6 +402,7 @@ public class InputManagerService extends IInputManager.Stub
     // Manages loading PointerIcons
     private final PointerIconCache mPointerIconCache;
     private final MomentsSwitchController mMomentsSwitchController;
+    private final MomentsKernelFloor mMomentsKernelFloor;
 
     // Manages storage and retrieval of input data.
     private final InputDataStore mInputDataStore;
@@ -596,6 +597,10 @@ public class InputManagerService extends IInputManager.Stub
         mPointerIconCache = new PointerIconCache(mContext, mNative);
         mMomentsSwitchController = new MomentsSwitchController(mContext, mNative,
                 injector.getLooper(), this::getInputDevices);
+        mMomentsKernelFloor = new MomentsKernelFloor(mContext, new Handler(injector.getLooper()));
+        if (mMomentsSwitchController.isEnabled() && mMomentsKernelFloor.isEnabled()) {
+            mMomentsSwitchController.setInternalListener(mMomentsKernelFloor::onSwitchChanged);
+        }
 
         mUseDevInputEventForAudioJack =
                 mContext.getResources().getBoolean(R.bool.config_useDevInputEventForAudioJack);
@@ -724,6 +729,10 @@ public class InputManagerService extends IInputManager.Stub
         mPointerIconCache.systemRunning();
         mKeyboardGlyphManager.systemRunning();
         mKeyGestureController.systemRunning();
+        if (mMomentsSwitchController.isEnabled()) {
+            // First, so the kernel floor knows what the kernel enforces before the first state.
+            mMomentsKernelFloor.systemRunning();
+        }
         mMomentsSwitchController.systemRunning();
 
         if (AttentionManagerService.isInteractionProviderServiceEnabled(mContext)) {
@@ -2408,6 +2417,7 @@ public class InputManagerService extends IInputManager.Stub
         mKeyGestureController.dump(ipw);
         mVirtualInputDeviceController.dump(ipw);
         mMomentsSwitchController.dump(ipw);
+        mMomentsKernelFloor.dump(ipw);
         if (com.android.hardware.input.Flags.controllerRemapping()) {
             mInputDeviceRemapper.dump(ipw);
         }
