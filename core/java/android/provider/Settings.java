@@ -7539,9 +7539,11 @@ public final class Settings {
         /** @hide */
         public static final int MOMENTS_ACTION_SILENT = 2;
         /** @hide */
-        public static final int MOMENTS_ACTION_OFFLINE = 3;
+        public static final int MOMENTS_ACTION_AIRPLANE = 3;
         /** @hide */
         public static final int MOMENTS_ACTION_NOTHING = 4;
+        /** @hide */
+        public static final int MOMENTS_ACTION_LOCKDOWN = 5;
 
         /**
          * Packages Home shows while Moments is on, comma-separated. Empty: Home stays as it is.
@@ -7565,8 +7567,9 @@ public final class Settings {
         public static final String TALLY_MOMENTS_GREYSCALE = "tally_moments_greyscale";
 
         /**
-         * What the offline action turns on: MOMENTS_OFFLINE_AIRPLANE, MOMENTS_OFFLINE_LOCKDOWN or
-         * both (bit flags). Defaults to airplane mode.
+         * Earlier choice for action 3 (then "airplane mode and/or Lockdown"): bit flags
+         * MOMENTS_OFFLINE_AIRPLANE and MOMENTS_OFFLINE_LOCKDOWN. Read only to migrate it: with
+         * Lockdown set and a secure lock screen, action 3 means MOMENTS_ACTION_LOCKDOWN.
          * @hide
          */
         @Protected(read = KnownSystemPackage.SYSTEM_UI, readWrite = KnownSystemPackage.SETTINGS)

@@ -107,14 +107,13 @@ class MomentsReconcilerTest : SysuiTestCase() {
         setupComplete: Boolean = true,
         pausedApps: List<String> = emptyList(),
         greyscale: Boolean = false,
-        offline: Int = Secure.MOMENTS_OFFLINE_AIRPLANE,
     ) =
         MomentsInputs(
             on = on,
             flipped = flipped,
             setupComplete = setupComplete,
             unlocked = unlocked,
-            config = MomentsConfig(action, pausedApps, greyscale, offline),
+            config = MomentsConfig(action, pausedApps, greyscale),
         )
 
     @Test
@@ -203,14 +202,14 @@ class MomentsReconcilerTest : SysuiTestCase() {
     @Test
     fun flipBackBeforeUnlock_keepsWhatIsStillWaiting() {
         val r = reconciler()
-        r.reconcile(USER, inputs(on = true, action = Secure.MOMENTS_ACTION_OFFLINE))
+        r.reconcile(USER, inputs(on = true, action = Secure.MOMENTS_ACTION_AIRPLANE))
         r.reconcile(
             USER,
-            inputs(on = false, action = Secure.MOMENTS_ACTION_OFFLINE, unlocked = false),
+            inputs(on = false, action = Secure.MOMENTS_ACTION_AIRPLANE, unlocked = false),
         )
         platform.calls.clear()
 
-        r.reconcile(USER, inputs(on = true, action = Secure.MOMENTS_ACTION_OFFLINE))
+        r.reconcile(USER, inputs(on = true, action = Secure.MOMENTS_ACTION_AIRPLANE))
 
         assertThat(platform.calls).isEmpty()
         assertThat(platform.settings).containsExactly(AIRPLANE, true)
@@ -219,18 +218,58 @@ class MomentsReconcilerTest : SysuiTestCase() {
     @Test
     fun lockdown_happensOnEveryFlipOnAndIsNeverUndone() {
         val r = reconciler()
+        val action = Secure.MOMENTS_ACTION_LOCKDOWN
+
+        val first = r.reconcile(USER, inputs(on = true, action = action))
+        r.reconcile(USER, inputs(on = true, action = action))
+        val off = r.reconcile(USER, inputs(on = false, action = action))
+        r.reconcile(USER, inputs(on = true, action = action))
+
+        assertThat(platform.calls).containsExactly("apply LOCKDOWN", "apply LOCKDOWN")
+        assertThat(MomentsToast.text(true, action, first))
+            .isEqualTo(R.string.tally_moments_toast_lockdown)
+        assertThat(MomentsToast.text(false, action, off)).isNull()
+    }
+
+    @Test
+    fun airplane_isItsOwnAction() {
+        val r = reconciler()
+        val action = Secure.MOMENTS_ACTION_AIRPLANE
+
+        val on = r.reconcile(USER, inputs(on = true, action = action))
+        val off = r.reconcile(USER, inputs(on = false, action = action))
+
+        assertThat(platform.calls).containsExactly("apply AIRPLANE", "revert AIRPLANE")
+        assertThat(MomentsToast.text(true, action, on))
+            .isEqualTo(R.string.tally_moments_toast_airplane_on)
+        assertThat(MomentsToast.text(false, action, off))
+            .isEqualTo(R.string.tally_moments_toast_airplane_off)
+    }
+
+    @Test
+    fun migration_earlierAirplaneAndLockdownChoice() {
+        val airplane = Secure.MOMENTS_ACTION_AIRPLANE
+        val lockdown = Secure.MOMENTS_ACTION_LOCKDOWN
         val both = Secure.MOMENTS_OFFLINE_AIRPLANE or Secure.MOMENTS_OFFLINE_LOCKDOWN
-        val action = Secure.MOMENTS_ACTION_OFFLINE
 
-        r.reconcile(USER, inputs(on = true, action = action, offline = both))
-        r.reconcile(USER, inputs(on = true, action = action, offline = both))
-        r.reconcile(USER, inputs(on = false, action = action, offline = both))
-        r.reconcile(USER, inputs(on = true, action = action, offline = both))
-
-        assertThat(platform.calls.filter { it.endsWith("LOCKDOWN") })
-            .containsExactly("apply LOCKDOWN", "apply LOCKDOWN")
-        assertThat(platform.calls.indexOf("apply AIRPLANE"))
-            .isLessThan(platform.calls.indexOf("apply LOCKDOWN"))
+        // Lockdown was on and there is a screen lock: Lockdown.
+        assertThat(MomentsConfig.migratedAction(airplane, both, true)).isEqualTo(lockdown)
+        assertThat(
+                MomentsConfig.migratedAction(airplane, Secure.MOMENTS_OFFLINE_LOCKDOWN, true)
+            )
+            .isEqualTo(lockdown)
+        // Otherwise airplane mode.
+        assertThat(MomentsConfig.migratedAction(airplane, both, false)).isEqualTo(airplane)
+        assertThat(
+                MomentsConfig.migratedAction(airplane, Secure.MOMENTS_OFFLINE_AIRPLANE, true)
+            )
+            .isEqualTo(airplane)
+        assertThat(MomentsConfig.migratedAction(airplane, null, true)).isEqualTo(airplane)
+        // Other actions and new choices are kept.
+        assertThat(MomentsConfig.migratedAction(lockdown, null, false)).isEqualTo(lockdown)
+        assertThat(MomentsConfig.migratedAction(Secure.MOMENTS_ACTION_SILENT, both, true))
+            .isEqualTo(Secure.MOMENTS_ACTION_SILENT)
+        assertThat(MomentsConfig.migratedAction(null, both, true)).isNull()
     }
 
     @Test
@@ -294,14 +333,9 @@ class MomentsReconcilerTest : SysuiTestCase() {
     @Test
     fun lockdownWithoutSecureLock_noToast() {
         platform.unsupported += LOCKDOWN
-        val action = Secure.MOMENTS_ACTION_OFFLINE
+        val action = Secure.MOMENTS_ACTION_LOCKDOWN
 
-        val result =
-            reconciler()
-                .reconcile(
-                    USER,
-                    inputs(on = true, action = action, offline = Secure.MOMENTS_OFFLINE_LOCKDOWN),
-                )
+        val result = reconciler().reconcile(USER, inputs(on = true, action = action))
 
         assertThat(result.inEffect).isEmpty()
         assertThat(MomentsToast.text(true, action, result)).isNull()

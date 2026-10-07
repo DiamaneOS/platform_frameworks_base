@@ -56,7 +56,6 @@ data class MomentsConfig(
     val action: Int?,
     val pausedApps: List<String> = emptyList(),
     val greyscale: Boolean = false,
-    val offline: Int = Secure.MOMENTS_OFFLINE_AIRPLANE,
 ) {
     /** The changes the switch makes in its on position. */
     fun effects(): List<MomentsEffect> =
@@ -77,18 +76,27 @@ data class MomentsConfig(
                     MomentsEffect(MomentsEffectKind.MICROPHONE),
                 )
             Secure.MOMENTS_ACTION_SILENT -> listOf(MomentsEffect(MomentsEffectKind.RINGER))
-            Secure.MOMENTS_ACTION_OFFLINE ->
-                buildList {
-                    // Airplane mode first, so that Lockdown's screen-off comes last.
-                    if (offline and Secure.MOMENTS_OFFLINE_AIRPLANE != 0) {
-                        add(MomentsEffect(MomentsEffectKind.AIRPLANE))
-                    }
-                    if (offline and Secure.MOMENTS_OFFLINE_LOCKDOWN != 0) {
-                        add(MomentsEffect(MomentsEffectKind.LOCKDOWN))
-                    }
-                }
+            Secure.MOMENTS_ACTION_AIRPLANE -> listOf(MomentsEffect(MomentsEffectKind.AIRPLANE))
+            Secure.MOMENTS_ACTION_LOCKDOWN -> listOf(MomentsEffect(MomentsEffectKind.LOCKDOWN))
             else -> emptyList()
         }
+
+    companion object {
+        /**
+         * The action as saved, with an earlier "airplane mode and/or Lockdown" choice (action 3
+         * plus [legacyOffline] flags) read as Lockdown when Lockdown was on and the phone has a
+         * secure lock screen, and as airplane mode otherwise. Settings writes the same rule back
+         * when its page opens.
+         */
+        fun migratedAction(action: Int?, legacyOffline: Int?, secureLock: Boolean): Int? {
+            if (action != Secure.MOMENTS_ACTION_AIRPLANE || legacyOffline == null) return action
+            return if (legacyOffline and Secure.MOMENTS_OFFLINE_LOCKDOWN != 0 && secureLock) {
+                Secure.MOMENTS_ACTION_LOCKDOWN
+            } else {
+                Secure.MOMENTS_ACTION_AIRPLANE
+            }
+        }
+    }
 }
 
 /** Stores the changes the switch made as text, one per line: `kind|param|undo`. */
