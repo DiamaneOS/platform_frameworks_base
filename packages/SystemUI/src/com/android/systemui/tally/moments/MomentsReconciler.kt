@@ -16,10 +16,31 @@
 
 package com.android.systemui.tally.moments
 
+/**
+ * What applying one change did.
+ *
+ * @property undo what [MomentsPlatform.revert] needs, or null when there is nothing to take back.
+ * @property inEffect the setting is now as the switch wants it (changed now, or already so). False
+ *   when this phone cannot do it (camera and microphone toggles not offered, Lockdown without a
+ *   secure lock screen); the switch then never says it did.
+ */
+data class MomentsOutcome(val undo: String?, val inEffect: Boolean) {
+    companion object {
+        /** Changed now; [undo] takes it back. */
+        fun changed(undo: String) = MomentsOutcome(undo, true)
+
+        /** Already as wanted, or done for good (Lockdown): nothing to take back. */
+        val ALREADY = MomentsOutcome(null, true)
+
+        /** Not possible on this phone. */
+        val UNSUPPORTED = MomentsOutcome(null, false)
+    }
+}
+
 /** Makes and takes back the switch's changes for the current user. */
 interface MomentsPlatform {
-    /** Makes [effect]'s change; returns what [revert] needs, or null if it changed nothing. */
-    fun apply(effect: MomentsEffect): String?
+    /** Makes [effect]'s change. */
+    fun apply(effect: MomentsEffect): MomentsOutcome
 
     /** Takes back a change made earlier, but only where the setting is still as the switch set it. */
     fun revert(effect: MomentsEffect, undo: String)
@@ -56,8 +77,10 @@ data class MomentsInputs(
 )
 
 data class MomentsResult(
-    val applied: Boolean = false,
-    val reverted: Boolean = false,
+    /** Changes this call made or found in effect (what a toast may name). */
+    val inEffect: Set<MomentsEffectKind> = emptySet(),
+    /** Changes this call took back. */
+    val reverted: Set<MomentsEffectKind> = emptySet(),
     /** Some changes wait for the unlock before they are taken back. */
     val waitingForUnlock: Boolean = false,
     /** Post the one-time "choose what it does" notice. */
@@ -98,37 +121,38 @@ class MomentsReconciler(private val platform: MomentsPlatform, private val store
         val wanted = if (on) inputs.config.effects() else emptyList()
         val record = store.record(user)
         val kept = mutableListOf<MomentsApplied>()
-        var reverted = false
+        val reverted = mutableSetOf<MomentsEffectKind>()
         var waiting = false
         for (applied in record) {
             when {
                 applied.effect in wanted -> kept += applied
-                applied.undo == null -> reverted = true
+                applied.undo == null -> {}
                 applied.effect.kind.lowersProtection && !inputs.unlocked -> {
                     kept += applied
                     waiting = true
                 }
                 else -> {
                     platform.revert(applied.effect, applied.undo)
-                    reverted = true
+                    reverted += applied.effect.kind
                 }
             }
         }
         if (kept != record) store.setRecord(user, kept)
 
-        var appliedAny = false
+        val inEffect = mutableSetOf<MomentsEffectKind>()
         for (effect in wanted) {
             val existing = kept.find { it.effect == effect }
             if (existing != null) {
                 if (effect.kind.transient && existing.undo != null) platform.reassert(effect)
                 continue
             }
-            kept += MomentsApplied(effect, platform.apply(effect))
-            appliedAny = true
+            val outcome = platform.apply(effect)
+            if (outcome.inEffect) inEffect += effect.kind
+            kept += MomentsApplied(effect, outcome.undo)
             store.setRecord(user, kept)
         }
         return MomentsResult(
-            applied = appliedAny,
+            inEffect = inEffect,
             reverted = reverted,
             waitingForUnlock = waiting,
             dismissNotice = true,

@@ -62,24 +62,24 @@ constructor(
     private val user: Int
         get() = userTracker.userId
 
-    override fun apply(effect: MomentsEffect): String? =
+    override fun apply(effect: MomentsEffect): MomentsOutcome =
         when (effect.kind) {
             MomentsEffectKind.DND -> {
                 val nm = context.getSystemService(NotificationManager::class.java)!!
                 if (nm.zenMode == Global.ZEN_MODE_OFF) {
                     // The user's own Do Not Disturb, with the people and apps they allow.
                     nm.setZenMode(Global.ZEN_MODE_IMPORTANT_INTERRUPTIONS, null, TAG, true)
-                    DONE
+                    MomentsOutcome.changed(DONE)
                 } else {
-                    null
+                    MomentsOutcome.ALREADY
                 }
             }
             MomentsEffectKind.HOME ->
                 if (Secure.getIntForUser(context.contentResolver, HOME_ACTIVE, 0, user) != 1) {
                     Secure.putIntForUser(context.contentResolver, HOME_ACTIVE, 1, user)
-                    DONE
+                    MomentsOutcome.changed(DONE)
                 } else {
-                    null
+                    MomentsOutcome.ALREADY
                 }
             MomentsEffectKind.PAUSE_APPS -> {
                 val packages = effect.param.split(',').filter { it.isNotEmpty() }.toTypedArray()
@@ -93,12 +93,20 @@ constructor(
                     context.packageManager
                         .setPackagesSuspended(packages, true, null, null, info)
                         ?.toSet() ?: emptySet()
-                packages.filter { it !in failed }.joinToString(",").ifEmpty { null }
+                val paused = packages.filter { it !in failed }.joinToString(",")
+                if (paused.isEmpty()) MomentsOutcome.UNSUPPORTED
+                else MomentsOutcome.changed(paused)
             }
             MomentsEffectKind.GREYSCALE -> {
                 // Saturation, as Bedtime mode does; the user's colour correction stays as it is.
-                context.getSystemService(ColorDisplayManager::class.java)!!.setSaturationLevel(0)
-                DONE
+                if (
+                    context.getSystemService(ColorDisplayManager::class.java)!!
+                        .setSaturationLevel(0)
+                ) {
+                    MomentsOutcome.changed(DONE)
+                } else {
+                    MomentsOutcome.UNSUPPORTED
+                }
             }
             MomentsEffectKind.CAMERA -> blockSensor(Sensors.CAMERA)
             MomentsEffectKind.MICROPHONE -> blockSensor(Sensors.MICROPHONE)
@@ -107,24 +115,22 @@ constructor(
                 val previous = audio.ringerModeInternal
                 if (previous != AudioManager.RINGER_MODE_SILENT) {
                     audio.ringerModeInternal = AudioManager.RINGER_MODE_SILENT
-                    previous.toString()
+                    MomentsOutcome.changed(previous.toString())
                 } else {
-                    null
+                    MomentsOutcome.ALREADY
                 }
             }
             MomentsEffectKind.AIRPLANE ->
                 if (Global.getInt(context.contentResolver, Global.AIRPLANE_MODE_ON, 0) == 0) {
                     context.getSystemService(ConnectivityManager::class.java)!!
                         .setAirplaneMode(true)
-                    DONE
+                    MomentsOutcome.changed(DONE)
                 } else {
-                    null
+                    MomentsOutcome.ALREADY
                 }
-            MomentsEffectKind.LOCKDOWN -> {
-                lockdown()
-                // Lockdown ends only with the user's credential, never with the switch.
-                null
-            }
+            // Lockdown ends only with the user's credential, never with the switch.
+            MomentsEffectKind.LOCKDOWN ->
+                if (lockdown()) MomentsOutcome.ALREADY else MomentsOutcome.UNSUPPORTED
         }
 
     override fun revert(effect: MomentsEffect, undo: String) {
@@ -176,11 +182,11 @@ constructor(
         }
     }
 
-    private fun blockSensor(sensor: Int): String? {
-        if (!sensorPrivacyController.supportsSensorToggle(sensor)) return null
-        if (sensorPrivacyController.isSensorBlocked(sensor)) return null
+    private fun blockSensor(sensor: Int): MomentsOutcome {
+        if (!sensorPrivacyController.supportsSensorToggle(sensor)) return MomentsOutcome.UNSUPPORTED
+        if (sensorPrivacyController.isSensorBlocked(sensor)) return MomentsOutcome.ALREADY
         sensorPrivacyController.setSensorBlocked(Sources.OTHER, sensor, true)
-        return DONE
+        return MomentsOutcome.changed(DONE)
     }
 
     private fun unblockSensor(sensor: Int) {
@@ -190,8 +196,9 @@ constructor(
     }
 
     // As the power menu's Lockdown: only with a secure lock screen, then lock every profile.
-    private fun lockdown() {
-        if (!keyguardStateController.isMethodSecure) return
+    // Returns false when there is no secure lock screen, so nothing happened.
+    private fun lockdown(): Boolean {
+        if (!keyguardStateController.isMethodSecure) return false
         lockPatternUtils.requireStrongAuth(
             STRONG_AUTH_REQUIRED_AFTER_USER_LOCKDOWN,
             UserHandle.USER_ALL,
@@ -201,11 +208,12 @@ constructor(
         } catch (e: RemoteException) {
             Log.e(TAG, "Could not lock the device", e)
         }
-        val trustManager = context.getSystemService(TrustManager::class.java) ?: return
-        val userManager = context.getSystemService(UserManager::class.java) ?: return
+        val trustManager = context.getSystemService(TrustManager::class.java) ?: return true
+        val userManager = context.getSystemService(UserManager::class.java) ?: return true
         for (id in userManager.getEnabledProfileIds(user)) {
             if (id != user) trustManager.setDeviceLockedForUser(id, true)
         }
+        return true
     }
 
     private companion object {

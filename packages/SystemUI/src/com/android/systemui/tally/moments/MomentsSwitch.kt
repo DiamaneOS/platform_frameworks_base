@@ -21,11 +21,9 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.database.ContentObserver
 import android.hardware.input.IInputManager
 import android.hardware.input.IMomentsSwitchListener
 import android.hardware.input.InputManager
-import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.os.Process
@@ -37,6 +35,7 @@ import android.os.VibrationEffect
 import android.provider.Settings.Secure
 import android.util.Log
 import android.widget.Toast
+import com.android.systemui.BootCompleteCache
 import com.android.systemui.CoreStartable
 import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.dagger.qualifiers.Application
@@ -77,6 +76,7 @@ constructor(
     private val deviceProvisionedController: DeviceProvisionedController,
     private val wakefulnessLifecycle: WakefulnessLifecycle,
     private val vibratorHelper: VibratorHelper,
+    private val bootCompleteCache: BootCompleteCache,
     platform: MomentsPlatformImpl,
     store: MomentsStoreImpl,
 ) : CoreStartable {
@@ -99,17 +99,14 @@ constructor(
             }
         }
 
-    private val settingsObserver =
-        object : ContentObserver(Handler(Looper.getMainLooper())) {
-            override fun onChange(
-                selfChange: Boolean,
-                uris: Collection<Uri>,
-                flags: Int,
-                user: UserHandle,
-            ) {
-                if (user.identifier == userTracker.userId) reconcileSoon()
-            }
+    // BootCompleteCache keeps listeners as weak references: this field holds this one.
+    private val bootCompleteListener =
+        object : BootCompleteCache.BootCompleteListener {
+            override fun onBootComplete() = requery()
         }
+
+    private val settingsObserver =
+        MomentsSettingsObserver(Handler(Looper.getMainLooper())) { reconcileSoon() }
 
     override fun start() {
         if (switchCode(context) < 0) return
@@ -150,17 +147,21 @@ constructor(
                 override fun onUserSetupChanged() = reconcileSoon()
             }
         )
-        // Reports are never lost in practice; reading again on wake-up covers a dropped one.
+        // Read the position again once boot completes and on each wake-up, in case a report
+        // was lost (the input reader drops events after a buffer overrun).
+        if (bootCompleteCache.addListener(bootCompleteListener)) requery()
         wakefulnessLifecycle.addObserver(
             object : WakefulnessLifecycle.Observer {
-                override fun onStartedWakingUp() {
-                    bgExecutor.execute {
-                        val on = query() ?: return@execute
-                        if (on != lastReported) onReport(on)
-                    }
-                }
+                override fun onStartedWakingUp() = requery()
             }
         )
+    }
+
+    private fun requery() {
+        bgExecutor.execute {
+            val on = query() ?: return@execute
+            if (on != lastReported) onReport(on)
+        }
     }
 
     private fun query(): Boolean? =
@@ -218,7 +219,7 @@ constructor(
         if (result.showNotice) postNotice(user)
         if (result.dismissNotice) cancelNotice(user)
         if (flipped && on != null) {
-            toastText(on, config, result)?.let { text ->
+            MomentsToast.text(on, config.action, result)?.let { text ->
                 mainExecutor.execute { Toast.makeText(context, text, Toast.LENGTH_SHORT).show() }
             }
         }
@@ -248,39 +249,6 @@ constructor(
                     user,
                 ),
         )
-    }
-
-    private fun toastText(on: Boolean, config: MomentsConfig, result: MomentsResult): String? {
-        if (!on && result.waitingForUnlock) {
-            return context.getString(R.string.tally_moments_toast_after_unlock)
-        }
-        if (!result.applied && !result.reverted) return null
-        val action = config.action ?: Secure.MOMENTS_ACTION_MOMENTS
-        val res =
-            when (action) {
-                Secure.MOMENTS_ACTION_MOMENTS ->
-                    if (on) R.string.tally_moments_toast_on else R.string.tally_moments_toast_off
-                Secure.MOMENTS_ACTION_SENSORS_OFF ->
-                    if (on) R.string.tally_moments_toast_sensors_blocked
-                    else R.string.tally_moments_toast_sensors_unblocked
-                Secure.MOMENTS_ACTION_SILENT ->
-                    if (on) R.string.tally_moments_toast_silent_on
-                    else R.string.tally_moments_toast_silent_off
-                Secure.MOMENTS_ACTION_OFFLINE ->
-                    when {
-                        config.offline and Secure.MOMENTS_OFFLINE_AIRPLANE == 0 ->
-                            // Lockdown needs a secure lock screen; without one nothing happened.
-                            if (on && keyguardStateController.isMethodSecure) {
-                                R.string.tally_moments_toast_lockdown
-                            } else {
-                                return null
-                            }
-                        on -> R.string.tally_moments_toast_airplane_on
-                        else -> R.string.tally_moments_toast_airplane_off
-                    }
-                else -> return null
-            }
-        return context.getString(res)
     }
 
     private fun postNotice(user: Int) {
