@@ -154,6 +154,23 @@ class MomentsSwitchControllerTests {
     }
 
     @Test
+    fun internalListener_hearsEveryReportWithThePositionReadThen() {
+        val controller = controller()
+        val heard = mutableListOf<Boolean>()
+        controller.setInternalListener { heard += it }
+        controller.systemRunning()
+        testLooper.dispatchAll()
+
+        // Repeats reach the kernel floor too: it re-reads the kernel on each one.
+        controller.notifySwitch(10L, 1 shl CODE)
+        setRaw(SWITCH_ID, 1)
+        controller.notifySwitch(20L, 1 shl CODE)
+        testLooper.dispatchAll()
+
+        assertThat(heard).containsExactly(false, false, true).inOrder()
+    }
+
+    @Test
     fun otherSwitchCodes_areIgnored() {
         val controller = controller()
         controller.systemRunning()
