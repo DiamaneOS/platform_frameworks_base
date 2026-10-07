@@ -10,4 +10,8 @@
          "hardware": the kernel enforces the block, there is no hardware cut. [CHAR LIMIT=NONE] -->
     <string name="moments_android_only_mic_text" translatable="false">Until you restart, only Android blocks the microphone.</string>
     <java-symbol type="string" name="moments_android_only_mic_text" />
+    <!-- Name of the notification channel for the Moments switch's protection notices.
+         [CHAR LIMIT=60] -->
+    <string name="moments_protection_channel" translatable="false">Moments switch protection</string>
+    <java-symbol type="string" name="moments_protection_channel" />
 </resources>

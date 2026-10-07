@@ -17,6 +17,7 @@
 package com.android.server.input;
 
 import android.app.Notification;
+import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
@@ -27,6 +28,7 @@ import android.database.ContentObserver;
 import android.hardware.SensorPrivacyManager.Sensors;
 import android.hardware.SensorPrivacyManagerInternal;
 import android.os.Handler;
+import android.os.SystemClock;
 import android.os.SystemProperties;
 import android.os.UserHandle;
 import android.provider.Settings;
@@ -37,7 +39,6 @@ import android.util.Slog;
 import com.android.internal.R;
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
-import com.android.internal.notification.SystemNotificationChannels;
 import com.android.server.LocalServices;
 import com.android.server.pm.UserManagerInternal;
 
@@ -91,6 +92,7 @@ final class MomentsKernelFloor {
         void watch(Runnable onActionChanged, java.util.function.IntConsumer onUserSwitched);
         /** Tells the user that only Android blocks the microphone until a restart. */
         void postAndroidOnlyMicNotice();
+        long elapsedRealtime();
         void cancelAndroidOnlyMicNotice();
     }
 
@@ -112,9 +114,10 @@ final class MomentsKernelFloor {
     private String mPolicy;
     @GuardedBy("mLock")
     private int mAction = -1;
-    // The Android-only notice: posted at most once per boot, cancelled when no longer true.
+    // The Android-only notice: posted each time the switch goes down, at most once a minute;
+    // cancelled when the choice changes.
     @GuardedBy("mLock")
-    private boolean mNoticePosted;
+    private long mNoticeAt = Long.MIN_VALUE;
     @GuardedBy("mLock")
     private boolean mNoticeShowing;
 
@@ -156,17 +159,20 @@ final class MomentsKernelFloor {
             return;
         }
         synchronized (mLock) {
+            boolean wentDown = on && !Boolean.TRUE.equals(mSwitchOn);
             mSwitchOn = on;
             refreshKernelLocked();
             applyLocked();
-            updateNoticeLocked();
+            if (wentDown) {
+                maybePostNoticeLocked();
+            }
         }
     }
 
     /**
      * With "Camera and microphone off" chosen but the kernel not blocking the microphone this
-     * boot (sealed without it), only Android blocks it while the switch is down. Say so once per
-     * boot, the first time the switch is down; a restart arms the kernel. What the kernel
+     * boot (sealed without it), only Android blocks it while the switch is down. Say so each time
+     * the switch goes down, at most once a minute; a restart arms the kernel. What the kernel
      * enforces comes from its own state file, never from Android's view.
      */
     @VisibleForTesting
@@ -177,14 +183,22 @@ final class MomentsKernelFloor {
     }
 
     @GuardedBy("mLock")
+    private void maybePostNoticeLocked() {
+        if (!androidOnlyMicBlock(mAction, mSwitchOn, mEnforced)) {
+            return;
+        }
+        long now = mPlatform.elapsedRealtime();
+        if (mNoticeAt != Long.MIN_VALUE && now - mNoticeAt < NOTICE_MIN_GAP_MS) {
+            return;
+        }
+        mNoticeAt = now;
+        mNoticeShowing = true;
+        mPlatform.postAndroidOnlyMicNotice();
+    }
+
+    @GuardedBy("mLock")
     private void updateNoticeLocked() {
-        if (androidOnlyMicBlock(mAction, mSwitchOn, mEnforced)) {
-            if (!mNoticePosted) {
-                mNoticePosted = true;
-                mNoticeShowing = true;
-                mPlatform.postAndroidOnlyMicNotice();
-            }
-        } else if (mNoticeShowing && mAction != Settings.Secure.MOMENTS_ACTION_SENSORS_OFF) {
+        if (mNoticeShowing && mAction != Settings.Secure.MOMENTS_ACTION_SENSORS_OFF) {
             // The choice changed: the note no longer applies.
             mNoticeShowing = false;
             mPlatform.cancelAndroidOnlyMicNotice();
@@ -288,7 +302,8 @@ final class MomentsKernelFloor {
             pw.println("switch on (Android's view): " + mSwitchOn);
             pw.println("hardware mic toggle set: " + mMicApplied);
             pw.println("policy for next boot: " + mPolicy);
-            pw.println("android-only notice posted: " + mNoticePosted);
+            pw.println("android-only notice last posted: "
+                    + (mNoticeAt == Long.MIN_VALUE ? "never" : mNoticeAt));
         }
         pw.decreaseIndent();
     }
@@ -311,6 +326,9 @@ final class MomentsKernelFloor {
             "de.diamaneos.settings.MOMENTS_SWITCH_SETTINGS";
     private static final String SETTINGS_PACKAGE = "com.android.settings";
     private static final int NOTICE_ID = 1;
+    @VisibleForTesting
+    static final long NOTICE_MIN_GAP_MS = 60_000;
+    private static final String NOTICE_CHANNEL = "MOMENTS_SWITCH_PROTECTION";
 
     private static final class SystemPlatform implements Platform {
         private final Context mContext;
@@ -363,8 +381,13 @@ final class MomentsKernelFloor {
             Intent intent = new Intent(ACTION_MOMENTS_SETTINGS).setPackage(SETTINGS_PACKAGE);
             PendingIntent pending = PendingIntent.getActivityAsUser(mContext, 0, intent,
                     PendingIntent.FLAG_IMMUTABLE, null, UserHandle.CURRENT);
+            NotificationManager nm = mContext.getSystemService(NotificationManager.class);
+            // Its own channel, high importance: the default sound and a heads-up, within DND.
+            nm.createNotificationChannel(new NotificationChannel(NOTICE_CHANNEL,
+                    mContext.getString(R.string.moments_protection_channel),
+                    NotificationManager.IMPORTANCE_HIGH));
             Notification notification =
-                    new Notification.Builder(mContext, SystemNotificationChannels.SECURITY)
+                    new Notification.Builder(mContext, NOTICE_CHANNEL)
                             .setSmallIcon(R.drawable.ic_mic_blocked)
                             .setContentTitle(mContext.getString(
                                     R.string.moments_android_only_mic_title))
@@ -376,8 +399,12 @@ final class MomentsKernelFloor {
                             .setAutoCancel(true)
                             .setLocalOnly(true)
                             .build();
-            mContext.getSystemService(NotificationManager.class)
-                    .notifyAsUser(TAG, NOTICE_ID, notification, UserHandle.CURRENT);
+            nm.notifyAsUser(TAG, NOTICE_ID, notification, UserHandle.CURRENT);
+        }
+
+        @Override
+        public long elapsedRealtime() {
+            return SystemClock.elapsedRealtime();
         }
 
         @Override
