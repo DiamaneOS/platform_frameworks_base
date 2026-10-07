@@ -27,13 +27,17 @@ import android.content.res.TypedArray;
 import android.graphics.BlendMode;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.DrawableWrapper;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.Icon;
 import android.graphics.drawable.RippleDrawable;
+import android.icu.text.BreakIterator;
+import android.text.Layout;
 import android.text.SpannableStringBuilder;
 import android.text.TextPaint;
+import android.text.TextUtils;
 import android.text.style.ImageSpan;
 import android.text.style.MetricAffectingSpan;
 import android.text.style.ReplacementSpan;
@@ -66,6 +70,26 @@ public class EmphasizedNotificationButton extends Button {
     private CharSequence mLabelToGlue;
     private int mGluedLayoutDirection = LAYOUT_DIRECTION_UNDEFINED;
     private boolean mGluePending;
+
+    /**
+     * Tally: the family a label that does not fit its key is set in, the condensed family token
+     * (Sofia Sans Semi Condensed). Where it is not installed this is the default font, and a
+     * label that does not fit goes on to two lines.
+     */
+    private static final String CONDENSED_FAMILY = "sofia-sans-semi-condensed";
+
+    /** The label fits the key as it is. */
+    private static final int FIT_WHOLE = 0;
+    /** The label fits the key on one line in the condensed family. */
+    private static final int FIT_CONDENSED = 1;
+    /** The label takes two lines in the condensed family; the rest ends in an ellipsis. */
+    private static final int FIT_TWO_LINES = 2;
+
+    private int mLabelFit = FIT_WHOLE;
+    /** The label's own typeface, kept while the label is condensed. */
+    @Nullable
+    private Typeface mLabelTypeface;
+    private final TextPaint mFitPaint = new TextPaint();
 
     public EmphasizedNotificationButton(Context context) {
         this(context, null);
@@ -101,6 +125,83 @@ public class EmphasizedNotificationButton extends Button {
             Log.v(TAG, "iconSize = " + mIconSize + "px, "
                     + "initialDrawablePadding = " + mInitialDrawablePadding + "px");
         }
+    }
+
+    @Override
+    protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
+        // Tally: fit before truncate. A label wider than its key is set in the condensed family,
+        // then wraps to two lines between words; only what still does not fit ends in an
+        // ellipsis. The key keeps its 48 dp minimum height and grows with a second line.
+        if (MeasureSpec.getMode(widthMeasureSpec) != MeasureSpec.UNSPECIFIED) {
+            setLabelFit(chooseLabelFit(MeasureSpec.getSize(widthMeasureSpec)));
+        }
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec);
+    }
+
+    private int chooseLabelFit(int width) {
+        final CharSequence text = getText();
+        final int room = width - getCompoundPaddingLeft() - getCompoundPaddingRight();
+        if (TextUtils.isEmpty(text) || room <= 0) {
+            return FIT_WHOLE;
+        }
+        mFitPaint.set(getPaint());
+        mFitPaint.setTypeface(labelTypeface());
+        if (Layout.getDesiredWidth(text, mFitPaint) <= room) {
+            return FIT_WHOLE;
+        }
+        mFitPaint.setTypeface(condensedTypeface());
+        if (Layout.getDesiredWidth(text, mFitPaint) <= room) {
+            return FIT_CONDENSED;
+        }
+        // Wrap only where every word fits a line, so no word is broken inside.
+        return widestWord(text, mFitPaint) <= room ? FIT_TWO_LINES : FIT_CONDENSED;
+    }
+
+    private static float widestWord(CharSequence text, TextPaint paint) {
+        final BreakIterator breaks = BreakIterator.getLineInstance();
+        breaks.setText(text.toString());
+        float widest = 0;
+        int start = breaks.first();
+        for (int end = breaks.next(); end != BreakIterator.DONE; start = end, end = breaks.next()) {
+            int trimmedEnd = end;
+            while (trimmedEnd > start && Character.isWhitespace(text.charAt(trimmedEnd - 1))) {
+                trimmedEnd--;
+            }
+            widest = Math.max(widest, Layout.getDesiredWidth(text, start, trimmedEnd, paint));
+        }
+        return widest;
+    }
+
+    private void setLabelFit(int fit) {
+        if (fit == mLabelFit) {
+            return;
+        }
+        if (mLabelFit == FIT_WHOLE) {
+            mLabelTypeface = getTypeface();
+        }
+        final Typeface typeface = fit == FIT_WHOLE ? mLabelTypeface : condensedTypeface();
+        if (fit == FIT_TWO_LINES) {
+            setSingleLine(false);
+            setMaxLines(2);
+        } else if (mLabelFit == FIT_TWO_LINES) {
+            setSingleLine(true);
+        }
+        mLabelFit = fit;
+        setTypeface(typeface);
+    }
+
+    /** The label's own typeface, whether or not it is condensed now. */
+    @Nullable
+    private Typeface labelTypeface() {
+        return mLabelFit == FIT_WHOLE ? getTypeface() : mLabelTypeface;
+    }
+
+    /** The condensed family at the label's own weight and slant. */
+    private Typeface condensedTypeface() {
+        final Typeface label = labelTypeface();
+        final int weight = label != null ? label.getWeight() : 400;
+        final boolean italic = label != null && label.isItalic();
+        return Typeface.create(Typeface.create(CONDENSED_FAMILY, Typeface.NORMAL), weight, italic);
     }
 
     @RemotableViewMethod

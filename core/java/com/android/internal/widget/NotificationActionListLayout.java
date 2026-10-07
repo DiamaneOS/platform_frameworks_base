@@ -147,10 +147,21 @@ public class NotificationActionListLayout extends LinearLayout {
                     + "childWidthMeasureSpec = " + MeasureSpec.toString(childWidthMeasureSpec));
         }
 
+        int tallest = 0;
         for (int i = 0; i < numChildren; i++) {
             final View child = getChildAt(i);
             if (child.getVisibility() != GONE) {
                 child.measure(childWidthMeasureSpec, heightMeasureSpec);
+                tallest = Math.max(tallest, child.getMeasuredHeight());
+            }
+        }
+        // Tally: a key whose label took two lines is taller; the others match it, so the keys
+        // stay one even row.
+        final int tallestMeasureSpec = MeasureSpec.makeMeasureSpec(tallest, MeasureSpec.EXACTLY);
+        for (int i = 0; i < numChildren; i++) {
+            final View child = getChildAt(i);
+            if (child.getVisibility() != GONE && child.getMeasuredHeight() < tallest) {
+                child.measure(childWidthMeasureSpec, tallestMeasureSpec);
             }
         }
 
@@ -262,8 +273,21 @@ public class NotificationActionListLayout extends LinearLayout {
         }
 
         mTotalWidth = usedWidth + mPaddingRight + mPaddingLeft + mExtraStartPadding;
+        // Tally: grow with a key taller than the row's minimum height (a label on two lines)
+        // instead of letting it spill over the row's edges.
+        int tallestChild = 0;
+        for (int i = 0; i < getChildCount(); i++) {
+            final View child = getChildAt(i);
+            if (child.getVisibility() != GONE) {
+                final MarginLayoutParams lp = (MarginLayoutParams) child.getLayoutParams();
+                tallestChild = Math.max(tallestChild,
+                        child.getMeasuredHeight() + lp.topMargin + lp.bottomMargin);
+            }
+        }
+        final int height = Math.max(getSuggestedMinimumHeight(),
+                tallestChild + mPaddingTop + mPaddingBottom);
         setMeasuredDimension(resolveSize(getSuggestedMinimumWidth(), widthMeasureSpec),
-                resolveSize(getSuggestedMinimumHeight(), heightMeasureSpec));
+                resolveSize(height, heightMeasureSpec));
     }
 
     private void rebuildMeasureOrder(int capacityText, int capacityOther) {
