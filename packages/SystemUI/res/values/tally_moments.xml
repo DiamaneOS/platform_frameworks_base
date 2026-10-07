@@ -57,6 +57,14 @@
     <!-- Same, for the camera and the microphone -->
     <string name="tally_moments_mic_camera_blocked_by_switch">The Moments switch turns the camera and microphone off. To use them, slide the switch back.</string>
 
+    <!-- Short note (in place of the "Unblock" prompt) when an app tries the camera and
+         microphone while the Moments switch blocks both; apps get black frames and silence -->
+    <string name="tally_moments_note_camera_mic_off">Camera and microphone are off — Moments switch</string>
+    <!-- Same, camera only -->
+    <string name="tally_moments_note_camera_off">Camera is off — Moments switch</string>
+    <!-- Same, microphone only -->
+    <string name="tally_moments_note_mic_off">Microphone is off — Moments switch</string>
+
     <!-- Title of the one-time notification when the switch is on before the user chose what it
          does -->
     <string name="tally_moments_notice_title">Moments switch is on</string>
