@@ -66,6 +66,17 @@ class MomentsKernelFloorTests {
             this.onActionChanged = onActionChanged
             this.onUserSwitched = onUserSwitched
         }
+
+        var noticesPosted = 0
+        var noticesCancelled = 0
+
+        override fun postAndroidOnlyMicNotice() {
+            noticesPosted++
+        }
+
+        override fun cancelAndroidOnlyMicNotice() {
+            noticesCancelled++
+        }
     }
 
     private val platform = FakePlatform()
@@ -280,5 +291,76 @@ class MomentsKernelFloorTests {
         assertThat(MomentsKernelFloor.parseState("enforced=0x1")).isNull()
         assertThat(MomentsKernelFloor.parseState("enforced=x blocked=0")).isNull()
         assertThat(MomentsKernelFloor.parseState(null)).isNull()
+    }
+
+    @Test
+    fun notArmed_switchDown_noticeOncePerBoot() {
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        // Sealed without the microphone: the kernel enforces nothing.
+        val floor = floor()
+
+        floor.onSwitchChanged(false)
+        assertThat(platform.noticesPosted).isEqualTo(0)
+        floor.onSwitchChanged(true)
+        floor.onSwitchChanged(true)
+        floor.onSwitchChanged(false)
+        floor.onSwitchChanged(true)
+
+        assertThat(platform.noticesPosted).isEqualTo(1)
+    }
+
+    @Test
+    fun armed_noNotice() {
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        platform.enforced = MomentsKernelFloor.KERNEL_MIC
+        val floor = floor()
+
+        platform.blocked = MomentsKernelFloor.KERNEL_MIC
+        floor.onSwitchChanged(true)
+
+        assertThat(platform.noticesPosted).isEqualTo(0)
+    }
+
+    @Test
+    fun otherAction_noNotice() {
+        platform.action = Settings.Secure.MOMENTS_ACTION_SILENT
+        val floor = floor()
+
+        floor.onSwitchChanged(true)
+
+        assertThat(platform.noticesPosted).isEqualTo(0)
+    }
+
+    @Test
+    fun actionChangedAway_cancelsTheNotice() {
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        val floor = floor()
+        floor.onSwitchChanged(true)
+
+        platform.action = Settings.Secure.MOMENTS_ACTION_SILENT
+        platform.onActionChanged!!.run()
+
+        assertThat(platform.noticesCancelled).isEqualTo(1)
+        // Choosing it again in the same boot does not post a second notice.
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        platform.onActionChanged!!.run()
+        floor.onSwitchChanged(true)
+        assertThat(platform.noticesPosted).isEqualTo(1)
+    }
+
+    @Test
+    fun androidOnlyMicBlock_readsOnlyTheKernelForArming() {
+        val sensors = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        assertThat(MomentsKernelFloor.androidOnlyMicBlock(sensors, true, 0)).isTrue()
+        assertThat(
+                MomentsKernelFloor.androidOnlyMicBlock(sensors, true, MomentsKernelFloor.KERNEL_MIC)
+            )
+            .isFalse()
+        assertThat(MomentsKernelFloor.androidOnlyMicBlock(sensors, false, 0)).isFalse()
+        assertThat(MomentsKernelFloor.androidOnlyMicBlock(sensors, null, 0)).isFalse()
+        assertThat(
+                MomentsKernelFloor.androidOnlyMicBlock(Settings.Secure.MOMENTS_ACTION_MOMENTS, true, 0)
+            )
+            .isFalse()
     }
 }

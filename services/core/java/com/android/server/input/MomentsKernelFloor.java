@@ -16,6 +16,9 @@
 
 package com.android.server.input;
 
+import android.app.Notification;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -34,6 +37,7 @@ import android.util.Slog;
 import com.android.internal.R;
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.notification.SystemNotificationChannels;
 import com.android.server.LocalServices;
 import com.android.server.pm.UserManagerInternal;
 
@@ -85,6 +89,9 @@ final class MomentsKernelFloor {
         int momentsAction();
         void setProperty(String key, String value);
         void watch(Runnable onActionChanged, java.util.function.IntConsumer onUserSwitched);
+        /** Tells the user that only Android blocks the microphone until a restart. */
+        void postAndroidOnlyMicNotice();
+        void cancelAndroidOnlyMicNotice();
     }
 
     private final Platform mPlatform;
@@ -103,6 +110,13 @@ final class MomentsKernelFloor {
     private boolean mMicApplied;
     @GuardedBy("mLock")
     private String mPolicy;
+    @GuardedBy("mLock")
+    private int mAction = -1;
+    // The Android-only notice: posted at most once per boot, cancelled when no longer true.
+    @GuardedBy("mLock")
+    private boolean mNoticePosted;
+    @GuardedBy("mLock")
+    private boolean mNoticeShowing;
 
     MomentsKernelFloor(Context context, Handler handler) {
         this(new SystemPlatform(context, handler,
@@ -145,6 +159,35 @@ final class MomentsKernelFloor {
             mSwitchOn = on;
             refreshKernelLocked();
             applyLocked();
+            updateNoticeLocked();
+        }
+    }
+
+    /**
+     * With "Camera and microphone off" chosen but the kernel not blocking the microphone this
+     * boot (sealed without it), only Android blocks it while the switch is down. Say so once per
+     * boot, the first time the switch is down; a restart arms the kernel. What the kernel
+     * enforces comes from its own state file, never from Android's view.
+     */
+    @VisibleForTesting
+    static boolean androidOnlyMicBlock(int action, Boolean switchOn, int enforced) {
+        return action == Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+                && Boolean.TRUE.equals(switchOn)
+                && (enforced & KERNEL_MIC) == 0;
+    }
+
+    @GuardedBy("mLock")
+    private void updateNoticeLocked() {
+        if (androidOnlyMicBlock(mAction, mSwitchOn, mEnforced)) {
+            if (!mNoticePosted) {
+                mNoticePosted = true;
+                mNoticeShowing = true;
+                mPlatform.postAndroidOnlyMicNotice();
+            }
+        } else if (mNoticeShowing && mAction != Settings.Secure.MOMENTS_ACTION_SENSORS_OFF) {
+            // The choice changed: the note no longer applies.
+            mNoticeShowing = false;
+            mPlatform.cancelAndroidOnlyMicNotice();
         }
     }
 
@@ -222,6 +265,8 @@ final class MomentsKernelFloor {
         String policy = action == Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
                 ? Integer.toString(KERNEL_MIC | KERNEL_CAMERA) : "0";
         synchronized (mLock) {
+            mAction = action;
+            updateNoticeLocked();
             if (policy.equals(mPolicy)) {
                 return;
             }
@@ -243,6 +288,7 @@ final class MomentsKernelFloor {
             pw.println("switch on (Android's view): " + mSwitchOn);
             pw.println("hardware mic toggle set: " + mMicApplied);
             pw.println("policy for next boot: " + mPolicy);
+            pw.println("android-only notice posted: " + mNoticePosted);
         }
         pw.decreaseIndent();
     }
@@ -260,6 +306,11 @@ final class MomentsKernelFloor {
         }
         return sb.toString();
     }
+
+    private static final String ACTION_MOMENTS_SETTINGS =
+            "de.diamaneos.settings.MOMENTS_SWITCH_SETTINGS";
+    private static final String SETTINGS_PACKAGE = "com.android.settings";
+    private static final int NOTICE_ID = 1;
 
     private static final class SystemPlatform implements Platform {
         private final Context mContext;
@@ -305,6 +356,34 @@ final class MomentsKernelFloor {
             } catch (RuntimeException e) {
                 Slog.e(TAG, "Cannot set " + key, e);
             }
+        }
+
+        @Override
+        public void postAndroidOnlyMicNotice() {
+            Intent intent = new Intent(ACTION_MOMENTS_SETTINGS).setPackage(SETTINGS_PACKAGE);
+            PendingIntent pending = PendingIntent.getActivityAsUser(mContext, 0, intent,
+                    PendingIntent.FLAG_IMMUTABLE, null, UserHandle.CURRENT);
+            Notification notification =
+                    new Notification.Builder(mContext, SystemNotificationChannels.SECURITY)
+                            .setSmallIcon(R.drawable.ic_mic_blocked)
+                            .setContentTitle(mContext.getString(
+                                    R.string.moments_android_only_mic_title))
+                            .setContentText(mContext.getString(
+                                    R.string.moments_android_only_mic_text))
+                            .setStyle(new Notification.BigTextStyle().bigText(mContext.getString(
+                                    R.string.moments_android_only_mic_text)))
+                            .setContentIntent(pending)
+                            .setAutoCancel(true)
+                            .setLocalOnly(true)
+                            .build();
+            mContext.getSystemService(NotificationManager.class)
+                    .notifyAsUser(TAG, NOTICE_ID, notification, UserHandle.CURRENT);
+        }
+
+        @Override
+        public void cancelAndroidOnlyMicNotice() {
+            mContext.getSystemService(NotificationManager.class)
+                    .cancelAsUser(TAG, NOTICE_ID, UserHandle.CURRENT);
         }
 
         @Override

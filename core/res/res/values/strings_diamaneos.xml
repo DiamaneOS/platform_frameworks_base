@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- DiamaneOS text shown by the system. English only for now. -->
+<resources>
+    <!-- Notification title: with the Moments switch down and "Camera and microphone off" chosen,
+         the kernel does not block the microphone in this boot, so only Android blocks it.
+         [CHAR LIMIT=60] -->
+    <string name="moments_android_only_mic_title" translatable="false">Microphone blocked by Android only</string>
+    <java-symbol type="string" name="moments_android_only_mic_title" />
+    <!-- Its text; tapping opens the Moments switch page. [CHAR LIMIT=NONE] -->
+    <string name="moments_android_only_mic_text" translatable="false">Until you restart your phone, the Moments switch blocks the microphone in Android only. Restart to turn on hardware protection for the microphone.</string>
+    <java-symbol type="string" name="moments_android_only_mic_text" />
+</resources>
