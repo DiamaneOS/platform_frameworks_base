@@ -77,6 +77,7 @@ constructor(
     private val wakefulnessLifecycle: WakefulnessLifecycle,
     private val vibratorHelper: VibratorHelper,
     private val bootCompleteCache: BootCompleteCache,
+    private val sensorGuard: MomentsSensorGuard,
     platform: MomentsPlatformImpl,
     store: MomentsStoreImpl,
 ) : CoreStartable {
@@ -119,6 +120,7 @@ constructor(
             Log.e(TAG, "Could not follow the switch", e)
             return
         }
+        sensorGuard.start { user -> store.record(user) }
         for (key in SETTINGS_KEYS) {
             context.contentResolver.registerContentObserver(
                 Secure.getUriFor(key),
@@ -216,6 +218,7 @@ constructor(
             )
         if (on != null) lastReconciled = on
         lastResult = result
+        sensorGuard.refresh()
         if (result.showNotice) postNotice(user)
         if (result.dismissNotice) cancelNotice(user)
         if (flipped && on != null) {
@@ -288,6 +291,7 @@ constructor(
         pw.println("  position: ${lastReported?.let { if (it) "on" else "off" } ?: "unknown"}")
         pw.println("  last result: $lastResult")
         pw.println("  record: ${store.record(userTracker.userId)}")
+        pw.println("  sensor prompts: ${sensorGuard.dump()}")
     }
 
     companion object {
