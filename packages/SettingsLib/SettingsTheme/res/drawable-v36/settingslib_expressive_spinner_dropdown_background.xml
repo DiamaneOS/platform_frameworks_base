@@ -15,6 +15,9 @@
   limitations under the License.
   -->
 
+<!-- Tally: a dropdown's popup as the Tally menu (Settings search's menu): the surface with the 1 dp
+     hairline edge in outlineVariant and 12 dp corners. Stock's fill had no edge and melted into
+     the card under it. -->
 <ripple
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:color="?android:attr/colorControlHighlight">
@@ -29,8 +32,11 @@
 
       <item>
         <shape>
-          <corners android:radius="@dimen/settingslib_expressive_radius_large3"/>
-          <solid android:color="@color/settingslib_materialColorSurfaceContainerLow"/>
+          <corners android:radius="@dimen/settingslib_tally_row_radius"/>
+          <solid android:color="@color/settingslib_tally_surface"/>
+          <stroke
+              android:width="@dimen/settingslib_tally_row_hairline"
+              android:color="@color/settingslib_tally_outline_variant"/>
         </shape>
       </item>
     </layer-list>

@@ -25,6 +25,8 @@
         <item name="iconSize">@dimen/settingslib_expressive_space_small4</item>
         <item name="iconPadding">@dimen/settingslib_expressive_space_none</item>"
         <item name="iconGravity">textStart</item>
+        <!-- Tally: an action key (radius 12), not a circle: in the shell, circles mean state -->
+        <item name="shapeAppearance">@style/ShapeAppearance.SettingsLib.Tally.ActionKey</item>
     </style>
 
     <style name="SettingsLibActionButton.Expressive.Label" parent="">
