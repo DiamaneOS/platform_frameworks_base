@@ -2884,6 +2884,10 @@ public class ApplicationPackageManager extends PackageManager {
         if (VolumeInfo.ID_PRIVATE_INTERNAL.equals(vol.getId())) {
             return app.isSystemApp() || isAllow3rdPartyOnInternal(context);
         }
+        // DiamaneOS: apps stay on internal storage; adopted volumes are media only (noexec).
+        if (vol.getType() == VolumeInfo.TYPE_PRIVATE) {
+            return false;
+        }
 
         // System apps and apps demanding internal storage can't be moved
         // anywhere else

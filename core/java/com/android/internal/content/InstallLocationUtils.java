@@ -210,7 +210,9 @@ public class InstallLocationUtils {
                 if (isInternalStorage) {
                     internalVolumePath = vol.path;
                 }
-                if (!isInternalStorage || allow3rdPartyOnInternal) {
+                // DiamaneOS: apps stay on internal storage; an adopted card holds media only
+                // and is mounted noexec.
+                if (isInternalStorage && allow3rdPartyOnInternal) {
                     volumePaths.put(vol.fsUuid, vol.path);
                 }
             }

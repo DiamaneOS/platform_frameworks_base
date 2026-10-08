@@ -46,6 +46,9 @@ public class DiskInfo implements Parcelable {
     public static final String EXTRA_VOLUME_COUNT =
             "android.os.storage.extra.VOLUME_COUNT";
 
+    // DiamaneOS: adoption is back for the FP6's microSD slot (vold sets it from the fstab only;
+    // there is no persist.sys.adoptable override).
+    public static final int FLAG_ADOPTABLE = 1 << 0;
     public static final int FLAG_DEFAULT_PRIMARY = 1 << 1;
     public static final int FLAG_SD = 1 << 2;
     public static final int FLAG_USB = 1 << 3;
@@ -135,7 +138,7 @@ public class DiskInfo implements Parcelable {
 
     @UnsupportedAppUsage
     public boolean isAdoptable() {
-        return false;
+        return (flags & FLAG_ADOPTABLE) != 0;
     }
 
     @UnsupportedAppUsage

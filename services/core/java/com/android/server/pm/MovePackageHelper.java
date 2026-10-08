@@ -113,6 +113,12 @@ public final class MovePackageHelper {
         }
 
         final boolean isInternalStorage = VolumeInfo.ID_PRIVATE_INTERNAL.equals(volumeUuid);
+        // DiamaneOS: apps stay on internal storage; adopted volumes are media only (noexec).
+        if (!isInternalStorage && !java.util.Objects.equals(StorageManager.UUID_PRIVATE_INTERNAL,
+                volumeUuid)) {
+            throw new PackageManagerException(MOVE_FAILED_INTERNAL_ERROR,
+                    "Apps stay on internal storage");
+        }
         final boolean allow3rdPartyOnInternal = mPm.mContext.getResources().getBoolean(
                 com.android.internal.R.bool.config_allow3rdPartyAppOnInternal);
         if (isInternalStorage && !allow3rdPartyOnInternal) {
