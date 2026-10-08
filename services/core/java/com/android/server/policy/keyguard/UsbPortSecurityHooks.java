@@ -135,7 +135,11 @@ public class UsbPortSecurityHooks {
                 Slog.d(TAG, "PortChangeReceiver: " + intent + ", extras " + intent.getExtras().deepCopy());
                 UsbPortStatus portStatus = intent.getParcelableExtra(UsbManager.EXTRA_PORT_STATUS,
                         UsbPortStatus.class);
-                if (portStatus.isConnected()) {
+                // DiamaneOS: a port can report a change without a status, for example while
+                // the Fairphone 6's charger firmware (which runs the Type-C port) restarts with
+                // its signal processor. Treat it as a disconnect, the stricter branch, instead
+                // of crashing system_server.
+                if (portStatus != null && portStatus.isConnected()) {
                     ++usbConnectEventCount;
                     Slog.d(TAG, "usbConnectEventCount: " + usbConnectEventCount);
                 } else {
