@@ -66,10 +66,13 @@ open class SettingsPreferenceGroupAdapter @JvmOverloads constructor(
         val context = preferenceGroup.context
         mNormalPaddingStart =
             context.resources.getDimensionPixelSize(R.dimen.settingslib_expressive_space_small1)
-        mGroupPaddingStart = mNormalPaddingStart * 2
+        // Tally: a row in a card whose layout is not a Tally row (a slider, a dropdown, an app's
+        // own layout) starts where the card's Tally rows start, 28 dp in, not stock's 32 dp.
+        mGroupPaddingStart =
+            context.resources.getDimensionPixelSize(R.dimen.settingslib_tally_group_row_padding)
         mNormalPaddingEnd =
             context.resources.getDimensionPixelSize(R.dimen.settingslib_expressive_space_small1)
-        mGroupPaddingEnd = mNormalPaddingEnd * 2
+        mGroupPaddingEnd = mGroupPaddingStart
         val outValue = TypedValue()
         context.theme.resolveAttribute(
             android.R.attr.selectableItemBackground,
@@ -149,8 +152,6 @@ open class SettingsPreferenceGroupAdapter @JvmOverloads constructor(
         val itemPositionStates = IntArray(itemCount)
 
         var prevItemIndex = -2
-        var previousParent: Preference? = null
-        var currentParent: Preference? = null
         var itemSkipped = true
         for (i in 0..<itemCount) {
             val preference = getItem(i)!!
@@ -169,17 +170,12 @@ open class SettingsPreferenceGroupAdapter @JvmOverloads constructor(
             // Start a new group if any of the following are true:
             //     - We're at the first index
             //     - We've skipped an index
-            //     - We've hit an expanded Expandable parent
-            //     - We've changed parent (except: if parent is null, or we hit an Expandable child)
-            previousParent = currentParent
-            val parent = preference.parent
-            if (parent !is ChainedMixin) {
-                currentParent = parent
-            }
-            val isExpandedParent = preference is Expandable && preference.isExpanded()
-            val isExpandedChild = currentParent is Expandable && currentParent.isExpanded()
-            val changedParent = previousParent != currentParent && currentParent != null
-            if (itemSkipped || isExpandedParent || (changedParent && !isExpandedChild)) {
+            // Tally: a group is one card, and rows sit with no gap between them, so a group that
+            // starts with no divider before it (at an expanded Expandable parent, or where the
+            // parent changes, such as a row after a category's rows) would touch the card above
+            // it, edge on edge. Such a row carries on the card it follows: cards break only at a
+            // divider (a category, a group divider or a space).
+            if (itemSkipped) {
                 closeGroup(itemPositionStates, prevItemIndex)
                 itemPositionStates[i] = android.R.attr.state_first
                 prevItemIndex = i

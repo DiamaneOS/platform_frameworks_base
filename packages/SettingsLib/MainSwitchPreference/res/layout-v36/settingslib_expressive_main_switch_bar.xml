@@ -24,10 +24,11 @@
     android:orientation="vertical">
 
     <!-- The Tally main switch row: a row in a card of its own, with the Tally switch at its end,
-         as the prototype's switch rows in their Settings section. -->
+         as the prototype's switch rows in their Settings section: at least 64 dp tall, with 8 dp
+         above and below its text, as the page's rows (SettingsTheme's tally_rows.xml). -->
     <LinearLayout
         android:id="@+id/frame"
-        android:minHeight="@dimen/settingslib_expressive_space_large3"
+        android:minHeight="@dimen/settingslib_tally_row_min_height"
         android:layout_height="wrap_content"
         android:layout_width="match_parent"
         android:paddingStart="@dimen/settingslib_tally_row_padding"
@@ -39,7 +40,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="center_vertical"
             android:layout_marginEnd="@dimen/settingslib_tally_row_padding"
-            android:layout_marginVertical="@dimen/settingslib_expressive_space_small1"
+            android:layout_marginVertical="@dimen/settingslib_tally_row_padding_vertical"
             android:layout_weight="1">
 
             <TextView
@@ -50,6 +51,7 @@
                 android:ellipsize="end"
                 android:textAlignment="viewStart"
                 android:textAppearance="?android:attr/textAppearanceListItem"
+                android:lineHeight="@dimen/settingslib_tally_item_line_height"
                 android:textColor="@color/settingslib_tally_main_switch_title_color" />
 
             <TextView
@@ -62,6 +64,7 @@
                 android:layout_gravity="start"
                 android:textAlignment="viewStart"
                 android:textAppearance="?android:attr/textAppearanceListItemSecondary"
+                android:lineHeight="@dimen/settingslib_tally_body_line_height"
                 android:textColor="@color/settingslib_tally_main_switch_summary_color"
                 android:visibility="gone" />
         </RelativeLayout>
