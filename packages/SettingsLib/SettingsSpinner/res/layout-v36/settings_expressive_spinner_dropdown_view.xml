@@ -15,10 +15,11 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     style="@style/SettingsSpinnerDropdown.Expressive">
+  <!-- Tally: the check column of every Tally menu, the size of a dropdown row's popup's -->
   <ImageView
       android:id="@android:id/icon"
-      android:layout_width="@dimen/settingslib_expressive_space_small3"
-      android:layout_height="@dimen/settingslib_expressive_space_small3"
+      android:layout_width="@dimen/settingslib_tally_icon_size"
+      android:layout_height="@dimen/settingslib_tally_icon_size"
       android:importantForAccessibility="no"
       android:src="@drawable/settingslib_expressive_icon_check"
       android:tint="@color/settingslib_spinner_dropdown_color"

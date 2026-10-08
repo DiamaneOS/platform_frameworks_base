@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copyright (C) 2026 The DiamaneOS Project
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+  -->
+
+<!-- The background of a Tally switch row: its section card segment by its place in the section,
+     as settingslib_round_background_stateful, but with no ripple and no focus highlight, so the
+     switch's press layer and focus ring are the row's only press and focus signals, as in the
+     prototype. Outside the expressive adapter (no place set) the row has no background. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_single="true" android:drawable="@drawable/settingslib_tally_card" />
+    <item android:state_first="true" android:drawable="@drawable/settingslib_tally_card_top" />
+    <item android:state_middle="true" android:drawable="@drawable/settingslib_tally_card_center" />
+    <item android:state_last="true" android:drawable="@drawable/settingslib_tally_card_bottom" />
+    <item android:drawable="@android:color/transparent" />
+</selector>
