@@ -364,11 +364,27 @@ public final class UsbPortAidl implements UsbPortHal {
         long key = operationID;
         synchronized (mLock) {
             try {
-                if (com.android.server.policy.keyguard.UsbPortSecurityHooks
-                        .onHalEnableUsbDataSignal(portName, enable, callback)) {
-                    // returning true signifies that the caller has to call
-                    // callback.waitForOperationComplete() before calling callback.getStatus()
-                    return true;
+                if (com.android.server.policy.keyguard.UsbPortSecurityHooks.isSupported()) {
+                    // DiamaneOS: after the request, re-read the port status, which then reports
+                    // DATA_STATUS_DISABLED_FORCE while a disable request is held
+                    // (UsbPortSecurityHooks.adjustUsbDataStatus()).
+                    final long refreshId = operationID;
+                    IUsbOperationInternal completion = new IUsbOperationInternal.Stub() {
+                        @Override
+                        public void onOperationComplete(int status) throws RemoteException {
+                            try {
+                                callback.onOperationComplete(status);
+                            } finally {
+                                queryPortStatus(refreshId);
+                            }
+                        }
+                    };
+                    if (com.android.server.policy.keyguard.UsbPortSecurityHooks
+                            .onHalEnableUsbDataSignal(portName, enable, completion)) {
+                        // returning true signifies that the caller has to call
+                        // callback.waitForOperationComplete() before calling callback.getStatus()
+                        return true;
+                    }
                 }
 
                 if (mProxy == null) {
@@ -974,7 +990,9 @@ public final class UsbPortAidl implements UsbPortHal {
                         .setSupportsEnableContaminantPresenceDetection(
                             current.supportsEnableContaminantPresenceDetection)
                         .setContaminantDetectionStatus(current.contaminantDetectionStatus)
-                        .setUsbDataStatus(toUsbDataStatusInt(current.usbDataStatus))
+                        .setUsbDataStatus(com.android.server.policy.keyguard.UsbPortSecurityHooks
+                                .adjustUsbDataStatus(current.portName,
+                                        toUsbDataStatusInt(current.usbDataStatus)))
                         .setPowerTransferLimited(current.powerTransferLimited)
                         .setPowerBrickConnectionStatus(current.powerBrickStatus)
                         .setSupportsComplianceWarnings(current.supportsComplianceWarnings)
