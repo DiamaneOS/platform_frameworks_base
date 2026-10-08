@@ -8,9 +8,10 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.StandardCopyOption;
+import java.io.OutputStream;
 import java.util.Arrays;
 
 /** Reads synthetic archives using the real public parser. No fixture is installed. */
@@ -40,7 +41,7 @@ public final class SensorOptOutTests extends Instrumentation {
             File file = new File(getTargetContext().getCacheDir(), name + ".apk");
             try {
                 try (InputStream input = getContext().getAssets().open(name + ".apk")) {
-                    Files.copy(input, file.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                    copy(input, file);
                 }
                 PackageInfo info = getTargetContext().getPackageManager().getPackageArchiveInfo(
                         file.getAbsolutePath(), PackageManager.GET_PERMISSIONS);
@@ -67,5 +68,15 @@ public final class SensorOptOutTests extends Instrumentation {
         result.putString("failures", failures.toString());
         result.putString("stream", "Parser cases: " + CASES.length + ", failures: " + failed + "\n");
         finish(failed == 0 ? Activity.RESULT_OK : Activity.RESULT_CANCELED, result);
+    }
+
+    /** Writes the stream to the file; java.nio.file needs API 26, and the floor is 23. */
+    private static void copy(InputStream input, File file) throws IOException {
+        try (OutputStream output = new FileOutputStream(file)) {
+            byte[] buffer = new byte[64 * 1024];
+            for (int read; (read = input.read(buffer)) != -1; ) {
+                output.write(buffer, 0, read);
+            }
+        }
     }
 }
