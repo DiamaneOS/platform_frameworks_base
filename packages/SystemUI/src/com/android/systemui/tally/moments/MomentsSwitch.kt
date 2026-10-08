@@ -58,9 +58,10 @@ import javax.inject.Inject
  *
  * It follows the switch through the input service (the only reader, behind a signature
  * permission), waits [SETTLE_MS] so that a quick flip back does nothing, and hands the result to
- * [MomentsReconciler]. Each move gives a short haptic tick at once and, once settled, a brief
- * toast. Boot, a SystemUI restart, a user switch, the unlock, a change in Settings and the
- * screen turning on all reconcile again; the reconciler makes each change only once.
+ * [MomentsReconciler]. Each move gives a haptic at once ([MomentsReconciler.haptic]) and, once
+ * settled, a brief toast. Boot, a SystemUI restart, a user switch, the unlock, a change in
+ * Settings and the screen turning on all reconcile again; the reconciler makes each change only
+ * once.
  *
  * All work runs on the background thread, one step at a time.
  */
@@ -96,7 +97,7 @@ constructor(
     private val listener =
         object : IMomentsSwitchListener.Stub() {
             override fun onMomentsSwitchChanged(whenNanos: Long, on: Boolean) {
-                bgExecutor.execute { onReport(on) }
+                bgExecutor.execute { onReport(on, live = true) }
             }
         }
 
@@ -162,7 +163,8 @@ constructor(
     private fun requery() {
         bgExecutor.execute {
             val on = query() ?: return@execute
-            if (on != lastReported) onReport(on)
+            // A lost report found later: no haptic, the move was earlier.
+            if (on != lastReported) onReport(on, live = false)
         }
     }
 
@@ -177,23 +179,31 @@ constructor(
             null
         }
 
-    private fun onReport(on: Boolean) {
+    private fun onReport(on: Boolean, live: Boolean) {
         val previous = lastReported
         lastReported = on
-        if (previous != null && previous != on && isSetupComplete(userTracker.userId)) {
-            vibratorHelper.vibrate(
-                Process.myUid(),
-                context.opPackageName,
-                VibrationEffect.get(VibrationEffect.EFFECT_TICK),
-                "Moments switch",
-                HAPTIC_ATTRIBUTES,
-            )
-        }
+        if (live) playHaptic(previous, on)
         settle?.run()
         settle = bgExecutor.executeDelayed({
             settle = null
             reconcile(fromSwitch = true)
         }, SETTLE_MS)
+    }
+
+    // Hardware-feedback usage, as Android's power and assistant button haptics: the "Vibration &
+    // haptics" settings and intensity apply; it plays on the lock screen and with the screen off.
+    private fun playHaptic(previous: Boolean?, on: Boolean) {
+        if (previous == null || previous == on) return // not a move: skip the settings reads
+        val user = userTracker.userId
+        val effect =
+            reconciler.haptic(previous, on, isSetupComplete(user), readAction(user)) ?: return
+        vibratorHelper.vibrate(
+            Process.myUid(),
+            context.opPackageName,
+            VibrationEffect.get(effect),
+            "Moments switch",
+            HAPTIC_ATTRIBUTES,
+        )
     }
 
     private fun reconcileSoon() {
@@ -232,16 +242,18 @@ constructor(
         deviceProvisionedController.isDeviceProvisioned &&
             deviceProvisionedController.isUserSetup(user)
 
+    private fun readAction(user: Int): Int? {
+        val resolver = context.contentResolver
+        return MomentsConfig.migratedAction(
+            Secure.getStringForUser(resolver, Secure.TALLY_MOMENTS_ACTION, user)?.toIntOrNull(),
+            Secure.getStringForUser(resolver, Secure.TALLY_MOMENTS_OFFLINE, user)?.toIntOrNull(),
+            keyguardStateController.isMethodSecure,
+        )
+    }
+
     private fun readConfig(user: Int): MomentsConfig {
         val resolver = context.contentResolver
-        val action =
-            MomentsConfig.migratedAction(
-                Secure.getStringForUser(resolver, Secure.TALLY_MOMENTS_ACTION, user)
-                    ?.toIntOrNull(),
-                Secure.getStringForUser(resolver, Secure.TALLY_MOMENTS_OFFLINE, user)
-                    ?.toIntOrNull(),
-                keyguardStateController.isMethodSecure,
-            )
+        val action = readAction(user)
         val paused =
             Secure.getStringForUser(resolver, Secure.TALLY_MOMENTS_PAUSED_APPS, user)
                 ?.split(',')

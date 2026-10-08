@@ -18,6 +18,7 @@ package com.android.systemui.tally.moments
 
 import android.os.Handler
 import android.os.Looper
+import android.os.VibrationEffect
 import android.provider.Settings.Secure
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.SmallTest
@@ -470,6 +471,76 @@ class MomentsReconcilerTest : SysuiTestCase() {
         assertThat(MomentsRecordCodec.decode(MomentsRecordCodec.encode(record)))
             .containsExactlyElementsIn(record)
             .inOrder()
+    }
+
+    private fun MomentsReconciler.hapticFor(
+        previous: Boolean?,
+        on: Boolean,
+        action: Int? = Secure.MOMENTS_ACTION_MOMENTS,
+        setupComplete: Boolean = true,
+    ) = haptic(previous, on, setupComplete, action)
+
+    @Test
+    fun haptic_heavyClickDown_clickUp() {
+        val r = reconciler()
+
+        assertThat(r.hapticFor(previous = false, on = true))
+            .isEqualTo(VibrationEffect.EFFECT_HEAVY_CLICK)
+        assertThat(r.hapticFor(previous = true, on = false)).isEqualTo(VibrationEffect.EFFECT_CLICK)
+    }
+
+    @Test
+    fun haptic_everyActionButNothing() {
+        val r = reconciler()
+        val acting =
+            listOf(
+                Secure.MOMENTS_ACTION_MOMENTS,
+                Secure.MOMENTS_ACTION_SENSORS_OFF,
+                Secure.MOMENTS_ACTION_SILENT,
+                Secure.MOMENTS_ACTION_AIRPLANE,
+                Secure.MOMENTS_ACTION_LOCKDOWN,
+            )
+        for (action in acting) {
+            assertThat(r.hapticFor(previous = false, on = true, action = action))
+                .isEqualTo(VibrationEffect.EFFECT_HEAVY_CLICK)
+            assertThat(r.hapticFor(previous = true, on = false, action = action))
+                .isEqualTo(VibrationEffect.EFFECT_CLICK)
+        }
+
+        val nothing = Secure.MOMENTS_ACTION_NOTHING
+        assertThat(r.hapticFor(previous = false, on = true, action = nothing)).isNull()
+        assertThat(r.hapticFor(previous = true, on = false, action = nothing)).isNull()
+    }
+
+    @Test
+    fun haptic_noneForTheFirstPositionOrARepeat() {
+        val r = reconciler()
+
+        // The first report after boot or a SystemUI restart.
+        assertThat(r.hapticFor(previous = null, on = true)).isNull()
+        assertThat(r.hapticFor(previous = null, on = false)).isNull()
+        // Repeated reports of the same position.
+        assertThat(r.hapticFor(previous = true, on = true)).isNull()
+        assertThat(r.hapticFor(previous = false, on = false)).isNull()
+    }
+
+    @Test
+    fun haptic_noneBeforeSetup() {
+        val r = reconciler()
+
+        assertThat(r.hapticFor(previous = false, on = true, setupComplete = false)).isNull()
+        assertThat(r.hapticFor(previous = true, on = false, setupComplete = false)).isNull()
+    }
+
+    @Test
+    fun haptic_noChoiceSaved_firstMoveCountsAsMoments() {
+        val r = reconciler()
+
+        // The move that sets the switch up acts (Moments on), so it gets a haptic too.
+        assertThat(r.hapticFor(previous = false, on = true, action = null))
+            .isEqualTo(VibrationEffect.EFFECT_HEAVY_CLICK)
+        assertThat(r.hapticFor(previous = true, on = false, action = null))
+            .isEqualTo(VibrationEffect.EFFECT_CLICK)
     }
 
     private companion object {
