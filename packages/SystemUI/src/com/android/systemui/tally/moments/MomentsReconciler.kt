@@ -16,6 +16,9 @@
 
 package com.android.systemui.tally.moments
 
+import android.os.VibrationEffect
+import android.provider.Settings.Secure
+
 /**
  * What applying one change did.
  *
@@ -157,5 +160,17 @@ class MomentsReconciler(private val platform: MomentsPlatform, private val store
             waitingForUnlock = waiting,
             dismissNotice = true,
         )
+    }
+
+    /**
+     * The haptic for a move of the switch, played at once: a heavy click going down (Moments on), a
+     * lighter click going up. None for the first position known (boot, a SystemUI restart) or a
+     * repeat, before setup finishes and with "Nothing" chosen. With no choice saved a move counts
+     * as choosing Moments, so it gets one too. [action] is the saved choice, null when unset.
+     */
+    fun haptic(previous: Boolean?, on: Boolean, setupComplete: Boolean, action: Int?): Int? {
+        if (previous == null || previous == on || !setupComplete) return null
+        if (action == Secure.MOMENTS_ACTION_NOTHING) return null
+        return if (on) VibrationEffect.EFFECT_HEAVY_CLICK else VibrationEffect.EFFECT_CLICK
     }
 }
