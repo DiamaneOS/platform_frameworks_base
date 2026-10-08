@@ -7,9 +7,10 @@ public class GeocoderSettings {
 
     public static final int GEOCODER_DISABLED = 0;
     public static final int GEOCODER_SERVER_OPENSTREETMAP = 1;
-    // DiamaneOS: not offered (DiamaneOS uses no GrapheneOS geocoding server). Kept because
-    // GrapheneOS's NetworkLocation app still names it; a stored 2 reads back as the default, off.
-    public static final int GEOCODER_SERVER_GRAPHENEOS = 2;
+    // DiamaneOS: there is no GrapheneOS geocoding server. GrapheneOS's setup wizard turns the
+    // geocoder on with this constant, so it means OpenStreetMap here. GrapheneOS's stored value
+    // (2) is not valid and reads back as the default, off.
+    public static final int GEOCODER_SERVER_GRAPHENEOS = GEOCODER_SERVER_OPENSTREETMAP;
 
     public static final IntSetting GEOCODER_SETTING = new IntSetting(
             Setting.Scope.GLOBAL, Settings.Global.GEOCODER,
