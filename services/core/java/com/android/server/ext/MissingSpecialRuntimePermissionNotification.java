@@ -38,6 +38,12 @@ public class MissingSpecialRuntimePermissionNotification {
     private static final ArrayMap<String, SparseLongArray> lastShownTracker = new ArrayMap<>();
 
     public static void maybeShow(Context ctx, String permissionName, int uid, String packageName) {
+        // A deliberately unrequested permission has no actionable grant dialog.
+        // Keep sensor denials intact without repeatedly notifying opted-out apps.
+        var pkg = LocalServices.getService(PackageManagerInternal.class).getPackage(packageName);
+        if (pkg == null || !pkg.getRequestedPermissions().contains(permissionName)) {
+            return;
+        }
         final long timestamp = SystemClock.uptimeMillis();
 
         synchronized (lastShownTracker) {
