@@ -38,6 +38,7 @@ import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.coordinatorlayout.widget.CoordinatorLayout;
 
+import com.android.settingslib.collapsingtoolbar.CollapsedTitleFit;
 import com.android.settingslib.collapsingtoolbar.R;
 import com.android.settingslib.widget.SettingsThemeHelper;
 
@@ -127,6 +128,8 @@ public class CollapsingCoordinatorLayout extends CoordinatorLayout {
             if (!TextUtils.isEmpty(mToolbarTitle)) {
                 mCollapsingToolbarLayout.setTitle(mToolbarTitle);
             }
+            // Tally: a long title gets smaller to fit the collapsed bar instead of being cut.
+            CollapsedTitleFit.install(mCollapsingToolbarLayout);
         }
         autoSetCollapsingToolbarLayoutScrolling();
     }
