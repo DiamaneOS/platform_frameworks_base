@@ -59,7 +59,7 @@ class AppIconProviderImpl
 constructor(
     @ShadeDisplayAware private val sysuiContext: Context,
     dumpManager: DumpManager,
-    systemClock: SystemClock,
+    private val systemClock: SystemClock,
     private val appIconHelper: AppIconHelper,
     private val tallyIconStyle: TallyIconStyleRepository,
 ) : AppIconProvider, Dumpable {
@@ -129,13 +129,17 @@ constructor(
     }
 
     /**
-     * The factory for [packageName]'s standard-appearance icon. With Tally, its icon follows the
-     * icon style: Minimal is stock's themed icon; Colour is the app's key for one of DiamaneOS's
-     * own apps and the app's own icon for any other; with no style, every app's own icon.
+     * The factory for [packageName]'s standard-appearance icon in [style], the request's
+     * [IconLook.tallyStyle]. With Tally, its icon follows the icon style: Minimal is stock's
+     * themed icon; Colour is the app's key for one of DiamaneOS's own apps and the app's own icon
+     * for any other; with no style, every app's own icon.
      */
     @WorkerThread
-    private fun standardIconFactoryFor(packageName: String): BaseIconFactory =
-        when (tallyStyle) {
+    private fun standardIconFactoryFor(
+        style: TallyIconStyle?,
+        packageName: String,
+    ): BaseIconFactory =
+        when (style) {
             null -> standardIconFactory
             TallyIconStyle.MINIMAL -> standardIconFactory(themedController())
             TallyIconStyle.COLOUR ->
@@ -143,14 +147,13 @@ constructor(
             TallyIconStyle.NONE -> standardIconFactory(themeController = null)
         }
 
-    /** Whether standard-appearance icons are drawn themed, where their factory themed them. */
-    private val isStandardIconThemed: Boolean
-        get() =
-            when (tallyStyle) {
-                null -> notificationsRedesignThemedAppIcons()
-                TallyIconStyle.NONE -> false
-                else -> true
-            }
+    /** Whether standard-appearance icons in [style] are drawn themed, where their factory did. */
+    private fun isStandardIconThemed(style: TallyIconStyle?): Boolean =
+        when (style) {
+            null -> notificationsRedesignThemedAppIcons()
+            TallyIconStyle.NONE -> false
+            else -> true
+        }
 
     private val skeletonIconFactory: BaseIconFactory
         get() =
@@ -173,14 +176,20 @@ constructor(
                     ),
             )
 
-    /** Cache of standard-appearance icons as used in the notification row and guts */
-    private val standardCache = AppIconCache(systemClock = systemClock)
+    /**
+     * The caches of icons drawn for one [IconLook]. A request uses the caches of the look it saw,
+     * so an icon still being drawn when the look changes lands in the old look's caches, which no
+     * later request reads.
+     */
+    private class LookCaches(val look: IconLook, systemClock: SystemClock) {
+        /** Cache of standard-appearance icons as used in the notification row and guts */
+        val standard = AppIconCache(systemClock = systemClock)
 
-    /** Cache of black and white icons for use on AOD */
-    private val skeletonCache = AppIconCache(systemClock = systemClock)
+        /** Cache of black and white icons for use on AOD */
+        val skeleton = AppIconCache(systemClock = systemClock)
+    }
 
-    /** What the cached icons were drawn for, see [IconLook]. */
-    @Volatile private var cachedLook: IconLook? = null
+    @Volatile private var caches: LookCaches? = null
 
     /**
      * What an icon's drawing depends on beyond its app: the display density and icon size, the two
@@ -197,8 +206,8 @@ constructor(
         val tallyStyle: TallyIconStyle?,
     )
 
-    /** Empties the caches when the look icons are drawn with has changed since they were filled. */
-    private fun clearCachesIfLookChanged() {
+    /** The caches for the look icons are drawn with now: new, empty ones when it has changed. */
+    private fun cachesForCurrentLook(): LookCaches {
         val res = sysuiContext.resources
         val look =
             IconLook(
@@ -208,13 +217,10 @@ constructor(
                 foreground = res.getColor(R.color.materialColorSurfaceContainerHigh, null),
                 tallyStyle = tallyStyle,
             )
-        if (look == cachedLook) return
+        caches?.let { if (it.look == look) return it }
         synchronized(this) {
-            if (look != cachedLook) {
-                standardCache.clear()
-                skeletonCache.clear()
-                cachedLook = look
-            }
+            caches?.let { if (it.look == look) return it }
+            return LookCaches(look, systemClock).also { caches = it }
         }
     }
 
@@ -223,20 +229,25 @@ constructor(
         userHandle: UserHandle,
         instanceKey: String,
     ): Drawable {
-        clearCachesIfLookChanged()
-        return standardCache.getOrFetchAppIcon(
+        // One look for the whole request: its caches, its factory and how its drawable is drawn.
+        val caches = cachesForCurrentLook()
+        val style = caches.look.tallyStyle
+        return caches.standard.getOrFetchAppIcon(
             packageName = packageName,
             userHandle = userHandle,
             drawableInstanceKey = instanceKey,
-            createDrawable = { it.createIconDrawable(themed = isStandardIconThemed) },
+            createDrawable = { it.createIconDrawable(themed = isStandardIconThemed(style)) },
         ) {
-            fetchAppIconBitmapInfo(standardIconFactoryFor(packageName), packageName, userHandle)
+            fetchAppIconBitmapInfo(
+                standardIconFactoryFor(style, packageName),
+                packageName,
+                userHandle,
+            )
         }
     }
 
     override fun getOrFetchSkeletonAppIcon(packageName: String, userHandle: UserHandle): Drawable {
-        clearCachesIfLookChanged()
-        return skeletonCache.getOrFetchAppIcon(
+        return cachesForCurrentLook().skeleton.getOrFetchAppIcon(
             packageName = packageName,
             userHandle = null, // these aren't badged, so they don't need to be sharded by user
             drawableInstanceKey = "SKELETON",
@@ -307,14 +318,17 @@ constructor(
     }
 
     override fun purgeCache(wantedPackages: Collection<String>) {
-        standardCache.purgeCache(wantedPackages)
-        skeletonCache.purgeCache(wantedPackages)
+        caches?.run {
+            standard.purgeCache(wantedPackages)
+            skeleton.purgeCache(wantedPackages)
+        }
     }
 
     override fun dump(pwOrig: PrintWriter, args: Array<out String>) {
         val pw = pwOrig.asIndenting()
-        pw.printSection("standard cache") { standardCache.dump(pw, args) }
-        pw.printSection("skeleton cache") { skeletonCache.dump(pw, args) }
+        val caches = caches
+        pw.printSection("standard cache") { caches?.standard?.dump(pw, args) }
+        pw.printSection("skeleton cache") { caches?.skeleton?.dump(pw, args) }
         pw.printSection("icon factory info") {
             val standardIconFactory = standardIconFactory
             pw.println("fullResIconDpi = ${standardIconFactory.fullResIconDpi}")
