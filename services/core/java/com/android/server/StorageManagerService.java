@@ -2528,6 +2528,8 @@ class StorageManagerService extends IStorageManager.Stub
     public void format(String volId) {
 
         super.format_enforcePermission();
+        // DiamaneOS: like adoption, only an admin may erase or forget storage.
+        enforceAdminUserOrSystemUser();
 
         final WatchedVolumeInfo vol = findVolumeByIdOrThrow(volId);
         final String fsUuid = vol.getFsUuid();
@@ -2589,6 +2591,8 @@ class StorageManagerService extends IStorageManager.Stub
     @Override
     public void partitionPublic(String diskId) {
         super.partitionPublic_enforcePermission();
+        // DiamaneOS: like adoption, only an admin may erase or forget storage.
+        enforceAdminUserOrSystemUser();
 
         final CountDownLatch latch = findOrCreateDiskScanLatch(diskId);
 
@@ -2672,6 +2676,8 @@ class StorageManagerService extends IStorageManager.Stub
     public void forgetVolume(String fsUuid) {
 
         super.forgetVolume_enforcePermission();
+        // DiamaneOS: like adoption, only an admin may erase or forget storage.
+        enforceAdminUserOrSystemUser();
 
         Objects.requireNonNull(fsUuid);
 
@@ -2698,6 +2704,8 @@ class StorageManagerService extends IStorageManager.Stub
     public void forgetAllVolumes() {
 
         super.forgetAllVolumes_enforcePermission();
+        // DiamaneOS: like adoption, only an admin may erase or forget storage.
+        enforceAdminUserOrSystemUser();
 
         synchronized (mLock) {
             for (int i = 0; i < mRecords.size(); i++) {
