@@ -36,7 +36,8 @@ import com.google.android.material.appbar.CollapsingToolbarLayout;
  * cut every long title ("Additional settings in the a…"), where the Tally prototype's page title
  * scales down as it docks.
  */
-public final class CollapsedTitleFit implements ViewTreeObserver.OnPreDrawListener {
+public final class CollapsedTitleFit
+        implements ViewTreeObserver.OnPreDrawListener, View.OnAttachStateChangeListener {
 
     /** The smallest collapsed title: the size of a row's title (Tally's item type). */
     private static final float MIN_TEXT_SIZE_DP = 16f;
@@ -50,13 +51,41 @@ public final class CollapsedTitleFit implements ViewTreeObserver.OnPreDrawListen
     @Nullable private CharSequence mFittedTitle;
     private int mFittedWidth = -1;
     @Nullable private Typeface mFittedTypeface;
+    /** The window's observer this listens to while the layout is attached, else null. */
+    @Nullable private ViewTreeObserver mObserver;
 
-    /** Keeps the layout's collapsed title fitted to its bar, from its next frame on. */
+    /**
+     * Keeps the layout's collapsed title fitted to its bar, from its next frame on. It listens
+     * only while the layout is in a window, so a toolbar removed from a window that stays open
+     * is not kept.
+     */
     public static void install(@Nullable CollapsingToolbarLayout layout) {
         if (layout == null) {
             return;
         }
-        layout.getViewTreeObserver().addOnPreDrawListener(new CollapsedTitleFit(layout));
+        final CollapsedTitleFit fit = new CollapsedTitleFit(layout);
+        layout.addOnAttachStateChangeListener(fit);
+        if (layout.isAttachedToWindow()) {
+            fit.onViewAttachedToWindow(layout);
+        }
+    }
+
+    @Override
+    public void onViewAttachedToWindow(View v) {
+        if (mObserver == null) {
+            mObserver = v.getViewTreeObserver();
+            mObserver.addOnPreDrawListener(this);
+        }
+    }
+
+    @Override
+    public void onViewDetachedFromWindow(View v) {
+        if (mObserver != null && mObserver.isAlive()) {
+            mObserver.removeOnPreDrawListener(this);
+        } else {
+            v.getViewTreeObserver().removeOnPreDrawListener(this);
+        }
+        mObserver = null;
     }
 
     private CollapsedTitleFit(CollapsingToolbarLayout layout) {
