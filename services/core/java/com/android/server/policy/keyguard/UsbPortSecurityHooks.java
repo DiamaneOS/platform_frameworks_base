@@ -30,6 +30,7 @@ import com.android.server.utils.Slogf;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.Set;
 
 public class UsbPortSecurityHooks {
     private static final String TAG = UsbPortSecurityHooks.class.getSimpleName();
@@ -161,6 +162,23 @@ public class UsbPortSecurityHooks {
     private ArraySet<String> halEnabledPorts = new ArraySet<>();
     private ArraySet<String> halDisabledPorts = new ArraySet<>();
 
+    // DiamaneOS: the USB HAL never sees the enableUsbData() requests handled here, so the port
+    // status it reports keeps saying that data is enabled. UsbManager.enableUsbDataSignal(true)
+    // (svc, a device owner) only passes a re-enable on for a port that reports
+    // DATA_STATUS_DISABLED_FORCE, so the re-enable never arrived and the port stayed in
+    // charging-only_immediate until a reboot. The port status now reports the disable requests
+    // held here (UsbPortAidl applies adjustUsbDataStatus() and re-reads the status after each
+    // request).
+    private static volatile Set<String> halDisabledPortsSnapshot = Set.of();
+
+    public static int adjustUsbDataStatus(String portName, int usbDataStatus) {
+        if (!isSupported() || !halDisabledPortsSnapshot.contains(portName)) {
+            return usbDataStatus;
+        }
+        return (usbDataStatus & ~UsbPortStatus.DATA_STATUS_ENABLED)
+                | UsbPortStatus.DATA_STATUS_DISABLED_FORCE;
+    }
+
     // implementation of the standard android.hardware.usb.IUsb.enableUsbDataSignal() API
     public static boolean onHalEnableUsbDataSignal(String portName, boolean enable,
             android.hardware.usb.IUsbOperationInternal callback) {
@@ -204,6 +222,9 @@ public class UsbPortSecurityHooks {
         }
 
         Slog.d(TAG, "halDisabledPorts: " + Arrays.toString(halDisabledPorts.toArray()) + ", halEnabledPorts: " + Arrays.toString(halEnabledPorts.toArray()));
+        halDisabledPortsSnapshot = Set.copyOf(halDisabledPorts);
+        Slogf.d(TAG, "port status reports DATA_STATUS_DISABLED_FORCE for %s",
+                halDisabledPortsSnapshot);
 
         int setting = UsbPortSecurity.MODE_SETTING.get();
 
