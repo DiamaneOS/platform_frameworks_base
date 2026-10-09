@@ -191,6 +191,24 @@ public class DozeSensorsTest extends SysuiTestCase {
     }
 
     @Test
+    public void testTapSensor_enabledBySetting_followsAmbientDisplayConfiguration() {
+        // GIVEN doze runs (for example for the always-on display)
+        when(mAmbientDisplayConfiguration.enabled(anyInt())).thenReturn(true);
+
+        // WHEN the tap gesture is off by the device's default
+        when(mAmbientDisplayConfiguration.tapGestureEnabled(anyInt())).thenReturn(false);
+
+        // THEN the tap sensor is not enabled, although its setting is unset
+        assertFalse(mSensorTap.enabledBySetting());
+
+        // WHEN the tap gesture is on
+        when(mAmbientDisplayConfiguration.tapGestureEnabled(anyInt())).thenReturn(true);
+
+        // THEN the tap sensor is enabled
+        assertTrue(mSensorTap.enabledBySetting());
+    }
+
+    @Test
     public void testRegisterSensorsUsingProx() {
         // GIVEN we only should register sensors using prox when not in low-powered mode / off
         // and the single tap sensor uses the proximity sensor
