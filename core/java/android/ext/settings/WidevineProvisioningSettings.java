@@ -16,7 +16,8 @@ public class WidevineProvisioningSettings {
     /** @hide */
     public static final int WV_STANDARD_SERVER = 1;
 
-    private static final String WV_GRAPHENEOS_PROXY_HOSTNAME = "widevineprovisioning.grapheneos.org";
+    // DiamaneOS: the proxy choice uses the DiamaneOS proxy.
+    private static final String WV_GRAPHENEOS_PROXY_HOSTNAME = "widevineprovisioning.diamaneos.de";
 
     /** @hide */
     public static final IntSetting SERVER_SETTING = new IntSetting(
