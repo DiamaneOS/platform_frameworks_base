@@ -330,10 +330,17 @@ public class DozeTriggers implements DozeMachine.Part {
                         null /* onPulseSuppressedListener */);
             }
         } else {
+            // A touch controller also reports taps from a pocket or bag: where the device
+            // asks for it, check proximity first and listen again after a drop.
+            final boolean tapProxCheck =
+                    (isTap || isDoubleTap) && mDozeParameters.getProxCheckBeforeTap();
             proximityCheckThenCall((isNear) -> {
                 if (isNear != null && isNear) {
                     // In pocket, drop event.
                     mDozeLog.traceSensorEventDropped(pulseReason, "prox reporting near");
+                    if (tapProxCheck) {
+                        mDozeSensors.reregisterTapSensors();
+                    }
                     return;
                 }
                 if (isDoubleTap || isTap) {
@@ -362,7 +369,7 @@ public class DozeTriggers implements DozeMachine.Part {
                 } else {
                     mDozeHost.extendPulse(pulseReason);
                 }
-            }, true /* alreadyPerformedProxCheck */, pulseReason);
+            }, !tapProxCheck /* alreadyPerformedProxCheck */, pulseReason);
         }
 
         if (isPickup && !shouldDropPickupEvent()) {

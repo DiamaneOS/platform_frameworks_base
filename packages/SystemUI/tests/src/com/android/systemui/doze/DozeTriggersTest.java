@@ -566,6 +566,57 @@ public class DozeTriggersTest extends SysuiTestCase {
     }
 
     @Test
+    public void test_onSensor_tap_proxCheck_near_dropsTap() throws Exception {
+        DozeParameters dozeParameters = DozeConfigurationUtil.createMockParameters();
+        when(dozeParameters.getProxCheckBeforeTap()).thenReturn(true);
+        setupDozeTriggers(mConfig, dozeParameters);
+        mProximitySensor.setLastEvent(new ThresholdSensorEvent(true, 1));
+
+        mTriggers.onSensor(DozeLog.REASON_SENSOR_TAP, 100, 200, null);
+
+        verify(mHost, never()).onSlpiTap(anyFloat(), anyFloat());
+        verify(mMachine, never()).wakeUp(anyInt());
+    }
+
+    @Test
+    public void test_onSensor_tap_proxCheck_far_wakesUp() throws Exception {
+        DozeParameters dozeParameters = DozeConfigurationUtil.createMockParameters();
+        when(dozeParameters.getProxCheckBeforeTap()).thenReturn(true);
+        setupDozeTriggers(mConfig, dozeParameters);
+        mProximitySensor.setLastEvent(new ThresholdSensorEvent(false, 1));
+
+        mTriggers.onSensor(DozeLog.REASON_SENSOR_TAP, 100, 200, null);
+
+        verify(mHost).onSlpiTap(100, 200);
+        verify(mMachine).wakeUp(DozeLog.REASON_SENSOR_TAP);
+    }
+
+    @Test
+    public void test_onSensor_doubleTap_proxCheck_near_dropsTap() throws Exception {
+        DozeParameters dozeParameters = DozeConfigurationUtil.createMockParameters();
+        when(dozeParameters.getProxCheckBeforeTap()).thenReturn(true);
+        setupDozeTriggers(mConfig, dozeParameters);
+        mProximitySensor.setLastEvent(new ThresholdSensorEvent(true, 1));
+
+        mTriggers.onSensor(DozeLog.REASON_SENSOR_DOUBLE_TAP, 100, 200, null);
+
+        verify(mHost, never()).onSlpiTap(anyFloat(), anyFloat());
+        verify(mMachine, never()).wakeUp(anyInt());
+    }
+
+    @Test
+    public void test_onSensor_doubleTap_proxCheck_far_wakesUp() throws Exception {
+        DozeParameters dozeParameters = DozeConfigurationUtil.createMockParameters();
+        when(dozeParameters.getProxCheckBeforeTap()).thenReturn(true);
+        setupDozeTriggers(mConfig, dozeParameters);
+        mProximitySensor.setLastEvent(new ThresholdSensorEvent(false, 1));
+
+        mTriggers.onSensor(DozeLog.REASON_SENSOR_DOUBLE_TAP, 100, 200, null);
+
+        verify(mMachine).wakeUp(DozeLog.REASON_SENSOR_DOUBLE_TAP);
+    }
+
+    @Test
     public void test_onSensor_double_tap() {
         mTriggers.onSensor(DozeLog.REASON_SENSOR_DOUBLE_TAP, 100, 200, null);
 

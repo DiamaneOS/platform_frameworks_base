@@ -534,6 +534,19 @@ public class DozeSensors {
         return mProximitySensor.isNear();
     }
 
+    /**
+     * Listens for single and double taps again after {@link DozeTriggers} dropped one. The tap
+     * sensors are one-shot, and the single-tap one does not register again by itself.
+     */
+    public void reregisterTapSensors() {
+        for (TriggerSensor s : mTriggerSensors) {
+            if (s.mPulseReason == DozeLog.REASON_SENSOR_TAP
+                    || s.mPulseReason == DozeLog.REASON_SENSOR_DOUBLE_TAP) {
+                s.updateListening();
+            }
+        }
+    }
+
     @VisibleForTesting
     class TriggerSensor extends TriggerEventListener {
         @NonNull final Sensor[] mSensors; // index = posture, value = sensor
@@ -717,10 +730,18 @@ public class DozeSensors {
         }
 
         protected boolean enabledBySetting() {
-            if (!mConfig.enabled(mSelectedUserInteractor.getSelectedUserId())) {
+            final int userId = mSelectedUserInteractor.getSelectedUserId();
+            if (!mConfig.enabled(userId)) {
                 return false;
             } else if (TextUtils.isEmpty(mSetting)) {
                 return true;
+            } else if (Settings.Secure.DOZE_TAP_SCREEN_GESTURE.equals(mSetting)) {
+                // The device's default (config_dozeTapGestureEnabled), as Settings shows it,
+                // not always on: otherwise an unset tap gesture would listen whenever another
+                // doze feature such as the always-on display runs.
+                return mConfig.tapGestureEnabled(userId);
+            } else if (Settings.Secure.DOZE_DOUBLE_TAP_GESTURE.equals(mSetting)) {
+                return mConfig.doubleTapGestureEnabled(userId);
             }
             return mSecureSettings.getIntForUser(mSetting, mSettingDefault ? 1 : 0,
                     mSelectedUserInteractor.getSelectedUserId()) != 0;
