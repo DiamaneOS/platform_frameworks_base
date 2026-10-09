@@ -535,8 +535,8 @@ public class GnssConfiguration {
                 props.remove(CONFIG_SUPL_PORT);
                 break;
             case GnssSettings.SUPL_SERVER_GRAPHENEOS_PROXY:
-                Slog.d(TAG, "SUPL: using the GrapheneOS proxy");
-                props.setProperty(CONFIG_SUPL_HOST, "supl.grapheneos.org");
+                Slog.d(TAG, "SUPL: using the DiamaneOS proxy");
+                props.setProperty(CONFIG_SUPL_HOST, "supl.diamaneos.de");
                 props.setProperty(CONFIG_SUPL_PORT, "7275");
                 break;
         }
@@ -558,8 +558,15 @@ public class GnssConfiguration {
 
         switch (psdsMode) {
             case GnssSettings.PSDS_SERVER_GRAPHENEOS:
-                final String hostname = psdsType + ".psds.grapheneos.org";
-                Slog.d(TAG, "PSDS: using GrapheneOS server " + hostname);
+                // DiamaneOS serves Qualcomm's PSDS files only; other types get no server.
+                if (!"qualcomm".equals(psdsType)) {
+                    Slog.e(TAG, "PSDS: no DiamaneOS server for type " + psdsType + ", disabling PSDS");
+                    clearPsdsServerProps(props);
+                    props.setProperty(CONFIG_ENABLE_PSDS_PERIODIC_DOWNLOAD, "0");
+                    break;
+                }
+                final String hostname = "psds.diamaneos.de";
+                Slog.d(TAG, "PSDS: using DiamaneOS server " + hostname);
 
                 for (String propName : getPsdsPropNames()) {
                     String origValue = props.getProperty(propName);

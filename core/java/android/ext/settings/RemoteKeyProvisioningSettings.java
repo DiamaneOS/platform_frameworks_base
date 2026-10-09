@@ -15,7 +15,8 @@ public class RemoteKeyProvisioningSettings {
     public static final int GRAPHENEOS_PROXY = 0;
     public static final int STANDARD_SERVER = 1;
 
-    private static final String GRAPHENEOS_PROXY_URL = "https://remoteprovisioning.grapheneos.org/v1";
+    // DiamaneOS: the proxy choice uses the DiamaneOS proxy.
+    private static final String GRAPHENEOS_PROXY_URL = "https://remoteprovisioning.diamaneos.de/v1";
 
     /** @hide */
     public static final IntSetting SERVER_SETTING = new IntSetting(
