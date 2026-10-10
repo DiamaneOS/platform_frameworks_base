@@ -247,10 +247,11 @@ public class DozeParameters implements
     }
 
     /**
-     * @return true if a single or double tap may only wake the device after a proximity check
+     * @return true if a single or double tap may only wake the device while the proximity
+     * sensor is not covered. For tests: "adb shell setprop debug.doze.tap_proxcheck 0" or 1.
      */
     public boolean getProxCheckBeforeTap() {
-        return mResources.getBoolean(R.bool.doze_proximity_check_before_tap);
+        return getBoolean("debug.doze.tap_proxcheck", R.bool.doze_proximity_check_before_tap);
     }
 
     /**

@@ -217,9 +217,10 @@
         <item>1</item> <!-- OPENED -->
     </integer-array>
 
-    <!-- Doze: check the proximity sensor before a single or double tap sensor wakes the device,
-     and drop the tap when it is covered. For tap sensors that do not reject pocket touches
-     themselves. -->
+    <!-- Doze: drop a single or double tap while the proximity sensor is covered. For tap
+     sensors that do not reject pocket touches themselves. The non-wake-up proximity sensor
+     then stays on while these gestures listen, and a tap waits up to 0.2 s for a current
+     reading. Needs a proximity sensor that keeps reporting readings several times a second. -->
     <bool name="doze_proximity_check_before_tap">false</bool>
 
     <!-- Doze: whether the long press sensor uses the proximity sensor.
