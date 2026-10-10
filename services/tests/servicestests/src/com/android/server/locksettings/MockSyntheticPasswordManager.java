@@ -36,6 +36,10 @@ public class MockSyntheticPasswordManager extends SyntheticPasswordManager {
     private IWeaver mWeaverAidl;
     private android.hardware.weaver.V1_0.IWeaver mWeaverHidl;
 
+    // The number of scrypt() calls that still succeed before scrypt() starts failing, or -1 if it
+    // never fails.
+    private int mScryptSuccessesLeft = -1;
+
     public MockSyntheticPasswordManager(
             Context context,
             LockSettingsStorage storage,
@@ -52,6 +56,12 @@ public class MockSyntheticPasswordManager extends SyntheticPasswordManager {
 
     @Override
     protected byte[] scrypt(byte[] password, byte[] salt, int n, int r, int p, int outLen) {
+        if (mScryptSuccessesLeft == 0) {
+            return null;
+        }
+        if (mScryptSuccessesLeft > 0) {
+            mScryptSuccessesLeft--;
+        }
         try {
             char[] passwordChars = new char[password.length];
             for (int i = 0; i < password.length; i++) {
@@ -64,6 +74,19 @@ public class MockSyntheticPasswordManager extends SyntheticPasswordManager {
             e.printStackTrace();
             return null;
         }
+    }
+
+    /**
+     * Makes scrypt() return null, like the real one does when it can't allocate its memory, once
+     * {@code successfulCalls} more calls have succeeded.
+     */
+    public void failScryptAfter(int successfulCalls) {
+        mScryptSuccessesLeft = successfulCalls;
+    }
+
+    /** Makes scrypt() succeed again. */
+    public void clearScryptFailure() {
+        mScryptSuccessesLeft = -1;
     }
 
     /** Enables MockWeaverService. */
