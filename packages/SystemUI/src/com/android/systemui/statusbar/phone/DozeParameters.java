@@ -247,6 +247,14 @@ public class DozeParameters implements
     }
 
     /**
+     * @return true if a single or double tap may only wake the device while the proximity
+     * sensor is not covered. For tests: "adb shell setprop debug.doze.tap_proxcheck 0" or 1.
+     */
+    public boolean getProxCheckBeforeTap() {
+        return getBoolean("debug.doze.tap_proxcheck", R.bool.doze_proximity_check_before_tap);
+    }
+
+    /**
      * @return true if we should only register for sensors that use the proximity sensor when the
      * display state is {@link android.view.Display.STATE_OFF},
      * {@link android.view.Display.STATE_DOZE} or {@link android.view.Display.STATE_DOZE_SUSPEND}
@@ -490,6 +498,7 @@ public class DozeParameters implements
         pw.print("getVibrateOnSigMotion(): "); pw.println(getVibrateOnSigMotion());
         pw.print("getVibrateOnPickup(): "); pw.println(getVibrateOnPickup());
         pw.print("getProxCheckBeforePulse(): "); pw.println(getProxCheckBeforePulse());
+        pw.print("getProxCheckBeforeTap(): "); pw.println(getProxCheckBeforeTap());
         pw.print("getPickupVibrationThreshold(): "); pw.println(getPickupVibrationThreshold());
         pw.print("getSelectivelyRegisterSensorsUsingProx(): ");
         pw.println(getSelectivelyRegisterSensorsUsingProx());
