@@ -101,6 +101,7 @@ public class DozeTriggers implements DozeMachine.Part {
     private final DockEventListener mDockEventListener = new DockEventListener();
     private final DockManager mDockManager;
     private final ProximityCheck mProxCheck;
+    private final DozeTapProximityCheck mTapProximityCheck;
     private final BroadcastDispatcher mBroadcastDispatcher;
     private final AuthController mAuthController;
     private final KeyguardStateController mKeyguardStateController;
@@ -203,6 +204,7 @@ public class DozeTriggers implements DozeMachine.Part {
             WakeLock wakeLock, DockManager dockManager,
             @ActivityDetectionProximitySensor ProximitySensor proximitySensor,
             @ActivityDetectionProximitySensor ProximityCheck proxCheck,
+            DozeTapProximityCheck tapProximityCheck,
             DozeLog dozeLog, BroadcastDispatcher broadcastDispatcher,
             SecureSettings secureSettings, AuthController authController,
             UiEventLogger uiEventLogger,
@@ -225,6 +227,7 @@ public class DozeTriggers implements DozeMachine.Part {
                 secureSettings, authController, devicePostureController, selectedUserInteractor);
         mDockManager = dockManager;
         mProxCheck = proxCheck;
+        mTapProximityCheck = tapProximityCheck;
         mDozeLog = dozeLog;
         mBroadcastDispatcher = broadcastDispatcher;
         mAuthController = authController;
@@ -243,6 +246,7 @@ public class DozeTriggers implements DozeMachine.Part {
     public void destroy() {
         mDozeSensors.destroy();
         mProxCheck.destroy();
+        mTapProximityCheck.setListening(false);
     }
 
     private void onNotification(Runnable onPulseSuppressedListener) {
@@ -329,6 +333,28 @@ public class DozeTriggers implements DozeMachine.Part {
                 requestPulse(pulseReason, true /* alreadyPerformedProxCheck */,
                         null /* onPulseSuppressedListener */);
             }
+        } else if ((isTap || isDoubleTap) && mDozeParameters.getProxCheckBeforeTap()) {
+            // A touch controller also reports taps from a pocket or bag: drop the tap while
+            // the proximity sensor is covered.
+            final long start = SystemClock.uptimeMillis();
+            mWakeLock.acquire(TAG);
+            mTapProximityCheck.check((isNear) -> {
+                if (isNear == null) {
+                    mDozeLog.d("Tap without a current proximity reading, not checked");
+                } else {
+                    mDozeLog.traceProximityResult(isNear, SystemClock.uptimeMillis() - start,
+                            pulseReason);
+                }
+                if (isNear != null && isNear) {
+                    // In pocket, drop event. The tap sensors are one-shot: listen for the next.
+                    mDozeLog.traceSensorEventDropped(pulseReason, "prox reporting near");
+                    mDozeSensors.reregisterTapSensors();
+                } else {
+                    mDozeHost.onSlpiTap(screenX, screenY);
+                    gentleWakeUp(pulseReason);
+                }
+                mWakeLock.release(TAG);
+            });
         } else {
             proximityCheckThenCall((isNear) -> {
                 if (isNear != null && isNear) {
@@ -376,6 +402,18 @@ public class DozeTriggers implements DozeMachine.Part {
 
     private boolean shouldDropPickupEvent() {
         return mKeyguardStateController.isOccluded();
+    }
+
+    /**
+     * Whether a single or double tap gesture is on that may only wake the device while the
+     * proximity sensor is not covered.
+     */
+    private boolean tapsNeedProximity() {
+        if (!mDozeParameters.getProxCheckBeforeTap()) {
+            return false;
+        }
+        final int userId = mSelectedUserInteractor.getSelectedUserId();
+        return mConfig.tapGestureEnabled(userId) || mConfig.doubleTapGestureEnabled(userId);
     }
 
     private void gentleWakeUp(@DozeLog.Reason int reason) {
@@ -520,6 +558,9 @@ public class DozeTriggers implements DozeMachine.Part {
             default:
         }
         mDozeSensors.setListening(mWantSensors, mWantTouchScreenSensors, mInAod);
+        // Follows the tap sensors, which do not depend on the display state.
+        mTapProximityCheck.setListening(
+                mWantSensors && mWantTouchScreenSensors && tapsNeedProximity());
     }
 
     private void registerCallbacks() {
@@ -698,6 +739,7 @@ public class DozeTriggers implements DozeMachine.Part {
         IndentingPrintWriter idpw = new IndentingPrintWriter(pw);
         idpw.increaseIndent();
         mDozeSensors.dump(idpw);
+        mTapProximityCheck.dump(idpw);
     }
 
     private class TriggerReceiver extends BroadcastReceiver {
