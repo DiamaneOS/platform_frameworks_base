@@ -25,7 +25,12 @@ public class Scrypt {
 
     native byte[] nativeScrypt(byte[] password, byte[] salt, int n, int r, int p, int outLen);
 
-    /** Computes the password hashing algorithm SCRYPT. */
+    /**
+     * Computes the password hashing algorithm SCRYPT.
+     *
+     * @return the derived key, or null on failure, e.g. if the 128 * r * n bytes of working memory
+     *     could not be allocated.  Callers must check for null.
+     */
     public byte[] scrypt(byte[] password, byte[] salt, int n, int r, int p, int outLen) {
         return nativeScrypt(password, salt, n, r, p, outLen);
     }
