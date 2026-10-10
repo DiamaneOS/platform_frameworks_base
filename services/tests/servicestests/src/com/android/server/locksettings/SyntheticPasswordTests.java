@@ -949,6 +949,48 @@ public class SyntheticPasswordTests extends BaseLockSettingsServiceTests {
         assertThrows(IllegalStateException.class, () -> DuressCredential.create(pin, mSpManager));
     }
 
+    // Tests that all scrypt parameters that were ever written are still accepted.
+    @Test
+    public void testStretchLskf_acceptsAllParamsEverWritten() {
+        final int[][] goodParams = {{11, 3, 1}, {9, 3, 1}, {18, 3, 0}};
+        for (int[] params : goodParams) {
+            final PasswordData data = createTestPasswordData();
+            data.scryptLogN = (byte) params[0];
+            data.scryptLogR = (byte) params[1];
+            data.scryptLogP = (byte) params[2];
+            assertNotNull(mSpManager.stretchLskf(newPin("12345"), data));
+            assertLastScryptParams(params[0], params[1], params[2]);
+        }
+    }
+
+    // Tests that out-of-range scrypt parameters, as a tampered PasswordData could contain, are
+    // rejected before scrypt is run.
+    @Test
+    public void testStretchLskf_rejectsOutOfRangeParams() {
+        final int[][] badParams = {
+                {30, 3, 0}, // 1 TiB
+                {19, 3, 0}, // twice the memory of the strongest parameters
+                {18, 4, 0}, // likewise
+                {18, 3, 1}, // twice the time of the strongest parameters
+                {0, 3, 1},
+                {-1, 3, 1},
+                {9, -1, 1},
+                {9, 3, -1},
+                {127, 127, 127},
+        };
+        final int scryptCallCount = mSpManager.mScryptCallCount;
+        for (int[] params : badParams) {
+            final PasswordData data = createTestPasswordData();
+            data.scryptLogN = (byte) params[0];
+            data.scryptLogR = (byte) params[1];
+            data.scryptLogP = (byte) params[2];
+            assertThrows(IllegalArgumentException.class,
+                    () -> mSpManager.stretchLskf(newPin("12345"), data));
+            assertNull(mSpManager.stretchLskfOrNull(newPin("12345"), data));
+        }
+        assertEquals(scryptCallCount, mSpManager.mScryptCallCount);
+    }
+
     // Tests that a failed scrypt is an error rather than a null result.
     @Test
     public void testStretchLskf_scryptFailure() {
@@ -1008,6 +1050,27 @@ public class SyntheticPasswordTests extends BaseLockSettingsServiceTests {
         mSpManager.clearScryptFailure();
 
         assertTrue(mService.verifyCredential(password, PRIMARY_USER_ID, 0 /* flags */).isMatched());
+    }
+
+    // Tests that a protector whose stored scrypt parameters were tampered with fails verification
+    // without running scrypt.
+    @Test
+    public void testVerifyCredential_tamperedScryptParams() throws RemoteException {
+        final LockscreenCredential password = newPassword("password");
+        initSpAndSetCredential(PRIMARY_USER_ID, password);
+        final long protectorId = mService.getCurrentLskfBasedProtectorId(PRIMARY_USER_ID);
+
+        PasswordData data = PasswordData.fromBytes(
+                mStorage.readSyntheticPasswordState(PRIMARY_USER_ID, protectorId,
+                        PASSWORD_DATA_NAME));
+        data.scryptLogN = 30;
+        mStorage.writeSyntheticPasswordState(PRIMARY_USER_ID, protectorId, PASSWORD_DATA_NAME,
+                data.toBytes());
+        final int scryptCallCount = mSpManager.mScryptCallCount;
+
+        assertTrue(
+                mService.verifyCredential(password, PRIMARY_USER_ID, 0 /* flags */).isOtherError());
+        assertEquals(scryptCallCount, mSpManager.mScryptCallCount);
     }
 
     @Test
