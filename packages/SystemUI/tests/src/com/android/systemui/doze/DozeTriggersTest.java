@@ -20,10 +20,12 @@ import static com.android.systemui.doze.DozeMachine.State.DOZE_AOD;
 import static com.android.systemui.doze.DozeMachine.State.INITIALIZED;
 import static com.android.systemui.doze.DozeMachine.State.UNINITIALIZED;
 
+import static org.junit.Assert.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyFloat;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
@@ -36,8 +38,11 @@ import static org.mockito.Mockito.when;
 
 import android.app.StatusBarManager;
 import android.hardware.Sensor;
+import android.hardware.TriggerEvent;
+import android.hardware.TriggerEventListener;
 import android.hardware.display.AmbientDisplayConfiguration;
 import android.platform.test.annotations.EnableFlags;
+import android.testing.TestableLooper;
 import android.testing.TestableLooper.RunWithLooper;
 import android.view.Display;
 
@@ -79,6 +84,9 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.MockitoAnnotations;
 
+import java.lang.reflect.Constructor;
+import java.util.function.Consumer;
+
 @SmallTest
 @RunWith(AndroidJUnit4.class)
 @RunWithLooper(setAsMainLooper = true)
@@ -95,6 +103,8 @@ public class DozeTriggersTest extends SysuiTestCase {
     private DockManager mDockManager;
     @Mock
     private ProximityCheck mProximityCheck;
+    @Mock
+    private DozeTapProximityCheck mTapProximityCheck;
     @Mock
     private DozeLog mDozeLog;
     @Mock
@@ -151,7 +161,8 @@ public class DozeTriggersTest extends SysuiTestCase {
 
         mTriggers = new DozeTriggers(mContext, mHost, config, dozeParameters,
                 asyncSensorManager, wakeLock, mDockManager, mProximitySensor,
-                mProximityCheck, mDozeLog, mBroadcastDispatcher, new FakeSettings(),
+                mProximityCheck, mTapProximityCheck, mDozeLog, mBroadcastDispatcher,
+                new FakeSettings(),
                 mAuthController, mUiEventLogger, mSessionTracker, mKeyguardStateController,
                 mDevicePostureController, mUserTracker, mSelectedUserInteractor);
         mTriggers.setDozeMachine(mMachine);
@@ -567,23 +578,20 @@ public class DozeTriggersTest extends SysuiTestCase {
 
     @Test
     public void test_onSensor_tap_proxCheck_near_dropsTap() throws Exception {
-        DozeParameters dozeParameters = DozeConfigurationUtil.createMockParameters();
-        when(dozeParameters.getProxCheckBeforeTap()).thenReturn(true);
-        setupDozeTriggers(mConfig, dozeParameters);
-        mProximitySensor.setLastEvent(new ThresholdSensorEvent(true, 1));
+        setupDozeTriggersWithTapProxCheck(mConfig);
+        answerTapProximityCheck(true);
 
         mTriggers.onSensor(DozeLog.REASON_SENSOR_TAP, 100, 200, null);
 
         verify(mHost, never()).onSlpiTap(anyFloat(), anyFloat());
         verify(mMachine, never()).wakeUp(anyInt());
+        verify(mDozeLog).traceSensorEventDropped(DozeLog.REASON_SENSOR_TAP, "prox reporting near");
     }
 
     @Test
     public void test_onSensor_tap_proxCheck_far_wakesUp() throws Exception {
-        DozeParameters dozeParameters = DozeConfigurationUtil.createMockParameters();
-        when(dozeParameters.getProxCheckBeforeTap()).thenReturn(true);
-        setupDozeTriggers(mConfig, dozeParameters);
-        mProximitySensor.setLastEvent(new ThresholdSensorEvent(false, 1));
+        setupDozeTriggersWithTapProxCheck(mConfig);
+        answerTapProximityCheck(false);
 
         mTriggers.onSensor(DozeLog.REASON_SENSOR_TAP, 100, 200, null);
 
@@ -592,28 +600,151 @@ public class DozeTriggersTest extends SysuiTestCase {
     }
 
     @Test
-    public void test_onSensor_doubleTap_proxCheck_near_dropsTap() throws Exception {
-        DozeParameters dozeParameters = DozeConfigurationUtil.createMockParameters();
-        when(dozeParameters.getProxCheckBeforeTap()).thenReturn(true);
-        setupDozeTriggers(mConfig, dozeParameters);
+    public void test_onSensor_tap_proxCheck_unknown_wakesUp() throws Exception {
+        // GIVEN no current proximity reading arrives in time
+        setupDozeTriggersWithTapProxCheck(mConfig);
+        answerTapProximityCheck(null);
+
+        mTriggers.onSensor(DozeLog.REASON_SENSOR_TAP, 100, 200, null);
+
+        // THEN the tap wakes the device: a sensor that stays silent must not disable the taps
+        verify(mHost).onSlpiTap(100, 200);
+        verify(mMachine).wakeUp(DozeLog.REASON_SENSOR_TAP);
+    }
+
+    @Test
+    public void test_onSensor_tap_proxCheck_waitsForReading() throws Exception {
+        setupDozeTriggersWithTapProxCheck(mConfig);
+        ArgumentCaptor<Consumer<Boolean>> callback = ArgumentCaptor.forClass(Consumer.class);
+
+        mTriggers.onSensor(DozeLog.REASON_SENSOR_TAP, 100, 200, null);
+
+        // THEN nothing happens until the proximity check answers
+        verify(mTapProximityCheck).check(callback.capture());
+        verify(mMachine, never()).wakeUp(anyInt());
+
+        callback.getValue().accept(false);
+
+        verify(mMachine).wakeUp(DozeLog.REASON_SENSOR_TAP);
+    }
+
+    @Test
+    public void test_onSensor_tap_proxCheck_doesNotUseWakeUpProximity() throws Exception {
+        // The wake-up proximity sensor can keep a device awake: taps must not turn it on.
+        setupDozeTriggersWithTapProxCheck(mConfig);
+        answerTapProximityCheck(false);
         mProximitySensor.setLastEvent(new ThresholdSensorEvent(true, 1));
+
+        mTriggers.onSensor(DozeLog.REASON_SENSOR_TAP, 100, 200, null);
+
+        verify(mProximityCheck, never()).check(anyLong(), any());
+        verify(mMachine).wakeUp(DozeLog.REASON_SENSOR_TAP);
+    }
+
+    @Test
+    public void test_onSensor_doubleTap_proxCheck_near_dropsTap() throws Exception {
+        setupDozeTriggersWithTapProxCheck(mConfig);
+        answerTapProximityCheck(true);
 
         mTriggers.onSensor(DozeLog.REASON_SENSOR_DOUBLE_TAP, 100, 200, null);
 
         verify(mHost, never()).onSlpiTap(anyFloat(), anyFloat());
         verify(mMachine, never()).wakeUp(anyInt());
+        verify(mDozeLog).traceSensorEventDropped(DozeLog.REASON_SENSOR_DOUBLE_TAP,
+                "prox reporting near");
     }
 
     @Test
     public void test_onSensor_doubleTap_proxCheck_far_wakesUp() throws Exception {
-        DozeParameters dozeParameters = DozeConfigurationUtil.createMockParameters();
-        when(dozeParameters.getProxCheckBeforeTap()).thenReturn(true);
-        setupDozeTriggers(mConfig, dozeParameters);
-        mProximitySensor.setLastEvent(new ThresholdSensorEvent(false, 1));
+        setupDozeTriggersWithTapProxCheck(mConfig);
+        answerTapProximityCheck(false);
 
         mTriggers.onSensor(DozeLog.REASON_SENSOR_DOUBLE_TAP, 100, 200, null);
 
         verify(mMachine).wakeUp(DozeLog.REASON_SENSOR_DOUBLE_TAP);
+    }
+
+    @Test
+    public void test_onSensor_tap_noProxCheck_wakesUpUnchecked() {
+        // GIVEN a device that does not ask for the tap proximity check
+        mTriggers.onSensor(DozeLog.REASON_SENSOR_TAP, 100, 200, null);
+
+        // THEN a tap wakes the device without asking the proximity sensor
+        verify(mTapProximityCheck, never()).check(any());
+        verify(mMachine).wakeUp(DozeLog.REASON_SENSOR_TAP);
+    }
+
+    @Test
+    public void tapSensor_proxCheck_near_dropsTapAndListensAgain() throws Exception {
+        // GIVEN the device dozes with the tap sensor listening
+        setupDozeTriggersWithTapProxCheck(mConfig);
+        answerTapProximityCheck(true);
+        mTriggers.transitionTo(DozeMachine.State.INITIALIZED, DozeMachine.State.DOZE);
+        mTriggers.onScreenState(Display.STATE_OFF);
+        waitForSensorManager();
+        ArgumentCaptor<TriggerEventListener> tapListener =
+                ArgumentCaptor.forClass(TriggerEventListener.class);
+        verify(mSensors).requestTriggerSensor(tapListener.capture(), eq(mTapSensor));
+        clearInvocations(mSensors);
+
+        // WHEN the one-shot tap sensor fires while the proximity sensor is covered
+        Constructor<TriggerEvent> constructor =
+                TriggerEvent.class.getDeclaredConstructor(Integer.TYPE);
+        constructor.setAccessible(true);
+        tapListener.getValue().onTrigger(constructor.newInstance(2));
+        TestableLooper.get(this).processAllMessages();
+        waitForSensorManager();
+
+        // THEN the tap is dropped and the sensor listens for the next tap
+        verify(mMachine, never()).wakeUp(anyInt());
+        verify(mSensors).requestTriggerSensor(any(), eq(mTapSensor));
+    }
+
+    @Test
+    public void transitionToDoze_tapProxCheck_listensWithoutWakeUpProximity() throws Exception {
+        setupDozeTriggersWithTapProxCheck(mConfig);
+
+        mTriggers.transitionTo(DozeMachine.State.INITIALIZED, DozeMachine.State.DOZE);
+        mTriggers.onScreenState(Display.STATE_OFF);
+
+        // THEN the tap proximity check listens, and the wake-up proximity sensor stays off
+        verify(mTapProximityCheck).setListening(true);
+        assertFalse(mProximitySensor.isRegistered());
+    }
+
+    @Test
+    public void transitionToPulsing_tapProxCheck_stopsListening() throws Exception {
+        setupDozeTriggersWithTapProxCheck(mConfig);
+        mTriggers.transitionTo(DozeMachine.State.INITIALIZED, DozeMachine.State.DOZE);
+        clearInvocations(mTapProximityCheck);
+
+        // WHEN the touch sensors stop listening
+        mTriggers.transitionTo(DozeMachine.State.DOZE, DozeMachine.State.DOZE_REQUEST_PULSE);
+        mTriggers.transitionTo(DozeMachine.State.DOZE_REQUEST_PULSE,
+                DozeMachine.State.DOZE_PULSING);
+
+        verify(mTapProximityCheck).setListening(false);
+    }
+
+    @Test
+    public void transitionToDoze_tapProxCheck_tapsOff_doesNotListen() throws Exception {
+        AmbientDisplayConfiguration config = DozeConfigurationUtil.createMockConfig();
+        when(config.tapGestureEnabled(anyInt())).thenReturn(false);
+        setupDozeTriggersWithTapProxCheck(config);
+
+        mTriggers.transitionTo(DozeMachine.State.INITIALIZED, DozeMachine.State.DOZE);
+        mTriggers.onScreenState(Display.STATE_OFF);
+
+        verify(mTapProximityCheck, never()).setListening(true);
+    }
+
+    @Test
+    public void transitionToDoze_noTapProxCheck_doesNotListen() {
+        mTriggers.transitionTo(DozeMachine.State.INITIALIZED, DozeMachine.State.DOZE);
+        mTriggers.onScreenState(Display.STATE_OFF);
+
+        verify(mTapProximityCheck, never()).setListening(true);
+        assertFalse(mProximitySensor.isRegistered());
     }
 
     @Test
@@ -755,5 +886,21 @@ public class DozeTriggersTest extends SysuiTestCase {
 
     private void waitForSensorManager() {
         mExecutor.runAllReady();
+    }
+
+    /** Makes the tap proximity check answer at once: covered, clear, or null for not known. */
+    private void answerTapProximityCheck(Boolean near) {
+        doAnswer(invocation -> {
+            invocation.<Consumer<Boolean>>getArgument(0).accept(near);
+            return null;
+        }).when(mTapProximityCheck).check(any());
+    }
+
+    /** Sets up the triggers for a device that drops taps while its proximity sensor is covered. */
+    private void setupDozeTriggersWithTapProxCheck(AmbientDisplayConfiguration config)
+            throws Exception {
+        DozeParameters dozeParameters = DozeConfigurationUtil.createMockParameters();
+        when(dozeParameters.getProxCheckBeforeTap()).thenReturn(true);
+        setupDozeTriggers(config, dozeParameters);
     }
 }
