@@ -908,6 +908,33 @@ public class SyntheticPasswordTests extends BaseLockSettingsServiceTests {
                 mService.getCurrentLskfBasedProtectorId(PRIMARY_USER_ID), 18, 3, 0);
     }
 
+    // Tests that a caller can't set a credential that is flagged as a unified profile password,
+    // which would get the fast scrypt parameters.  Only the service itself creates those.
+    @Test
+    public void testSetLockCredential_rejectsUnifiedProfilePasswordFromCaller()
+            throws RemoteException {
+        final LockscreenCredential password = newPassword("password");
+        final LockscreenCredential flaggedPassword =
+                LockscreenCredential.createUnifiedProfilePassword("user-chosen".getBytes(UTF_8));
+        mService.initializeSyntheticPassword(PRIMARY_USER_ID);
+        mService.initializeSyntheticPassword(MANAGED_PROFILE_USER_ID);
+        mService.setLockCredential(password, nonePassword(), PRIMARY_USER_ID);
+        final long protectorId = mService.getCurrentLskfBasedProtectorId(PRIMARY_USER_ID);
+        final long profileProtectorId =
+                mService.getCurrentLskfBasedProtectorId(MANAGED_PROFILE_USER_ID);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> mService.setLockCredential(flaggedPassword, password, PRIMARY_USER_ID));
+        assertThrows(IllegalArgumentException.class,
+                () -> mService.setLockCredential(flaggedPassword, nonePassword(),
+                        MANAGED_PROFILE_USER_ID));
+
+        assertEquals(protectorId, mService.getCurrentLskfBasedProtectorId(PRIMARY_USER_ID));
+        assertEquals(profileProtectorId,
+                mService.getCurrentLskfBasedProtectorId(MANAGED_PROFILE_USER_ID));
+        assertTrue(mService.verifyCredential(password, PRIMARY_USER_ID, 0 /* flags */).isMatched());
+    }
+
     // Tests that the biometric second factor PIN keeps the fast scrypt parameters.
     @Test
     public void testBiometricSecondFactorPinKeepsFastScryptParams() throws RemoteException {
