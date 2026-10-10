@@ -854,8 +854,15 @@ public class SyntheticPasswordTests extends BaseLockSettingsServiceTests {
         long protectorId = mService.getCurrentLskfBasedProtectorId(userId);
         assertStoredScryptParams(userId, protectorId, 18, 3, 0);
 
+        final int callsBefore = mSpManager.mScryptCalls.size();
         assertTrue(mService.verifyCredential(credential, userId, 0 /* flags */).isMatched());
-        assertLastScryptParams(18, 3, 0);
+        // The first stretch of a verification is that of the entered credential.  Later ones can
+        // unlock a profile whose lock is tied to this user, which uses the fast parameters.
+        assertTrue(mSpManager.mScryptCalls.size() > callsBefore);
+        final int[] firstCall = mSpManager.mScryptCalls.get(callsBefore);
+        assertEquals(1 << 18, firstCall[0]);
+        assertEquals(1 << 3, firstCall[1]);
+        assertEquals(1 << 0, firstCall[2]);
     }
 
     @Test
