@@ -25,6 +25,9 @@
 #include <utils/String8.h>
 #include <utils/Log.h>
 
+#include <errno.h>
+#include <string.h>
+
 extern "C" {
 #include "crypto_scrypt.h"
 }
@@ -40,21 +43,32 @@ static jbyteArray android_security_Scrypt_nativeScrypt(JNIEnv* env, jobject, jby
     int saltLen = env->GetArrayLength(salt);
     jbyteArray ret = env->NewByteArray(outLen);
 
-    jbyte* passwordPtr = (jbyte*)env->GetByteArrayElements(password, NULL);
-    jbyte* saltPtr = (jbyte*)env->GetByteArrayElements(salt, NULL);
-    jbyte* retPtr = (jbyte*)env->GetByteArrayElements(ret, NULL);
+    // Each of these can fail, which leaves an exception pending.  Stop at the first failure, since
+    // most JNI functions must not be called with an exception pending.
+    jbyte* passwordPtr = ret ? (jbyte*)env->GetByteArrayElements(password, NULL) : NULL;
+    jbyte* saltPtr = passwordPtr ? (jbyte*)env->GetByteArrayElements(salt, NULL) : NULL;
+    jbyte* retPtr = saltPtr ? (jbyte*)env->GetByteArrayElements(ret, NULL) : NULL;
 
-    int rc = crypto_scrypt((const uint8_t *)passwordPtr, passwordLen,
-                       (const uint8_t *)saltPtr, saltLen, N, r, p, (uint8_t *)retPtr,
-                       outLen);
-    env->ReleaseByteArrayElements(password, passwordPtr, JNI_ABORT);
-    env->ReleaseByteArrayElements(salt, saltPtr, JNI_ABORT);
-    env->ReleaseByteArrayElements(ret, retPtr, 0);
+    int rc = -1;
+    int err = ENOMEM;
+    if (retPtr) {
+        // This fails with ENOMEM if the 128 * r * N bytes of working memory can't be mapped.
+        rc = crypto_scrypt((const uint8_t *)passwordPtr, passwordLen,
+                           (const uint8_t *)saltPtr, saltLen, N, r, p, (uint8_t *)retPtr,
+                           outLen);
+        err = errno;
+    }
+    if (passwordPtr) env->ReleaseByteArrayElements(password, passwordPtr, JNI_ABORT);
+    if (saltPtr) env->ReleaseByteArrayElements(salt, saltPtr, JNI_ABORT);
+    if (retPtr) env->ReleaseByteArrayElements(ret, retPtr, 0);
 
     if (!rc) {
         return ret;
     } else {
-        SLOGE("scrypt failed");
+        // Report every failure the same way: a null result that the caller must check, with no
+        // exception left pending.
+        env->ExceptionClear();
+        SLOGE("scrypt failed: %s", strerror(err));
         return NULL;
     }
 }

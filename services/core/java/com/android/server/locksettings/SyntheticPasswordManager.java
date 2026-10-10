@@ -1126,6 +1126,8 @@ class SyntheticPasswordManager {
         // There's no need to store password data about an empty LSKF.
         PasswordData pwd = credential.isNone() ? null :
                 PasswordData.create(credential.getType(), pinLength);
+        // Nothing has been written or enrolled yet, so if the stretching fails (it throws), the
+        // user's existing protector is left untouched.
         byte[] stretchedLskf = stretchLskf(credential, pwd);
         long sid = GateKeeper.INVALID_SECURE_USER_ID;
         final byte[] protectorSecret;
@@ -1266,7 +1268,10 @@ class SyntheticPasswordManager {
         final PersistentData persistentData = getSpecialUserPersistentData(sourceUserId);
         if (persistentData.type == PersistentData.TYPE_SP_GATEKEEPER) {
             PasswordData pwd = PasswordData.fromBytes(persistentData.payload);
-            byte[] stretchedLskf = stretchLskf(userCredential, pwd);
+            byte[] stretchedLskf = stretchLskfOrNull(userCredential, pwd);
+            if (stretchedLskf == null) {
+                return VerifyCredentialResponse.OTHER_ERROR;
+            }
 
             GateKeeperResponse response;
             try {
@@ -1285,7 +1290,10 @@ class SyntheticPasswordManager {
                 return VerifyCredentialResponse.OTHER_ERROR;
             }
             PasswordData pwd = PasswordData.fromBytes(persistentData.payload);
-            byte[] stretchedLskf = stretchLskf(userCredential, pwd);
+            byte[] stretchedLskf = stretchLskfOrNull(userCredential, pwd);
+            if (stretchedLskf == null) {
+                return VerifyCredentialResponse.OTHER_ERROR;
+            }
             int weaverSlot = persistentData.userId;
 
             WeaverReadResponse weaverResponse =
@@ -1622,7 +1630,12 @@ class SyntheticPasswordManager {
         byte[] gkPassword = null;
         byte[] protectorSecret = null;
         try {
-            stretchedLskf = stretchLskf(credential, pwd);
+            stretchedLskf = stretchLskfOrNull(credential, pwd);
+            if (stretchedLskf == null) {
+                // Nothing was checked against Gatekeeper or Weaver, so no hardware guess was used.
+                result.response = VerifyCredentialResponse.OTHER_ERROR;
+                return result;
+            }
             long sid = GateKeeper.INVALID_SECURE_USER_ID;
             int weaverSlot = loadWeaverSlot(protectorId, userId);
             if (weaverSlot != INVALID_WEAVER_SLOT) {
@@ -2239,6 +2252,10 @@ class SyntheticPasswordManager {
      * However, old protectors always stored {@link PasswordData} and did the stretching, regardless
      * of whether the credential was empty or not.  For this reason, this method also continues to
      * support stretching of empty credentials so that old protectors can still be unlocked.
+     * <p>
+     * Never returns null: a failed scrypt (e.g. its memory could not be allocated) is an error.
+     *
+     * @throws IllegalStateException if scrypt fails
      */
     @VisibleForTesting
     byte[] stretchLskf(LockscreenCredential credential, @Nullable PasswordData data) {
@@ -2247,8 +2264,27 @@ class SyntheticPasswordManager {
             Preconditions.checkArgument(credential.isNone());
             return Arrays.copyOf(password, STRETCHED_LSKF_LENGTH);
         }
-        return scrypt(password, data.salt, 1 << data.scryptLogN, 1 << data.scryptLogR,
-                1 << data.scryptLogP, STRETCHED_LSKF_LENGTH);
+        final byte[] stretchedLskf = scrypt(password, data.salt, 1 << data.scryptLogN,
+                1 << data.scryptLogR, 1 << data.scryptLogP, STRETCHED_LSKF_LENGTH);
+        if (stretchedLskf == null || stretchedLskf.length != STRETCHED_LSKF_LENGTH) {
+            throw new IllegalStateException("scrypt failed");
+        }
+        return stretchedLskf;
+    }
+
+    /**
+     * Like {@link #stretchLskf}, but returns null on failure instead of throwing.  This is for
+     * verification, where a failure has to become an error response rather than an exception
+     * thrown at the caller, which may be the lock screen or a handler thread.
+     */
+    @Nullable
+    byte[] stretchLskfOrNull(LockscreenCredential credential, @Nullable PasswordData data) {
+        try {
+            return stretchLskf(credential, data);
+        } catch (IllegalStateException e) {
+            Slog.e(TAG, "Failed to stretch LSKF", e);
+            return null;
+        }
     }
 
     private byte[] stretchedLskfToGkPassword(byte[] stretchedLskf) {

@@ -29,7 +29,10 @@ class DuressCredential {
     }
 
     boolean verify(SyntheticPasswordManager spm, LockscreenCredential credential) {
-        return Arrays.equals(hashedCredential, spm.stretchLskf(credential, salt));
+        // This runs on a handler thread, where an exception would take down system_server, so a
+        // failed stretch is reported as a non-match instead.
+        byte[] stretched = spm.stretchLskfOrNull(credential, salt);
+        return stretched != null && Arrays.equals(hashedCredential, stretched);
     }
 
     int getType() {
