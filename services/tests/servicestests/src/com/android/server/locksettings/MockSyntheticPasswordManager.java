@@ -37,6 +37,8 @@ public class MockSyntheticPasswordManager extends SyntheticPasswordManager {
     private IWeaver mWeaverAidl;
     private android.hardware.weaver.V1_0.IWeaver mWeaverHidl;
 
+    /** The number of scrypt() calls made so far, including failed ones. */
+    int mScryptCallCount;
     /** The parameters of the most recent scrypt() call. */
     int mLastScryptN;
     int mLastScryptR;
@@ -63,6 +65,7 @@ public class MockSyntheticPasswordManager extends SyntheticPasswordManager {
 
     @Override
     protected byte[] scrypt(byte[] password, byte[] salt, int n, int r, int p, int outLen) {
+        mScryptCallCount++;
         mLastScryptN = n;
         mLastScryptR = r;
         mLastScryptP = p;
