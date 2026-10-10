@@ -138,6 +138,22 @@ public class LockscreenFrpTest extends BaseLockSettingsServiceTests {
         assertTrue(mService.verifyCredential(newPin("1234"), USER_FRP, 0 /* flags */).isMatched());
     }
 
+    // The FRP block carries the scrypt parameters of the protector it was copied from, and they are
+    // range-checked like a protector's own when the FRP credential is verified.
+    @Test
+    public void testFrpCredential_tamperedScryptParams() {
+        mService.setLockCredential(newPin("1234"), nonePassword(), PRIMARY_USER_ID);
+        PersistentData data = mStorage.readPersistentDataBlock();
+        // Tweak the existing persistent data to make it ask for 1 TiB of scrypt memory
+        assertEquals(18, data.payload[4]);
+        data.payload[4] = 30;
+        mStorage.writePersistentDataBlock(data.type, data.userId,
+                DevicePolicyManager.PASSWORD_QUALITY_NUMERIC, data.payload);
+
+        assertTrue(
+                mService.verifyCredential(newPin("1234"), USER_FRP, 0 /* flags */).isOtherError());
+    }
+
     // The FRP block that gets written by the current version of Android must still be accepted by
     // old versions of Android.  This test tries to detect non-forward-compatible changes in
     // PasswordData#toBytes(), which would break that.

@@ -226,6 +226,17 @@ class SyntheticPasswordManager {
     private static final int PRIMARY_LSKF_SCRYPT_LOG_N = 18;
     private static final int PRIMARY_LSKF_SCRYPT_LOG_P = 0;
 
+    /*
+     * Upper bound on scryptLogN + scryptLogR + scryptLogP for parameters read back from storage.
+     * scrypt uses 128 * r * N bytes of memory and time proportional to N * r * p, so this caps
+     * both at what the strongest parameters above cost.  Without it, a tampered PasswordData could
+     * make system_server try to use hundreds of gigabytes of memory or compute for hours.
+     *
+     * Never lower this below the cost of any parameters that were ever written, or the protectors
+     * that use them can no longer be unlocked.
+     */
+    private static final int MAX_SCRYPT_LOG_COST = 21;
+
     private static final int PASSWORD_SALT_LENGTH = 16;
     private static final int STRETCHED_LSKF_LENGTH = 32;
     private static final String TAG = "SyntheticPasswordManager";
@@ -2291,8 +2302,10 @@ class SyntheticPasswordManager {
      * of whether the credential was empty or not.  For this reason, this method also continues to
      * support stretching of empty credentials so that old protectors can still be unlocked.
      * <p>
-     * Never returns null: a failed scrypt (e.g. its memory could not be allocated) is an error.
+     * Never returns null.  The scrypt parameters come from storage, so they are range-checked
+     * first, and a failed scrypt (e.g. its memory could not be allocated) is an error too.
      *
+     * @throws IllegalArgumentException if the scrypt parameters are out of range
      * @throws IllegalStateException if scrypt fails
      */
     @VisibleForTesting
@@ -2301,6 +2314,11 @@ class SyntheticPasswordManager {
         if (data == null) {
             Preconditions.checkArgument(credential.isNone());
             return Arrays.copyOf(password, STRETCHED_LSKF_LENGTH);
+        }
+        if (data.scryptLogN < 1 || data.scryptLogR < 0 || data.scryptLogP < 0
+                || data.scryptLogN + data.scryptLogR + data.scryptLogP > MAX_SCRYPT_LOG_COST) {
+            throw new IllegalArgumentException("Invalid scrypt parameters: logN=" + data.scryptLogN
+                    + ", logR=" + data.scryptLogR + ", logP=" + data.scryptLogP);
         }
         final byte[] stretchedLskf = scrypt(password, data.salt, 1 << data.scryptLogN,
                 1 << data.scryptLogR, 1 << data.scryptLogP, STRETCHED_LSKF_LENGTH);
@@ -2319,7 +2337,7 @@ class SyntheticPasswordManager {
     byte[] stretchLskfOrNull(LockscreenCredential credential, @Nullable PasswordData data) {
         try {
             return stretchLskf(credential, data);
-        } catch (IllegalStateException e) {
+        } catch (IllegalArgumentException | IllegalStateException e) {
             Slog.e(TAG, "Failed to stretch LSKF", e);
             return null;
         }
