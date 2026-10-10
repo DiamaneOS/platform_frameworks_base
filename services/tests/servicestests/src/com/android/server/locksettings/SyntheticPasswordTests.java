@@ -827,6 +827,116 @@ public class SyntheticPasswordTests extends BaseLockSettingsServiceTests {
         return data;
     }
 
+    // The name of the file that holds a protector's PasswordData.
+    private static final String PASSWORD_DATA_NAME = "pwd";
+
+    private void assertStoredScryptParams(int userId, long protectorId, int expectedLogN,
+            int expectedLogR, int expectedLogP) {
+        assertTrue(mSpManager.hasPasswordData(protectorId, userId));
+        PasswordData data = PasswordData.fromBytes(
+                mStorage.readSyntheticPasswordState(userId, protectorId, PASSWORD_DATA_NAME));
+        assertEquals(expectedLogN, data.scryptLogN);
+        assertEquals(expectedLogR, data.scryptLogR);
+        assertEquals(expectedLogP, data.scryptLogP);
+    }
+
+    private void assertLastScryptParams(int expectedLogN, int expectedLogR, int expectedLogP) {
+        assertEquals(1 << expectedLogN, mSpManager.mLastScryptN);
+        assertEquals(1 << expectedLogR, mSpManager.mLastScryptR);
+        assertEquals(1 << expectedLogP, mSpManager.mLastScryptP);
+    }
+
+    // Sets the given credential as the user's primary LSKF and checks that its protector stores
+    // the stronger scrypt parameters and that verification uses them.
+    private void checkPrimaryLskfUsesStrongScryptParams(int userId, LockscreenCredential credential)
+            throws RemoteException {
+        initSpAndSetCredential(userId, credential);
+        long protectorId = mService.getCurrentLskfBasedProtectorId(userId);
+        assertStoredScryptParams(userId, protectorId, 18, 3, 0);
+
+        assertTrue(mService.verifyCredential(credential, userId, 0 /* flags */).isMatched());
+        assertLastScryptParams(18, 3, 0);
+    }
+
+    @Test
+    public void testPrimaryPasswordUsesStrongScryptParams() throws RemoteException {
+        checkPrimaryLskfUsesStrongScryptParams(PRIMARY_USER_ID, newPassword("password"));
+    }
+
+    @Test
+    public void testPrimaryPinUsesStrongScryptParams() throws RemoteException {
+        checkPrimaryLskfUsesStrongScryptParams(PRIMARY_USER_ID, newPin("123456"));
+    }
+
+    @Test
+    public void testPrimaryPatternUsesStrongScryptParams() throws RemoteException {
+        checkPrimaryLskfUsesStrongScryptParams(PRIMARY_USER_ID, newPattern("12369"));
+    }
+
+    @Test
+    public void testSecondaryUserPasswordUsesStrongScryptParams() throws RemoteException {
+        checkPrimaryLskfUsesStrongScryptParams(SECONDARY_USER_ID, newPassword("password"));
+    }
+
+    // Tests that a profile's own credential (separate challenge) is treated like any other user's
+    // primary LSKF.
+    @Test
+    public void testSeparateProfileChallengeUsesStrongScryptParams() throws RemoteException {
+        mService.initializeSyntheticPassword(PRIMARY_USER_ID);
+        mService.initializeSyntheticPassword(MANAGED_PROFILE_USER_ID);
+
+        mService.setLockCredential(newPassword("primary"), nonePassword(), PRIMARY_USER_ID);
+        mService.setLockCredential(newPassword("profile"), nonePassword(), MANAGED_PROFILE_USER_ID);
+
+        assertStoredScryptParams(MANAGED_PROFILE_USER_ID,
+                mService.getCurrentLskfBasedProtectorId(MANAGED_PROFILE_USER_ID), 18, 3, 0);
+    }
+
+    // Tests that the random password of a profile with unified challenge keeps the fast scrypt
+    // parameters, while the parent's own credential gets the stronger ones.
+    @Test
+    public void testUnifiedProfilePasswordKeepsFastScryptParams() throws RemoteException {
+        mService.initializeSyntheticPassword(PRIMARY_USER_ID);
+        mService.initializeSyntheticPassword(MANAGED_PROFILE_USER_ID);
+
+        mService.setLockCredential(newPassword("password"), nonePassword(), PRIMARY_USER_ID);
+        mService.setSeparateProfileChallengeEnabled(MANAGED_PROFILE_USER_ID, false, null);
+
+        assertStoredScryptParams(MANAGED_PROFILE_USER_ID,
+                mService.getCurrentLskfBasedProtectorId(MANAGED_PROFILE_USER_ID), 9, 3, 1);
+        assertStoredScryptParams(PRIMARY_USER_ID,
+                mService.getCurrentLskfBasedProtectorId(PRIMARY_USER_ID), 18, 3, 0);
+    }
+
+    // Tests that the biometric second factor PIN keeps the fast scrypt parameters.
+    @Test
+    public void testBiometricSecondFactorPinKeepsFastScryptParams() throws RemoteException {
+        final LockscreenCredential password = newPassword("password");
+        final LockscreenCredential secondaryPin = newPin("123456");
+        initSpAndSetCredential(PRIMARY_USER_ID, password, secondaryPin);
+
+        assertStoredScryptParams(PRIMARY_USER_ID,
+                mService.getCurrentLskfBasedProtectorId(PRIMARY_USER_ID, Secondary), 9, 3, 1);
+        assertStoredScryptParams(PRIMARY_USER_ID,
+                mService.getCurrentLskfBasedProtectorId(PRIMARY_USER_ID), 18, 3, 0);
+
+        assertTrue(mService.verifyCredential(
+                secondaryPin, Secondary, PRIMARY_USER_ID, 0 /* flags */).isMatched());
+        assertLastScryptParams(9, 3, 1);
+    }
+
+    // Tests that duress credentials keep the fast scrypt parameters.
+    @Test
+    public void testDuressCredentialKeepsFastScryptParams() {
+        final LockscreenCredential pin = newPin("123456");
+        DuressCredential duressCredential = DuressCredential.create(pin, mSpManager);
+        assertLastScryptParams(9, 3, 1);
+
+        assertTrue(duressCredential.verify(mSpManager, pin));
+        assertLastScryptParams(9, 3, 1);
+        assertFalse(duressCredential.verify(mSpManager, newPin("654321")));
+    }
+
     // Tests that a failed scrypt makes a duress check a non-match instead of throwing, and that a
     // duress credential can't be created from a failed scrypt.
     @Test
