@@ -26,6 +26,7 @@ import java.security.KeyStore;
 import java.security.NoSuchAlgorithmException;
 import java.security.spec.InvalidKeySpecException;
 import java.time.Duration;
+import java.util.ArrayList;
 
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.PBEKeySpec;
@@ -42,6 +43,8 @@ public class MockSyntheticPasswordManager extends SyntheticPasswordManager {
     int mLastScryptN;
     int mLastScryptR;
     int mLastScryptP;
+    /** The parameters {n, r, p} of every scrypt() call made so far, in order. */
+    final ArrayList<int[]> mScryptCalls = new ArrayList<>();
     // The number of scrypt() calls that still succeed before scrypt() starts failing, or -1 if it
     // never fails.
     private int mScryptSuccessesLeft = -1;
@@ -66,6 +69,7 @@ public class MockSyntheticPasswordManager extends SyntheticPasswordManager {
         mLastScryptN = n;
         mLastScryptR = r;
         mLastScryptP = p;
+        mScryptCalls.add(new int[] {n, r, p});
         if (mScryptSuccessesLeft == 0) {
             return null;
         }
