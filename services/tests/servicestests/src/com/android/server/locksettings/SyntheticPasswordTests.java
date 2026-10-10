@@ -827,6 +827,79 @@ public class SyntheticPasswordTests extends BaseLockSettingsServiceTests {
         return data;
     }
 
+    // Tests that a failed scrypt makes a duress check a non-match instead of throwing, and that a
+    // duress credential can't be created from a failed scrypt.
+    @Test
+    public void testDuressCredential_scryptFailure() {
+        final LockscreenCredential pin = newPin("123456");
+        DuressCredential duressCredential = DuressCredential.create(pin, mSpManager);
+
+        mSpManager.failScryptAfter(0);
+        assertFalse(duressCredential.verify(mSpManager, pin));
+        assertThrows(IllegalStateException.class, () -> DuressCredential.create(pin, mSpManager));
+    }
+
+    // Tests that a failed scrypt is an error rather than a null result.
+    @Test
+    public void testStretchLskf_scryptFailure() {
+        mSpManager.failScryptAfter(0);
+        assertThrows(IllegalStateException.class,
+                () -> mSpManager.stretchLskf(newPin("12345"), createTestPasswordData()));
+        assertNull(mSpManager.stretchLskfOrNull(newPin("12345"), createTestPasswordData()));
+    }
+
+    // Tests that when scrypt fails while a protector is being created, nothing is enrolled in
+    // Gatekeeper and nothing is written to the FRP block.
+    @Test
+    public void testCreateLskfBasedProtector_scryptFailure() throws RemoteException {
+        final LockscreenCredential password = newPassword("password");
+        SyntheticPassword sp = mSpManager.newSyntheticPassword(PRIMARY_USER_ID, Primary);
+
+        mSpManager.failScryptAfter(0);
+        assertThrows(IllegalStateException.class,
+                () -> mSpManager.createLskfBasedProtector(mGateKeeperService, password, Primary,
+                        sp, PRIMARY_USER_ID));
+
+        assertFalse(lskfGatekeeperHandleExists(PRIMARY_USER_ID, Primary));
+        verify(mStorage.mPersistentDataBlockManager, never()).setFrpCredentialHandle(any());
+    }
+
+    // Tests that when scrypt fails for the new credential during a credential change, the change
+    // fails as a whole and the old credential keeps working.
+    @Test
+    public void testChangeCredential_scryptFailureKeepsOldCredential() throws RemoteException {
+        final LockscreenCredential password = newPassword("password");
+        final LockscreenCredential newPassword = newPassword("newpassword");
+        initSpAndSetCredential(PRIMARY_USER_ID, password);
+        final long protectorId = mService.getCurrentLskfBasedProtectorId(PRIMARY_USER_ID);
+
+        // Let the verification of the old credential succeed, then fail.
+        mSpManager.failScryptAfter(1);
+        assertThrows(IllegalStateException.class,
+                () -> mService.setLockCredential(newPassword, password, PRIMARY_USER_ID));
+        mSpManager.clearScryptFailure();
+
+        assertEquals(protectorId, mService.getCurrentLskfBasedProtectorId(PRIMARY_USER_ID));
+        assertTrue(mService.verifyCredential(password, PRIMARY_USER_ID, 0 /* flags */).isMatched());
+        assertFalse(
+                mService.verifyCredential(newPassword, PRIMARY_USER_ID, 0 /* flags */).isMatched());
+    }
+
+    // Tests that when scrypt fails during verification, an error is returned and the credential
+    // still verifies afterwards, i.e. it isn't remembered as a wrong guess.
+    @Test
+    public void testVerifyCredential_scryptFailure() throws RemoteException {
+        final LockscreenCredential password = newPassword("password");
+        initSpAndSetCredential(PRIMARY_USER_ID, password);
+
+        mSpManager.failScryptAfter(0);
+        assertTrue(
+                mService.verifyCredential(password, PRIMARY_USER_ID, 0 /* flags */).isOtherError());
+        mSpManager.clearScryptFailure();
+
+        assertTrue(mService.verifyCredential(password, PRIMARY_USER_ID, 0 /* flags */).isMatched());
+    }
+
     @Test
     public void testPasswordDataLatestVersion_serializeDeserialize() {
         PasswordData data = new PasswordData();
