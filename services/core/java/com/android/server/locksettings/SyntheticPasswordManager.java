@@ -214,6 +214,18 @@ class SyntheticPasswordManager {
     private static final int PASSWORD_SCRYPT_LOG_R = 3;
     private static final int PASSWORD_SCRYPT_LOG_P = 1;
 
+    /*
+     * Stronger scrypt parameters for a user's primary LSKF: N=2^18, r=8, p=1, i.e. 256 MiB of
+     * memory per guess.  Without Weaver, no hardware-held secret is mixed into the key that
+     * protects the SP, so once the TEE is compromised the scrypt step is the only per-guess cost
+     * of an offline attack.  That makes it worth about a second per unlock.
+     *
+     * Everything else that uses PasswordData keeps the fast parameters above: the biometric second
+     * factor PIN, unified profile passwords (random and high-entropy) and duress credentials.
+     */
+    private static final int PRIMARY_LSKF_SCRYPT_LOG_N = 18;
+    private static final int PRIMARY_LSKF_SCRYPT_LOG_P = 0;
+
     private static final int PASSWORD_SALT_LENGTH = 16;
     private static final int STRETCHED_LSKF_LENGTH = 32;
     private static final String TAG = "SyntheticPasswordManager";
@@ -435,6 +447,14 @@ class SyntheticPasswordManager {
             result.credentialType = credentialType;
             result.pinLength = pinLength;
             result.salt = SecureRandomUtils.randomBytes(PASSWORD_SALT_LENGTH);
+            return result;
+        }
+
+        /** Like {@link #create}, but with the stronger scrypt parameters for a primary LSKF. */
+        public static PasswordData createForPrimaryLskf(int credentialType, int pinLength) {
+            PasswordData result = create(credentialType, pinLength);
+            result.scryptLogN = PRIMARY_LSKF_SCRYPT_LOG_N;
+            result.scryptLogP = PRIMARY_LSKF_SCRYPT_LOG_P;
             return result;
         }
 
@@ -1125,7 +1145,7 @@ class SyntheticPasswordManager {
         int pinLength = derivePinLength(credential.size(), credential.isPin(), userId, lockDomain);
         // There's no need to store password data about an empty LSKF.
         PasswordData pwd = credential.isNone() ? null :
-                PasswordData.create(credential.getType(), pinLength);
+                newPasswordData(credential, lockDomain, pinLength);
         // Nothing has been written or enrolled yet, so if the stretching fails (it throws), the
         // user's existing protector is left untouched.
         byte[] stretchedLskf = stretchLskf(credential, pwd);
@@ -1134,6 +1154,10 @@ class SyntheticPasswordManager {
 
         Slogf.i(TAG, "Creating LSKF-based protector %016x for user %d; primary %b", protectorId,
                 userId, lockDomain == Primary);
+        if (pwd != null) {
+            Slogf.i(TAG, "Protector %016x uses scrypt logN=%d, logR=%d, logP=%d", protectorId,
+                    pwd.scryptLogN, pwd.scryptLogR, pwd.scryptLogP);
+        }
 
         final IWeaver weaver;
         if (credential.isNone() && isWeaverDisabledOnUnsecuredUsers()) {
@@ -1250,6 +1274,20 @@ class SyntheticPasswordManager {
         byte[] encryptedPassword =
                 encryptProfilePassword(mKeyStore, userId, protectorId, parentSid, password);
         saveProfilePassword(userId, protectorId, encryptedPassword);
+    }
+
+    /**
+     * Creates the PasswordData for a new protector of a nonempty LSKF.  Only a user's own primary
+     * LSKF (password, PIN or pattern) gets the stronger scrypt parameters.  The biometric second
+     * factor PIN is entered on every biometric unlock and a unified profile password is already
+     * random, so both keep the fast parameters.
+     */
+    private static PasswordData newPasswordData(LockscreenCredential credential,
+            LockDomain lockDomain, int pinLength) {
+        if (lockDomain == Primary && !credential.isUnifiedProfilePassword()) {
+            return PasswordData.createForPrimaryLskf(credential.getType(), pinLength);
+        }
+        return PasswordData.create(credential.getType(), pinLength);
     }
 
     private int derivePinLength(int sizeOfCredential, boolean isPinCredential, int userId,
