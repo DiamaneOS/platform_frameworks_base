@@ -23,10 +23,15 @@ import android.platform.test.annotations.DisableFlags
 import android.platform.test.annotations.EnableFlags
 import android.security.Flags.FLAG_SECURE_LOCK_DEVICE
 import android.testing.TestableLooper
+import android.util.PluralsMessageFormatter
 import androidx.test.filters.SmallTest
 import com.android.internal.widget.LockPatternUtils
 import com.android.internal.widget.LockPatternUtils.StrongAuthTracker.PRIMARY_AUTH_REQUIRED_FOR_SECURE_LOCK_DEVICE
+import com.android.internal.widget.LockPatternUtils.StrongAuthTracker.STRONG_AUTH_NOT_REQUIRED
+import com.android.internal.widget.LockPatternUtils.StrongAuthTracker.STRONG_AUTH_REQUIRED_AFTER_TIMEOUT
+import com.android.internal.widget.LockPatternUtils.StrongAuthTracker.STRONG_AUTH_REQUIRED_AFTER_USER_LOCKDOWN
 import com.android.internal.widget.LockPatternUtils.StrongAuthTracker.STRONG_BIOMETRIC_AUTH_REQUIRED_FOR_SECURE_LOCK_DEVICE
+import com.android.internal.widget.lockPatternUtils
 import com.android.keyguard.KeyguardSecurityModel
 import com.android.keyguard.KeyguardSecurityModel.SecurityMode
 import com.android.keyguard.KeyguardSecurityModel.SecurityMode.PIN
@@ -65,6 +70,9 @@ import com.android.systemui.res.R.string.kg_too_many_failed_attempts_countdown_m
 import com.android.systemui.res.R.string.kg_too_many_failed_attempts_countdown_seconds
 import com.android.systemui.res.R.string.kg_too_many_failed_attempts_countdown_years
 import com.android.systemui.res.R.string.kg_trust_agent_disabled
+import com.android.systemui.res.R.string.tally_lock_practice_enter_passphrase
+import com.android.systemui.res.R.string.tally_lock_practice_passphrase
+import com.android.systemui.res.R.string.tally_lock_practice_pin
 import com.android.systemui.securelockdevice.data.repository.fakeSecureLockDeviceRepository
 import com.android.systemui.securelockdevice.domain.interactor.secureLockDeviceInteractor
 import com.android.systemui.testKosmos
@@ -74,6 +82,7 @@ import com.google.common.truth.Truth.assertThat
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.test.TestScope
@@ -84,8 +93,11 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.AdditionalMatchers.or
 import org.mockito.ArgumentCaptor
+import org.mockito.ArgumentMatchers.anyInt
 import org.mockito.ArgumentMatchers.eq
 import org.mockito.Captor
+import org.mockito.Mockito.atLeastOnce
+import org.mockito.Mockito.never
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when` as whenever
 import org.mockito.MockitoAnnotations
@@ -170,6 +182,7 @@ class BouncerMessageInteractorTest : SysuiTestCase() {
     private val biometricSettingsRepository = kosmos.fakeBiometricSettingsRepository
     private val updateMonitor = kosmos.keyguardUpdateMonitor
     private val securityModel: KeyguardSecurityModel = kosmos.keyguardSecurityModel
+    private val lockPatternUtils = kosmos.lockPatternUtils
     private val testScope = kosmos.testScope
     @Captor
     private lateinit var keyguardUpdateMonitorCaptor: ArgumentCaptor<KeyguardUpdateMonitorCallback>
@@ -216,6 +229,19 @@ class BouncerMessageInteractorTest : SysuiTestCase() {
 
     private val unattendedUpdateString
         get() = params.unattendedUpdateString
+
+    /** The daily practice message of the security mode, null if it is never practised. */
+    private val practiceRes: Int?
+        get() =
+            when (securityMode) {
+                Password -> tally_lock_practice_passphrase
+                PIN -> tally_lock_practice_pin
+                else -> null
+            }
+
+    /** The first line over the practice message: only a password's differs from the usual. */
+    private val practiceEnterCredString: String
+        get() = if (securityMode == Password) "Enter passphrase" else enterCredString
 
     @Before
     fun setUp() {
@@ -1356,6 +1382,196 @@ class BouncerMessageInteractorTest : SysuiTestCase() {
                     ),
             )
         }
+
+    @Test
+    fun authTimeout_whileNewCredentialIsPractised_saysSoWithTheDaysLeft() =
+        testScope.runTest {
+            setLearningPeriodRemaining(PRIMARY_USER_ID, 8.days + 1.milliseconds)
+            init(fingerprintAuthCurrentlyAllowed = false)
+            val bouncerMessage by collectLastValue(underTest.bouncerMessage)
+
+            setAuthFlag(PRIMARY_USER_ID, STRONG_AUTH_REQUIRED_AFTER_TIMEOUT)
+
+            val secondaryMessage = bouncerMessage!!.secondaryMessage!!
+            if (practiceRes != null) {
+                assertThat(primaryResMessage(bouncerMessage)).isEqualTo(practiceEnterCredString)
+                assertThat(secondaryMessage.messageResId).isEqualTo(practiceRes)
+                assertThat(secondaryMessage.formatterArgs).isEqualTo(mapOf(Pair("count", 9L)))
+            } else {
+                // A pattern is never practised, whatever lock settings answer.
+                assertThat(primaryResMessage(bouncerMessage)).isEqualTo(enterCredString)
+                assertThat(secondaryResMessage(bouncerMessage)).isEqualTo(afterTimeoutString)
+                assertThat(secondaryMessage.formatterArgs).isNull()
+            }
+        }
+
+    @Test
+    fun authTimeout_withoutLearningPeriod_keepsTheUsualMessage() =
+        testScope.runTest {
+            setLearningPeriodRemaining(PRIMARY_USER_ID, Duration.ZERO)
+            init(fingerprintAuthCurrentlyAllowed = false)
+            val bouncerMessage by collectLastValue(underTest.bouncerMessage)
+
+            setAuthFlag(PRIMARY_USER_ID, STRONG_AUTH_REQUIRED_AFTER_TIMEOUT)
+
+            assertThat(primaryResMessage(bouncerMessage)).isEqualTo(enterCredString)
+            assertThat(secondaryResMessage(bouncerMessage)).isEqualTo(afterTimeoutString)
+            assertThat(bouncerMessage!!.secondaryMessage!!.formatterArgs).isNull()
+        }
+
+    @Test
+    fun authTimeout_whileNewCredentialIsPractised_roundsTheDaysLeftUp() =
+        testScope.runTest {
+            if (practiceRes == null) return@runTest
+            init(fingerprintAuthCurrentlyAllowed = false)
+            val bouncerMessage by collectLastValue(underTest.bouncerMessage)
+
+            fun assertDaysFor(remaining: Duration, expectedDays: Long) {
+                setLearningPeriodRemaining(PRIMARY_USER_ID, remaining)
+                // The days are read when the flags change.
+                setAuthFlag(PRIMARY_USER_ID, STRONG_AUTH_NOT_REQUIRED)
+                setAuthFlag(PRIMARY_USER_ID, STRONG_AUTH_REQUIRED_AFTER_TIMEOUT)
+
+                val secondaryMessage = bouncerMessage!!.secondaryMessage!!
+                assertThat(secondaryMessage.messageResId).isEqualTo(practiceRes)
+                assertThat(secondaryMessage.formatterArgs)
+                    .isEqualTo(mapOf(Pair("count", expectedDays)))
+            }
+
+            assertDaysFor(14.days, 14L)
+            assertDaysFor(14.days - 1.milliseconds, 14L)
+            assertDaysFor(13.days + 1.milliseconds, 14L)
+            assertDaysFor(13.days, 13L)
+            assertDaysFor(2.days, 2L)
+            assertDaysFor(1.days + 1.milliseconds, 2L)
+            assertDaysFor(1.days, 1L)
+            assertDaysFor(1.hours, 1L)
+            assertDaysFor(1.milliseconds, 1L)
+        }
+
+    @Test
+    fun authTimeout_readsTheDaysLeftAgainWhenTheBouncerShows() =
+        testScope.runTest {
+            if (practiceRes == null) return@runTest
+            setLearningPeriodRemaining(PRIMARY_USER_ID, 2.days)
+            init(fingerprintAuthCurrentlyAllowed = false)
+            val bouncerMessage by collectLastValue(underTest.bouncerMessage)
+
+            setAuthFlag(PRIMARY_USER_ID, STRONG_AUTH_REQUIRED_AFTER_TIMEOUT)
+            assertThat(bouncerMessage!!.secondaryMessage!!.formatterArgs)
+                .isEqualTo(mapOf(Pair("count", 2L)))
+
+            // A day passes with the flags unchanged.
+            kosmos.fakeKeyguardBouncerRepository.setPrimaryShow(false)
+            runCurrent()
+            setLearningPeriodRemaining(PRIMARY_USER_ID, 1.days)
+            kosmos.fakeKeyguardBouncerRepository.setPrimaryShow(true)
+            runCurrent()
+
+            assertThat(primaryResMessage(bouncerMessage)).isEqualTo(practiceEnterCredString)
+            assertThat(bouncerMessage!!.secondaryMessage!!.messageResId).isEqualTo(practiceRes)
+            assertThat(bouncerMessage!!.secondaryMessage!!.formatterArgs)
+                .isEqualTo(mapOf(Pair("count", 1L)))
+
+            // The learning period ends, but the shortened timeout still asks once more.
+            kosmos.fakeKeyguardBouncerRepository.setPrimaryShow(false)
+            runCurrent()
+            setLearningPeriodRemaining(PRIMARY_USER_ID, Duration.ZERO)
+            kosmos.fakeKeyguardBouncerRepository.setPrimaryShow(true)
+            runCurrent()
+
+            assertThat(primaryResMessage(bouncerMessage)).isEqualTo(enterCredString)
+            assertThat(secondaryResMessage(bouncerMessage)).isEqualTo(afterTimeoutString)
+            assertThat(bouncerMessage!!.secondaryMessage!!.formatterArgs).isNull()
+        }
+
+    @Test
+    fun authTimeout_whileNewCredentialIsPractised_firstKeyBringsTheUsualFirstLineBack() =
+        testScope.runTest {
+            if (practiceRes == null) return@runTest
+            setLearningPeriodRemaining(PRIMARY_USER_ID, 5.days)
+            init(fingerprintAuthCurrentlyAllowed = false)
+            val bouncerMessage by collectLastValue(underTest.bouncerMessage)
+            setAuthFlag(PRIMARY_USER_ID, STRONG_AUTH_REQUIRED_AFTER_TIMEOUT)
+            assertThat(primaryResMessage(bouncerMessage)).isEqualTo(practiceEnterCredString)
+
+            underTest.onPrimaryBouncerUserInput()
+
+            // Only the practice message says "passphrase".
+            assertThat(primaryResMessage(bouncerMessage)).isEqualTo(enterCredString)
+        }
+
+    @Test
+    fun authTimeout_readsTheLearningPeriodOfTheSelectedUser() =
+        testScope.runTest {
+            setLearningPeriodRemaining(PRIMARY_USER_ID, Duration.ZERO)
+            setLearningPeriodRemaining(SECONDARY_USER_ID, 3.days)
+            init(fingerprintAuthCurrentlyAllowed = false)
+            val bouncerMessage by collectLastValue(underTest.bouncerMessage)
+
+            setAuthFlag(PRIMARY_USER_ID, STRONG_AUTH_REQUIRED_AFTER_TIMEOUT)
+
+            verify(lockPatternUtils, atLeastOnce())
+                .getLearningPeriodRemainingMillis(PRIMARY_USER_ID)
+            verify(lockPatternUtils, never()).getLearningPeriodRemainingMillis(SECONDARY_USER_ID)
+            assertThat(secondaryResMessage(bouncerMessage)).isEqualTo(afterTimeoutString)
+
+            kosmos.fakeUserRepository.setSelectedUserInfo(SECONDARY_USER)
+            setAuthFlag(SECONDARY_USER_ID, STRONG_AUTH_REQUIRED_AFTER_TIMEOUT)
+
+            verify(lockPatternUtils, atLeastOnce())
+                .getLearningPeriodRemainingMillis(SECONDARY_USER_ID)
+            if (practiceRes != null) {
+                val secondaryMessage = bouncerMessage!!.secondaryMessage!!
+                assertThat(secondaryMessage.messageResId).isEqualTo(practiceRes)
+                assertThat(secondaryMessage.formatterArgs).isEqualTo(mapOf(Pair("count", 3L)))
+            }
+        }
+
+    @Test
+    fun learningPeriod_isNotReadUnlessTheTimeoutAsksForTheCredential() =
+        testScope.runTest {
+            init(fingerprintAuthCurrentlyAllowed = false)
+            val bouncerMessage by collectLastValue(underTest.bouncerMessage)
+
+            setAuthFlag(PRIMARY_USER_ID, STRONG_AUTH_REQUIRED_AFTER_USER_LOCKDOWN)
+            kosmos.fakeKeyguardBouncerRepository.setPrimaryShow(false)
+            runCurrent()
+            kosmos.fakeKeyguardBouncerRepository.setPrimaryShow(true)
+            runCurrent()
+
+            assertThat(secondaryResMessage(bouncerMessage)).isEqualTo(afterLockoutString)
+            verify(lockPatternUtils, never()).getLearningPeriodRemainingMillis(anyInt())
+        }
+
+    @Test
+    fun practiceMessages_readAsPlainSentences() {
+        val res = practiceRes ?: return
+        val credential = if (securityMode == PIN) "PIN" else "passphrase"
+
+        fun textFor(daysLeft: Long) =
+            PluralsMessageFormatter.format(
+                context.resources,
+                mapOf<String, Any>(Pair("count", daysLeft)),
+                res,
+            )
+
+        assertThat(textFor(14L)).isEqualTo("Daily practice: type your $credential. 14 more days.")
+        assertThat(textFor(2L)).isEqualTo("Daily practice: type your $credential. 2 more days.")
+        assertThat(textFor(1L)).isEqualTo("Last day of practice: type your $credential.")
+        assertThat(context.resources.getString(tally_lock_practice_enter_passphrase))
+            .isEqualTo("Enter passphrase")
+    }
+
+    private fun setLearningPeriodRemaining(userId: Int, remaining: Duration) {
+        whenever(lockPatternUtils.getLearningPeriodRemainingMillis(userId))
+            .thenReturn(remaining.inWholeMilliseconds)
+    }
+
+    private fun TestScope.setAuthFlag(userId: Int, flag: Int) {
+        biometricSettingsRepository.setAuthenticationFlags(AuthenticationFlags(userId, flag))
+        runCurrent()
+    }
 
     private fun primaryResMessage(bouncerMessage: BouncerMessageModel?) =
         resString(bouncerMessage?.message?.messageResId)
