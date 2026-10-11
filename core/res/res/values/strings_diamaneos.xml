@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- DiamaneOS text shown by the system. English only for now. -->
+<!-- DiamaneOS text shown by the system. English only. -->
 <resources>
     <!-- Notification title: with the Moments switch down and "Camera and microphone off" chosen,
          the kernel blocks neither the camera nor the microphone in this boot, so only Android
