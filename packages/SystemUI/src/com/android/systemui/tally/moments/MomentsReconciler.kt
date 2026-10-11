@@ -26,8 +26,10 @@ import android.provider.Settings.Secure
  * @property inEffect the setting is now as the switch wants it (changed now, or already so). False
  *   when this phone cannot do it (camera and microphone toggles not offered, Lockdown without a
  *   secure lock screen); the switch then never says it did.
+ * @property refused the system would not make the change now. It is not recorded and is tried
+ *   again.
  */
-data class MomentsOutcome(val undo: String?, val inEffect: Boolean) {
+data class MomentsOutcome(val undo: String?, val inEffect: Boolean, val refused: Boolean = false) {
     companion object {
         /** Changed now; [undo] takes it back. */
         fun changed(undo: String) = MomentsOutcome(undo, true)
@@ -37,6 +39,9 @@ data class MomentsOutcome(val undo: String?, val inEffect: Boolean) {
 
         /** Not possible on this phone. */
         val UNSUPPORTED = MomentsOutcome(null, false)
+
+        /** Not made now, as a microphone block in an emergency call. Tried again later. */
+        val REFUSED = MomentsOutcome(null, false, refused = true)
     }
 }
 
@@ -45,8 +50,11 @@ interface MomentsPlatform {
     /** Makes [effect]'s change. */
     fun apply(effect: MomentsEffect): MomentsOutcome
 
-    /** Takes back a change made earlier, but only where the setting is still as the switch set it. */
-    fun revert(effect: MomentsEffect, undo: String)
+    /**
+     * Takes back a change made earlier, but only where the setting is still as the switch set it.
+     * Returns false when the system refused for now; the change then stays recorded.
+     */
+    fun revert(effect: MomentsEffect, undo: String): Boolean
 
     /** Sets a transient change again (the system forgets it on reboot); harmless when set. */
     fun reassert(effect: MomentsEffect)
@@ -86,6 +94,8 @@ data class MomentsResult(
     val reverted: Set<MomentsEffectKind> = emptySet(),
     /** Some changes wait for the unlock before they are taken back. */
     val waitingForUnlock: Boolean = false,
+    /** Changes the system refused for now. The next call tries again. */
+    val pending: Set<MomentsEffectKind> = emptySet(),
     /** Post the one-time "choose what it does" notice. */
     val showNotice: Boolean = false,
     /** The notice is no longer needed. */
@@ -104,6 +114,8 @@ data class MomentsResult(
  * - Raising protection always happens at once, also on the lock screen. Taking back a change that
  *   lowers protection waits for the unlock.
  * - A change is taken back only where the setting is still as the switch left it.
+ * - The record holds only what happened: a refused change is not recorded, and a refused
+ *   take-back stays recorded. Both are tried again on every later call.
  */
 class MomentsReconciler(private val platform: MomentsPlatform, private val store: MomentsStore) {
 
@@ -125,6 +137,7 @@ class MomentsReconciler(private val platform: MomentsPlatform, private val store
         val record = store.record(user)
         val kept = mutableListOf<MomentsApplied>()
         val reverted = mutableSetOf<MomentsEffectKind>()
+        val pending = mutableSetOf<MomentsEffectKind>()
         var waiting = false
         for (applied in record) {
             when {
@@ -135,8 +148,12 @@ class MomentsReconciler(private val platform: MomentsPlatform, private val store
                     waiting = true
                 }
                 else -> {
-                    platform.revert(applied.effect, applied.undo)
-                    reverted += applied.effect.kind
+                    if (platform.revert(applied.effect, applied.undo)) {
+                        reverted += applied.effect.kind
+                    } else {
+                        kept += applied
+                        pending += applied.effect.kind
+                    }
                 }
             }
         }
@@ -150,6 +167,10 @@ class MomentsReconciler(private val platform: MomentsPlatform, private val store
                 continue
             }
             val outcome = platform.apply(effect)
+            if (outcome.refused) {
+                pending += effect.kind
+                continue
+            }
             if (outcome.inEffect) inEffect += effect.kind
             kept += MomentsApplied(effect, outcome.undo)
             store.setRecord(user, kept)
@@ -158,6 +179,7 @@ class MomentsReconciler(private val platform: MomentsPlatform, private val store
             inEffect = inEffect,
             reverted = reverted,
             waitingForUnlock = waiting,
+            pending = pending,
             dismissNotice = true,
         )
     }

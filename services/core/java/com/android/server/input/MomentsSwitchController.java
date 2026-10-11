@@ -18,6 +18,8 @@ package com.android.server.input;
 
 import android.annotation.NonNull;
 import android.content.Context;
+import android.hardware.SensorPrivacyManager.Sensors;
+import android.hardware.SensorPrivacyManagerInternal;
 import android.hardware.input.IMomentsSwitchListener;
 import android.hardware.input.InputManager;
 import android.os.Binder;
@@ -33,6 +35,7 @@ import android.view.InputDevice;
 import com.android.internal.R;
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.server.LocalServices;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -49,6 +52,9 @@ import java.util.function.Supplier;
  * device, and listeners hear about real changes only. A USB, Bluetooth or later-added device
  * that sends the same code cannot move the switch.
  *
+ * <p>{@link #blockSensor} turns the camera and microphone toggles on for SystemUI, which cannot
+ * do that itself while the device is locked.
+ *
  * <p>Every binder entry point requires {@link #PERMISSION}, a signature permission that only
  * SystemUI asks for.
  */
@@ -59,10 +65,16 @@ final class MomentsSwitchController {
 
     private static final int NO_DEVICE = Integer.MIN_VALUE;
 
+    /** Turns a sensor's toggle on and returns whether it is on. Separate for tests. */
+    interface SensorBlocker {
+        boolean block(int userId, int sensor);
+    }
+
     private final Context mContext;
     private final NativeInputManagerService mNative;
     private final Handler mHandler;
     private final Supplier<InputDevice[]> mInputDevices;
+    private final SensorBlocker mSensorBlocker;
     private final int mCode;
     private final int mActiveValue;
 
@@ -85,16 +97,20 @@ final class MomentsSwitchController {
             Looper looper, Supplier<InputDevice[]> inputDevices) {
         this(context, nativeService, looper, inputDevices,
                 context.getResources().getInteger(R.integer.config_momentsSwitchCode),
-                context.getResources().getInteger(R.integer.config_momentsSwitchActiveValue));
+                context.getResources().getInteger(R.integer.config_momentsSwitchActiveValue),
+                (userId, sensor) -> LocalServices.getService(SensorPrivacyManagerInternal.class)
+                        .blockForMomentsSwitch(userId, sensor));
     }
 
     @VisibleForTesting
     MomentsSwitchController(Context context, NativeInputManagerService nativeService,
-            Looper looper, Supplier<InputDevice[]> inputDevices, int code, int activeValue) {
+            Looper looper, Supplier<InputDevice[]> inputDevices, int code, int activeValue,
+            SensorBlocker sensorBlocker) {
         mContext = context;
         mNative = nativeService;
         mHandler = new Handler(looper);
         mInputDevices = inputDevices;
+        mSensorBlocker = sensorBlocker;
         // Linux has 16 switch codes (SW_MAX 0x10); the reader keeps codes below 32.
         mCode = (code >= 0 && code < 32) ? code : -1;
         mActiveValue = activeValue == 0 ? 0 : 1;
@@ -184,6 +200,32 @@ final class MomentsSwitchController {
                 mListeners.remove(pid);
             }
         }
+    }
+
+    // Binder call. Blocks on the lock screen too, where SystemUI's own call is refused. It can
+    // only block, and only while the switch is on. That is read from the device here, so a
+    // caller cannot claim it.
+    boolean blockSensor(int userId, int sensor) {
+        enforcePermission("blockSensorForMomentsSwitch()");
+        if (!isEnabled() || (sensor != Sensors.CAMERA && sensor != Sensors.MICROPHONE)) {
+            return false;
+        }
+        synchronized (mLock) {
+            if (readStateLocked() != InputManager.SWITCH_STATE_ON) {
+                Slog.w(TAG, "Not blocking sensor " + sensor + ": the switch is not on");
+                return false;
+            }
+        }
+        final boolean blocked;
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            blocked = mSensorBlocker.block(userId, sensor);
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+        }
+        Slog.i(TAG, (blocked ? "Blocked" : "Could not block") + " sensor " + sensor
+                + " for user " + userId);
+        return blocked;
     }
 
     private void enforcePermission(String method) {

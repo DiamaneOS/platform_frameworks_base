@@ -1088,13 +1088,20 @@ public final class SensorPrivacyService extends SystemService {
         }
 
         private boolean canChangeToggleSensorPrivacy(@UserIdInt int userId, int sensor) {
+            return canChangeToggleSensorPrivacy(userId, sensor, true /* checkLock */);
+        }
+
+        // DiamaneOS: checkLock is false only for blockForMomentsSwitch(), which can only turn a
+        // toggle on. Every other check still applies.
+        private boolean canChangeToggleSensorPrivacy(@UserIdInt int userId, int sensor,
+                boolean checkLock) {
             if (sensor == MICROPHONE && mCallStateHelper.isInEmergencyCall()) {
                 // During emergency call the microphone toggle managed automatically
                 Log.i(TAG, "Can't change mic toggle during an emergency call");
                 return false;
             }
 
-            if (requiresAuthentication() && mKeyguardManager != null
+            if (checkLock && requiresAuthentication() && mKeyguardManager != null
                     && mKeyguardManager.isDeviceLocked(userId)) {
                 Log.i(TAG, "Can't change mic/cam toggle while device is locked");
                 return false;
@@ -2036,6 +2043,30 @@ public final class SensorPrivacyService extends SystemService {
                 sps.setToggleSensorPrivacyUnchecked(TOGGLE_TYPE_SOFTWARE, realUserId, OTHER, sensor,
                         enable);
             }
+        }
+
+        // DiamaneOS: turns the software toggle on for the Moments switch, also while the device
+        // is locked. It cannot turn a toggle off; that still waits for the unlock.
+        @Override
+        public boolean blockForMomentsSwitch(int userId, int sensor) {
+            final SensorPrivacyServiceImpl sps =
+                    SensorPrivacyService.this.mSensorPrivacyServiceImpl;
+            if (mContext.getResources().getInteger(R.integer.config_momentsSwitchCode) < 0
+                    || userId != mCurrentUser
+                    || (sensor != MICROPHONE && sensor != CAMERA)
+                    || !sps.supportsSensorToggle(TOGGLE_TYPE_SOFTWARE, sensor)) {
+                return false;
+            }
+            final int parentId = mUserManagerInternal.getProfileParentId(userId);
+            forAllUsers(userId2 -> {
+                if (parentId == mUserManagerInternal.getProfileParentId(userId2)
+                        && sps.canChangeToggleSensorPrivacy(userId2, sensor,
+                                false /* checkLock */)) {
+                    sps.setToggleSensorPrivacyUnchecked(TOGGLE_TYPE_SOFTWARE, userId2, OTHER,
+                            sensor, true);
+                }
+            });
+            return sps.isToggleSensorPrivacyEnabledInternal(userId, TOGGLE_TYPE_SOFTWARE, sensor);
         }
     }
 

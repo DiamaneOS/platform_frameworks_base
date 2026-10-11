@@ -17,6 +17,7 @@
 package com.android.server.input
 
 import android.content.Context
+import android.hardware.SensorPrivacyManager.Sensors
 import android.hardware.input.IMomentsSwitchListener
 import android.hardware.input.InputManager
 import android.os.IBinder
@@ -50,12 +51,18 @@ class MomentsSwitchControllerTests {
         const val SWITCH_ID = 3
         const val EXTERNAL_ID = 5
         const val LATE_ID = 9
+        const val USER = 0
+        const val OTHER_SENSOR = 3
     }
 
     private lateinit var context: Context
     private lateinit var native: NativeInputManagerService
     private lateinit var testLooper: TestLooper
     private var devices = arrayOf<InputDevice>()
+
+    // What the sensor privacy service was asked to block (user to sensor), and its answer.
+    private val blocks = mutableListOf<Pair<Int, Int>>()
+    private var blockerAnswer = true
 
     @Before
     fun setup() {
@@ -82,7 +89,18 @@ class MomentsSwitchControllerTests {
     }
 
     private fun controller(code: Int = CODE, activeValue: Int = 1) =
-        MomentsSwitchController(context, native, testLooper.looper, { devices }, code, activeValue)
+        MomentsSwitchController(
+            context,
+            native,
+            testLooper.looper,
+            { devices },
+            code,
+            activeValue,
+            { userId, sensor ->
+                blocks += userId to sensor
+                blockerAnswer
+            },
+        )
 
     private fun listener(): IMomentsSwitchListener {
         val listener = mock(IMomentsSwitchListener::class.java)
@@ -116,7 +134,48 @@ class MomentsSwitchControllerTests {
         assertThrows(SecurityException::class.java) { controller.state }
         assertThrows(SecurityException::class.java) { controller.registerListener(listener) }
         assertThrows(SecurityException::class.java) { controller.unregisterListener(listener) }
+        assertThrows(SecurityException::class.java) { controller.blockSensor(USER, Sensors.CAMERA) }
         verify(listener, never()).onMomentsSwitchChanged(anyLong(), anyBoolean())
+        assertThat(blocks).isEmpty()
+    }
+
+    @Test
+    fun blockSensor_switchOn_asksTheSensorPrivacyService() {
+        setRaw(SWITCH_ID, 1)
+        val controller = controller()
+
+        assertThat(controller.blockSensor(USER, Sensors.CAMERA)).isTrue()
+        assertThat(controller.blockSensor(USER, Sensors.MICROPHONE)).isTrue()
+
+        assertThat(blocks)
+            .containsExactly(USER to Sensors.CAMERA, USER to Sensors.MICROPHONE)
+            .inOrder()
+    }
+
+    @Test
+    fun blockSensor_answersWhatTheSensorPrivacyServiceSays() {
+        setRaw(SWITCH_ID, 1)
+        blockerAnswer = false
+
+        // Refused there, as for the microphone during an emergency call.
+        assertThat(controller().blockSensor(USER, Sensors.MICROPHONE)).isFalse()
+    }
+
+    @Test
+    fun blockSensor_switchOff_blocksNothing() {
+        val controller = controller()
+
+        // The position is read from the device now: a caller cannot claim the switch is on.
+        assertThat(controller.blockSensor(USER, Sensors.CAMERA)).isFalse()
+        assertThat(blocks).isEmpty()
+    }
+
+    @Test
+    fun blockSensor_onlyCameraAndMicrophone() {
+        setRaw(SWITCH_ID, 1)
+
+        assertThat(controller().blockSensor(USER, OTHER_SENSOR)).isFalse()
+        assertThat(blocks).isEmpty()
     }
 
     @Test

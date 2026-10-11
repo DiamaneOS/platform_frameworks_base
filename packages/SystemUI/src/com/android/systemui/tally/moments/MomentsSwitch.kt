@@ -63,6 +63,9 @@ import javax.inject.Inject
  * Settings and the screen turning on all reconcile again; the reconciler makes each change only
  * once.
  *
+ * A change the system refused ([MomentsResult.pending]) is tried again shortly, at the unlock
+ * and when the screen turns on. A change that finishes after the move gets its toast then.
+ *
  * All work runs on the background thread, one step at a time.
  */
 @SysUISingleton
@@ -90,6 +93,9 @@ constructor(
     private var lastReported: Boolean? = null
     private var lastReconciled: Boolean? = null
     private var settle: Runnable? = null
+    private var retry: Runnable? = null
+    // The user whose last move left changes open. The reconcile that makes them shows the toast.
+    private var owedToastUser: Int? = null
     private var lastResult: MomentsResult? = null
 
     private var inputManager: IInputManager? = null
@@ -155,9 +161,20 @@ constructor(
         if (bootCompleteCache.addListener(bootCompleteListener)) requery()
         wakefulnessLifecycle.addObserver(
             object : WakefulnessLifecycle.Observer {
-                override fun onStartedWakingUp() = requery()
+                override fun onStartedWakingUp() {
+                    requery()
+                    retryPending()
+                }
             }
         )
+    }
+
+    private fun retryPending() {
+        bgExecutor.execute {
+            if (settle == null && retry == null && lastResult?.pending?.isNotEmpty() == true) {
+                reconcile(fromSwitch = false)
+            }
+        }
     }
 
     private fun requery() {
@@ -210,7 +227,9 @@ constructor(
         bgExecutor.execute { if (settle == null) reconcile(fromSwitch = false) }
     }
 
-    private fun reconcile(fromSwitch: Boolean) {
+    private fun reconcile(fromSwitch: Boolean, attempt: Int = 0) {
+        retry?.run()
+        retry = null
         val on = lastReported
         val flipped = fromSwitch && on != null && lastReconciled != null && on != lastReconciled
         val user = userTracker.userId
@@ -231,10 +250,30 @@ constructor(
         sensorGuard.refresh()
         if (result.showNotice) postNotice(user)
         if (result.dismissNotice) cancelNotice(user)
-        if (flipped && on != null) {
-            MomentsToast.text(on, config.action, result)?.let { text ->
-                mainExecutor.execute { Toast.makeText(context, text, Toast.LENGTH_SHORT).show() }
+        val owed = owedToastUser == user
+        if (on != null) {
+            val text =
+                when {
+                    flipped -> MomentsToast.text(on, config.action, result)
+                    owed -> MomentsToast.laterText(on, config.action, result)
+                    else -> null
+                }
+            text?.let { id ->
+                mainExecutor.execute { Toast.makeText(context, id, Toast.LENGTH_SHORT).show() }
             }
+        }
+        val open = result.waitingForUnlock || result.pending.isNotEmpty()
+        owedToastUser = if ((flipped || owed) && open) user else null
+        // The service can still count the phone as locked for a moment after the unlock.
+        if (result.pending.isNotEmpty() && attempt < MAX_RETRIES) {
+            retry =
+                bgExecutor.executeDelayed(
+                    {
+                        retry = null
+                        if (settle == null) reconcile(fromSwitch = false, attempt = attempt + 1)
+                    },
+                    RETRY_MS,
+                )
         }
     }
 
@@ -311,6 +350,10 @@ constructor(
 
         /** How long the switch must rest before anything changes. */
         const val SETTLE_MS = 275L
+
+        /** A refused change is tried again this often, this far apart. */
+        private const val MAX_RETRIES = 3
+        private const val RETRY_MS = 500L
 
         const val ACTION_SETTINGS = "de.diamaneos.settings.MOMENTS_SWITCH_SETTINGS"
         private const val SETTINGS_PACKAGE = "com.android.settings"

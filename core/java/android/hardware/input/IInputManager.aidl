@@ -399,4 +399,8 @@ interface IInputManager {
     void registerMomentsSwitchListener(IMomentsSwitchListener listener);
 
     void unregisterMomentsSwitchListener(IMomentsSwitchListener listener);
+
+    // Turns the camera or microphone toggle on, also while the device is locked. Works only
+    // while the switch is on and cannot turn a toggle off. Returns whether the toggle is on.
+    boolean blockSensorForMomentsSwitch(int userId, int sensor);
 }

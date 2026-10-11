@@ -50,19 +50,25 @@ class MomentsReconcilerTest : SysuiTestCase() {
         val settings = mutableMapOf<MomentsEffectKind, Boolean>()
         val calls = mutableListOf<String>()
         val unsupported = mutableSetOf<MomentsEffectKind>()
+        // What the system refuses for now: to make (apply) or to take back (revert).
+        val refused = mutableSetOf<MomentsEffectKind>()
+        val revertRefused = mutableSetOf<MomentsEffectKind>()
 
         override fun apply(effect: MomentsEffect): MomentsOutcome {
             calls += "apply ${effect.kind}"
             if (effect.kind in unsupported) return MomentsOutcome.UNSUPPORTED
+            if (effect.kind in refused) return MomentsOutcome.REFUSED
             if (effect.kind == LOCKDOWN) return MomentsOutcome.ALREADY
             if (settings[effect.kind] == true) return MomentsOutcome.ALREADY
             settings[effect.kind] = true
             return MomentsOutcome.changed("1")
         }
 
-        override fun revert(effect: MomentsEffect, undo: String) {
+        override fun revert(effect: MomentsEffect, undo: String): Boolean {
             calls += "revert ${effect.kind}"
+            if (effect.kind in revertRefused) return false
             if (settings[effect.kind] == true) settings[effect.kind] = false
+            return true
         }
 
         override fun reassert(effect: MomentsEffect) {
@@ -187,6 +193,59 @@ class MomentsReconcilerTest : SysuiTestCase() {
             r.reconcile(USER, inputs(on = false, action = Secure.MOMENTS_ACTION_SENSORS_OFF))
         assertThat(unlocked.waitingForUnlock).isFalse()
         assertThat(platform.settings).containsExactly(CAMERA, false, MICROPHONE, false)
+    }
+
+    @Test
+    fun sensorsOff_refused_isNotRecordedAndIsTriedAgain() {
+        platform.refused += setOf(CAMERA, MICROPHONE)
+        val action = Secure.MOMENTS_ACTION_SENSORS_OFF
+        val r = reconciler()
+
+        val first = r.reconcile(USER, inputs(on = true, action = action, flipped = true))
+
+        // Nothing is blocked, so nothing says so: no record, no toast.
+        assertThat(first.inEffect).isEmpty()
+        assertThat(first.pending).containsExactly(CAMERA, MICROPHONE)
+        assertThat(store.record(USER)).isEmpty()
+        assertThat(MomentsToast.text(true, action, first)).isNull()
+
+        // The next reconcile (the unlock, a retry) makes the block and records it.
+        platform.refused.clear()
+        val second = r.reconcile(USER, inputs(on = true, action = action))
+
+        assertThat(second.inEffect).containsExactly(CAMERA, MICROPHONE)
+        assertThat(second.pending).isEmpty()
+        assertThat(platform.settings).containsExactly(CAMERA, true, MICROPHONE, true)
+        assertThat(store.record(USER).map { it.undo }).containsExactly("1", "1")
+        assertThat(MomentsToast.laterText(true, action, second))
+            .isEqualTo(R.string.camera_and_microphone_blocked_dream_overlay_content_description)
+    }
+
+    @Test
+    fun sensorsOff_takingBackRefused_staysRecordedAndIsTriedAgain() {
+        val action = Secure.MOMENTS_ACTION_SENSORS_OFF
+        val r = reconciler()
+        r.reconcile(USER, inputs(on = true, action = action))
+
+        // Right after the unlock the system can still count the phone as locked.
+        platform.revertRefused += setOf(CAMERA, MICROPHONE)
+        val refused = r.reconcile(USER, inputs(on = false, action = action))
+
+        assertThat(refused.reverted).isEmpty()
+        assertThat(refused.pending).containsExactly(CAMERA, MICROPHONE)
+        assertThat(platform.settings).containsExactly(CAMERA, true, MICROPHONE, true)
+        assertThat(store.record(USER).map { it.undo }).containsExactly("1", "1")
+        assertThat(MomentsToast.laterText(false, action, refused)).isNull()
+
+        platform.revertRefused.clear()
+        val retried = r.reconcile(USER, inputs(on = false, action = action))
+
+        assertThat(retried.reverted).containsExactly(CAMERA, MICROPHONE)
+        assertThat(retried.pending).isEmpty()
+        assertThat(platform.settings).containsExactly(CAMERA, false, MICROPHONE, false)
+        assertThat(store.record(USER)).isEmpty()
+        assertThat(MomentsToast.laterText(false, action, retried))
+            .isEqualTo(R.string.sensor_privacy_mic_camera_unblocked_toast_content)
     }
 
     @Test

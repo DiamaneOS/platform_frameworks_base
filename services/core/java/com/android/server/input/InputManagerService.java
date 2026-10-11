@@ -1346,6 +1346,11 @@ public class InputManagerService extends IInputManager.Stub
     }
 
     @Override // Binder call
+    public boolean blockSensorForMomentsSwitch(int userId, int sensor) {
+        return mMomentsSwitchController.blockSensor(userId, sensor);
+    }
+
+    @Override // Binder call
     public void registerTabletModeChangedListener(@NonNull ITabletModeChangedListener listener) {
         if (!checkCallingPermission(android.Manifest.permission.TABLET_MODE,
                 "registerTabletModeChangedListener()")) {
