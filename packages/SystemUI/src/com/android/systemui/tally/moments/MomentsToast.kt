@@ -28,6 +28,8 @@ import com.android.systemui.tally.moments.MomentsEffectKind.RINGER
 /**
  * The toast after a flip. It names only what is now in effect (on) or was taken back (off), so
  * it never says the switch did something this phone could not do.
+ *
+ * A pair of toasts uses Android's translated strings only when Android has both halves.
  */
 object MomentsToast {
     @StringRes
@@ -41,14 +43,17 @@ object MomentsToast {
             Secure.MOMENTS_ACTION_SENSORS_OFF ->
                 when {
                     CAMERA in kinds && MICROPHONE in kinds ->
-                        if (on) R.string.tally_moments_toast_sensors_blocked
-                        else R.string.tally_moments_toast_sensors_unblocked
+                        if (on) {
+                            R.string.camera_and_microphone_blocked_dream_overlay_content_description
+                        } else {
+                            R.string.sensor_privacy_mic_camera_unblocked_toast_content
+                        }
                     CAMERA in kinds ->
-                        if (on) R.string.tally_moments_toast_camera_blocked
-                        else R.string.tally_moments_toast_camera_unblocked
+                        if (on) R.string.camera_blocked_dream_overlay_content_description
+                        else R.string.sensor_privacy_camera_unblocked_toast_content
                     MICROPHONE in kinds ->
-                        if (on) R.string.tally_moments_toast_mic_blocked
-                        else R.string.tally_moments_toast_mic_unblocked
+                        if (on) R.string.microphone_blocked_dream_overlay_content_description
+                        else R.string.sensor_privacy_mic_unblocked_toast_content
                     else -> null
                 }
             Secure.MOMENTS_ACTION_SILENT ->

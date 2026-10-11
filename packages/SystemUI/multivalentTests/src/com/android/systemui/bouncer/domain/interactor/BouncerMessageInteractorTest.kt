@@ -70,7 +70,6 @@ import com.android.systemui.res.R.string.kg_too_many_failed_attempts_countdown_m
 import com.android.systemui.res.R.string.kg_too_many_failed_attempts_countdown_seconds
 import com.android.systemui.res.R.string.kg_too_many_failed_attempts_countdown_years
 import com.android.systemui.res.R.string.kg_trust_agent_disabled
-import com.android.systemui.res.R.string.tally_lock_practice_enter_passphrase
 import com.android.systemui.res.R.string.tally_lock_practice_passphrase
 import com.android.systemui.res.R.string.tally_lock_practice_pin
 import com.android.systemui.securelockdevice.data.repository.fakeSecureLockDeviceRepository
@@ -238,10 +237,6 @@ class BouncerMessageInteractorTest : SysuiTestCase() {
                 PIN -> tally_lock_practice_pin
                 else -> null
             }
-
-    /** The first line over the practice message: only a password's differs from the usual. */
-    private val practiceEnterCredString: String
-        get() = if (securityMode == Password) "Enter passphrase" else enterCredString
 
     @Before
     fun setUp() {
@@ -1394,7 +1389,7 @@ class BouncerMessageInteractorTest : SysuiTestCase() {
 
             val secondaryMessage = bouncerMessage!!.secondaryMessage!!
             if (practiceRes != null) {
-                assertThat(primaryResMessage(bouncerMessage)).isEqualTo(practiceEnterCredString)
+                assertThat(primaryResMessage(bouncerMessage)).isEqualTo(enterCredString)
                 assertThat(secondaryMessage.messageResId).isEqualTo(practiceRes)
                 assertThat(secondaryMessage.formatterArgs).isEqualTo(mapOf(Pair("count", 9L)))
             } else {
@@ -1468,7 +1463,7 @@ class BouncerMessageInteractorTest : SysuiTestCase() {
             kosmos.fakeKeyguardBouncerRepository.setPrimaryShow(true)
             runCurrent()
 
-            assertThat(primaryResMessage(bouncerMessage)).isEqualTo(practiceEnterCredString)
+            assertThat(primaryResMessage(bouncerMessage)).isEqualTo(enterCredString)
             assertThat(bouncerMessage!!.secondaryMessage!!.messageResId).isEqualTo(practiceRes)
             assertThat(bouncerMessage!!.secondaryMessage!!.formatterArgs)
                 .isEqualTo(mapOf(Pair("count", 1L)))
@@ -1493,7 +1488,7 @@ class BouncerMessageInteractorTest : SysuiTestCase() {
             init(fingerprintAuthCurrentlyAllowed = false)
             val bouncerMessage by collectLastValue(underTest.bouncerMessage)
             setAuthFlag(PRIMARY_USER_ID, STRONG_AUTH_REQUIRED_AFTER_TIMEOUT)
-            assertThat(primaryResMessage(bouncerMessage)).isEqualTo(practiceEnterCredString)
+            assertThat(primaryResMessage(bouncerMessage)).isEqualTo(enterCredString)
 
             underTest.onPrimaryBouncerUserInput()
 
@@ -1559,8 +1554,6 @@ class BouncerMessageInteractorTest : SysuiTestCase() {
         assertThat(textFor(14L)).isEqualTo("Daily practice: type your $credential. 14 more days.")
         assertThat(textFor(2L)).isEqualTo("Daily practice: type your $credential. 2 more days.")
         assertThat(textFor(1L)).isEqualTo("Last day of practice: type your $credential.")
-        assertThat(context.resources.getString(tally_lock_practice_enter_passphrase))
-            .isEqualTo("Enter passphrase")
     }
 
     private fun setLearningPeriodRemaining(userId: Int, remaining: Duration) {

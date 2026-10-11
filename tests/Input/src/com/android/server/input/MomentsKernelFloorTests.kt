@@ -530,7 +530,7 @@ class MomentsKernelFloorTests {
         assertThat(n.contentIntent).isSameInstanceAs(open)
         assertThat(n.actions).hasLength(1)
         assertThat(n.actions[0].title.toString())
-            .isEqualTo(context.getString(R.string.moments_restart_action))
+            .isEqualTo(context.getString(R.string.global_action_restart))
         assertThat(n.actions[0].actionIntent).isSameInstanceAs(restart)
         assertThat(n.actions[0].actionIntent.isImmutable).isTrue()
     }

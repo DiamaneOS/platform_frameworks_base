@@ -17,9 +17,6 @@
 
 <!-- Text of Tally's screenshot preview additions (com.android.systemui.screenshot). -->
 <resources>
-    <!-- Label for the screenshot preview's button that deletes the screenshot just taken
-         [CHAR LIMIT=30] -->
-    <string name="tally_screenshot_delete_label">Delete</string>
     <!-- Content description of the screenshot preview's delete button [CHAR LIMIT=NONE] -->
     <string name="tally_screenshot_delete_description">Delete screenshot button</string>
 </resources>

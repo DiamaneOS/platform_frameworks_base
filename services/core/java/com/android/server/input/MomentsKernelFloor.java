@@ -386,7 +386,7 @@ final class MomentsKernelFloor {
                 .setContentIntent(open)
                 .addAction(new Notification.Action.Builder(
                         Icon.createWithResource(context, R.drawable.ic_restart),
-                        context.getString(R.string.moments_restart_action), restart).build())
+                        context.getString(R.string.global_action_restart), restart).build())
                 .setOnlyAlertOnce(true)
                 .setLocalOnly(true)
                 .build();
