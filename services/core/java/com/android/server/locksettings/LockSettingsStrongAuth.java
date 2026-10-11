@@ -42,6 +42,7 @@ import android.util.Log;
 import android.util.Slog;
 import android.util.SparseBooleanArray;
 import android.util.SparseIntArray;
+import android.util.SparseLongArray;
 
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.util.IndentingPrintWriter;
@@ -68,6 +69,7 @@ public class LockSettingsStrongAuth {
     private static final int MSG_REFRESH_STRONG_AUTH_TIMEOUT = 10;
     private static final int MSG_PRIMARY_AUTH_SUCCESS_IN_SECURE_LOCK_DEVICE_MODE = 11;
     private static final int MSG_DISABLE_SECURE_LOCK_DEVICE = 12;
+    private static final int MSG_SET_STRONG_AUTH_TIMEOUT_LIMIT = 13;
 
     @VisibleForTesting
     protected static final String STRONG_AUTH_TIMEOUT_ALARM_TAG =
@@ -96,6 +98,9 @@ public class LockSettingsStrongAuth {
     @VisibleForTesting
     protected final ArrayMap<Integer, StrongAuthTimeoutAlarmListener>
             mStrongAuthTimeoutAlarmListenerForUser = new ArrayMap<>();
+    // Upper bound on the strong auth timeout of a user, in milliseconds. No entry: no bound.
+    @VisibleForTesting
+    protected final SparseLongArray mStrongAuthTimeoutLimitForUser = new SparseLongArray();
     // Track non-strong biometric timeout
     @VisibleForTesting
     protected final ArrayMap<Integer, NonStrongBiometricTimeoutAlarmListener>
@@ -256,6 +261,16 @@ public class LockSettingsStrongAuth {
             notifyStrongAuthTrackersForIsNonStrongBiometricAllowed(
                     mDefaultIsNonStrongBiometricAllowed, userId);
         }
+
+        mStrongAuthTimeoutLimitForUser.delete(userId);
+    }
+
+    private void handleSetStrongAuthTimeoutLimit(long limitMs, int userId) {
+        if (limitMs > 0) {
+            mStrongAuthTimeoutLimitForUser.put(userId, limitMs);
+        } else {
+            mStrongAuthTimeoutLimitForUser.delete(userId);
+        }
     }
 
     /**
@@ -276,7 +291,9 @@ public class LockSettingsStrongAuth {
         }
         // AlarmManager.set() correctly handles the case where nextAlarmTime has already been in
         // the past (by firing the listener straight away), so nothing special for us to do here.
-        long nextAlarmTime = strongAuthTime + dpm.getRequiredStrongAuthTimeout(null, userId);
+        long timeout = Math.min(dpm.getRequiredStrongAuthTimeout(null, userId),
+                mStrongAuthTimeoutLimitForUser.get(userId, Long.MAX_VALUE));
+        long nextAlarmTime = strongAuthTime + timeout;
 
         // schedule a new alarm listener for the user
         mAlarmManager.setExact(AlarmManager.ELAPSED_REALTIME_WAKEUP, nextAlarmTime,
@@ -637,6 +654,19 @@ public class LockSettingsStrongAuth {
     }
 
     /**
+     * Sets an upper bound on the strong auth timeout of a user, below what device policy asks
+     * for. It applies to timeouts that are scheduled from now on: call
+     * {@link #refreshStrongAuthTimeout} to also apply it to a pending one.
+     *
+     * @param limitMs the bound in milliseconds, or 0 for none
+     */
+    public void setStrongAuthTimeoutLimit(long limitMs, int userId) {
+        final int argNotUsed = 0;
+        mHandler.obtainMessage(MSG_SET_STRONG_AUTH_TIMEOUT_LIMIT, userId, argNotUsed,
+                Long.valueOf(limitMs)).sendToTarget();
+    }
+
+    /**
      * Report successful unlocking with biometric
      */
     public void reportSuccessfulBiometricUnlock(boolean isStrongBiometric, int userId) {
@@ -778,6 +808,9 @@ public class LockSettingsStrongAuth {
                 case MSG_DISABLE_SECURE_LOCK_DEVICE:
                     handleDisableSecureLockDevice(msg.arg1, msg.arg2);
                     break;
+                case MSG_SET_STRONG_AUTH_TIMEOUT_LIMIT:
+                    handleSetStrongAuthTimeoutLimit((Long) msg.obj, msg.arg1);
+                    break;
             }
         }
     };
@@ -802,5 +835,7 @@ public class LockSettingsStrongAuth {
         }
         pw.println();
         pw.decreaseIndent();
+        // mStrongAuthTimeoutLimitForUser is not printed: a limit says that the user's credential
+        // is a strong one, which is not stored anywhere.
     }
 }

@@ -885,6 +885,9 @@ public class LockPatternUtils {
      * and return false if the given credential is wrong.
      * @throws RuntimeException if password change encountered an unrecoverable error.
      * @throws UnsupportedOperationException secure lockscreen is not supported on this device.
+     * @throws IllegalStateException if the new credential is of the weaker class, the current one
+     * is not known to be weaker, and the user has not accepted that risk. See
+     * {@link #setWeakerCredentialRiskAccepted}.
      */
     public boolean setLockCredential(@NonNull LockscreenCredential newCredential,
             @NonNull LockscreenCredential savedCredential, int userHandle) {
@@ -913,6 +916,108 @@ public class LockPatternUtils {
             throw new RuntimeException("Unable to save lock password", e);
         }
         return true;
+    }
+
+    /**
+     * Returns whether an acceptance of the risk of a weaker primary credential is waiting to be
+     * used for the user: {@link #setWeakerCredentialRiskAccepted} was called, no credential was
+     * set since, and it has not run out.
+     *
+     * <p>This does not say whether a risk screen is needed. One is needed before a weaker
+     * credential is set unless {@link #getCredentialStrength} says that the current credential
+     * is already {@link LockCredentialPolicy#STRENGTH_WEAKER}.
+     */
+    public boolean isWeakerCredentialRiskAccepted(int userId) {
+        try {
+            return getLockSettings().isWeakerCredentialRiskAccepted(userId);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Records that the user accepted the risk of a primary credential of the weaker class, or
+     * takes that back. Only for the screen that explained the risk to the user, once the user
+     * agreed to it there, and directly before the credential is saved.
+     *
+     * <p>The acceptance is good for one {@link #setLockCredential}. LockSettingsService keeps it
+     * in memory for a few minutes at most and drops it as soon as any credential is set for the
+     * user. Nothing is stored. It is needed again each time a weaker credential replaces a
+     * strong one or none; a weaker credential replaces a weaker one without it.
+     */
+    public void setWeakerCredentialRiskAccepted(boolean accepted, int userId) {
+        try {
+            getLockSettings().setWeakerCredentialRiskAccepted(accepted, userId);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Returns the strength class of the user's primary credential: one of the {@code STRENGTH_}
+     * constants of {@link LockCredentialPolicy}.
+     *
+     * <p>The class of a password is not stored. LockSettingsService knows it from the moment
+     * the password is set or entered until the user is locked or the device restarts, and
+     * returns {@link LockCredentialPolicy#STRENGTH_UNKNOWN} otherwise: before the first unlock,
+     * and when the user was unlocked without the password. The class of a PIN, of a pattern and
+     * of no credential is always known.
+     */
+    public int getCredentialStrength(int userId) {
+        try {
+            return getLockSettings().getCredentialStrength(userId);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Returns a new random PIN of the given length for the user. Once the user has written it
+     * down and typed it back, set it with {@link #setLockCredential}: it then counts as
+     * {@link LockCredentialPolicy#STRENGTH_STRONG strong}, which no other PIN does.
+     *
+     * <p>LockSettingsService remembers the last PIN it generated for a user until a credential
+     * is set for that user, so a PIN from an earlier call no longer counts as generated.
+     *
+     * <p>The caller must not log or store the PIN, and must zeroize it when done.
+     *
+     * @param length number of digits, at least
+     *     {@link LockCredentialPolicy#MIN_GENERATED_PIN_LENGTH}
+     */
+    @NonNull
+    public LockscreenCredential generateStrongPin(int length, int userId) {
+        try {
+            return getLockSettings().generateStrongPin(length, userId);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
+     * Returns how much is left of the user's learning period, in milliseconds, or 0 if none is
+     * running.
+     *
+     * <p>A learning period starts when a strong credential is set and lasts
+     * {@link LockCredentialPolicy#LEARNING_PERIOD_MILLIS} of time with the device on. While it
+     * runs, the credential is asked for after
+     * {@link LockCredentialPolicy#LEARNING_PERIOD_STRONG_AUTH_TIMEOUT_MILLIS} at the latest, not
+     * only after the usual strong auth timeout. A screen that asks for the credential because
+     * of {@link StrongAuthTracker#STRONG_AUTH_REQUIRED_AFTER_TIMEOUT} can use this to say that
+     * the credential is asked for daily for practice, and for how much longer.
+     *
+     * <p>When the time is up, a timeout that was already pending keeps its shortened time, so the
+     * credential may be asked for early once more while this already returns 0.
+     *
+     * <p>Returns 0 whenever {@link #getCredentialStrength} does not return
+     * {@link LockCredentialPolicy#STRENGTH_STRONG}: a weaker credential has no learning period,
+     * and a password that was not entered since the restart is not yet known to be strong.
+     */
+    public long getLearningPeriodRemainingMillis(int userId) {
+        try {
+            return getLockSettings().getLearningPeriodRemainingMillis(userId);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
     }
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.R, trackingBug = 170729553)

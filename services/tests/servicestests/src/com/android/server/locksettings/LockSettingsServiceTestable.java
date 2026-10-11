@@ -67,6 +67,9 @@ public class LockSettingsServiceTestable extends LockSettingsService {
 
         public boolean mIsHeadlessSystemUserMode = false;
 
+        // Off unless a test turns it on: most tests set weaker credentials freely.
+        public boolean mIsLockCredentialPolicyEnabled = false;
+
         public MockInjector(
                 Context context,
                 LockSettingsStorage storage,
@@ -166,6 +169,11 @@ public class LockSettingsServiceTestable extends LockSettingsService {
         @Override
         public boolean isGsiRunning() {
             return mGsiService.isGsiRunning();
+        }
+
+        @Override
+        public boolean isLockCredentialPolicyEnabled() {
+            return mIsLockCredentialPolicyEnabled;
         }
 
         @Override

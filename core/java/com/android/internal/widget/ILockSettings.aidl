@@ -117,4 +117,11 @@ interface ILockSettings {
     boolean writeRepairModeCredential(int userId);
     void setDuressCredentials(in LockscreenCredential ownerCredential, in LockscreenCredential duressPin, in LockscreenCredential duressPassword);
     boolean hasDuressCredentials(in LockscreenCredential ownerCredential);
+
+    // Lock credential policy: see LockCredentialPolicy.
+    boolean isWeakerCredentialRiskAccepted(int userId);
+    void setWeakerCredentialRiskAccepted(boolean accepted, int userId);
+    int getCredentialStrength(int userId);
+    LockscreenCredential generateStrongPin(int length, int userId);
+    long getLearningPeriodRemainingMillis(int userId);
 }
