@@ -96,6 +96,7 @@ import android.hardware.fingerprint.Fingerprint;
 import android.hardware.fingerprint.FingerprintManager;
 import android.net.Uri;
 import android.os.Binder;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
@@ -2826,6 +2827,42 @@ public class LockSettingsService extends ILockSettings.Stub {
         }
     }
 
+    /**
+     * Sets the learning time that is left for the user. Only for
+     * {@link LockSettingsShellCommand}, which offers it on debuggable builds, so that what
+     * depends on the time can be tested without waiting for days.
+     *
+     * <p>Only a learning period that is running can be changed. A credential that has none,
+     * such as a chosen PIN, a pattern, or one whose time is up, gets none this way.
+     *
+     * @param remainingMs from 0, which ends the period, to {@link #LEARNING_PERIOD_MS}
+     * @return false if the user has no learning period, in which case nothing is changed
+     */
+    boolean setLearningPeriodRemainingForShell(long remainingMs, int userId) {
+        if (remainingMs < 0 || remainingMs > LEARNING_PERIOD_MS) {
+            throw new IllegalArgumentException("Learning time out of range: " + remainingMs);
+        }
+        // Count first: a period whose time is up is over, also when no unlock has noted it yet.
+        updateLearningPeriod(userId);
+        synchronized (mLearningPeriodCountedUntil) {
+            if (mStorage.getLong(LEARNING_PERIOD_REMAINING_KEY, 0, userId) <= 0) {
+                return false;
+            }
+            if (remainingMs > 0) {
+                mStorage.setLong(LEARNING_PERIOD_REMAINING_KEY, remainingMs, userId);
+                mLearningPeriodCountedUntil.put(userId, mInjector.getTimeSinceBoot().toMillis());
+            } else {
+                mStorage.removeKey(LEARNING_PERIOD_REMAINING_KEY, userId);
+                mLearningPeriodCountedUntil.delete(userId);
+            }
+        }
+        if (remainingMs == 0) {
+            // As when the time is up: see updateLearningPeriod().
+            mStrongAuth.setStrongAuthTimeoutLimit(0, userId);
+        }
+        return true;
+    }
+
     private void forgetGeneratedPin(int userId) {
         synchronized (mGeneratedPins) {
             final GeneratedPin generatedPin = mGeneratedPins.get(userId);
@@ -3719,7 +3756,8 @@ public class LockSettingsService extends ILockSettings.Stub {
         try {
             final LockSettingsShellCommand command =
                     new LockSettingsShellCommand(new LockPatternUtils(mContext), mContext,
-                            callingPid, callingUid);
+                            callingPid, callingUid, Build.IS_DEBUGGABLE,
+                            this::setLearningPeriodRemainingForShell);
             command.exec(this, in, out, err, args, callback, resultReceiver);
         } finally {
             Binder.restoreCallingIdentity(origId);
