@@ -182,7 +182,7 @@ constructor(
             actionsCallback.provideActionButton(
                 ActionButtonAppearance(
                     AppCompatResources.getDrawable(context, R.drawable.ic_screenshot_delete),
-                    context.resources.getString(R.string.tally_screenshot_delete_label),
+                    context.resources.getString(R.string.screen_record_delete),
                     context.resources.getString(R.string.tally_screenshot_delete_description),
                 ),
                 showDuringEntrance = true,

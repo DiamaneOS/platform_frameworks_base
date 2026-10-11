@@ -25,9 +25,6 @@
     <!-- Its text. [CHAR LIMIT=NONE] -->
     <string name="moments_android_only_camera_text" translatable="false">Until you restart, only Android blocks the camera.</string>
     <java-symbol type="string" name="moments_android_only_camera_text" />
-    <!-- The notice's button: restarts the phone at once. [CHAR LIMIT=20] -->
-    <string name="moments_restart_action" translatable="false">Restart</string>
-    <java-symbol type="string" name="moments_restart_action" />
     <!-- Name of the notification channel for the Moments switch's protection notices.
          [CHAR LIMIT=60] -->
     <string name="moments_protection_channel" translatable="false">Moments switch protection</string>

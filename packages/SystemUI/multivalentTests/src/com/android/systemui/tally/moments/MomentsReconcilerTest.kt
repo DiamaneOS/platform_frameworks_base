@@ -326,9 +326,9 @@ class MomentsReconcilerTest : SysuiTestCase() {
         val off = r.reconcile(USER, inputs(on = false, action = action))
 
         assertThat(MomentsToast.text(true, action, on))
-            .isEqualTo(R.string.tally_moments_toast_camera_blocked)
+            .isEqualTo(R.string.camera_blocked_dream_overlay_content_description)
         assertThat(MomentsToast.text(false, action, off))
-            .isEqualTo(R.string.tally_moments_toast_camera_unblocked)
+            .isEqualTo(R.string.sensor_privacy_camera_unblocked_toast_content)
     }
 
     @Test

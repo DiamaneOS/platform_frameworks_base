@@ -18,9 +18,6 @@
 <!-- Text the lock screen shows while a new passphrase or generated PIN is practised
      (com.android.systemui.bouncer). -->
 <resources>
-    <!-- First line on the lock screen's password entry, in place of "Enter password", while
-         the line under it asks for the passphrase for practice. [CHAR LIMIT=48] -->
-    <string name="tally_lock_practice_enter_passphrase">Enter passphrase</string>
     <!-- Second line on the lock screen's password entry, in place of "Added security required.
          Password not used for a while.", while a newly set passphrase is asked for once a day
          so that the user learns it. The count is the days of practice left, rounded up. The
