@@ -20,12 +20,15 @@ import android.app.NotificationManager
 import android.app.trust.TrustManager
 import android.content.Context
 import android.content.pm.SuspendDialogInfo
+import android.hardware.SensorPrivacyManager
 import android.hardware.SensorPrivacyManager.Sensors
 import android.hardware.SensorPrivacyManager.Sources
 import android.hardware.display.ColorDisplayManager
+import android.hardware.input.IInputManager
 import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.os.RemoteException
+import android.os.ServiceManager
 import android.os.UserHandle
 import android.os.UserManager
 import android.provider.Settings.Global
@@ -44,6 +47,9 @@ import javax.inject.Inject
 /**
  * The switch's changes, made through the APIs SystemUI's own tiles and power menu use, for the
  * current user. Each one is taken back only where the setting is still as the switch set it.
+ *
+ * The camera and microphone block goes through the input service instead, which also blocks
+ * while the phone is locked.
  */
 @SysUISingleton
 class MomentsPlatformImpl
@@ -51,6 +57,7 @@ class MomentsPlatformImpl
 constructor(
     private val userTracker: UserTracker,
     private val sensorPrivacyController: IndividualSensorPrivacyController,
+    private val sensorPrivacyManager: SensorPrivacyManager,
     private val keyguardStateController: KeyguardStateController,
     private val lockPatternUtils: LockPatternUtils,
     private val windowManager: IWindowManager,
@@ -61,6 +68,10 @@ constructor(
 
     private val user: Int
         get() = userTracker.userId
+
+    private val inputManager: IInputManager? by lazy {
+        IInputManager.Stub.asInterface(ServiceManager.getService(Context.INPUT_SERVICE))
+    }
 
     override fun apply(effect: MomentsEffect): MomentsOutcome =
         when (effect.kind) {
@@ -133,7 +144,7 @@ constructor(
                 if (lockdown()) MomentsOutcome.ALREADY else MomentsOutcome.UNSUPPORTED
         }
 
-    override fun revert(effect: MomentsEffect, undo: String) {
+    override fun revert(effect: MomentsEffect, undo: String): Boolean {
         when (effect.kind) {
             MomentsEffectKind.DND -> {
                 val nm = context.getSystemService(NotificationManager::class.java)!!
@@ -158,11 +169,11 @@ constructor(
             }
             MomentsEffectKind.GREYSCALE ->
                 context.getSystemService(ColorDisplayManager::class.java)!!.setSaturationLevel(100)
-            MomentsEffectKind.CAMERA -> unblockSensor(Sensors.CAMERA)
-            MomentsEffectKind.MICROPHONE -> unblockSensor(Sensors.MICROPHONE)
+            MomentsEffectKind.CAMERA -> return unblockSensor(Sensors.CAMERA)
+            MomentsEffectKind.MICROPHONE -> return unblockSensor(Sensors.MICROPHONE)
             MomentsEffectKind.RINGER -> {
                 val audio = context.getSystemService(AudioManager::class.java)!!
-                val previous = undo.toIntOrNull() ?: return
+                val previous = undo.toIntOrNull() ?: return true
                 if (audio.ringerModeInternal == AudioManager.RINGER_MODE_SILENT) {
                     audio.ringerModeInternal = previous
                 }
@@ -174,6 +185,7 @@ constructor(
                 }
             MomentsEffectKind.LOCKDOWN -> {}
         }
+        return true
     }
 
     override fun reassert(effect: MomentsEffect) {
@@ -182,18 +194,37 @@ constructor(
         }
     }
 
+    // Reads the toggles from the service: SystemUI's copy follows a change a moment later.
     private fun blockSensor(sensor: Int): MomentsOutcome {
         if (!sensorPrivacyController.supportsSensorToggle(sensor)) return MomentsOutcome.UNSUPPORTED
-        if (sensorPrivacyController.isSensorBlocked(sensor)) return MomentsOutcome.ALREADY
-        sensorPrivacyController.setSensorBlocked(Sources.OTHER, sensor, true)
-        return MomentsOutcome.changed(DONE)
+        if (isBlocked(SensorPrivacyManager.TOGGLE_TYPE_SOFTWARE, sensor)) {
+            return MomentsOutcome.ALREADY
+        }
+        if (isBlocked(SensorPrivacyManager.TOGGLE_TYPE_HARDWARE, sensor)) {
+            return MomentsOutcome.ALREADY
+        }
+        // SensorPrivacyManager refuses every change while the phone is locked. The input
+        // service does not. It can still refuse, as for the microphone in an emergency call.
+        val blocked =
+            try {
+                inputManager?.blockSensorForMomentsSwitch(user, sensor) == true
+            } catch (e: RemoteException) {
+                Log.e(TAG, "Could not block sensor $sensor", e)
+                false
+            }
+        return if (blocked) MomentsOutcome.changed(DONE) else MomentsOutcome.REFUSED
     }
 
-    private fun unblockSensor(sensor: Int) {
-        if (sensorPrivacyController.isSensorBlocked(sensor)) {
-            sensorPrivacyController.setSensorBlocked(Sources.OTHER, sensor, false)
-        }
+    // Returns whether the toggle is off. The service can still refuse for a moment after the
+    // unlock.
+    private fun unblockSensor(sensor: Int): Boolean {
+        if (!isBlocked(SensorPrivacyManager.TOGGLE_TYPE_SOFTWARE, sensor)) return true
+        sensorPrivacyController.setSensorBlocked(Sources.OTHER, sensor, false)
+        return !isBlocked(SensorPrivacyManager.TOGGLE_TYPE_SOFTWARE, sensor)
     }
+
+    private fun isBlocked(toggleType: Int, sensor: Int) =
+        sensorPrivacyManager.isSensorPrivacyEnabled(toggleType, sensor)
 
     // As the power menu's Lockdown: only with a secure lock screen, then lock every profile.
     // Returns false when there is no secure lock screen, so nothing happened.

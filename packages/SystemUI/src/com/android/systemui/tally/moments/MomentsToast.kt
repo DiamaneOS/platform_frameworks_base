@@ -74,4 +74,12 @@ object MomentsToast {
             else -> null
         }
     }
+
+    /** The toast when a later reconcile makes changes a move left open, or null if it made none. */
+    @StringRes
+    fun laterText(on: Boolean, action: Int?, result: MomentsResult): Int? {
+        val kinds = if (on) result.inEffect else result.reverted
+        if (kinds.isEmpty()) return null
+        return text(on, action, result.copy(waitingForUnlock = false))
+    }
 }
