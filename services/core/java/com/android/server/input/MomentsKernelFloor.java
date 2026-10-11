@@ -16,6 +16,7 @@
 
 package com.android.server.input;
 
+import android.app.ActivityManagerInternal;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -98,6 +99,10 @@ final class MomentsKernelFloor {
          */
         void postAndroidOnlyNotice(int missing);
         void cancelAndroidOnlyNotice();
+        /** What Android's own toggles block for the current user now (kernel bits). */
+        int androidBlocks();
+        /** Runs {@code onChanged} on the handler when one of Android's toggles changes. */
+        void watchAndroidBlock(Runnable onChanged);
     }
 
     private final Platform mPlatform;
@@ -124,6 +129,9 @@ final class MomentsKernelFloor {
     // the last cancel. The user may have dismissed it since.
     @GuardedBy("mLock")
     private int mNoticeMissing;
+    // The notice applies, but Android does not block everything it names yet.
+    @GuardedBy("mLock")
+    private boolean mNoticeDue;
 
     MomentsKernelFloor(Context context, Handler handler) {
         this(new SystemPlatform(context, handler,
@@ -152,6 +160,7 @@ final class MomentsKernelFloor {
             refreshKernelLocked();
         }
         mPlatform.watch(this::mirrorPolicy, this::onUserSwitched);
+        mPlatform.watchAndroidBlock(this::onAndroidBlockChanged);
     }
 
     /**
@@ -170,6 +179,9 @@ final class MomentsKernelFloor {
             if (wentDown) {
                 maybePostNoticeLocked();
             } else {
+                if (!on) {
+                    mNoticeDue = false;
+                }
                 updateNoticeLocked();
             }
         }
@@ -193,15 +205,32 @@ final class MomentsKernelFloor {
 
     // Each move down where it applies posts the notice: it alerts when it is not showing (never
     // posted, dismissed or cancelled) and only updates it when it still shows.
+    //
+    // It says that Android blocks, so it waits until Android does. The system can refuse the
+    // block, as for the microphone in an emergency call.
     @GuardedBy("mLock")
     private void maybePostNoticeLocked() {
         int missing = androidOnlyBlock(mAction, mSwitchOn, mEnforced);
         if (missing == 0) {
+            mNoticeDue = false;
             updateNoticeLocked();
+            return;
+        }
+        mNoticeDue = (mPlatform.androidBlocks() & missing) != missing;
+        if (mNoticeDue) {
             return;
         }
         mNoticeMissing = missing;
         mPlatform.postAndroidOnlyNotice(missing);
+    }
+
+    // Handler thread.
+    private void onAndroidBlockChanged() {
+        synchronized (mLock) {
+            if (mNoticeDue) {
+                maybePostNoticeLocked();
+            }
+        }
     }
 
     // Cancels the notice once it no longer applies: another action was chosen, or the kernel
@@ -294,6 +323,9 @@ final class MomentsKernelFloor {
             if (mCameraApplied) {
                 mPlatform.setPhysicalToggle(userId, Sensors.CAMERA, true);
             }
+            if (mNoticeDue) {
+                maybePostNoticeLocked();
+            }
         }
     }
 
@@ -328,6 +360,7 @@ final class MomentsKernelFloor {
             pw.println("hardware camera toggle set: " + mCameraApplied);
             pw.println("policy for next boot: " + mPolicy);
             pw.println("android-only notice last named: " + maskToString(mNoticeMissing));
+            pw.println("android-only notice waits for Android's block: " + mNoticeDue);
         }
         pw.decreaseIndent();
     }
@@ -461,6 +494,28 @@ final class MomentsKernelFloor {
         public void cancelAndroidOnlyNotice() {
             mContext.getSystemService(NotificationManager.class)
                     .cancelAsUser(TAG, NOTICE_ID, UserHandle.CURRENT);
+        }
+
+        @Override
+        public int androidBlocks() {
+            SensorPrivacyManagerInternal sensorPrivacy =
+                    LocalServices.getService(SensorPrivacyManagerInternal.class);
+            int userId = LocalServices.getService(ActivityManagerInternal.class)
+                    .getCurrentUserId();
+            return (sensorPrivacy.isSensorPrivacyEnabled(userId, Sensors.MICROPHONE)
+                            ? KERNEL_MIC : 0)
+                    | (sensorPrivacy.isSensorPrivacyEnabled(userId, Sensors.CAMERA)
+                            ? KERNEL_CAMERA : 0);
+        }
+
+        @Override
+        public void watchAndroidBlock(Runnable onChanged) {
+            SensorPrivacyManagerInternal sensorPrivacy =
+                    LocalServices.getService(SensorPrivacyManagerInternal.class);
+            SensorPrivacyManagerInternal.OnUserSensorPrivacyChangedListener listener =
+                    (userId, enabled) -> mHandler.post(onChanged);
+            sensorPrivacy.addSensorPrivacyListenerForAllUsers(Sensors.MICROPHONE, listener);
+            sensorPrivacy.addSensorPrivacyListenerForAllUsers(Sensors.CAMERA, listener);
         }
 
         @Override
