@@ -93,6 +93,22 @@ class MomentsKernelFloorTests {
         override fun cancelAndroidOnlyNotice() {
             noticesCancelled++
         }
+
+        // What Android's own toggles block for the current user (kernel bits). Both by
+        // default, as when SystemUI has made the switch's block.
+        var androidBlocked = MomentsKernelFloor.KERNEL_MIC or MomentsKernelFloor.KERNEL_CAMERA
+        var onAndroidBlockChanged: Runnable? = null
+
+        override fun androidBlocks() = androidBlocked
+
+        override fun watchAndroidBlock(onChanged: Runnable) {
+            onAndroidBlockChanged = onChanged
+        }
+
+        fun androidNowBlocks(mask: Int) {
+            androidBlocked = mask
+            onAndroidBlockChanged!!.run()
+        }
     }
 
     private val platform = FakePlatform()
@@ -370,6 +386,44 @@ class MomentsKernelFloorTests {
         // Moving up leaves it.
         floor.onSwitchChanged(false)
         assertThat(platform.noticesCancelled).isEqualTo(0)
+    }
+
+    @Test
+    fun notArmed_postsOnlyOnceAndroidBlocksBoth() {
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        platform.androidBlocked = 0
+        val floor = floor()
+
+        // SystemUI blocks a moment after the move, one sensor at a time.
+        floor.onSwitchChanged(true)
+        assertThat(platform.noticesPosted).isEqualTo(0)
+        platform.androidNowBlocks(MomentsKernelFloor.KERNEL_CAMERA)
+        assertThat(platform.noticesPosted).isEqualTo(0)
+        platform.androidNowBlocks(BOTH)
+        assertThat(platform.notices).containsExactly(BOTH)
+
+        // Later toggle changes do not post it again.
+        platform.androidNowBlocks(MomentsKernelFloor.KERNEL_CAMERA)
+        platform.androidNowBlocks(BOTH)
+        assertThat(platform.noticesPosted).isEqualTo(1)
+    }
+
+    @Test
+    fun notArmed_androidDoesNotBlock_noNotice() {
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        // As during an emergency call: the microphone toggle cannot change.
+        platform.androidBlocked = 0
+        val floor = floor()
+
+        floor.onSwitchChanged(true)
+        platform.androidNowBlocks(MomentsKernelFloor.KERNEL_CAMERA)
+        floor.onSwitchChanged(true)
+        assertThat(platform.noticesPosted).isEqualTo(0)
+
+        // Up again: a block made later is not the switch's move, so nothing is posted.
+        floor.onSwitchChanged(false)
+        platform.androidNowBlocks(BOTH)
+        assertThat(platform.noticesPosted).isEqualTo(0)
     }
 
     @Test
