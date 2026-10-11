@@ -7595,6 +7595,14 @@ public final class Settings {
         @Protected(read = KnownSystemPackage.LAUNCHER, readWrite = KnownSystemPackage.SYSTEM_UI)
         public static final String TALLY_MOMENTS_HOME_ACTIVE = "tally_moments_home_active";
 
+        /**
+         * Whether the user is told when a device joins the Wi-Fi hotspot (1) or not (0, the
+         * default). Written by Settings and read by SystemUI; apps cannot read it.
+         * @hide
+         */
+        @Protected(read = KnownSystemPackage.SYSTEM_UI, readWrite = KnownSystemPackage.SETTINGS)
+        public static final String TALLY_HOTSPOT_JOIN_NOTICE = "tally_hotspot_join_notice";
+
         // ExtSettings END
 
         // NOTE: If you add new settings here, be sure to add them to
