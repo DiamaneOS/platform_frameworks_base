@@ -818,6 +818,117 @@ public class LockSettingsCredentialPolicyTests extends BaseLockSettingsServiceTe
     }
 
     @Test
+    public void testShellCanSetTheLearningTimeThatIsLeft() throws Exception {
+        final Duration setAt = Duration.ofHours(1);
+        final long sixHours = Duration.ofHours(6).toMillis();
+        mInjector.setTimeSinceBoot(setAt);
+        assertTrue(mService.setLockCredential(newPassword(STRONG_PASSWORD), nonePassword(),
+                PRIMARY_USER_ID));
+
+        mInjector.setTimeSinceBoot(setAt.plusDays(3));
+        assertTrue(mService.setLearningPeriodRemainingForShell(sixHours, PRIMARY_USER_ID));
+        assertEquals(sixHours, mService.getLearningPeriodRemainingMillis(PRIMARY_USER_ID));
+        assertEquals(Long.toString(sixHours),
+                mStorage.getString(LEARNING_REMAINING_KEY, null, PRIMARY_USER_ID));
+        assertEquals(0, mService.getLearningPeriodRemainingMillis(SECONDARY_USER_ID));
+
+        // It is counted down from there.
+        mInjector.setTimeSinceBoot(setAt.plusDays(3).plusHours(2));
+        assertEquals(sixHours - Duration.ofHours(2).toMillis(),
+                mService.getLearningPeriodRemainingMillis(PRIMARY_USER_ID));
+
+        // Up to the full length, and no further.
+        assertTrue(mService.setLearningPeriodRemainingForShell(LEARNING_PERIOD_MS,
+                PRIMARY_USER_ID));
+        assertEquals(LEARNING_PERIOD_MS,
+                mService.getLearningPeriodRemainingMillis(PRIMARY_USER_ID));
+        assertThrows(IllegalArgumentException.class,
+                () -> mService.setLearningPeriodRemainingForShell(LEARNING_PERIOD_MS + 1,
+                        PRIMARY_USER_ID));
+        assertThrows(IllegalArgumentException.class,
+                () -> mService.setLearningPeriodRemainingForShell(-1, PRIMARY_USER_ID));
+        assertEquals(LEARNING_PERIOD_MS,
+                mService.getLearningPeriodRemainingMillis(PRIMARY_USER_ID));
+    }
+
+    @Test
+    public void testShellCanEndTheLearningPeriodButNotStartOne() throws Exception {
+        assertTrue(mService.setLockCredential(newPassword(STRONG_PASSWORD), nonePassword(),
+                PRIMARY_USER_ID));
+
+        reset(mStrongAuth);
+        assertTrue(mService.setLearningPeriodRemainingForShell(0, PRIMARY_USER_ID));
+        assertEquals(0, mService.getLearningPeriodRemainingMillis(PRIMARY_USER_ID));
+        assertNull(mStorage.getString(LEARNING_REMAINING_KEY, null, PRIMARY_USER_ID));
+        verify(mStrongAuth).setStrongAuthTimeoutLimit(0, PRIMARY_USER_ID);
+
+        // What is over stays over.
+        reset(mStrongAuth);
+        assertFalse(mService.setLearningPeriodRemainingForShell(LEARNING_PERIOD_MS,
+                PRIMARY_USER_ID));
+        assertEquals(0, mService.getLearningPeriodRemainingMillis(PRIMARY_USER_ID));
+        assertNull(mStorage.getString(LEARNING_REMAINING_KEY, null, PRIMARY_USER_ID));
+        verify(mStrongAuth, never()).setStrongAuthTimeoutLimit(anyLong(), anyInt());
+    }
+
+    @Test
+    public void testShellCannotRestartALearningPeriodWhoseTimeIsUp() throws Exception {
+        final Duration setAt = Duration.ofHours(1);
+        mInjector.setTimeSinceBoot(setAt);
+        assertTrue(mService.setLockCredential(newPassword(STRONG_PASSWORD), nonePassword(),
+                PRIMARY_USER_ID));
+
+        // The time is up, and no unlock has noted that yet.
+        mInjector.setTimeSinceBoot(setAt.plus(Duration.ofMillis(LEARNING_PERIOD_MS)));
+        assertFalse(mService.setLearningPeriodRemainingForShell(LEARNING_PERIOD_MS,
+                PRIMARY_USER_ID));
+        assertEquals(0, mService.getLearningPeriodRemainingMillis(PRIMARY_USER_ID));
+        assertNull(mStorage.getString(LEARNING_REMAINING_KEY, null, PRIMARY_USER_ID));
+    }
+
+    @Test
+    public void testShellCannotGiveALearningPeriodToACredentialWithoutOne() throws Exception {
+        // No credential, a chosen PIN, a pattern.
+        assertFalse(mService.setLearningPeriodRemainingForShell(LEARNING_PERIOD_MS,
+                MANAGED_PROFILE_USER_ID));
+        mService.setWeakerCredentialRiskAccepted(true, PRIMARY_USER_ID);
+        assertTrue(mService.setLockCredential(newPin("123456"), nonePassword(),
+                PRIMARY_USER_ID));
+        assertFalse(mService.setLearningPeriodRemainingForShell(LEARNING_PERIOD_MS,
+                PRIMARY_USER_ID));
+        mService.setWeakerCredentialRiskAccepted(true, SECONDARY_USER_ID);
+        assertTrue(mService.setLockCredential(newPattern("123654"), nonePassword(),
+                SECONDARY_USER_ID));
+        assertFalse(mService.setLearningPeriodRemainingForShell(LEARNING_PERIOD_MS,
+                SECONDARY_USER_ID));
+
+        assertNull(mStorage.getString(LEARNING_REMAINING_KEY, null, MANAGED_PROFILE_USER_ID));
+        assertNull(mStorage.getString(LEARNING_REMAINING_KEY, null, PRIMARY_USER_ID));
+        assertNull(mStorage.getString(LEARNING_REMAINING_KEY, null, SECONDARY_USER_ID));
+        assertEquals(0, mService.getLearningPeriodRemainingMillis(PRIMARY_USER_ID));
+        verify(mStrongAuth, never()).setStrongAuthTimeoutLimit(anyLong(), anyInt());
+    }
+
+    @Test
+    public void testShellSetsTheLearningTimeOfAWeakerPasswordAlike() throws Exception {
+        final long sixHours = Duration.ofHours(6).toMillis();
+        assertTrue(mService.setLockCredential(newPassword(STRONG_PASSWORD), nonePassword(),
+                PRIMARY_USER_ID));
+        mService.setWeakerCredentialRiskAccepted(true, SECONDARY_USER_ID);
+        assertTrue(mService.setLockCredential(newPassword("password"), nonePassword(),
+                SECONDARY_USER_ID));
+
+        assertTrue(mService.setLearningPeriodRemainingForShell(sixHours, PRIMARY_USER_ID));
+        assertTrue(mService.setLearningPeriodRemainingForShell(sixHours, SECONDARY_USER_ID));
+
+        // Stored alike, but a weaker password is not asked for more often.
+        assertSamePolicyStateStored(PRIMARY_USER_ID, SECONDARY_USER_ID);
+        assertEquals(0, mService.getLearningPeriodRemainingMillis(SECONDARY_USER_ID));
+        verify(mStrongAuth, never()).setStrongAuthTimeoutLimit(anyLong(),
+                eq(SECONDARY_USER_ID));
+    }
+
+    @Test
     public void testUnifiedProfilePasswordIsNotLearned() throws Exception {
         final LockscreenCredential password = newPassword(STRONG_PASSWORD);
         assertTrue(mService.setLockCredential(password, nonePassword(), PRIMARY_USER_ID));
