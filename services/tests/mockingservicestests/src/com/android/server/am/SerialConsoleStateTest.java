@@ -69,6 +69,8 @@ public class SerialConsoleStateTest {
     public void malformedOrEmptyStateRequiresFallback() {
         assertRejected("");
         assertRejected("ttyS0 -W- E 4:64\n");
+        assertRejected("ttyS0 -W- (X) 4:64\n");
+        assertRejected("ttyS0 -W- (      X) 4:64\n");
         assertRejected("ttynull0 --- (E     ) 235:0\nbad\n");
     }
 
