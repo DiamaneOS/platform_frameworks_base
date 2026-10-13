@@ -145,6 +145,11 @@ constructor(
         userTracker.addCallback(userCallback, bgExecutor)
         keyguardStateController.addCallback(
             object : KeyguardStateController.Callback {
+                // A PIN or password unlock reports only that the lock screen went away.
+                override fun onKeyguardShowingChanged() {
+                    if (keyguardStateController.isUnlocked) reconcileSoon()
+                }
+
                 override fun onUnlockedChanged() {
                     if (keyguardStateController.isUnlocked) reconcileSoon()
                 }
