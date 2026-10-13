@@ -46,6 +46,9 @@ public class SerialConsoleStateTest {
     @Test
     public void enabledBootConsoleWarns() throws IOException {
         assertTrue(enabled("ttyS0 -W- (E B   ) 4:64\n"));
+        // Newer kernels print a seventh flag slot.
+        assertTrue(enabled("ttyS0 -W- (E  p aN) 4:64\n"));
+        assertFalse(enabled("ttynull0 --- (E      ) 235:0\n"));
     }
 
     @Test
