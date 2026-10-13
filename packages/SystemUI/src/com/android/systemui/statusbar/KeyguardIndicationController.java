@@ -428,6 +428,10 @@ public class KeyguardIndicationController {
         mKeyguardUpdateMonitor.registerCallback(getKeyguardCallback());
         mStatusBarStateController.addCallback(mStatusBarStateListener);
         mKeyguardStateController.addCallback(mKeyguardStateCallback);
+        if (TallyShell.isEnabled()) {
+            // Tally: a message on screen takes the new ink at once.
+            mTallyLockInk.get().addListener(() -> updateDeviceEntryIndication(false));
+        }
 
         mStatusBarStateListener.onDozingChanged(mStatusBarStateController.isDozing());
         mStatusBarStateListener.onDreamingChanged(mStatusBarStateController.isDreaming());
@@ -1446,6 +1450,13 @@ public class KeyguardIndicationController {
     }
 
     protected ColorStateList getInitialTextColorState() {
+        // Tally: the ink the lock wallpaper calls for, as the clock and date use. SystemUI's
+        // theme can say dark text over a dark wallpaper.
+        if (TallyShell.isEnabled()) {
+            return ColorStateList.valueOf(TallyWallTheme.context(mContext,
+                    mTallyLockInk.get().isLightWallpaper())
+                    .getColor(de.diamaneos.tally.R.color.tally_ink));
+        }
         return mInitialTextColorState;
     }
 
