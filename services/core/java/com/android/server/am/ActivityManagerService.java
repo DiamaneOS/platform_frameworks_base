@@ -574,6 +574,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.lang.ref.WeakReference;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -6016,7 +6017,7 @@ public class ActivityManagerService extends IActivityManager.Stub
                     });
             mUserController.scheduleStartProfiles();
         }
-        // UART is on if init's console service is running, send a warning notification.
+        // Warn when an external kernel console or init's console shell is enabled.
         showConsoleNotificationIfActive();
         showMteOverrideNotificationIfActive();
         // If device is not a mass production (MP) variant, send a warning notification.
@@ -6026,6 +6027,14 @@ public class ActivityManagerService extends IActivityManager.Stub
     }
 
     private static boolean isUartEnabled() {
+        if (SystemProperties.get("init.svc.console").equals("running")) {
+            return true;
+        }
+        try (InputStreamReader consoles = new InputStreamReader(
+                new FileInputStream("/proc/consoles"), StandardCharsets.US_ASCII)) {
+            return SerialConsoleState.hasEnabledSerialConsole(consoles);
+        } catch (IOException ignored) {}
+
         // console=null should be set in the kernel cmdline when UART is off
         final String console_string = "console=null";
         boolean isEnabled = false;
@@ -6036,11 +6045,6 @@ public class ActivityManagerService extends IActivityManager.Stub
             }
             isEnabled = !scOutput.toString().contains(console_string);
         } catch (IOException ignored) {}
-        // This check will only work on userdebug and eng builds due
-        // to the console service not being present on user builds.
-        if (SystemProperties.get("init.svc.console").equals("running")) {
-            isEnabled = true;
-        }
         return isEnabled;
     }
 
