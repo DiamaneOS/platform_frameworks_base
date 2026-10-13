@@ -113,6 +113,12 @@ constructor(
             override fun onBootComplete() = requery()
         }
 
+    // UserTracker keeps callbacks as weak references too.
+    private val userCallback =
+        object : UserTracker.Callback {
+            override fun onUserChanged(newUser: Int, userContext: Context) = reconcileSoon()
+        }
+
     private val settingsObserver =
         MomentsSettingsObserver(Handler(Looper.getMainLooper())) { reconcileSoon() }
 
@@ -136,12 +142,7 @@ constructor(
                 UserHandle.USER_ALL,
             )
         }
-        userTracker.addCallback(
-            object : UserTracker.Callback {
-                override fun onUserChanged(newUser: Int, userContext: Context) = reconcileSoon()
-            },
-            bgExecutor,
-        )
+        userTracker.addCallback(userCallback, bgExecutor)
         keyguardStateController.addCallback(
             object : KeyguardStateController.Callback {
                 override fun onUnlockedChanged() {

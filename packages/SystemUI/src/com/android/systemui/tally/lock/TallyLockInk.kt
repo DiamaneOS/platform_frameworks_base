@@ -22,6 +22,7 @@ import android.content.Context
 import android.util.Log
 import androidx.annotation.MainThread
 import androidx.annotation.VisibleForTesting
+import com.android.internal.colorextraction.ColorExtractor
 import com.android.systemui.colorextraction.SysuiColorExtractor
 import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.dagger.qualifiers.Application
@@ -83,13 +84,27 @@ constructor(
 
     private val listeners = CopyOnWriteArraySet<Runnable>()
 
-    init {
-        Log.i(TAG, "lightWallpaper=$isLightWallpaper (start, colors=$colors, night=${isNight()})")
-        colorExtractor.addOnColorsChangedListener { _, _ ->
+    // Kept in fields: the colour extractor and the user tracker hold their listeners weakly.
+    private val colorsListener =
+        ColorExtractor.OnColorsChangedListener { _, _ ->
             reports++
             colors = lockColors()
             update("colors")
         }
+    private val userCallback =
+        object : UserTracker.Callback {
+            override fun onUserChanged(newUser: Int, userContext: Context) {
+                // The colour extractor may still hold the last user's colours: read the new
+                // user's, and until they come follow the theme.
+                colors = null
+                update("user")
+                readColorsFor(newUser)
+            }
+        }
+
+    init {
+        Log.i(TAG, "lightWallpaper=$isLightWallpaper (start, colors=$colors, night=${isNight()})")
+        colorExtractor.addOnColorsChangedListener(colorsListener)
         configurationController.addCallback(
             object : ConfigurationController.ConfigurationListener {
                 override fun onUiModeChanged() = update("uiMode")
@@ -97,18 +112,7 @@ constructor(
                 override fun onThemeChanged() = update("theme")
             }
         )
-        userTracker.addCallback(
-            object : UserTracker.Callback {
-                override fun onUserChanged(newUser: Int, userContext: Context) {
-                    // The colour extractor may still hold the last user's colours: read the new
-                    // user's, and until they come follow the theme.
-                    colors = null
-                    update("user")
-                    readColorsFor(newUser)
-                }
-            },
-            mainExecutor,
-        )
+        userTracker.addCallback(userCallback, mainExecutor)
         keyguardStateController.addCallback(
             object : KeyguardStateController.Callback {
                 override fun onKeyguardShowingChanged() = update("showing")
