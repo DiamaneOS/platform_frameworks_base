@@ -25,9 +25,10 @@ import java.util.regex.Pattern;
 /** Reads enabled kernel consoles without assuming a particular boot argument. */
 final class SerialConsoleState {
     // Kernel flags have ordered slots: enabled, preferred, boot, print-buffer,
-    // braille and anytime. Unknown formats require the existing fallback.
+    // braille and anytime; newer kernels add one for nbcon. Any other format is
+    // an error, so that the caller falls back to the boot arguments.
     private static final Pattern ENTRY = Pattern.compile(
-            "(\\S+)\\s+[R-][W-][U-]\\s+\\(([E ][C ][B ][p ][b ][a ])\\)"
+            "(\\S+)\\s+[R-][W-][U-]\\s+\\(([E ][C ][B ][p ][b ][a ])[N ]?\\)"
                     + "(?:\\s+\\d+:\\d+)?");
     private static final Pattern LOCAL_SINK = Pattern.compile(
             "ramoops-?\\d+|ttynull-?\\d+|tty\\d+");
@@ -44,7 +45,7 @@ final class SerialConsoleState {
             }
             found = true;
             // E is CON_ENABLED. Null, persistent-memory and display consoles do
-            // not expose a serial terminal; other enabled consoles retain the warning.
+            // not expose a serial terminal; any other enabled console counts.
             if (entry.group(2).indexOf('E') >= 0
                     && !LOCAL_SINK.matcher(entry.group(1)).matches()) {
                 return true;
