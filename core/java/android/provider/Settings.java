@@ -14607,6 +14607,14 @@ public final class Settings {
         @Protected(readWrite = KnownSystemPackage.SETTINGS)
         public static final String ALLOW_CLIPBOARD_READ_BY_DEFAULT = "allow_clipboard_read";
 
+        /**
+         * Whether pressing power and volume down together takes a screenshot (1, the default) or
+         * not (0). The power menu and Quick Settings screenshots stay either way.
+         * @hide
+         */
+        @Protected(readWrite = KnownSystemPackage.SETTINGS)
+        public static final String POWER_VOLUME_DOWN_SCREENSHOT = "power_volume_down_screenshot";
+
         // ExtSettings END
 
         // NOTE: If you add new settings here, be sure to add them to

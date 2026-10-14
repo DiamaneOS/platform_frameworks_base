@@ -50,6 +50,7 @@ import android.content.PermissionChecker;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.database.ContentObserver;
+import android.ext.settings.ExtSettings;
 import android.hardware.display.DisplayManager;
 import android.hardware.input.AidlInputGestureData;
 import android.hardware.input.AidlKeyGestureEvent;
@@ -243,6 +244,7 @@ final class KeyGestureController {
     // Settings behaviors
     private int mRingerToggleChord = Settings.Secure.VOLUME_HUSH_OFF;
     private int mPowerVolUpBehavior;
+    private boolean mPowerVolDownScreenshot = true;
 
 
     // List of currently registered key gesture event listeners keyed by process pid
@@ -322,6 +324,8 @@ final class KeyGestureController {
                 Settings.Global.KEY_CHORD_POWER_VOLUME_UP,
                 mContext.getResources().getInteger(
                         com.android.internal.R.integer.config_keyChordPowerVolumeUp));
+
+        mPowerVolDownScreenshot = ExtSettings.POWER_VOLUME_DOWN_SCREENSHOT.get(mContext);
     }
 
     private void initKeyCombinationRules() {
@@ -334,6 +338,12 @@ final class KeyGestureController {
             mKeyCombinationManager.addRule(
                     new KeyCombinationManager.TwoKeysCombinationRule(KeyEvent.KEYCODE_VOLUME_DOWN,
                             KeyEvent.KEYCODE_POWER) {
+                        // With the setting off neither key is held back, so power still locks
+                        @Override
+                        public boolean preCondition() {
+                            return mPowerVolDownScreenshot;
+                        }
+
                         @Override
                         public void execute() {
                             handleMultiKeyGesture(
@@ -1766,6 +1776,9 @@ final class KeyGestureController {
             resolver.registerContentObserver(Settings.Global.getUriFor(
                             Settings.Global.KEY_CHORD_POWER_VOLUME_UP), false, this,
                     UserHandle.USER_ALL);
+            resolver.registerContentObserver(Settings.Global.getUriFor(
+                            ExtSettings.POWER_VOLUME_DOWN_SCREENSHOT.getKey()), false, this,
+                    UserHandle.USER_ALL);
         }
 
         @Override
@@ -1856,6 +1869,7 @@ final class KeyGestureController {
         ipw.println("mSettingsKeyBehavior = " + mSettingsKeyBehavior);
         ipw.println("mRingerToggleChord = " + mRingerToggleChord);
         ipw.println("mPowerVolUpBehavior = " + mPowerVolUpBehavior);
+        ipw.println("mPowerVolDownScreenshot = " + mPowerVolDownScreenshot);
         ipw.print("mKeyGestureEventListenerRecords = {");
         synchronized (mKeyGestureEventListenerRecords) {
             int size = mKeyGestureEventListenerRecords.size();
