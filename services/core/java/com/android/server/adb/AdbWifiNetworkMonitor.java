@@ -124,9 +124,9 @@ public class AdbWifiNetworkMonitor extends ConnectivityManager.NetworkCallback
             Slog.i(
                     TAG,
                     TextUtils.formatSimple(
-                            "Wi-Fi connection info is invalid {networkId=%d, bssid=%s, ssid=%s}."
+                            "Wi-Fi connection info is invalid {networkId=%d}."
                                     + " Stopping adb over Wi-Fi.",
-                            wifiInfo.getNetworkId(), wifiInfo.getBSSID(), wifiInfo.getSSID()));
+                            wifiInfo.getNetworkId()));
             return;
         }
 
@@ -137,11 +137,7 @@ public class AdbWifiNetworkMonitor extends ConnectivityManager.NetworkCallback
         mLastSSID = wifiInfo.getSSID();
 
         mAdbDebuggingHandler.sendEmptyMessage(AdbDebuggingHandler.MSG_START_TLS_SERVICE);
-        Slog.i(
-                TAG,
-                TextUtils.formatSimple(
-                        "Connected to a Wi-Fi network {bssid=%s, ssid=%s}. Attempting to start adb"
-                                + " over Wi-Fi.",
-                        wifiInfo.getBSSID(), wifiInfo.getSSID()));
+        // The BSSID and SSID are location data, so they stay out of the system log.
+        Slog.i(TAG, "Connected to a Wi-Fi network. Attempting to start adb over Wi-Fi.");
     }
 }
