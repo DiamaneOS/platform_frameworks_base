@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copyright (C) 2026 The DiamaneOS Project
+  SPDX-License-Identifier: Apache-2.0
+
+  French for the Tally strings in values/strings.xml, translated by the DiamaneOS project.
+-->
+<resources>
+    <string name="notification_section_header_live">"En temps réel"</string>
+    <string name="tally_wallpaper_label">"Papier"</string>
+</resources>
