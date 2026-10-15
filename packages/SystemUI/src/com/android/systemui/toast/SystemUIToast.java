@@ -41,7 +41,9 @@ import android.widget.ImageView;
 import android.widget.TextView;
 
 import com.android.internal.R;
+import com.android.systemui.notifications.content.icon.AppIconProvider;
 import com.android.systemui.plugins.ToastPlugin;
+import com.android.systemui.tally.TallyShell;
 
 /**
  * SystemUI TextToast that can be customized by ToastPlugins. Should never instantiate this class
@@ -49,12 +51,14 @@ import com.android.systemui.plugins.ToastPlugin;
  */
 public class SystemUIToast implements ToastPlugin.Toast {
     static final String TAG = "SystemUIToast";
+    private static final String TOAST_ICON_KEY = "TOAST";
     final Context mContext;
     final Context mDisplayContext;
     final CharSequence mText;
     final ToastPlugin.Toast mPluginToast;
 
     private final String mPackageName;
+    @Nullable private final AppIconProvider mAppIconProvider;
     @UserIdInt private final int mUserId;
     private final LayoutInflater mLayoutInflater;
 
@@ -70,14 +74,15 @@ public class SystemUIToast implements ToastPlugin.Toast {
     @Nullable private final Animator mOutAnimator;
 
     SystemUIToast(LayoutInflater layoutInflater, Context applicationContext, Context displayContext,
-            CharSequence text, String packageName, int userId, int orientation) {
+            CharSequence text, String packageName, int userId, int orientation,
+            @Nullable AppIconProvider appIconProvider) {
         this(layoutInflater, applicationContext, displayContext, text, null, packageName, userId,
-                orientation);
+                orientation, appIconProvider);
     }
 
     SystemUIToast(LayoutInflater layoutInflater, Context applicationContext, Context displayContext,
             CharSequence text, ToastPlugin.Toast pluginToast, String packageName,
-            @UserIdInt int userId, int orientation) {
+            @UserIdInt int userId, int orientation, @Nullable AppIconProvider appIconProvider) {
         mLayoutInflater = layoutInflater;
         mContext = applicationContext;
         mDisplayContext = displayContext;
@@ -85,6 +90,7 @@ public class SystemUIToast implements ToastPlugin.Toast {
         mPluginToast = pluginToast;
         mPackageName = packageName;
         mUserId = userId;
+        mAppIconProvider = appIconProvider;
         mToastView = inflateToastView();
         mInAnimator = createInAnimator();
         mOutAnimator = createOutAnimator();
@@ -172,7 +178,9 @@ public class SystemUIToast implements ToastPlugin.Toast {
         }
 
         final View toastView = mLayoutInflater.inflate(
-                    com.android.systemui.res.R.layout.text_toast, null);
+                    TallyShell.isEnabled()
+                            ? TallyToast.LAYOUT
+                            : com.android.systemui.res.R.layout.text_toast, null);
         final TextView textView = toastView.findViewById(com.android.systemui.res.R.id.text);
         final ImageView iconView = toastView.findViewById(com.android.systemui.res.R.id.icon);
         textView.setText(mText);
@@ -193,7 +201,9 @@ public class SystemUIToast implements ToastPlugin.Toast {
             // no app icon
             toastView.findViewById(com.android.systemui.res.R.id.icon).setVisibility(View.GONE);
         } else {
-            Drawable icon = getBadgedIcon(mContext, mPackageName, mUserId);
+            Drawable icon = TallyShell.isEnabled() && mAppIconProvider != null
+                    ? getStyledIcon(mContext, mAppIconProvider, mPackageName, mUserId)
+                    : getBadgedIcon(mContext, mPackageName, mUserId);
             if (icon == null) {
                 iconView.setVisibility(View.GONE);
             } else {
@@ -232,6 +242,9 @@ public class SystemUIToast implements ToastPlugin.Toast {
         if (isPluginToast() && mPluginToast.getInAnimation() != null) {
             return mPluginToast.getInAnimation();
         }
+        if (TallyShell.isEnabled()) {
+            return TallyToast.inAnimation(getView());
+        }
 
         return ToastDefaultAnimation.Companion.toastIn(getView());
     }
@@ -239,6 +252,9 @@ public class SystemUIToast implements ToastPlugin.Toast {
     private Animator createOutAnimator() {
         if (isPluginToast() && mPluginToast.getOutAnimation() != null) {
             return mPluginToast.getOutAnimation();
+        }
+        if (TallyShell.isEnabled()) {
+            return TallyToast.outAnimation(getView());
         }
         return ToastDefaultAnimation.Companion.toastOut(getView());
     }
@@ -265,6 +281,38 @@ public class SystemUIToast implements ToastPlugin.Toast {
 
             IconDrawableFactory iconFactory = IconDrawableFactory.newInstance(context);
             return iconFactory.getBadgedIcon(appInfo, UserHandle.getUserId(appInfo.uid));
+        } catch (NameNotFoundException e) {
+            Log.e(TAG, "Couldn't find application info for packageName=" + packageName
+                    + " userId=" + userId);
+            return null;
+        }
+    }
+
+    /**
+     * Tally: the app's icon in the user's icon style, as Home and the notifications draw it, where
+     * {@link #getBadgedIcon} would show one.
+     */
+    @Nullable
+    private static Drawable getStyledIcon(@NonNull Context context,
+            @NonNull AppIconProvider appIconProvider, String packageName, int userId) {
+        if (!(context.getApplicationContext() instanceof Application)) {
+            return null;
+        }
+        try {
+            final PackageManager packageManager = context.getPackageManager();
+            final ApplicationInfo appInfo = packageManager.getApplicationInfoAsUser(
+                    packageName, PackageManager.ApplicationInfoFlags.of(0), userId);
+            if (appInfo == null || !showApplicationIcon(appInfo, packageManager)) {
+                return null;
+            }
+            final Drawable icon = appIconProvider.getOrFetchAppIcon(packageName,
+                    UserHandle.getUserHandleForUid(appInfo.uid), TOAST_ICON_KEY);
+            if (icon == null) {
+                return null;
+            }
+            // The cache shares one drawable per key, and two toasts can show at once.
+            final Drawable.ConstantState state = icon.getConstantState();
+            return state != null ? state.newDrawable() : icon;
         } catch (NameNotFoundException e) {
             Log.e(TAG, "Couldn't find application info for packageName=" + packageName
                     + " userId=" + userId);
