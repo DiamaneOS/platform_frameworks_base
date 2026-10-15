@@ -40,6 +40,7 @@ import com.android.app.tracing.coroutines.launchTraced
 import com.android.internal.R as internalR
 import com.android.internal.graphics.drawable.BackgroundBlurDrawable
 import com.android.systemui.res.R
+import com.android.systemui.tally.TallyShell
 import com.android.systemui.volume.dialog.dagger.scope.VolumeDialogScope
 import com.android.systemui.volume.dialog.ringer.ui.util.VolumeDialogRingerDrawerTransitionListener
 import com.android.systemui.volume.dialog.ringer.ui.util.updateCloseState
@@ -54,6 +55,7 @@ import com.android.systemui.volume.dialog.ui.binder.ViewBinder
 import com.android.systemui.volume.dialog.ui.utils.suspendAnimate
 import com.android.systemui.volume.dialog.ui.viewmodel.VolumeDialogViewModel
 import com.android.systemui.window.domain.interactor.WindowRootViewBlurInteractor
+import de.diamaneos.tally.R as TallyR
 import javax.inject.Inject
 import kotlin.properties.Delegates
 import kotlinx.coroutines.CoroutineScope
@@ -373,6 +375,14 @@ constructor(
             uiModel.drawerState is RingerDrawerState.Closed &&
                 uiModel.drawerState.currentMode != uiModel.drawerState.previousMode
         ) {
+            if (TallyShell.isEnabled) {
+                // Tally: the lit key moves to the new mode at once, as a lamp lights, and the
+                // drawer closes after the same pause.
+                bindButtons(viewModel, uiModel)
+                delay(CLOSE_DRAWER_DELAY)
+                onAnimationEnd?.run()
+                return
+            }
             val count = uiModel.availableButtons.size
             val selectedButton = getChildAt(count - uiModel.currentButtonIndex) as ImageButton
             val previousIndex =
@@ -470,11 +480,27 @@ constructor(
             }
         if (isSelected && !isAnimated) {
             setBackgroundResource(R.drawable.volume_drawer_selection_bg)
-            setColorFilter(context.getColor(internalR.color.materialColorOnPrimary))
+            setColorFilter(
+                context.getColor(
+                    if (TallyShell.isEnabled) {
+                        TallyR.color.tally_on_lamp
+                    } else {
+                        internalR.color.materialColorOnPrimary
+                    }
+                )
+            )
             background = background.mutate()
         } else if (!isAnimated) {
             setBackgroundResource(R.drawable.volume_ringer_item_bg)
-            setColorFilter(context.getColor(internalR.color.materialColorOnSurface))
+            setColorFilter(
+                context.getColor(
+                    if (TallyShell.isEnabled) {
+                        TallyR.color.tally_ink
+                    } else {
+                        internalR.color.materialColorOnSurface
+                    }
+                )
+            )
             background = background.mutate()
         }
         setOnClickListener {
