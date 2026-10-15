@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.TouchApp
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -36,7 +35,18 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.text
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.DeviceFontFamilyName
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
 import com.android.settingslib.spa.framework.compose.thenIf
 import com.android.settingslib.spa.framework.theme.SettingsDimension
 import com.android.settingslib.spa.framework.theme.SettingsShape
@@ -45,30 +55,46 @@ import com.android.settingslib.spa.framework.theme.SettingsTheme
 import com.android.settingslib.spa.framework.theme.isSpaExpressiveEnabled
 import com.android.settingslib.spa.widget.preference.Preference
 import com.android.settingslib.spa.widget.preference.PreferenceModel
+import java.util.Locale
 
-/** A category title that is placed before a group of similar items. */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+/**
+ * A category title that is placed before a group of similar items.
+ *
+ * Tally: the section title of SettingsLib's pages (SettingsTheme's TextAppearance.SettingsLib.Tally
+ * .Section): small muted capitals, lined up with the rows' text. Colour is spent only where
+ * something is on, so the title is not in the accent. A screen reader still reads the title as
+ * written.
+ */
 @Composable
 fun CategoryTitle(title: String) {
+    val locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
     Text(
-        text = title,
+        text = title.uppercase(locale),
         modifier =
             Modifier.padding(
-                start =
-                    if (isSpaExpressiveEnabled) SettingsSpace.extraSmall4
-                    else SettingsDimension.itemPaddingStart,
-                top = SettingsSpace.small3,
-                end =
-                    if (isSpaExpressiveEnabled) SettingsSpace.extraSmall4
-                    else SettingsDimension.itemPaddingEnd,
-                bottom = SettingsSpace.extraSmall4,
-            ),
-        color = MaterialTheme.colorScheme.primary,
-        style =
-            if (isSpaExpressiveEnabled) MaterialTheme.typography.labelLargeEmphasized
-            else MaterialTheme.typography.labelMedium,
+                    start = SettingsDimension.itemPaddingStart,
+                    top = SettingsSpace.small3,
+                    end = SettingsDimension.itemPaddingEnd,
+                    bottom = SettingsSpace.extraSmall4,
+                )
+                .clearAndSetSemantics { text = AnnotatedString(title) },
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        style = TallySectionTitleStyle,
     )
 }
+
+/**
+ * Tally's section type (the token spec's section role, as SettingsTheme's values-v36/tally_rows.xml
+ * writes it out): 11 sp at weight 500 with 0.06 em tracking on a 16 sp line, in Sofia Sans.
+ */
+private val TallySectionTitleStyle =
+    TextStyle(
+        fontFamily = FontFamily(Font(DeviceFontFamilyName("sofia-sans"), FontWeight.Medium)),
+        fontWeight = FontWeight.Medium,
+        fontSize = 11.sp,
+        lineHeight = 16.sp,
+        letterSpacing = 0.06.em,
+    )
 
 /**
  * A container that is used to group similar items. A [Category] displays a [CategoryTitle] and

@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
 import com.android.settingslib.spa.framework.theme.SettingsSpace
+import com.android.settingslib.spa.framework.theme.settingsBackground
 import kotlin.math.roundToInt
 
 private val safeDrawingWindowInsets: WindowInsets
@@ -102,9 +103,10 @@ internal fun MorphingTitleLargeTopAppBar(
 
 @Composable
 private fun topAppBarColors() =
+    // Tally: the bar is the page's own colour, scrolled or not, as SettingsLib's collapsed bar.
     TopAppBarColors(
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer,
+        containerColor = MaterialTheme.colorScheme.settingsBackground,
+        scrolledContainerColor = MaterialTheme.colorScheme.settingsBackground,
         navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
         titleContentColor = MaterialTheme.colorScheme.onSurface,
         actionIconContentColor = MaterialTheme.colorScheme.primary,
