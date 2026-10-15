@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.window.DialogProperties
+import com.android.settingslib.spa.framework.theme.SettingsShape
 import com.android.settingslib.spa.framework.theme.SettingsSize
 
 @Composable
@@ -60,10 +61,12 @@ fun SettingsAlertDialogWithIcon(
 
 @Composable
 private fun Button(button: AlertDialogButton) {
-    Button(onClick = { button.onClick() }) { Text(button.text) }
+    Button(onClick = { button.onClick() }, shape = SettingsShape.TallyKey) { Text(button.text) }
 }
 
 @Composable
 private fun OutlinedButton(button: AlertDialogButton) {
-    OutlinedButton(onClick = { button.onClick() }) { Text(button.text) }
+    OutlinedButton(onClick = { button.onClick() }, shape = SettingsShape.TallyKey) {
+        Text(button.text)
+    }
 }

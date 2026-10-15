@@ -69,8 +69,16 @@ fun SettingsAlertDialogContent(
                 mainAxisSpacing = ButtonsMainAxisSpacing,
                 crossAxisSpacing = ButtonsCrossAxisSpacing,
             ) {
-                dismissButton?.let { OutlinedButton(onClick = it.onClick) { Text(it.text) } }
-                confirmButton?.let { Button(onClick = { it.onClick() }) { Text(it.text) } }
+                dismissButton?.let {
+                    OutlinedButton(onClick = it.onClick, shape = SettingsShape.TallyKey) {
+                        Text(it.text)
+                    }
+                }
+                confirmButton?.let {
+                    Button(onClick = { it.onClick() }, shape = SettingsShape.TallyKey) {
+                        Text(it.text)
+                    }
+                }
             }
         },
         icon = icon,
