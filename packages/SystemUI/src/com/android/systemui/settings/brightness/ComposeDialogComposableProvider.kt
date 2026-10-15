@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import com.android.compose.theme.PlatformTheme
@@ -30,6 +31,8 @@ import com.android.systemui.brightness.ui.compose.BrightnessSliderDimensions
 import com.android.systemui.brightness.ui.compose.ContainerColors
 import com.android.systemui.brightness.ui.viewmodel.BrightnessSliderViewModel
 import com.android.systemui.lifecycle.rememberViewModel
+import com.android.systemui.tally.TallyShell
+import de.diamaneos.tally.R as TallyR
 
 object ComposeDialogComposableProvider {
 
@@ -50,11 +53,26 @@ private fun BrightnessSliderForDialog(
         rememberViewModel(traceName = "BrightnessDialog.viewModel") {
             brightnessSliderViewModelFactory.create(false)
         }
+    // Tally: the slider floats over the page on a Tally panel, with the card radius, where the
+    // shade's background (the default frame) is the page's own colour and so showed no panel.
+    val tally = TallyShell.isEnabled
     BrightnessSliderContainer(
         viewModel = viewModel,
-        containerColors = ContainerColors.singleColor(ContainerColors.defaultContainerColor),
+        containerColors =
+            if (tally) {
+                ContainerColors.tallyPanelColors
+            } else {
+                ContainerColors.singleColor(ContainerColors.defaultContainerColor)
+            },
         modifier = Modifier.fillMaxWidth().padding(8.dp),
-        dimensions = dimensions,
+        dimensions =
+            if (tally) {
+                dimensions.copy(
+                    backgroundRoundedCorner = dimensionResource(TallyR.dimen.tally_radius_m)
+                )
+            } else {
+                dimensions
+            },
     )
 }
 
