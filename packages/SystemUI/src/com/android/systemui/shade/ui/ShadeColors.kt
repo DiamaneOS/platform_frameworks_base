@@ -19,6 +19,8 @@ package com.android.systemui.shade.ui
 import android.content.Context
 import com.android.internal.graphics.ColorUtils
 import com.android.systemui.res.R
+import com.android.systemui.tally.TallyShell
+import de.diamaneos.tally.R as TallyR
 
 object ShadeColors {
     /**
@@ -96,6 +98,9 @@ object ShadeColors {
 
     @JvmStatic
     private fun shadePanelFallback(context: Context): Int {
+        // Tally: without blur the shade is one sheet in the page background, not a palette tone.
+        // The shade_panel_fallback resource itself stays stock: the brightness slider reads it too.
+        if (TallyShell.isEnabled) return context.getColor(TallyR.color.tally_background)
         return context.getColor(R.color.shade_panel_fallback)
     }
 
@@ -109,6 +114,8 @@ object ShadeColors {
 
     @JvmStatic
     private fun notificationScrimFallback(context: Context): Int {
+        // Tally: the notifications sit on the same sheet as the tiles, with no panel of their own.
+        if (TallyShell.isEnabled) return context.getColor(TallyR.color.tally_background)
         return context.getColor(R.color.notification_scrim_fallback)
     }
 }
