@@ -20,6 +20,7 @@ import static android.view.View.GONE;
 import static com.android.internal.jank.InteractionJankMonitor.CUJ_SPLASHSCREEN_EXIT_ANIM;
 
 import android.animation.Animator;
+import android.annotation.Nullable;
 import android.content.Context;
 import android.graphics.Rect;
 import android.util.Slog;
@@ -31,6 +32,9 @@ import com.android.internal.jank.InteractionJankMonitor;
 import com.android.wm.shell.R;
 import com.android.wm.shell.shared.TransactionPool;
 import com.android.wm.shell.shared.startingsurface.SplashScreenExitAnimationUtils;
+import com.android.wm.shell.tally.TallyMotionTokens;
+import com.android.wm.shell.tally.TallySpring;
+import com.android.wm.shell.tally.TallyWmShell;
 
 /**
  * Default animation for exiting the splash screen window.
@@ -55,6 +59,9 @@ public class SplashScreenExitAnimation implements Animator.AnimatorListener {
     private final TransactionPool mTransactionPool;
     // TODO(b/261167708): Clean enter animation code after moving Letterbox code to Shell
     private final float mRoundedCornerRadius;
+    /** DiamaneOS Tally's fill spring, when Tally is on: the splash fades out on it. */
+    @Nullable
+    private final TallySpring mTallyFill;
 
     private Runnable mFinishCallback;
 
@@ -100,9 +107,15 @@ public class SplashScreenExitAnimation implements Animator.AnimatorListener {
         mMainWindowShiftLength = mainWindowShiftLength;
         mFinishCallback = handleFinish;
         mTransactionPool = pool;
+        mTallyFill = TallyWmShell.isEnabled()
+                ? TallyMotionTokens.fill(context.getResources()) : null;
     }
 
     void startAnimations() {
+        if (mTallyFill != null) {
+            TallySplashScreen.startExitAnimation(mTallyFill, mSplashScreenView, this);
+            return;
+        }
         SplashScreenExitAnimationUtils.startAnimations(mAnimationType, mSplashScreenView,
                 mFirstWindowSurface, mMainWindowShiftLength, mTransactionPool, mFirstWindowFrame,
                 mAnimationDuration, mIconFadeOutDuration, mIconStartAlpha, mBrandingStartAlpha,
