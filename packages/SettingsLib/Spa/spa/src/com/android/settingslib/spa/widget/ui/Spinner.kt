@@ -91,6 +91,8 @@ fun Spinner(options: List<SpinnerOption>, selectedId: Int?, setId: (id: Int) -> 
             Button(
                 modifier = Modifier.semantics { role = Role.DropdownList },
                 onClick = { expanded = true },
+                // Tally: a key, not a pill.
+                shape = SettingsShape.TallyKey,
                 colors =
                     ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.secondaryContainer,
