@@ -30,7 +30,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.WarningAmber
@@ -54,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import com.android.settingslib.spa.debug.UiModePreviews
 import com.android.settingslib.spa.framework.compose.contentDescription
 import com.android.settingslib.spa.framework.theme.SettingsDimension
+import com.android.settingslib.spa.framework.theme.SettingsShape
 import com.android.settingslib.spa.framework.theme.SettingsShape.CornerExtraLarge1
 import com.android.settingslib.spa.framework.theme.SettingsShape.CornerExtraSmall2
 import com.android.settingslib.spa.framework.theme.SettingsTheme
@@ -184,7 +184,7 @@ private fun BannerIcon(imageVector: ImageVector?, color: Color) {
 @Composable
 private fun DismissButton(onDismiss: (() -> Unit)?) {
     if (onDismiss == null) return
-    Surface(shape = CircleShape, color = MaterialTheme.colorScheme.secondaryContainer) {
+    Surface(shape = SettingsShape.TallyKey, color = MaterialTheme.colorScheme.secondaryContainer) {
         IconButton(onClick = onDismiss, modifier = Modifier.size(SettingsDimension.itemIconSize)) {
             Icon(
                 imageVector = Icons.Outlined.Close,
@@ -222,6 +222,7 @@ private fun Button(button: BannerButton, color: Color) {
     TextButton(
         onClick = button.onClick,
         modifier = Modifier.contentDescription(button.contentDescription),
+        shape = SettingsShape.TallyKey,
     ) {
         Text(text = button.text, color = color)
     }

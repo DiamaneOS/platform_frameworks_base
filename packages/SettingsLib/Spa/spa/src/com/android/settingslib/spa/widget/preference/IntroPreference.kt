@@ -103,10 +103,11 @@ private fun IntroIcon(imageVector: ImageVector?) {
     }
 }
 
+/** The app's icon as the system draws it, in the system icon mask (Tally's keycap). */
 @Composable
 private fun IntroAppIcon(appIcon: @Composable () -> Unit) {
     Box(
-        modifier = Modifier.size(SettingsDimension.itemIconContainerSize).clip(CircleShape),
+        modifier = Modifier.size(SettingsDimension.itemIconContainerSize),
         contentAlignment = Alignment.Center,
     ) {
         appIcon()
