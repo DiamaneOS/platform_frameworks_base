@@ -36,6 +36,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CornerSize
@@ -604,9 +605,10 @@ private fun LargeContent(
 }
 
 /**
- * The toggle of a tile with a toggle of its own (Internet, Bluetooth): a 48 dp key at the tile's
+ * The toggle of a tile with a toggle of its own (Internet, Bluetooth): a 40 dp key at the tile's
  * end, tonal on an unlit tile and outlined on a lit one, with the upstream toggle's click, long
- * click and switch semantics. The tile's field draws its plate ([TileKeyPlate]).
+ * click and switch semantics. Its touch area is 48 dp and reaches past the key on both sides, so
+ * the tile's words keep the room. The tile's field draws its plate ([TileKeyPlate]).
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -621,34 +623,44 @@ private fun ToggleKey(
 ) {
     val shape = RoundedCornerShape(dimensionResource(TallyR.dimen.tally_radius_s))
     val longPressLabel = CommonTileDefaults.longPressLabelSettings().takeIf { onLongClick != null }
+    val touchSize = dimensionResource(TallyR.dimen.tally_target_min)
     Box(
-        modifier =
-            Modifier.size(dimensionResource(TallyR.dimen.tally_key_height))
-                .onPlaced(plate::onKeyPlaced)
-                .borderOnFocus(color = palette.focus, cornerSize = shape.topEnd)
-                .clip(shape)
-                .combinedClickable(
-                    onClick = toggleClick,
-                    onLongClick = onLongClick,
-                    onLongClickLabel = longPressLabel,
-                    hapticFeedbackEnabled = false, // Haptics are handled by the tile.
-                )
-                .semantics {
-                    contentDescription = accessibilityUiState.contentDescription
-                    stateDescription = accessibilityUiState.stateDescription
-                    accessibilityUiState.toggleableState?.let { toggleableState = it }
-                    role = Role.Switch
-                }
-                .sysuiResTag(TOGGLE_TAG),
+        modifier = Modifier.size(width = TOGGLE_KEY_SIZE, height = touchSize),
         contentAlignment = Alignment.Center,
     ) {
-        DisposableEffect(plate) { onDispose { plate.onKeyGone() } }
-        SmallTileContent(
-            iconProvider = iconProvider,
-            color = iconColor,
-            size = { LARGE_ICON_SIZE },
-            animateColor = false,
-        )
+        Box(
+            modifier =
+                Modifier.requiredSize(touchSize)
+                    .borderOnFocus(color = palette.focus, cornerSize = shape.topEnd)
+                    .clip(shape)
+                    .combinedClickable(
+                        onClick = toggleClick,
+                        onLongClick = onLongClick,
+                        onLongClickLabel = longPressLabel,
+                        hapticFeedbackEnabled = false, // Haptics are handled by the tile.
+                    )
+                    .semantics {
+                        contentDescription = accessibilityUiState.contentDescription
+                        stateDescription = accessibilityUiState.stateDescription
+                        accessibilityUiState.toggleableState?.let { toggleableState = it }
+                        role = Role.Switch
+                    }
+                    .sysuiResTag(TOGGLE_TAG),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier.size(TOGGLE_KEY_SIZE).onPlaced(plate::onKeyPlaced),
+                contentAlignment = Alignment.Center,
+            ) {
+                DisposableEffect(plate) { onDispose { plate.onKeyGone() } }
+                SmallTileContent(
+                    iconProvider = iconProvider,
+                    color = iconColor,
+                    size = { LARGE_ICON_SIZE },
+                    animateColor = false,
+                )
+            }
+        }
     }
 }
 
@@ -805,6 +817,7 @@ private val KEYCAP_LAMP_INSET = 7.dp
 private val KEYCAP_ICON_SHIFT = 3.dp
 private val LARGE_END_PADDING = 10.dp
 private val LARGE_ICON_SIZE = 20.dp
+private val TOGGLE_KEY_SIZE = 40.dp
 private val LINE_GAP = 2.dp
 private val LABEL_LINE = TallyR.dimen.tally_type_label_line_height
 private val CAPTION_LINE = TallyR.dimen.tally_type_caption_line_height
