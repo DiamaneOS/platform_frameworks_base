@@ -665,7 +665,9 @@ public class SplashscreenContentDrawer {
                 iconDrawable = mHighResIconProvider.getIcon(mActivityInfo, densityDpi, iconDpi);
                 Trace.traceEnd(TRACE_TAG_WINDOW_MANAGER);
                 mFinalIconDrawables = new Drawable[] {TallySplashScreen.makeKeycap(shellContext,
-                        iconDrawable, iconDpi, mFinalIconSize, mSplashscreenWorkerHandler)};
+                        iconDrawable, iconDpi, mFinalIconSize, mSplashscreenWorkerHandler,
+                        mActivityInfo.packageName,
+                        UserHandle.getUserId(mActivityInfo.applicationInfo.uid))};
             } else {
                 final float iconScale = (float) mIconSize / (float) mDefaultIconSize;
                 final int densityDpi = mContext.getResources().getConfiguration().densityDpi;
