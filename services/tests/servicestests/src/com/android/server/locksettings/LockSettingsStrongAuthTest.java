@@ -364,6 +364,69 @@ public class LockSettingsStrongAuthTest {
     }
 
     @Test
+    public void testStrongAuthTimeoutLimit_shortensPrimaryAuthTimeout() {
+        final long currentTime = 1000;
+        final long timeout = 5000;
+        final long limit = 2000;
+        when(mInjector.getElapsedRealtimeMs()).thenReturn(currentTime);
+        when(mDPM.getRequiredStrongAuthTimeout(null, PRIMARY_USER_ID)).thenReturn(timeout);
+        mStrongAuth.setStrongAuthTimeoutLimit(limit, PRIMARY_USER_ID);
+        mStrongAuth.reportSuccessfulStrongAuthUnlock(PRIMARY_USER_ID);
+        waitForIdle();
+
+        StrongAuthTimeoutAlarmListener alarm =
+                mStrongAuth.mStrongAuthTimeoutAlarmListenerForUser.get(PRIMARY_USER_ID);
+        assertNotNull(alarm);
+        verifyAlarm(currentTime + limit, STRONG_AUTH_TIMEOUT_ALARM_TAG, alarm);
+
+        // Without the limit the timeout of device policy applies again.
+        mStrongAuth.setStrongAuthTimeoutLimit(0, PRIMARY_USER_ID);
+        mStrongAuth.refreshStrongAuthTimeout(PRIMARY_USER_ID);
+        waitForIdle();
+        verifyAlarm(currentTime + timeout, STRONG_AUTH_TIMEOUT_ALARM_TAG, alarm);
+    }
+
+    @Test
+    public void testStrongAuthTimeoutLimit_neverLengthensPrimaryAuthTimeout() {
+        final long currentTime = 1000;
+        final long timeout = 2000;
+        final long limit = 5000;
+        when(mInjector.getElapsedRealtimeMs()).thenReturn(currentTime);
+        when(mDPM.getRequiredStrongAuthTimeout(null, PRIMARY_USER_ID)).thenReturn(timeout);
+        mStrongAuth.setStrongAuthTimeoutLimit(limit, PRIMARY_USER_ID);
+        mStrongAuth.reportSuccessfulStrongAuthUnlock(PRIMARY_USER_ID);
+        waitForIdle();
+
+        StrongAuthTimeoutAlarmListener alarm =
+                mStrongAuth.mStrongAuthTimeoutAlarmListenerForUser.get(PRIMARY_USER_ID);
+        assertNotNull(alarm);
+        verifyAlarm(currentTime + timeout, STRONG_AUTH_TIMEOUT_ALARM_TAG, alarm);
+    }
+
+    @Test
+    public void testStrongAuthTimeoutLimit_isPerUserAndGoesWithTheUser() {
+        final int otherUserId = 10;
+        final long currentTime = 1000;
+        final long timeout = 5000;
+        final long limit = 2000;
+        when(mInjector.getElapsedRealtimeMs()).thenReturn(currentTime);
+        when(mDPM.getRequiredStrongAuthTimeout(null, PRIMARY_USER_ID)).thenReturn(timeout);
+        when(mDPM.getRequiredStrongAuthTimeout(null, otherUserId)).thenReturn(timeout);
+        mStrongAuth.setStrongAuthTimeoutLimit(limit, otherUserId);
+        mStrongAuth.reportSuccessfulStrongAuthUnlock(PRIMARY_USER_ID);
+        waitForIdle();
+
+        StrongAuthTimeoutAlarmListener alarm =
+                mStrongAuth.mStrongAuthTimeoutAlarmListenerForUser.get(PRIMARY_USER_ID);
+        assertNotNull(alarm);
+        verifyAlarm(currentTime + timeout, STRONG_AUTH_TIMEOUT_ALARM_TAG, alarm);
+
+        mStrongAuth.removeUser(otherUserId);
+        waitForIdle();
+        assertTrue(mStrongAuth.mStrongAuthTimeoutLimitForUser.indexOfKey(otherUserId) < 0);
+    }
+
+    @Test
     public void testReportSuccessfulStrongAuthUnlock_cancelAlarmsAndAllowNonStrongBio() {
         setupAlarms(PRIMARY_USER_ID);
         mStrongAuth.reportSuccessfulStrongAuthUnlock(PRIMARY_USER_ID);
