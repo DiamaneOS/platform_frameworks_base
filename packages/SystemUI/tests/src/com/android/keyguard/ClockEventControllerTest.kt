@@ -66,6 +66,7 @@ import com.android.systemui.statusbar.policy.ConfigurationController
 import com.android.systemui.statusbar.policy.ZenModeController
 import com.android.systemui.statusbar.policy.data.repository.fakeZenModeRepository
 import com.android.systemui.statusbar.policy.domain.interactor.zenModeInteractor
+import com.android.systemui.tally.lock.TallyLockInk
 import com.android.systemui.testKosmos
 import com.android.systemui.util.concurrency.DelayableExecutor
 import java.util.TimeZone
@@ -188,6 +189,7 @@ class ClockEventControllerTest : SysuiTestCase() {
                 userTracker,
                 { dozingToLockscreenViewModel },
                 kosmos.fakeDisplayWindowPropertiesRepository,
+                { mock<TallyLockInk>() },
             )
         underTest.clock = clock
 
@@ -217,15 +219,27 @@ class ClockEventControllerTest : SysuiTestCase() {
     @Test
     fun themeChanged_verifyClockPaletteUpdated() =
         runBlocking(IMMEDIATE) {
-            verify(smallClockEvents).onThemeChanged(any())
-            verify(largeClockEvents).onThemeChanged(any())
+            // Once when the clock was set, once more when the controller started listening.
+            verify(smallClockEvents, times(2)).onThemeChanged(any())
+            verify(largeClockEvents, times(2)).onThemeChanged(any())
 
             val captor = argumentCaptor<ConfigurationController.ConfigurationListener>()
             verify(configurationController).addCallback(captor.capture())
             captor.firstValue.onThemeChanged()
 
-            verify(smallClockEvents, times(2)).onThemeChanged(any())
-            verify(largeClockEvents, times(2)).onThemeChanged(any())
+            verify(smallClockEvents, times(3)).onThemeChanged(any())
+            verify(largeClockEvents, times(3)).onThemeChanged(any())
+        }
+
+    @Test
+    fun uiModeChanged_verifyClockPaletteUpdated() =
+        runBlocking(IMMEDIATE) {
+            val captor = argumentCaptor<ConfigurationController.ConfigurationListener>()
+            verify(configurationController).addCallback(captor.capture())
+            captor.firstValue.onUiModeChanged()
+
+            verify(smallClockEvents, times(3)).onThemeChanged(any())
+            verify(largeClockEvents, times(3)).onThemeChanged(any())
         }
 
     @Test

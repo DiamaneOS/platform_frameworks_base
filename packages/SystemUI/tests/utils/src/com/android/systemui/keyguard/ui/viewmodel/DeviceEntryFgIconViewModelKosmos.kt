@@ -23,6 +23,8 @@ import com.android.systemui.deviceentry.domain.interactor.deviceEntryUdfpsIntera
 import com.android.systemui.keyguard.domain.interactor.keyguardTransitionInteractor
 import com.android.systemui.kosmos.Kosmos
 import com.android.systemui.kosmos.Kosmos.Fixture
+import com.android.systemui.tally.lock.TallyLockInk
+import org.mockito.kotlin.mock
 
 val Kosmos.deviceEntryForegroundIconViewModel by Fixture {
     DeviceEntryForegroundViewModel(
@@ -32,5 +34,6 @@ val Kosmos.deviceEntryForegroundIconViewModel by Fixture {
         transitionInteractor = keyguardTransitionInteractor,
         deviceEntryIconViewModel = deviceEntryIconViewModel,
         udfpsOverlayInteractor = udfpsOverlayInteractor,
+        tallyLockInk = { mock<TallyLockInk>() },
     )
 }
