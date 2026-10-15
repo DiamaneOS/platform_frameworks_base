@@ -28,7 +28,9 @@ import de.diamaneos.tally.R as TallyR
  * [theme] is the lamp on the shell's own surfaces: the off ring in the outline colour, the
  * requested dashes in the accent, a lit lamp in the lamp colour in both themes (in light theme
  * edged with the lamp outline, which also draws the live lamp's ring of light), the failed ring in
- * the error colour and the unavailable ring in the muted colour. [plain] draws every part in one
+ * the error colour and the unavailable ring in the outline colour at half strength, dimmer than an
+ * off ring, as a disabled control (the muted colour caught the eye more than lamps that work, and
+ * the muted icon and the words carry the reason). [plain] draws every part in one
  * colour and without the edge, for a lamp on a coloured field: [onLitField], [onInverse] (toasts)
  * or a sensor chip. [sensor] is a sensor lamp in the sensor colour.
  */
@@ -73,16 +75,21 @@ data class TallyLampColors(
             // In light theme the lamp outline edges the disc and draws the ring of light, so a lit
             // lamp reads at 3:1 on light surfaces. In dark theme the lamp stands out by itself.
             val outline = context.getColor(TallyR.color.tally_lamp_outline)
+            val off = context.getColor(TallyR.color.tally_outline)
             return TallyLampColors(
-                off = context.getColor(TallyR.color.tally_outline),
+                off = off,
                 requested = context.getColor(TallyR.color.tally_accent),
                 lit = lamp,
                 litEdge = if (night) Color.TRANSPARENT else outline,
                 halo = if (night) lamp else outline,
                 failed = context.getColor(TallyR.color.tally_error),
-                unavailable = context.getColor(TallyR.color.tally_ink_muted),
+                unavailable = (off and RGB_MASK) or (UNAVAILABLE_ALPHA shl ALPHA_SHIFT),
             )
         }
+
+        private const val RGB_MASK = 0x00FFFFFF
+        private const val ALPHA_SHIFT = 24
+        private const val UNAVAILABLE_ALPHA = 0x80
 
         /** Every part in [color], without an edge. */
         @JvmStatic
