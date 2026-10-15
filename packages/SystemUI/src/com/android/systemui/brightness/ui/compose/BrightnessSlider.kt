@@ -55,19 +55,25 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.painter.ColorPainter
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.input.pointer.pointerInteropFilter
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.text
@@ -90,6 +96,7 @@ import com.android.systemui.brightness.ui.compose.AnimationSpecs.IconDisappearSp
 import com.android.systemui.brightness.ui.compose.InternalDimensions.IconPadding
 import com.android.systemui.brightness.ui.compose.InternalDimensions.SliderTrackRoundedCorner
 import com.android.systemui.brightness.ui.compose.InternalDimensions.ThumbTrackGapSize
+import com.android.systemui.brightness.ui.compose.InternalDimensions.TrackInsideCornerSize
 import com.android.systemui.brightness.ui.viewmodel.BrightnessSliderViewModel
 import com.android.systemui.brightness.ui.viewmodel.Drag
 import com.android.systemui.common.shared.colors.SystemUISliderColors
@@ -101,7 +108,9 @@ import com.android.systemui.haptics.slider.compose.ui.SliderHapticsViewModel
 import com.android.systemui.lifecycle.rememberViewModel
 import com.android.systemui.qs.ui.compose.borderOnFocus
 import com.android.systemui.res.R
+import com.android.systemui.tally.TallyShell
 import com.android.systemui.util.policy.PolicyRestriction
+import de.diamaneos.tally.R as TallyR
 import platform.test.motion.compose.values.MotionTestValueKey
 import platform.test.motion.compose.values.motionTestValues
 
@@ -143,7 +152,26 @@ fun BrightnessSlider(
                 SeekableSliderTrackerConfig(),
             )
         }
-    val colors = SystemUISliderColors.Defaults
+    // Tally: the unfilled part of the track is the high surface with a hairline in the outline
+    // colour (drawTallyTrackEdge), as the prototype's meters. Stock's surfaceEffect1 is all but
+    // invisible (1.02:1) on the shade's and the brightness dialog's Tally background.
+    val tallyTrackEdge =
+        if (TallyShell.isEnabled) colorResource(TallyR.color.tally_outline) else null
+    val tallyEdgeWidth = dimensionResource(TallyR.dimen.tally_stroke_hairline)
+    var tallyThumbWidth by remember { mutableIntStateOf(0) }
+    // Tally: the level is a meter fill, so it and the thumb take lampInk (the lamp in dark theme,
+    // the accent in light), as the volume meter does, not Material's primary.
+    val tallyLampInk = colorResource(TallyR.color.tally_lamp_ink)
+    val colors =
+        if (TallyShell.isEnabled) {
+            SystemUISliderColors.Defaults.copy(
+                thumbColor = tallyLampInk,
+                activeTrackColor = tallyLampInk,
+                inactiveTrackColor = colorResource(TallyR.color.tally_surface_high),
+            )
+        } else {
+            SystemUISliderColors.Defaults
+        }
 
     // The value state is recreated every time gammaValue changes, so we recreate this derivedState
     // We have to use value as that's the value that changes when the user is dragging (gammaValue
@@ -237,6 +265,14 @@ fun BrightnessSlider(
                 enabled = enabled,
                 thumbSize = DpSize(dimensions.thumbWidth, dimensions.thumbHeight),
                 colors = colors,
+                // Tally: the thumb's width as laid out (it narrows while pressed), which the
+                // track's gap and so the unfilled part's edge follow.
+                modifier =
+                    if (tallyTrackEdge != null) {
+                        Modifier.onSizeChanged { tallyThumbWidth = it.width }
+                    } else {
+                        Modifier
+                    },
             )
         },
         track = { sliderState ->
@@ -279,6 +315,14 @@ fun BrightnessSlider(
                         .height(dimensions.trackHeight)
                         .drawWithContent {
                             drawContent()
+                            if (tallyTrackEdge != null) {
+                                drawTallyTrackEdge(
+                                    fraction = sliderState.coercedValueAsFraction,
+                                    thumbWidth = tallyThumbWidth.toFloat(),
+                                    color = tallyTrackEdge,
+                                    lineWidth = tallyEdgeWidth.toPx(),
+                                )
+                            }
 
                             val yOffset = size.height / 2 - iconSize.toSize().height / 2
                             val activeTrackStart = 0f
@@ -313,7 +357,7 @@ fun BrightnessSlider(
                             }
                         },
                 trackCornerSize = SliderTrackRoundedCorner,
-                trackInsideCornerSize = 2.dp,
+                trackInsideCornerSize = TrackInsideCornerSize,
                 drawStopIndicator = null,
                 thumbTrackGapSize = ThumbTrackGapSize,
                 colors = colors,
@@ -333,17 +377,68 @@ fun BrightnessSlider(
     }
 }
 
+/**
+ * Tally: a hairline in [color] round the unfilled part of the track, where and as
+ * [SliderDefaults.Track] draws that part: from the thumb's gap to the end, with the inside and the
+ * track's corners. The rest of the scale then shows at 3:1 or more, on the shade's background and
+ * on the brightness dialog's panel alike, as the prototype edges its meters. [thumbWidth] is the
+ * thumb's width as laid out, in pixels.
+ */
+private fun DrawScope.drawTallyTrackEdge(
+    fraction: Float,
+    thumbWidth: Float,
+    color: Color,
+    lineWidth: Float,
+) {
+    val start = size.width * fraction + thumbWidth / 2f + ThumbTrackGapSize.toPx()
+    if (size.width - start <= lineWidth * 2) return
+    val half = lineWidth / 2f
+    val inside = CornerRadius((TrackInsideCornerSize.toPx() - half).coerceAtLeast(0f))
+    val end = CornerRadius((SliderTrackRoundedCorner.toPx() - half).coerceAtLeast(0f))
+    val edge =
+        Path().apply {
+            addRoundRect(
+                RoundRect(
+                    left = start + half,
+                    top = half,
+                    right = size.width - half,
+                    bottom = size.height - half,
+                    topLeftCornerRadius = inside,
+                    topRightCornerRadius = end,
+                    bottomRightCornerRadius = end,
+                    bottomLeftCornerRadius = inside,
+                )
+            )
+        }
+    scale(if (layoutDirection == LayoutDirection.Rtl) -1f else 1f, 1f) {
+        drawPath(edge, color, style = Stroke(lineWidth))
+    }
+}
+
 private fun Modifier.sliderBackground(
     backgroundFrameSize: DpSize,
     backgroundRoundedCorner: Dp,
     color: Color,
+    edgeColor: Color = Color.Unspecified,
+    edgeWidth: Dp = 0.dp,
 ) = drawWithCache {
     val offsetAround = backgroundFrameSize.toSize()
     val newSize = Size(size.width + 2 * offsetAround.width, size.height + 2 * offsetAround.height)
     val offset = Offset(-offsetAround.width, -offsetAround.height)
     val cornerRadius = CornerRadius(backgroundRoundedCorner.toPx())
+    val edge = edgeWidth.toPx()
     onDrawBehind {
         drawRoundRect(color = color, topLeft = offset, size = newSize, cornerRadius = cornerRadius)
+        // Tally: the panel's hairline, inside its edge.
+        if (edgeColor.isSpecified && edge > 0f) {
+            drawRoundRect(
+                color = edgeColor,
+                topLeft = Offset(offset.x + edge / 2f, offset.y + edge / 2f),
+                size = Size(newSize.width - edge, newSize.height - edge),
+                cornerRadius = CornerRadius((cornerRadius.x - edge / 2f).coerceAtLeast(0f)),
+                style = Stroke(edge),
+            )
+        }
     }
 }
 
@@ -425,6 +520,8 @@ fun BrightnessSliderContainer(
                         DpSize(dimensions.backgroundFrameWidth, dimensions.backgroundFrameHeight),
                         dimensions.backgroundRoundedCorner,
                         containerColor,
+                        containerColors.edgeColor,
+                        dimensionResource(TallyR.dimen.tally_stroke_hairline),
                     )
                     .fillMaxWidth()
                     .pointerInteropFilter {
@@ -449,12 +546,40 @@ fun BrightnessSliderContainer(
     }
 }
 
-data class ContainerColors(val idleColor: Color, val mirrorColor: Color) {
+data class ContainerColors(
+    val idleColor: Color,
+    val mirrorColor: Color,
+    /** Tally: a hairline round the frame, or none when unspecified. */
+    val edgeColor: Color = Color.Unspecified,
+) {
     companion object {
         fun singleColor(color: Color) = ContainerColors(color, color)
 
+        /**
+         * Tally: the brightness dialog's frame is a Tally panel, as the volume panel: the surface
+         * colour with a hairline in the outline variant, so it reads as a panel over the page under
+         * it rather than as part of it.
+         */
+        val tallyPanelColors: ContainerColors
+            @Composable
+            @ReadOnlyComposable
+            get() =
+                ContainerColors(
+                    idleColor = colorResource(TallyR.color.tally_surface),
+                    mirrorColor = colorResource(TallyR.color.tally_surface),
+                    edgeColor = colorResource(TallyR.color.tally_outline_variant),
+                )
+
+        // Tally: the frame is the shade's own background (ShadeColors), so a dragged slider
+        // keeps the sheet it came from.
         val defaultContainerColor: Color
-            @Composable @ReadOnlyComposable get() = colorResource(R.color.shade_panel_fallback)
+            @Composable
+            @ReadOnlyComposable
+            get() =
+                colorResource(
+                    if (TallyShell.isEnabled) TallyR.color.tally_background
+                    else R.color.shade_panel_fallback
+                )
     }
 }
 
@@ -485,6 +610,7 @@ data class BrightnessSliderDimensions(
 
 private object InternalDimensions {
     val SliderTrackRoundedCorner = 12.dp
+    val TrackInsideCornerSize = 2.dp
     val IconPadding = 6.dp
     val ThumbTrackGapSize = 6.dp
 }
