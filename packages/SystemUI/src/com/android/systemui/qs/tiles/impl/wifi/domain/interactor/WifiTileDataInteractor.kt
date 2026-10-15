@@ -30,6 +30,7 @@ import com.android.systemui.statusbar.pipeline.wifi.domain.interactor.WifiIntera
 import com.android.systemui.statusbar.pipeline.wifi.shared.model.WifiNetworkModel
 import com.android.systemui.statusbar.pipeline.wifi.ui.model.WifiIcon
 import com.android.systemui.statusbar.pipeline.wifi.ui.model.WifiTileIconModel
+import com.android.systemui.tally.TallyShell
 import javax.inject.Inject
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -82,6 +83,9 @@ constructor(
                 return@combine WifiTileModel.Active(
                     icon = WifiTileIconModel(R.drawable.ic_wifi_connecting),
                     secondaryLabel = context.getString(R.string.quick_settings_scanning_for_wifi),
+                    // Tally: until the radio reports on, the tile shows the request, as the
+                    // Bluetooth tile does while Bluetooth turns on, not a lit lamp.
+                    isTransient = TallyShell.isEnabled && !isEnabled,
                 )
             }
 
@@ -98,6 +102,13 @@ constructor(
                 WifiTileModel.Active(
                     icon = WifiTileIconModel(wifiIcon.icon.resId),
                     secondaryLabel = secondary,
+                )
+            } else if (TallyShell.isEnabled) {
+                // Tally: the tile's toggle turns the radio off, so the tile is on whenever the
+                // radio is, as the Bluetooth tile is, and its words say it is not connected.
+                WifiTileModel.Active(
+                    icon = WifiTileIconModel(R.drawable.vd_wifi),
+                    secondaryLabel = notConnectedDescription,
                 )
             } else {
                 WifiTileModel.Inactive(
