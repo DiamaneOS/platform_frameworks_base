@@ -21,18 +21,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Clear
 import androidx.compose.material.icons.outlined.FindInPage
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import com.android.settingslib.spa.framework.compose.LocalNavController
 import com.android.settingslib.spa.framework.theme.SettingsTheme
-import com.android.settingslib.spa.framework.theme.isSpaExpressiveEnabled
 
 /** Action that navigates back to last page. */
 @Composable
@@ -49,21 +44,14 @@ internal fun CollapseAction(onClick: () -> Unit) {
     BackAction(contentDescription, onClick)
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+/**
+ * Tally: the Up key is the bare arrow in the ink, as on SettingsLib's pages and the prototype's
+ * back key: no filled circle behind it (in the shell, circles mean state). The press stays the icon
+ * button's.
+ */
 @Composable
 private fun BackAction(contentDescription: String, onClick: () -> Unit) {
-    if (isSpaExpressiveEnabled) {
-        FilledTonalIconButton(
-            onClick = onClick, shape = IconButtonDefaults.smallRoundShape,
-            colors = IconButtonDefaults.filledTonalIconButtonColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-            )
-        ) {
-            ArrowBack(contentDescription)
-        }
-    } else {
-        IconButton(onClick = onClick) { ArrowBack(contentDescription) }
-    }
+    IconButton(onClick = onClick) { ArrowBack(contentDescription) }
 }
 
 @Composable
