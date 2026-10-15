@@ -141,6 +141,7 @@ import com.android.systemui.statusbar.connectivity.ConnectivityModule;
 import com.android.systemui.statusbar.dagger.StatusBarModule;
 import com.android.systemui.statusbar.domain.interactor.StatusBarRegionSamplingInteractorModule;
 import com.android.systemui.statusbar.events.StatusBarEventsModule;
+import com.android.systemui.tally.hotspot.TallyHotspotModule;
 import com.android.systemui.tally.moments.MomentsModule;
 import com.android.systemui.statusbar.events.SystemStatusAnimationScheduler;
 import com.android.systemui.statusbar.notification.collection.NotifPipeline;
@@ -288,6 +289,7 @@ import javax.inject.Named;
         SmartspaceModule.class,
         StatusBarEventsModule.class,
         MomentsModule.class,
+        TallyHotspotModule.class,
         StatusBarFeaturePodsModule.class,
         StatusBarModule.class,
         StatusBarChipsModule.class,
