@@ -24,6 +24,7 @@ import androidx.annotation.NonNull;
 import com.android.systemui.Dumpable;
 import com.android.systemui.dagger.SysUISingleton;
 import com.android.systemui.dump.DumpManager;
+import com.android.systemui.notifications.content.icon.AppIconProvider;
 import com.android.systemui.plugins.PluginListener;
 import com.android.systemui.plugins.PluginManager;
 import com.android.systemui.plugins.ToastPlugin;
@@ -40,11 +41,14 @@ import javax.inject.Inject;
 public class ToastFactory implements Dumpable {
     // only one ToastPlugin can be connected at a time.
     private ToastPlugin mPlugin;
+    private final AppIconProvider mAppIconProvider;
 
     @Inject
     public ToastFactory(
             PluginManager pluginManager,
-            DumpManager dumpManager) {
+            DumpManager dumpManager,
+            AppIconProvider appIconProvider) {
+        mAppIconProvider = appIconProvider;
         dumpManager.registerDumpable("ToastFactory", this);
         pluginManager.addPluginListener(
                 new PluginListener<ToastPlugin>() {
@@ -71,10 +75,10 @@ public class ToastFactory implements Dumpable {
         if (isPluginAvailable()) {
             return new SystemUIToast(layoutInflater, applicationContext, displayContext, text,
                     mPlugin.createToast(text, packageName, userId), packageName, userId,
-                    orientation);
+                    orientation, mAppIconProvider);
         }
         return new SystemUIToast(layoutInflater, applicationContext, displayContext, text,
-                packageName, userId, orientation);
+                packageName, userId, orientation, mAppIconProvider);
     }
 
     private boolean isPluginAvailable() {
