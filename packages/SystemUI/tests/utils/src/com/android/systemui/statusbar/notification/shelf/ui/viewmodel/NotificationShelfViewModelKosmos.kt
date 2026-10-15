@@ -20,12 +20,15 @@ import com.android.systemui.kosmos.Kosmos
 import com.android.systemui.kosmos.Kosmos.Fixture
 import com.android.systemui.statusbar.notification.row.ui.viewmodel.activatableNotificationViewModel
 import com.android.systemui.statusbar.notification.shelf.domain.interactor.notificationShelfInteractor
+import com.android.systemui.tally.lock.TallyLockInk
 import com.android.systemui.window.domain.interactor.windowRootViewBlurInteractor
+import org.mockito.kotlin.mock
 
 val Kosmos.notificationShelfViewModel by Fixture {
     NotificationShelfViewModel(
         interactor = notificationShelfInteractor,
         windowRootViewBlurInteractor = windowRootViewBlurInteractor,
         activatableViewModel = activatableNotificationViewModel,
+        tallyLockInk = { mock<TallyLockInk>() },
     )
 }

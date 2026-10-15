@@ -25,6 +25,7 @@ import com.android.systemui.statusbar.NotificationShelf
 import com.android.systemui.statusbar.notification.icon.ui.viewbinder.NotificationIconContainerShelfViewBinder
 import com.android.systemui.statusbar.notification.row.ui.viewbinder.ActivatableNotificationViewBinder
 import com.android.systemui.statusbar.notification.shelf.ui.viewmodel.NotificationShelfViewModel
+import com.android.systemui.tally.TallyShell
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
 
@@ -50,6 +51,10 @@ object NotificationShelfViewBinder {
 
             if (Flags.notificationRowTransparency()) {
                 launch { viewModel.isBlurSupported.collect(shelf::setIsBlurSupported) }
+            }
+
+            if (TallyShell.isEnabled) {
+                launch { viewModel.tallyLightWallpaper.collect(shelf::setTallyLightWallpaper) }
             }
 
             registerViewListenersWhileAttached(shelf, viewModel)

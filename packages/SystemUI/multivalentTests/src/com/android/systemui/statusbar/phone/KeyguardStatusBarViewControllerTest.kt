@@ -73,6 +73,7 @@ import com.android.systemui.statusbar.policy.ConfigurationController
 import com.android.systemui.statusbar.policy.KeyguardStateController
 import com.android.systemui.statusbar.policy.UserInfoController
 import com.android.systemui.statusbar.ui.viewmodel.statusBarUserChipViewModel
+import com.android.systemui.tally.lock.TallyLockInk
 import com.android.systemui.testKosmos
 import com.android.systemui.user.data.repository.fakeUserRepository
 import com.android.systemui.util.concurrency.FakeExecutor
@@ -218,6 +219,7 @@ class KeyguardStatusBarViewControllerTest : SysuiTestCase() {
             kosmos.occludedToLockscreenTransitionViewModel,
             kosmos.dreamViewModel,
             kosmos.keyguardInteractor,
+            { Mockito.mock(TallyLockInk::class.java) },
         )
     }
 

@@ -221,7 +221,7 @@ class TallyLockSectionTest : SysuiTestCase() {
     private fun section(plugin: BcSmartspaceDataPlugin?) =
         TallyLockSection(
             context,
-            context,
+            mock<TallyLockInk>(),
             mock<KeyguardClockViewModel> {
                 on { currentClock } doReturn currentClock
                 on { isLargeClockVisible } doReturn largeClockVisible
