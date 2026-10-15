@@ -16,6 +16,7 @@
 
 package com.android.server.locksettings;
 
+import static com.android.internal.widget.LockPatternUtils.StrongAuthTracker.STRONG_AUTH_REQUIRED_AFTER_TIMEOUT;
 import static com.android.internal.widget.LockPatternUtils.StrongAuthTracker.STRONG_AUTH_REQUIRED_AFTER_USER_LOCKDOWN;
 
 import android.app.ActivityManager;
@@ -31,6 +32,7 @@ import android.os.UserHandle;
 import android.text.TextUtils;
 import android.util.Slog;
 
+import com.android.internal.widget.LockCredentialPolicy;
 import com.android.internal.widget.LockPatternUtils;
 import com.android.internal.widget.LockscreenCredential;
 import com.android.internal.widget.PasswordValidationError;
@@ -54,23 +56,41 @@ class LockSettingsShellCommand extends ShellCommand {
     private static final String COMMAND_REQUIRE_STRONG_AUTH =
             "require-strong-auth";
     private static final String COMMAND_HELP = "help";
+    // On debuggable builds only.
+    private static final String COMMAND_SET_LEARNING_REMAINING = "set-learning-remaining";
+
+    /** How the debuggable-only set-learning-remaining command reaches the service. */
+    interface LearningPeriodSetter {
+        /**
+         * Sets the learning time that is left for the user.
+         *
+         * @return false if the user has no learning period, in which case nothing is changed
+         */
+        boolean setLearningPeriodRemaining(long remainingMs, int userId);
+    }
 
     private int mCurrentUserId;
     private final LockPatternUtils mLockPatternUtils;
     private final Context mContext;
     private final int mCallingPid;
     private final int mCallingUid;
+    // Whether to offer what only tests need: a strong auth timeout on request, and
+    // set-learning-remaining. A build that is not debuggable refuses both like anything unknown.
+    private final boolean mDebuggable;
+    private final LearningPeriodSetter mLearningPeriodSetter;
 
     private String mOld = "";
     private String mNew = "";
     private boolean mCaptureWeaverOps;
 
     LockSettingsShellCommand(LockPatternUtils lockPatternUtils, Context context, int callingPid,
-            int callingUid) {
+            int callingUid, boolean debuggable, LearningPeriodSetter learningPeriodSetter) {
         mLockPatternUtils = lockPatternUtils;
         mCallingPid = callingPid;
         mCallingUid = callingUid;
         mContext = context;
+        mDebuggable = debuggable;
+        mLearningPeriodSetter = learningPeriodSetter;
     }
 
     @Override
@@ -108,6 +128,9 @@ class LockSettingsShellCommand extends ShellCommand {
                                 "The device does not support lock screen - ignoring the command.");
                         return -1;
                 }
+            }
+            if (mDebuggable && COMMAND_SET_LEARNING_REMAINING.equals(cmd)) {
+                return runSetLearningRemaining() ? 0 : -1;
             }
             switch (cmd) {
                 // Commands that do not require authentication go here.
@@ -221,6 +244,21 @@ class LockSettingsShellCommand extends ShellCommand {
             pw.println("    Requires strong authentication. The current supported reasons:");
             pw.println("    STRONG_AUTH_REQUIRED_AFTER_USER_LOCKDOWN.");
             pw.println("");
+            if (mDebuggable) {
+                pw.println("  On debuggable builds only:");
+                pw.println("");
+                pw.println("  require-strong-auth [--user USER_ID]"
+                        + " STRONG_AUTH_REQUIRED_AFTER_TIMEOUT");
+                pw.println("    Requires strong authentication of the user as if the strong auth");
+                pw.println("    timeout had passed.");
+                pw.println("");
+                pw.println("  set-learning-remaining [--user USER_ID] <MILLISECONDS>");
+                pw.println("    Sets the time left of the learning period of the user's lock");
+                pw.println("    credential: 0 ends it, "
+                        + LockCredentialPolicy.LEARNING_PERIOD_MILLIS + " is its full length.");
+                pw.println("    Does nothing if no learning period is running.");
+                pw.println("");
+            }
             pw.println("  set-duress-credentials --owner-credential <CREDENTIAL> --duress-pin <PIN>");
             pw.println("      --duress-password <PASSWORD>");
             pw.println("");
@@ -325,6 +363,13 @@ class LockSettingsShellCommand extends ShellCommand {
                 strongAuthReason = STRONG_AUTH_REQUIRED_AFTER_USER_LOCKDOWN;
                 mCurrentUserId = UserHandle.USER_ALL;
                 break;
+            case "STRONG_AUTH_REQUIRED_AFTER_TIMEOUT":
+                if (mDebuggable) {
+                    // For tests: the timeout itself takes days. Of the given user only.
+                    strongAuthReason = STRONG_AUTH_REQUIRED_AFTER_TIMEOUT;
+                    break;
+                }
+                // fall through
             default:
                 getErrPrintWriter().println("Unsupported reason: " + reason);
                 return false;
@@ -332,6 +377,29 @@ class LockSettingsShellCommand extends ShellCommand {
         mLockPatternUtils.requireStrongAuth(strongAuthReason, mCurrentUserId);
         getOutPrintWriter().println("Require strong auth for USER_ID "
                 + mCurrentUserId + " because of " + mNew);
+        return true;
+    }
+
+    private boolean runSetLearningRemaining() {
+        final long remainingMs;
+        try {
+            remainingMs = Long.parseLong(mNew);
+        } catch (NumberFormatException e) {
+            getErrPrintWriter().println("Not a number of milliseconds: " + mNew);
+            return false;
+        }
+        if (remainingMs < 0 || remainingMs > LockCredentialPolicy.LEARNING_PERIOD_MILLIS) {
+            getErrPrintWriter().println("The time must be from 0 to "
+                    + LockCredentialPolicy.LEARNING_PERIOD_MILLIS + " ms");
+            return false;
+        }
+        if (!mLearningPeriodSetter.setLearningPeriodRemaining(remainingMs, mCurrentUserId)) {
+            getErrPrintWriter().println("USER_ID " + mCurrentUserId
+                    + " has no learning period running");
+            return false;
+        }
+        getOutPrintWriter().println("Learning period of USER_ID " + mCurrentUserId
+                + " set to " + remainingMs + " ms");
         return true;
     }
 
