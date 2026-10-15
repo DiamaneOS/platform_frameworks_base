@@ -211,6 +211,22 @@ class WifiTileDataInteractorTest(flags: FlagsParameterization) : SysuiTestCase()
         }
 
     @Test
+    @EnableFlags(TallyShell.FLAG_NAME)
+    fun tileData_wifiOnNotConnected_isActiveWithTally() =
+        kosmos.runTest {
+            val tileData by collectLastValue(underTest.tileData())
+
+            wifiRepository.setIsWifiEnabled(true)
+
+            val expectedModel =
+                WifiTileModel.Active(
+                    icon = WifiTileIconModel(R.drawable.vd_wifi),
+                    secondaryLabel = "Networks unavailable",
+                )
+            assertThat(tileData).isEqualTo(expectedModel)
+        }
+
+    @Test
     @EnableFlags(QsSplitInternetTile.FLAG_NAME)
     @DisableFlags(QsSplitInternetTile.SUPPRESSION_FLAG_NAME)
     fun availability_flagEnabled_isTrue() =

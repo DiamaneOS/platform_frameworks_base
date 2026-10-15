@@ -103,6 +103,13 @@ constructor(
                     icon = WifiTileIconModel(wifiIcon.icon.resId),
                     secondaryLabel = secondary,
                 )
+            } else if (TallyShell.isEnabled) {
+                // Tally: the tile's toggle turns the radio off, so the tile is on whenever the
+                // radio is, as the Bluetooth tile is, and its words say it is not connected.
+                WifiTileModel.Active(
+                    icon = WifiTileIconModel(R.drawable.vd_wifi),
+                    secondaryLabel = notConnectedDescription,
+                )
             } else {
                 WifiTileModel.Inactive(
                     icon = WifiTileIconModel(R.drawable.vd_wifi),
