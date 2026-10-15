@@ -39,12 +39,14 @@ import com.android.systemui.lottie.await
 import com.android.systemui.qs.panels.ui.viewmodel.DetailsViewModel
 import com.android.systemui.qs.tiles.dialog.AudioDetailsViewModel
 import com.android.systemui.res.R
+import com.android.systemui.tally.TallyShell
 import com.android.systemui.volume.dialog.dagger.scope.VolumeDialog
 import com.android.systemui.volume.dialog.settings.domain.VolumeDialogSettingsButtonInteractor
 import com.android.systemui.volume.dialog.ui.VolumeDialogUiEvent
 import com.android.systemui.volume.panel.component.mediaoutput.domain.interactor.MediaDeviceSessionInteractor
 import com.android.systemui.volume.panel.component.mediaoutput.domain.interactor.MediaOutputInteractor
 import com.android.systemui.volume.panel.shared.model.filterData
+import de.diamaneos.tally.R as TallyR
 import javax.inject.Inject
 import kotlin.coroutines.CoroutineContext
 import kotlin.coroutines.resume
@@ -83,7 +85,15 @@ constructor(
     @SuppressLint("UseCompatLoadingForDrawables")
     private val drawables: Flow<Drawables> =
         flow {
-                val color = context.getColor(internalR.color.materialColorPrimary)
+                // Tally: the playing bars are a lamp-coloured mark on the panel.
+                val color =
+                    context.getColor(
+                        if (TallyShell.isEnabled) {
+                            TallyR.color.tally_lamp_ink
+                        } else {
+                            internalR.color.materialColorPrimary
+                        }
+                    )
                 emit(
                     Drawables(
                         start =
