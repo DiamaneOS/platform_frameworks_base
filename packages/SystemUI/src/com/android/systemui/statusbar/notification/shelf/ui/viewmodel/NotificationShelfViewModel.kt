@@ -21,7 +21,9 @@ import com.android.systemui.scene.shared.flag.SceneContainerFlag
 import com.android.systemui.statusbar.NotificationShelf
 import com.android.systemui.statusbar.notification.row.ui.viewmodel.ActivatableNotificationViewModel
 import com.android.systemui.statusbar.notification.shelf.domain.interactor.NotificationShelfInteractor
+import com.android.systemui.tally.lock.TallyLockInk
 import com.android.systemui.window.domain.interactor.WindowRootViewBlurInteractor
+import dagger.Lazy
 import javax.inject.Inject
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -35,6 +37,7 @@ constructor(
     private val interactor: NotificationShelfInteractor,
     windowRootViewBlurInteractor: WindowRootViewBlurInteractor,
     activatableViewModel: ActivatableNotificationViewModel,
+    private val tallyLockInk: Lazy<TallyLockInk>,
 ) : ActivatableNotificationViewModel by activatableViewModel {
     /** Is the shelf allowed to be clickable when it has content? */
     val isClickable: Flow<Boolean>
@@ -54,6 +57,10 @@ constructor(
     }
 
     val isBlurSupported: Flow<Boolean> = windowRootViewBlurInteractor.isBlurCurrentlySupported
+
+    /** Tally: whether the lock wallpaper calls for dark ink, for the shelf's icons on it. */
+    val tallyLightWallpaper: Flow<Boolean>
+        get() = tallyLockInk.get().lightWallpaper
 
     /** Notifies that the user has clicked the shelf. */
     fun onShelfClicked() {

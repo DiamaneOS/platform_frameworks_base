@@ -18,23 +18,13 @@ package com.android.systemui.tally.lock
 
 import android.content.Context
 import android.content.res.Configuration
-import android.util.TypedValue
 
 /**
- * The theme the lock wallpaper calls for, which stock SystemUI uses for text on the lock screen.
+ * The night mode a lock wallpaper calls for, in which Tally tokens give the lock screen's ink. Which
+ * one the wallpaper calls for comes from [TallyLockInk], from the wallpaper's colours: SystemUI's
+ * theme is no guide (see there).
  */
 object TallyWallTheme {
-    /**
-     * Whether the lock wallpaper calls for dark text: CentralSurfaces gives SystemUI's application
-     * context the LightWallpaper theme then, whose isLightTheme is true.
-     */
-    @JvmStatic
-    fun isLightWallpaper(appContext: Context): Boolean {
-        val value = TypedValue()
-        return appContext.theme.resolveAttribute(android.R.attr.isLightTheme, value, true) &&
-            value.data != 0
-    }
-
     /** [context] in the night mode the wallpaper calls for, so Tally tokens resolve to it. */
     @JvmStatic
     fun context(context: Context, lightWallpaper: Boolean): Context {

@@ -45,6 +45,7 @@ import com.android.systemui.shared.clocks.DefaultClockProvider
 import com.android.systemui.statusbar.policy.batteryController
 import com.android.systemui.statusbar.policy.configurationController
 import com.android.systemui.statusbar.policy.domain.interactor.zenModeInteractor
+import com.android.systemui.tally.lock.TallyLockInk
 import com.android.systemui.util.settings.FakeSettings
 import com.android.systemui.utils.leaks.FakeZenModeController
 import org.mockito.kotlin.mock
@@ -97,6 +98,7 @@ val Kosmos.keyguardClockRepositoryImpl by
                         userTracker = userTracker,
                         dozingToLockscreenViewModel = { dozingToLockscreenTransitionViewModel },
                         displayWindowPropertiesRepository = fakeDisplayWindowPropertiesRepository,
+                        tallyLockInk = { mock<TallyLockInk>() },
                     )
                     .apply { clock = clockRegistry.createCurrentClock(context) },
             backgroundDispatcher = testDispatcher,

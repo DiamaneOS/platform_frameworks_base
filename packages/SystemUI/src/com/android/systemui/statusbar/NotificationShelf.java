@@ -63,6 +63,8 @@ import com.android.systemui.statusbar.notification.stack.NotificationStackScroll
 import com.android.systemui.statusbar.notification.stack.StackScrollAlgorithm;
 import com.android.systemui.statusbar.notification.stack.ViewState;
 import com.android.systemui.statusbar.phone.NotificationIconContainer;
+import com.android.systemui.tally.TallyShell;
+import com.android.systemui.tally.lock.TallyWallTheme;
 import com.android.systemui.util.DumpUtilsKt;
 
 import java.io.PrintWriter;
@@ -110,6 +112,11 @@ public class NotificationShelf extends ActivatableNotificationView {
     private boolean mCanInteract;
     private NotificationStackScrollLayout mHostLayout;
     private NotificationRoundnessManager mRoundnessManager;
+    /** Tally: how far the shelf is its icons alone, 1 on the lock screen, 0 in the shade. */
+    private float mTallyLockAmount;
+    private boolean mTallyLightWallpaper;
+    private int mTallyLockInk;
+    private boolean mTallyLockInkValid;
 
     public NotificationShelf(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -454,6 +461,8 @@ public class NotificationShelf extends ActivatableNotificationView {
     @Override
     public void updateBackgroundColors() {
         super.updateBackgroundColors();
+        // The theme's palette gives the lock screen's ink too.
+        mTallyLockInkValid = false;
         ColorUpdateLogger colorUpdateLogger = ColorUpdateLogger.getInstance();
 
         if (colorUpdateLogger != null) {
@@ -473,6 +482,9 @@ public class NotificationShelf extends ActivatableNotificationView {
             return;
         }
         mShelfIcons.resetViewStates();
+        if (TallyShell.isEnabled()) {
+            updateTallyLockAmount();
+        }
         float shelfStart = getTranslationY();
         float numViewsInShelf = 0.0f;
         View lastChild = mAmbientState.getLastVisibleBackgroundChild();
@@ -583,7 +595,7 @@ public class NotificationShelf extends ActivatableNotificationView {
             }
             updateContinuousClipping(row);
         }
-        boolean hideBackground = isHidden;
+        boolean hideBackground = isHidden || mTallyLockAmount == 1f;
         setHideBackground(hideBackground);
         if (mNotGoneIndex == -1) {
             mNotGoneIndex = notGoneIndex;
@@ -990,6 +1002,10 @@ public class NotificationShelf extends ActivatableNotificationView {
             shelfColor = NotificationUtils.interpolateColors(iconColor, shelfColor,
                     iconState.iconAppearAmount);
         }
+        if (mTallyLockAmount > 0f) {
+            shelfColor = NotificationUtils.interpolateColors(shelfColor, tallyLockInk(),
+                    mTallyLockAmount);
+        }
         iconState.iconColor = shelfColor;
     }
 
@@ -1010,6 +1026,44 @@ public class NotificationShelf extends ActivatableNotificationView {
             mHideBackground = hideBackground;
             updateOutline();
         }
+    }
+
+    /**
+     * Tally: on the lock screen the shelf is its icons alone, in the lock screen's ink, as the
+     * clock and the lamp strip sit on the wallpaper: a card around one small icon read as an empty
+     * key. The card fades in as the shade is pulled down.
+     */
+    private void updateTallyLockAmount() {
+        final boolean onLockscreen = SceneContainerFlag.isEnabled()
+                ? mAmbientState.isCurrentSceneLockscreen()
+                : mAmbientState.isOnKeyguard();
+        final float toShade = SceneContainerFlag.isEnabled()
+                ? Interpolators.STANDARD.getInterpolation(mAmbientState.getLStoShadeProgress())
+                : Interpolators.STANDARD.getInterpolation(mAmbientState.getFractionToShade());
+        mTallyLockAmount = onLockscreen ? 1f - MathUtils.constrain(toShade, 0f, 1f) : 0f;
+        mBackgroundNormal.setAlpha(1f - mTallyLockAmount);
+    }
+
+    /** Tally: whether the lock wallpaper calls for dark ink (TallyLockInk). */
+    public void setTallyLightWallpaper(boolean lightWallpaper) {
+        if (mTallyLightWallpaper == lightWallpaper && mTallyLockInkValid) {
+            return;
+        }
+        mTallyLightWallpaper = lightWallpaper;
+        mTallyLockInkValid = false;
+        if (mHostLayout != null) {
+            // The stack lays its children out again, which recolours the shelf's icons.
+            mHostLayout.requestLayout();
+        }
+    }
+
+    private int tallyLockInk() {
+        if (!mTallyLockInkValid) {
+            mTallyLockInk = TallyWallTheme.context(mContext, mTallyLightWallpaper)
+                    .getColor(de.diamaneos.tally.R.color.tally_ink);
+            mTallyLockInkValid = true;
+        }
+        return mTallyLockInk;
     }
 
     @Override
