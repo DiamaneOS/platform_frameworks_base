@@ -26,7 +26,6 @@ import androidx.constraintlayout.widget.ConstraintSet
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.android.systemui.dagger.SysUISingleton
-import com.android.systemui.dagger.qualifiers.Application
 import com.android.systemui.dagger.qualifiers.Main
 import com.android.systemui.keyguard.domain.interactor.KeyguardInteractor
 import com.android.systemui.keyguard.shared.model.KeyguardSection
@@ -73,7 +72,7 @@ class TallyLockSection
 @Inject
 constructor(
     @ShadeDisplayAware private val context: Context,
-    @Application private val appContext: Context,
+    private val lockInk: TallyLockInk,
     private val keyguardClockViewModel: KeyguardClockViewModel,
     private val viewModel: TallyLampStripViewModel,
     private val keyguardInteractor: KeyguardInteractor,
@@ -118,7 +117,7 @@ constructor(
                 viewModel,
                 keyguardInteractor,
                 configurationController,
-                appContext,
+                lockInk,
             )
         handles +=
             TallyLockDateViewBinder.bind(
@@ -127,7 +126,7 @@ constructor(
                 keyguardInteractor,
                 aodBurnInViewModel,
                 configurationController,
-                appContext,
+                lockInk,
             )
         handles +=
             TallyAodStripViewBinder.bind(

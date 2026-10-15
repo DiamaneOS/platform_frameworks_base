@@ -18,6 +18,7 @@
 package com.android.systemui.keyguard.ui.viewmodel
 
 import android.content.Context
+import android.view.ContextThemeWrapper
 import com.android.settingslib.Utils
 import com.android.systemui.biometrics.domain.interactor.UdfpsOverlayInteractor
 import com.android.systemui.common.ui.domain.interactor.ConfigurationInteractor
@@ -28,6 +29,9 @@ import com.android.systemui.keyguard.shared.model.KeyguardState
 import com.android.systemui.keyguard.ui.view.DeviceEntryIconView
 import com.android.systemui.res.R
 import com.android.systemui.shade.ShadeDisplayAware
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.lock.TallyLockInk
+import dagger.Lazy
 import javax.inject.Inject
 import kotlin.math.roundToInt
 import kotlinx.coroutines.FlowPreview
@@ -38,6 +42,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onStart
 
 /** Models the UI state for the device entry icon foreground view (displayed icon). */
@@ -52,6 +57,8 @@ constructor(
     transitionInteractor: KeyguardTransitionInteractor,
     deviceEntryIconViewModel: DeviceEntryIconViewModel,
     udfpsOverlayInteractor: UdfpsOverlayInteractor,
+    // Tally: the lock screen's ink, from the lock wallpaper's colours.
+    private val tallyLockInk: Lazy<TallyLockInk>,
 ) {
     private val isShowingAodOrDozing: Flow<Boolean> =
         combine(
@@ -65,9 +72,36 @@ constructor(
         return if (usingBackgroundProtection) {
             Utils.getColorAttrDefaultColor(context, android.R.attr.textColorPrimary)
         } else {
-            Utils.getColorAttrDefaultColor(context, R.attr.wallpaperTextColorAccent)
+            Utils.getColorAttrDefaultColor(wallpaperContext(), R.attr.wallpaperTextColorAccent)
         }
     }
+
+    /**
+     * The context whose theme gives the icon's colour on the wallpaper. Tally: the shade window's
+     * context always has the dark-wallpaper theme, so the lock wallpaper's ink comes from
+     * TallyLockInk, in that theme's colours.
+     */
+    private fun wallpaperContext(): Context =
+        if (TallyShell.isEnabled) {
+            ContextThemeWrapper(
+                context,
+                if (tallyLockInk.get().isLightWallpaper) R.style.Theme_SystemUI_LightWallpaper
+                else R.style.Theme_SystemUI,
+            )
+        } else {
+            context
+        }
+
+    /** When the icon's colour may change: on any configuration change, and with Tally's ink. */
+    private val colorChanges: Flow<Unit> =
+        if (TallyShell.isEnabled) {
+            merge(
+                configurationInteractor.onAnyConfigurationChange,
+                tallyLockInk.get().lightWallpaper.map {},
+            )
+        } else {
+            configurationInteractor.onAnyConfigurationChange
+        }
 
     // While dozing, the display can show the AOD UI; show the AOD udfps when dozing
     private val useAodIconVariant: Flow<Boolean> =
@@ -87,7 +121,7 @@ constructor(
                 } else {
                     deviceEntryIconViewModel.useBackgroundProtection.flatMapLatest { useBgProtection
                         ->
-                        configurationInteractor.onAnyConfigurationChange
+                        colorChanges
                             .map { getColor(useBgProtection) }
                             .onStart { emit(getColor(useBgProtection)) }
                     }

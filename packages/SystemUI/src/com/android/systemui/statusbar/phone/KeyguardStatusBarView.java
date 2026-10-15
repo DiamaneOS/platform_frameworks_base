@@ -30,6 +30,7 @@ import android.graphics.drawable.Drawable;
 import android.os.Trace;
 import android.util.AttributeSet;
 import android.util.TypedValue;
+import android.view.ContextThemeWrapper;
 import android.view.DisplayCutout;
 import android.view.Gravity;
 import android.view.View;
@@ -50,6 +51,7 @@ import com.android.systemui.statusbar.layout.StatusBarContentInsetsProvider;
 import com.android.systemui.statusbar.phone.SysuiDarkIconDispatcher.DarkChange;
 import com.android.systemui.statusbar.phone.ui.TintedIconManager;
 import com.android.systemui.statusbar.phone.userswitcher.StatusBarUserSwitcherContainer;
+import com.android.systemui.tally.TallyShell;
 import com.android.systemui.user.ui.binder.StatusBarUserChipViewBinder;
 import com.android.systemui.user.ui.viewmodel.StatusBarUserChipViewModel;
 
@@ -82,6 +84,8 @@ public class KeyguardStatusBarView extends RelativeLayout {
     private boolean mKeyguardUserAvatarEnabled;
 
     private boolean mIsPrivacyDotEnabled;
+    // Tally: whether the lock wallpaper calls for dark ink (TallyLockInk).
+    private boolean mTallyLightWallpaper;
     private int mSystemIconsSwitcherHiddenExpandedMargin;
     private int mStatusBarPaddingEnd;
     private int mMinDotWidth;
@@ -425,6 +429,14 @@ public class KeyguardStatusBarView extends RelativeLayout {
         updateIconsAndTextColors(iconManager);
     }
 
+    /**
+     * Tally: whether the lock wallpaper calls for dark ink. Takes effect on the next
+     * {@link #onThemeChanged}. Should only be called from {@link KeyguardStatusBarViewController}.
+     */
+    void setTallyLightWallpaper(boolean lightWallpaper) {
+        mTallyLightWallpaper = lightWallpaper;
+    }
+
     /** Should only be called from {@link KeyguardStatusBarViewController}. */
     void onOverlayChanged() {
         final int carrierTheme = R.style.TextAppearance_StatusBar_Default;
@@ -438,7 +450,13 @@ public class KeyguardStatusBarView extends RelativeLayout {
     }
 
     private void updateIconsAndTextColors(TintedIconManager iconManager) {
-        @ColorInt int textColor = Utils.getColorAttrDefaultColor(mContext,
+        // Tally: the shade window's context always has the dark-wallpaper theme, so the lock
+        // wallpaper's ink comes from TallyLockInk, in that theme's colours.
+        final Context inkContext = TallyShell.isEnabled()
+                ? new ContextThemeWrapper(mContext, mTallyLightWallpaper
+                        ? R.style.Theme_SystemUI_LightWallpaper : R.style.Theme_SystemUI)
+                : mContext;
+        @ColorInt int textColor = Utils.getColorAttrDefaultColor(inkContext,
                 R.attr.wallpaperTextColor);
         float luminance = Color.luminance(textColor);
         @ColorInt int iconColor = Utils.getColorStateListDefaultColor(mContext,
