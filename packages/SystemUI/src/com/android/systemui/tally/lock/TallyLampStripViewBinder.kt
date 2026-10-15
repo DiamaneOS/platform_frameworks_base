@@ -16,7 +16,6 @@
 
 package com.android.systemui.tally.lock
 
-import android.content.Context
 import android.view.View
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
@@ -31,10 +30,9 @@ object TallyLampStripViewBinder {
     private const val TAG = "TallyLampStripViewBinder"
 
     /**
-     * Shows the strip's items while the lock screen is visible, in the theme the lock wallpaper
-     * calls for ([appContext]'s, which CentralSurfaces sets and announces through
-     * [configurationController]), and fades the strip out as the device dozes: the always-on
-     * display keeps the clock only.
+     * Shows the strip's items while the lock screen is visible, in the ink the lock wallpaper
+     * calls for ([lockInk], from its colours and kept current), and fades the strip out as the
+     * device dozes: the always-on display keeps the clock only.
      */
     @JvmStatic
     fun bind(
@@ -42,12 +40,11 @@ object TallyLampStripViewBinder {
         viewModel: TallyLampStripViewModel,
         keyguardInteractor: KeyguardInteractor,
         configurationController: ConfigurationController,
-        appContext: Context,
+        lockInk: TallyLockInk,
     ): DisposableHandle {
         val configurationListener =
             object : ConfigurationController.ConfigurationListener {
                 override fun onThemeChanged() {
-                    view.setLightWallpaper(TallyWallTheme.isLightWallpaper(appContext))
                     view.refresh()
                 }
 
@@ -64,13 +61,19 @@ object TallyLampStripViewBinder {
                 }
             }
         configurationController.addCallback(configurationListener)
-        view.setLightWallpaper(TallyWallTheme.isLightWallpaper(appContext))
+        view.setLightWallpaper(lockInk.isLightWallpaper)
         view.refresh()
 
         val attachHandle =
             view.repeatWhenAttached {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
                     launch("$TAG#items") { viewModel.items.collect { view.setItems(it) } }
+                    launch("$TAG#lockInk") {
+                        lockInk.lightWallpaper.collect { light ->
+                            view.setLightWallpaper(light)
+                            view.refresh()
+                        }
+                    }
                     launch("$TAG#dozeAmount") {
                         keyguardInteractor.dozeAmount.collect {
                             view.alpha = 1f - it
