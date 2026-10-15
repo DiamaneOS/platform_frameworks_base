@@ -35,11 +35,17 @@ import android.graphics.drawable.Drawable;
 import android.os.Handler;
 import android.os.SystemClock;
 import android.os.Trace;
+import android.provider.Settings;
 import android.view.SurfaceView;
 import android.view.View;
 import android.window.SplashScreenView;
 
 import com.android.launcher3.icons.BaseIconFactory;
+import com.android.launcher3.icons.BitmapInfo;
+import com.android.launcher3.icons.IconThemeController;
+import com.android.launcher3.icons.tally.TallyAppKeys;
+import com.android.launcher3.icons.tally.TallyColourIconThemeController;
+import com.android.launcher3.icons.tally.TallyMonoIconThemeController;
 import com.android.wm.shell.shared.animation.Interpolators;
 import com.android.wm.shell.tally.TallyPageMotion;
 import com.android.wm.shell.tally.TallySpring;
@@ -57,8 +63,10 @@ import java.io.Closeable;
  * <p>The keycap is the app's adaptive icon cut by the system icon mask ({@code config_icon_mask},
  * the keycap on DiamaneOS) with the key's relief (a 1 dp highlight along its top edge and a skirt
  * along its bottom, both following the shape, as Launcher's keys). A legacy icon is first wrapped
- * into an adaptive icon, as Launcher does. The LED is drawn with the token library's static lamp
- * glyphs (off, then on) in the key's LED housing: the animated lamp lives in SystemUI.
+ * into an adaptive icon, as Launcher does. The icon follows the user's icon style, as Home draws
+ * it, so the key does not change on the way from Home to the app. The LED is drawn with the token
+ * library's static lamp glyphs (off, then on) in the key's LED housing: the animated lamp lives in
+ * SystemUI.
  */
 final class TallySplashScreen {
     /** The splash keycap's size (the prototype's {@code SPLASH_KC}). */
@@ -69,6 +77,10 @@ final class TallySplashScreen {
     private static final long LIGHT_DELAY_MS = 30;
     /** The off lamp's ring on the housing (the prototype's {@code .splash-lamp .l-ring}). */
     private static final int OFF_RING_COLOR = 0xB3FFFFFF;
+    /** The secure setting Launcher keeps the user's icon style in (SystemUI's TallyIconStyle). */
+    private static final String ICON_STYLE_SETTING = "tally_icon_style";
+
+    private static TallyColourIconThemeController sColourIcons;
 
     private TallySplashScreen() {}
 
@@ -91,7 +103,7 @@ final class TallySplashScreen {
      */
     @NonNull
     static Drawable makeKeycap(@NonNull Context shellContext, @NonNull Drawable icon, int iconDpi,
-            int sizePx, @NonNull Handler worker) {
+            int sizePx, @NonNull Handler worker, @NonNull String packageName, int userId) {
         final AdaptiveIconDrawable adaptive;
         if (icon instanceof AdaptiveIconDrawable a) {
             adaptive = a;
@@ -100,7 +112,52 @@ final class TallySplashScreen {
                 adaptive = factory.wrapToAdaptiveIcon(icon);
             }
         }
-        return new Keycap(shellContext.getResources(), adaptive, sizePx, worker);
+        return new Keycap(shellContext.getResources(),
+                homeIcon(shellContext, adaptive, packageName, userId, iconDpi, sizePx), sizePx,
+                worker);
+    }
+
+    /**
+     * {@code icon} as Home draws it in the user's icon style: Colour (the default) gives one of
+     * DiamaneOS's own apps its key's colours and every other app its own icon, Minimal gives every
+     * app its glyph on the theme's key, and no style the app's own icon.
+     */
+    @NonNull
+    private static AdaptiveIconDrawable homeIcon(@NonNull Context shellContext,
+            @NonNull AdaptiveIconDrawable icon, @NonNull String packageName, int userId,
+            int iconDpi, int sizePx) {
+        final String style = Settings.Secure.getStringForUser(shellContext.getContentResolver(),
+                ICON_STYLE_SETTING, userId);
+        final IconThemeController controller;
+        if ("none".equals(style)) {
+            return icon;
+        } else if ("minimal".equals(style)) {
+            controller = new TallyMonoIconThemeController();
+        } else {
+            controller = colourIcons(shellContext).forPackage(shellContext, packageName);
+        }
+        if (controller == null) {
+            return icon;
+        }
+        try (BaseIconFactory factory =
+                new BaseIconFactory(shellContext, iconDpi, sizePx, false, controller)) {
+            final BitmapInfo info = factory.createBadgedIconBitmap(icon);
+            final AdaptiveIconDrawable themed =
+                    controller.createThemedAdaptiveIcon(shellContext, icon, info);
+            return themed != null ? themed : icon;
+        }
+    }
+
+    /** The Colour style's keys, from the Tally tokens. */
+    @NonNull
+    private static synchronized TallyColourIconThemeController colourIcons(
+            @NonNull Context shellContext) {
+        if (sColourIcons == null) {
+            sColourIcons = new TallyColourIconThemeController(TallyAppKeys.load(
+                    shellContext.getResources(), R.array.tally_app_key_packages,
+                    R.array.tally_app_key_plates, R.array.tally_app_key_glyphs));
+        }
+        return sColourIcons;
     }
 
     /**
