@@ -92,6 +92,7 @@ fun TallyVolumeMeter(
     val trackColor = colorResource(TallyR.color.tally_surface_high)
     val lamp = colorResource(TallyR.color.tally_lamp)
     val lampOutline = colorResource(TallyR.color.tally_lamp_outline)
+    val outline = colorResource(TallyR.color.tally_outline)
     val radius = dimensionResource(TallyR.dimen.tally_radius_s)
     val hairline = dimensionResource(TallyR.dimen.tally_stroke_hairline)
     Box(
@@ -124,18 +125,24 @@ fun TallyVolumeMeter(
                         }
                     }
                     drawContent()
-                    // The tick sits inside the fill at its top, and at the foot at no volume. In
-                    // light theme its edge is the lamp outline; in dark theme the outline is the
-                    // lamp itself.
+                    // The tick sits inside the fill at its top. In light theme its edge is the
+                    // lamp outline, and in dark theme the outline is the lamp itself. At no volume
+                    // it sits at the foot in the outline colour: a lit mark there read as a little
+                    // on.
                     val tick = TICK_HEIGHT.toPx()
                     val tickTop = height - max(level, tick)
-                    drawRect(lamp, topLeft = Offset(0f, tickTop), size = Size(size.width, tick))
-                    drawRect(
-                        lampOutline,
-                        topLeft = Offset(line / 2f, tickTop + line / 2f),
-                        size = Size(size.width - line, tick - line),
-                        style = Stroke(line),
-                    )
+                    val tickSize = Size(size.width, tick)
+                    if (level <= 0f) {
+                        drawRect(outline, topLeft = Offset(0f, tickTop), size = tickSize)
+                    } else {
+                        drawRect(lamp, topLeft = Offset(0f, tickTop), size = tickSize)
+                        drawRect(
+                            lampOutline,
+                            topLeft = Offset(line / 2f, tickTop + line / 2f),
+                            size = Size(size.width - line, tick - line),
+                            style = Stroke(line),
+                        )
+                    }
                 },
     ) {
         Icon(
