@@ -18,6 +18,7 @@ package com.android.systemui.tally.shade
 
 import android.content.Context
 import android.service.quicksettings.Tile
+import androidx.annotation.DrawableRes
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.spring
@@ -103,8 +104,12 @@ import com.android.systemui.qs.panels.ui.viewmodel.AccessibilityUiState
 import com.android.systemui.qs.panels.ui.viewmodel.TileUiState
 import com.android.systemui.qs.pipeline.shared.TileSpec
 import com.android.systemui.qs.tileimpl.SubtitleArrayMapping
+import com.android.systemui.qs.tiles.BluetoothTile
 import com.android.systemui.qs.tiles.CameraToggleTile
+import com.android.systemui.qs.tiles.LocationTile
 import com.android.systemui.qs.tiles.MicrophoneToggleTile
+import com.android.systemui.qs.tiles.MobileDataTile
+import com.android.systemui.qs.tiles.WifiTile
 import com.android.systemui.qs.ui.compose.borderOnFocus
 import com.android.systemui.res.R
 import com.android.systemui.tally.lamp.TallyLamp
@@ -217,7 +222,14 @@ fun TallyTileContent(
             .litField({ wipe.value }, lit, shape, palette, edgeWidth, keyPlate, keyRadius)
     ) {
         if (iconOnly) {
-            KeycapContent(state, lit, instantLamp, iconProvider, palette, bounceScale)
+            KeycapContent(
+                state,
+                lit,
+                instantLamp,
+                keycapIconProvider(spec, state, iconProvider),
+                palette,
+                bounceScale,
+            )
         } else {
             LargeContent(
                 uiState,
@@ -461,6 +473,10 @@ private fun BoxScope.KeycapContent(
             .padding(start = KEYCAP_LAMP_INSET, top = KEYCAP_LAMP_INSET),
     )
     val iconSize = dimensionResource(TallyR.dimen.tally_icon_size)
+    // The icon moves on as far as the lamp grows with the text, so the ring never touches it.
+    val iconShift =
+        KEYCAP_ICON_SHIFT + TallyLampDefaults.size(TallyLampSize.LARGE, growsWithText = true) -
+            dimensionResource(TallyLampSize.LARGE.sizeRes)
     SmallTileContent(
         iconProvider = iconProvider,
         color = iconColor(state, lit, palette),
@@ -468,10 +484,38 @@ private fun BoxScope.KeycapContent(
         animateColor = false,
         modifier =
             Modifier.align(Alignment.Center)
-                .offset(KEYCAP_ICON_SHIFT, KEYCAP_ICON_SHIFT)
+                .offset(iconShift, iconShift)
                 .bounceScale(scale = bounceScale),
     )
 }
+
+/**
+ * A keycap's icon. While the lamp shows off or unavailable it is the tile's plain glyph, as the
+ * prototype draws one glyph per tile: the lamp and the words carry the state, and the slash of a
+ * stock "off" icon runs into the lamp's ring.
+ */
+private fun keycapIconProvider(
+    spec: TileSpec,
+    state: TallyLampState,
+    iconProvider: Context.() -> Icon,
+): Context.() -> Icon {
+    if (state != TallyLampState.OFF && state != TallyLampState.UNAVAILABLE) return iconProvider
+    val glyph = spec.plainGlyph() ?: return iconProvider
+    return { Icon.Resource(glyph, null) }
+}
+
+/** The glyph without its slash, for tiles whose "off" icon adds one. */
+@DrawableRes
+private fun TileSpec.plainGlyph(): Int? =
+    when (spec) {
+        WifiTile.TILE_SPEC -> R.drawable.vd_wifi
+        BluetoothTile.TILE_SPEC -> R.drawable.vd_bluetooth
+        MobileDataTile.TILE_SPEC -> R.drawable.vd_cell
+        LocationTile.TILE_SPEC -> R.drawable.vd_location
+        CameraToggleTile.TILE_SPEC -> R.drawable.vd_camera
+        MicrophoneToggleTile.TILE_SPEC -> R.drawable.vd_mic
+        else -> null
+    }
 
 /** A tile with words: the lamp and label with the icon at the end, and the state under them. */
 @Composable
