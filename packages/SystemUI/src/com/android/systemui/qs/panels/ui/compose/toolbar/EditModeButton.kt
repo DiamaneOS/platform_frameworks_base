@@ -65,6 +65,8 @@ import com.android.systemui.qs.panels.ui.compose.toolbar.EditModeButtonDefaults.
 import com.android.systemui.qs.panels.ui.viewmodel.toolbar.EditModeButtonViewModel
 import com.android.systemui.qs.ui.compose.borderOnFocus
 import com.android.systemui.res.R
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.shade.TallyKey
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -146,6 +148,18 @@ fun EditModeButton(
                 }
             },
         ) {
+            if (TallyShell.isEnabled) {
+                // Tally: an outlined key with the pencil and its word, as the shade's other keys.
+                TallyKey(
+                    icon = Edit,
+                    label = stringResource(R.string.qs_edit_edit_tab),
+                    onClick = viewModel::onButtonClick,
+                    contentDescription =
+                        stringResource(id = R.string.accessibility_quick_settings_edit),
+                    modifier = Modifier.sysuiResTag("qs_edit_mode_button"),
+                )
+                return@TooltipBox
+            }
             IconButton(
                 onClick = viewModel::onButtonClick,
                 shape = RoundedCornerShape(CornerSize(28.dp)),
