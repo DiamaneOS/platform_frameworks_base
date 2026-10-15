@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copyright (C) 2026 The DiamaneOS Project
+  SPDX-License-Identifier: Apache-2.0
+
+  French for values/tally_hotspot.xml, translated by the DiamaneOS project.
+-->
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <string name="tally_hotspot_join_channel_new">"Point d'accès : nouvel appareil"</string>
+    <string name="tally_hotspot_join_channel_returned">"Point d'accès : appareil reconnecté"</string>
+    <string name="tally_hotspot_join_title">"{count, plural, =1 {Un appareil s'est connecté à votre point d'accès} other {# appareils se sont connectés à votre point d'accès}}"</string>
+    <string name="tally_hotspot_join_names">"{count, plural, =1 {Nom indiqué : {names}} other {Noms indiqués : {names}}}"</string>
+</resources>
