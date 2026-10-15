@@ -1915,6 +1915,10 @@
          foreground services. [CHAR LIMIT=40] -->
     <string name="notification_section_header_live">Live</string>
 
+    <!-- Tally: name of the default wallpaper in Wallpaper & style: stone-coloured paper with a
+         fine grain, light or dark with the theme. [CHAR LIMIT=30] -->
+    <string name="tally_wallpaper_label">Paper</string>
+
     <!-- Content description for accessibility: Tapping this button will dismiss all gentle notifications [CHAR LIMIT=NONE] -->
     <string name="accessibility_notification_section_header_gentle_clear_all">Clear all silent notifications</string>
 
