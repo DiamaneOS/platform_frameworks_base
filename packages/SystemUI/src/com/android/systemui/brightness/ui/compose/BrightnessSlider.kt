@@ -159,10 +159,15 @@ fun BrightnessSlider(
         if (TallyShell.isEnabled) colorResource(TallyR.color.tally_outline) else null
     val tallyEdgeWidth = dimensionResource(TallyR.dimen.tally_stroke_hairline)
     var tallyThumbWidth by remember { mutableIntStateOf(0) }
+    // Tally: the level is a meter fill, so it and the thumb take lampInk (the lamp in dark theme,
+    // the accent in light), as the volume meter does, not Material's primary.
+    val tallyLampInk = colorResource(TallyR.color.tally_lamp_ink)
     val colors =
         if (TallyShell.isEnabled) {
             SystemUISliderColors.Defaults.copy(
-                inactiveTrackColor = colorResource(TallyR.color.tally_surface_high)
+                thumbColor = tallyLampInk,
+                activeTrackColor = tallyLampInk,
+                inactiveTrackColor = colorResource(TallyR.color.tally_surface_high),
             )
         } else {
             SystemUISliderColors.Defaults
