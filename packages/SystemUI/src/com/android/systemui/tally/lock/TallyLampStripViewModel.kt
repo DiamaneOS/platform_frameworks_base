@@ -175,8 +175,9 @@ constructor(
                         AccessibilityContentDescriptions.WIFI_CONNECTION_STRENGTH[network.level]
                     else -> AccessibilityContentDescriptions.WIFI_NO_CONNECTION
                 }
-            val lamp =
-                if (network is WifiNetworkModel.Active) TallyLampState.ON else TallyLampState.OFF
+            // Lit while the radio is on, as the Quick Settings tile is: the words say whether it
+            // is connected.
+            val lamp = if (enabled) TallyLampState.ON else TallyLampState.OFF
             TallyStripItem(TallyStripItem.Kind.WIFI, lamp, listOf(TallyWords(words)))
         }
 
@@ -334,18 +335,25 @@ constructor(
                 bluetoothController.isBluetoothConnected &&
                 (bluetoothController.isBluetoothAudioActive ||
                     !bluetoothController.isBluetoothAudioProfileOnly)
-        return if (connected) {
-            TallyStripItem(
-                TallyStripItem.Kind.BLUETOOTH,
-                TallyLampState.LIVE,
-                listOf(TallyWords(R.string.accessibility_bluetooth_connected)),
-            )
-        } else {
-            TallyStripItem(
-                TallyStripItem.Kind.BLUETOOTH,
-                TallyLampState.OFF,
-                listOf(TallyWords(R.string.accessibility_quick_settings_bluetooth)),
-            )
+        return when {
+            connected ->
+                TallyStripItem(
+                    TallyStripItem.Kind.BLUETOOTH,
+                    TallyLampState.LIVE,
+                    listOf(TallyWords(R.string.accessibility_bluetooth_connected)),
+                )
+            bluetoothController.isBluetoothEnabled ->
+                TallyStripItem(
+                    TallyStripItem.Kind.BLUETOOTH,
+                    TallyLampState.ON,
+                    listOf(TallyWords(R.string.accessibility_quick_settings_bluetooth_on)),
+                )
+            else ->
+                TallyStripItem(
+                    TallyStripItem.Kind.BLUETOOTH,
+                    TallyLampState.OFF,
+                    listOf(TallyWords(R.string.accessibility_quick_settings_bluetooth)),
+                )
         }
     }
 
