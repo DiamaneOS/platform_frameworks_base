@@ -17,6 +17,7 @@
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
     android:background="@drawable/volume_dialog_floating_slider_background"
+    android:elevation="@dimen/volume_dialog_floating_slider_elevation"
     android:paddingHorizontal="@dimen/volume_dialog_floating_sliders_horizontal_padding"
     android:paddingVertical="@dimen/volume_dialog_floating_sliders_vertical_padding">
 

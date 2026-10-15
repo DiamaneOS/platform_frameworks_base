@@ -732,6 +732,10 @@
     <!-- Whether to use window background blur for the volume dialog. -->
     <bool name="config_volumeDialogUseBackgroundBlur">false</bool>
 
+    <!-- Whether the vertical volume dialog is shown on the left edge of the screen, next to
+         volume buttons on the left side of the device. The dialog layout is mirrored. -->
+    <bool name="config_volumeDialogOnLeft">false</bool>
+
     <!-- The properties of the face auth front camera for outer display in pixels -->
     <integer-array name="config_face_auth_props">
         <!-- sensorLocationX -->

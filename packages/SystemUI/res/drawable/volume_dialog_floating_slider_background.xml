@@ -17,5 +17,8 @@
     xmlns:androidprv="http://schemas.android.com/apk/prv/res/android"
     android:shape="rectangle">
     <corners android:radius="@dimen/volume_dialog_floating_slider_background_corner_radius" />
-    <solid android:color="@color/materialColorSurface" />
+    <solid android:color="@color/volume_dialog_floating_panel" />
+    <stroke
+        android:width="@dimen/volume_dialog_floating_slider_edge"
+        android:color="@color/tally_outline_variant" />
 </shape>
