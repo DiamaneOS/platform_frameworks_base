@@ -49,6 +49,8 @@ import org.mockito.kotlin.anyOrNull
 import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.never
+import org.mockito.kotlin.times
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.verifyBlocking
 import org.mockito.kotlin.whenever
@@ -134,6 +136,87 @@ class ActionExecutorTest : SysuiTestCase() {
             .isTrue()
     }
 
+    @Test
+    fun deleteScreenshot_deletesUriAndRequestsDismissal() = runTest {
+        whenever(fakeContext.contentResolver).thenReturn(contentResolver)
+        val uri = Uri.parse("content://media/external/images/media/123")
+        whenever(contentResolver.delete(eq(uri), anyOrNull<Bundle>())).thenReturn(1)
+        actionExecutor = createActionExecutor()
+
+        actionExecutor.deleteScreenshot(uri)
+        scheduler.advanceUntilIdle()
+
+        verify(viewProxy).requestDismissal(null)
+        verify(contentResolver).delete(eq(uri), anyOrNull<Bundle>())
+    }
+
+    @Test
+    fun deleteScreenshot_whenDeleteFails_stillDismisses() = runTest {
+        whenever(fakeContext.contentResolver).thenReturn(contentResolver)
+        val uri = Uri.parse("content://media/external/images/media/123")
+        whenever(contentResolver.delete(eq(uri), anyOrNull<Bundle>()))
+            .thenThrow(SecurityException("no access"))
+        actionExecutor = createActionExecutor()
+
+        actionExecutor.deleteScreenshot(uri)
+        scheduler.advanceUntilIdle()
+
+        verify(viewProxy).requestDismissal(null)
+    }
+
+    @Test
+    fun sharedTransition_hideSharedElements_dismisses() {
+        actionExecutor = createActionExecutor()
+
+        val callbacks = actionExecutor.startTransitionCallbacks()
+        assertThat(actionExecutor.isPendingSharedTransition).isTrue()
+        callbacks.hideSharedElements()
+        callbacks.onFinish()
+
+        verify(onDismiss, times(1)).invoke()
+        assertThat(actionExecutor.isPendingSharedTransition).isFalse()
+    }
+
+    @Test
+    fun sharedTransition_cancelledByOpenedApp_dismisses() {
+        actionExecutor = createActionExecutor()
+
+        val callbacks = actionExecutor.startTransitionCallbacks()
+        callbacks.onFinish()
+
+        verify(onDismiss).invoke()
+        assertThat(actionExecutor.isPendingSharedTransition).isFalse()
+    }
+
+    @Test
+    fun sharedTransition_afterPreviewDismissed_lateCallbacksDoNothing() {
+        actionExecutor = createActionExecutor()
+
+        val callbacks = actionExecutor.startTransitionCallbacks()
+        actionExecutor.onPreviewDismissed()
+        assertThat(actionExecutor.isPendingSharedTransition).isFalse()
+        callbacks.hideSharedElements()
+        callbacks.onFinish()
+
+        verify(onDismiss, never()).invoke()
+    }
+
+    @Test
+    fun sharedTransition_olderTransitionCallbacks_doNotEndNewerOne() {
+        actionExecutor = createActionExecutor()
+
+        val older = actionExecutor.startTransitionCallbacks()
+        actionExecutor.onPreviewDismissed()
+        val newer = actionExecutor.startTransitionCallbacks()
+        older.onFinish()
+
+        verify(onDismiss, never()).invoke()
+        assertThat(actionExecutor.isPendingSharedTransition).isTrue()
+
+        newer.hideSharedElements()
+        verify(onDismiss).invoke()
+    }
+
     private fun createActionExecutor(): ActionExecutor {
         return ActionExecutor(
             fakeContext,
@@ -141,6 +224,7 @@ class ActionExecutorTest : SysuiTestCase() {
             userRepository,
             clipboardManagerService,
             testScope,
+            mainDispatcher,
             window,
             viewProxy,
             onDismiss,
