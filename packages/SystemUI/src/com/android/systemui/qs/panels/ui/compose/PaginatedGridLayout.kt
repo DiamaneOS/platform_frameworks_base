@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.pager.HorizontalPager
@@ -36,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.integerResource
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
@@ -54,6 +56,8 @@ import com.android.systemui.qs.panels.ui.viewmodel.PaginatedGridViewModel
 import com.android.systemui.qs.panels.ui.viewmodel.TileViewModel
 import com.android.systemui.qs.panels.ui.viewmodel.toolbar.EditModeButtonViewModel
 import com.android.systemui.res.R
+import com.android.systemui.tally.TallyShell
+import de.diamaneos.tally.R as TallyR
 import javax.inject.Inject
 
 class PaginatedGridLayout
@@ -148,13 +152,23 @@ constructor(
                     )
                 }
             }
-            FooterBar(
-                buildNumberViewModelFactory = viewModel.buildNumberViewModelFactory,
-                pagerState = pagerState,
-                showArrowsInPager = viewModel.showArrowsInPagerDots,
-                editButtonViewModelFactory = viewModel.editModeButtonViewModelFactory,
-                isVisible = { listening() && layoutState.isIdle() },
-            )
+            if (TallyShell.isEnabled) {
+                TallyFooterBar(
+                    buildNumberViewModelFactory = viewModel.buildNumberViewModelFactory,
+                    pagerState = pagerState,
+                    showArrowsInPager = viewModel.showArrowsInPagerDots,
+                    editButtonViewModelFactory = viewModel.editModeButtonViewModelFactory,
+                    isVisible = { listening() && layoutState.isIdle() },
+                )
+            } else {
+                FooterBar(
+                    buildNumberViewModelFactory = viewModel.buildNumberViewModelFactory,
+                    pagerState = pagerState,
+                    showArrowsInPager = viewModel.showArrowsInPagerDots,
+                    editButtonViewModelFactory = viewModel.editModeButtonViewModelFactory,
+                    isVisible = { listening() && layoutState.isIdle() },
+                )
+            }
         }
     }
 }
@@ -204,6 +218,50 @@ private fun FooterBar(
         )
         Row(Modifier.weight(1f)) {
             Spacer(modifier = Modifier.weight(1f))
+            EditModeButton(viewModel = editButtonViewModel, isVisible = isVisible())
+        }
+    }
+}
+
+/**
+ * Tally: the pager in a slot of its own under the grid, as the prototype's, and the build number
+ * and the Edit key in a row below it, with the small space above each, so the Edit key never
+ * touches the last row of tiles and the build number has the row's width.
+ */
+@Composable
+private fun TallyFooterBar(
+    buildNumberViewModelFactory: BuildNumberViewModel.Factory,
+    pagerState: PagerState,
+    showArrowsInPager: Boolean,
+    editButtonViewModelFactory: EditModeButtonViewModel.Factory,
+    isVisible: () -> Boolean = { true },
+) {
+    val editButtonViewModel =
+        rememberViewModel(traceName = "PaginatedGridLayout-editButtonViewModel") {
+            editButtonViewModelFactory.create()
+        }
+    val gap = dimensionResource(TallyR.dimen.tally_space_s)
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        Spacer(Modifier.height(gap))
+        if (pagerState.pageCount > 1) {
+            PagerDots(
+                pagerState = pagerState,
+                activeColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                nonActiveColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = .5f),
+                showArrows = showArrowsInPager,
+                clickToCyclePages = !showArrowsInPager,
+            )
+            Spacer(Modifier.height(gap))
+        }
+        Row(
+            modifier = Modifier.requiredHeight(FooterHeight).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = spacedBy(gap),
+        ) {
+            Row(Modifier.weight(1f)) {
+                BuildNumber(viewModelFactory = buildNumberViewModelFactory)
+                Spacer(modifier = Modifier.weight(1f))
+            }
             EditModeButton(viewModel = editButtonViewModel, isVisible = isVisible())
         }
     }
