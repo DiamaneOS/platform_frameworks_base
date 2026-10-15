@@ -64,6 +64,7 @@ import androidx.test.filters.SmallTest;
 import com.android.internal.util.IntPair;
 import com.android.systemui.SysuiTestCase;
 import com.android.systemui.dump.DumpManager;
+import com.android.systemui.notifications.content.icon.AppIconProvider;
 import com.android.systemui.plugins.PluginManager;
 import com.android.systemui.res.R;
 import com.android.systemui.statusbar.CommandQueue;
@@ -111,6 +112,7 @@ public class ToastUITest extends SysuiTestCase {
     @Mock private IAccessibilityManager mAccessibilityManager;
     @Mock private PluginManager mPluginManager;
     @Mock private DumpManager mDumpManager;
+    @Mock private AppIconProvider mAppIconProvider;
     private final ToastLogger mToastLogger = spy(new ToastLogger(logcatLogBuffer()));
     @Mock private PackageManager mPackageManager;
 
@@ -135,7 +137,8 @@ public class ToastUITest extends SysuiTestCase {
                 mAccessibilityManager,
                 new ToastFactory(
                         mPluginManager,
-                        mDumpManager),
+                        mDumpManager,
+                        mAppIconProvider),
                 mToastLogger);
     }
 
