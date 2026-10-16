@@ -58,14 +58,15 @@ import java.io.Closeable;
  * DiamaneOS Tally's splash screen, as the Tally prototype's cold start (apps.js: {@code Win} and
  * {@code T.launch}): the app's icon as an 88 dp keycap centred on the window's background, with
  * its LED, a 14 dp lamp in the keycap's top right corner that lights 30 ms after the splash first
- * shows; once the app has drawn, the splash fades out on the fill spring.
+ * shows. Once the app has drawn, the splash fades out on the fill spring.
  *
  * <p>The keycap is the app's adaptive icon cut by the system icon mask ({@code config_icon_mask},
  * the keycap on DiamaneOS) with the key's relief (a 1 dp highlight along its top edge and a skirt
- * along its bottom, both following the shape, as Launcher's keys); a legacy icon is first wrapped
+ * along its bottom, both following the shape, as Launcher's keys). A legacy icon is first wrapped
  * into an adaptive icon, as Launcher does. The icon follows the user's icon style, as Home draws
- * it, so the key does not change on the way from Home to the app. The LED is drawn with the token library's static lamp
- * glyphs (off, then on) in the key's LED housing: the animated lamp lives in SystemUI.
+ * it, so the key does not change on the way from Home to the app. The LED is drawn with the token
+ * library's static lamp glyphs (off, then on) in the key's LED housing: the animated lamp lives in
+ * SystemUI.
  */
 final class TallySplashScreen {
     /** The splash keycap's size (the prototype's {@code SPLASH_KC}). */
@@ -160,7 +161,7 @@ final class TallySplashScreen {
     }
 
     /**
-     * Fades {@code view} out on the {@code fill} spring, from rest, over the time the fade takes;
+     * Fades {@code view} out on the {@code fill} spring, from rest, over the time the fade takes.
      * {@code listener} gets the animator's callbacks (the jank monitor and the finish). A
      * ValueAnimator runs it, so the animator duration scale applies to it as to stock's exit.
      */

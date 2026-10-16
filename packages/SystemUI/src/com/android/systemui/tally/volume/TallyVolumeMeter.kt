@@ -78,7 +78,7 @@ import kotlin.math.roundToInt
  * neutral fill up to the level and the level's lamp tick at the top of the fill, with the stream's
  * icon (its muted form included) at the foot. A level is a value, not a state, so only the tick is
  * in the lamp colour. Everything else about the slider (touch, keys, haptics and what screen
- * readers hear and can do) is the stock slider's; this only draws.
+ * readers hear and can do) is the stock slider's. This only draws.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
