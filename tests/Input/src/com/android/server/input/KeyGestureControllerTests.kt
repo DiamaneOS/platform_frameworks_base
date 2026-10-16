@@ -43,6 +43,7 @@ import android.platform.test.annotations.EnableFlags
 import android.platform.test.annotations.Presubmit
 import android.platform.test.flag.junit.SetFlagsRule
 import android.provider.DeviceConfig
+import android.provider.Settings
 import android.testing.TestableContext
 import android.testing.TestableResources
 import android.view.Display.DEFAULT_DISPLAY
@@ -1294,6 +1295,30 @@ class KeyGestureControllerTests {
     }
 
     @Test
+    fun testScreenshotShortcutChord_settingUnset_holdsBackPowerAndTakesScreenshot() {
+        putPowerVolumeDownScreenshot(null)
+        setupKeyGestureController()
+
+        assertTrue(pressVolumeDownThenPower())
+        testLooper.moveTimeForward(10 * SCREENSHOT_CHORD_DELAY)
+        testLooper.dispatchAll()
+        Mockito.verify(screenshotHelper, times(1))
+            .takeScreenshot(any(ScreenshotRequest::class.java), any(), any())
+    }
+
+    @Test
+    fun testScreenshotShortcutChord_turnedOff_passesPowerAndTakesNoScreenshot() {
+        putPowerVolumeDownScreenshot("0")
+        setupKeyGestureController()
+
+        assertFalse(pressVolumeDownThenPower())
+        testLooper.moveTimeForward(10 * SCREENSHOT_CHORD_DELAY)
+        testLooper.dispatchAll()
+        Mockito.verify(screenshotHelper, never())
+            .takeScreenshot(any(ScreenshotRequest::class.java), any(), any())
+    }
+
+    @Test
     fun testWearScreenshotShortcutChordPressed_forMoreThanTimeout() {
         setupKeyGestureController()
 
@@ -1836,6 +1861,26 @@ class KeyGestureControllerTests {
             upEvent.recycle()
             testLooper.dispatchAll()
         }
+    }
+
+    private fun putPowerVolumeDownScreenshot(value: String?) {
+        Settings.Global.putString(
+            testableContext.contentResolver,
+            Settings.Global.POWER_VOLUME_DOWN_SCREENSHOT,
+            value,
+        )
+    }
+
+    // Returns whether the power key is taken for the chord instead of going to the power policy
+    private fun pressVolumeDownThenPower(): Boolean {
+        val now = SystemClock.uptimeMillis()
+        val volumeDown = KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_VOLUME_DOWN, 0)
+        val power = KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_POWER, 0)
+        keyGestureController.interceptKeyBeforeQueueing(volumeDown, FLAG_INTERACTIVE)
+        testLooper.dispatchAll()
+        val powerTaken = keyGestureController.interceptKeyBeforeQueueing(power, FLAG_INTERACTIVE)
+        testLooper.dispatchAll()
+        return powerTaken
     }
 
     private fun interceptKey(event: KeyEvent, appDelegate: AppDelegate): Boolean {

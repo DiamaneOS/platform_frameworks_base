@@ -104,6 +104,9 @@ public class ExtSettings {
             Setting.Scope.GLOBAL, Settings.Global.ALLOW_CLIPBOARD_READ_BY_DEFAULT,
             defaultBool(R.bool.setting_default_allow_clipboard_read));
 
+    public static final BoolSetting POWER_VOLUME_DOWN_SCREENSHOT = new BoolSetting(
+            Setting.Scope.GLOBAL, Settings.Global.POWER_VOLUME_DOWN_SCREENSHOT, true);
+
     private ExtSettings() {}
 
     public static Function<Context, Boolean> defaultBool(@BoolRes int res) {
