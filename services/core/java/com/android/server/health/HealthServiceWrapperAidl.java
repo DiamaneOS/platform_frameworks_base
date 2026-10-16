@@ -250,6 +250,7 @@ class HealthServiceWrapperAidl extends HealthServiceWrapper {
         }
     }
 
+    @Override
     public void setChargingPolicy(int policy) throws RemoteException {
         IHealth service = mLastService.get();
         if (service == null) {

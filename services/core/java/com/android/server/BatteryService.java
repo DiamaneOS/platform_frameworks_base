@@ -79,6 +79,7 @@ import android.util.Slog;
 import android.util.TimeUtils;
 import android.util.proto.ProtoOutputStream;
 
+import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.app.IBatteryStats;
 import com.android.internal.logging.MetricsLogger;
@@ -331,6 +332,8 @@ public final class BatteryService extends SystemService {
     private ActivityManagerInternal mActivityManagerInternal;
 
     private HealthServiceWrapper mHealthServiceWrapper;
+    @GuardedBy("mLock")
+    private BatteryChargeLimitController mChargeLimitController;
     private BatteryPropertiesRegistrar mBatteryPropertiesRegistrar;
     private ArrayDeque<Bundle> mBatteryLevelsEventQueue;
     private long mLastBatteryLevelChangedSentMs;
@@ -517,6 +520,11 @@ public final class BatteryService extends SystemService {
                         Settings.Global.LOW_POWER_MODE_TRIGGER_LEVEL),
                         false, obs, UserHandle.USER_ALL);
                 updateBatteryWarningLevelLocked();
+            }
+            var chargeLimit = BatteryChargeLimitController.maybeStart(mContext,
+                    mHealthServiceWrapper);
+            synchronized (mLock) {
+                mChargeLimitController = chargeLimit;
             }
         }
     }
@@ -720,6 +728,9 @@ public final class BatteryService extends SystemService {
                 mConditionVariable.open();
             } else {
                 copyV1Battery(mLastHealthInfo, info);
+            }
+            if (mChargeLimitController != null) {
+                mChargeLimitController.onHealthInfo(info.chargingPolicy);
             }
         }
         traceEnd();
