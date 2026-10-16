@@ -39,7 +39,7 @@ import kotlin.math.min
  * cut.
  *
  * Stock measures the entries before they are attached, when a start drawable (the check column) is
- * not yet placed, so the popup came out narrower than its entries; it also let the popup reach the
+ * not yet placed, so the popup comes out narrower than its entries. It also lets the popup reach the
  * screen's edge. Selection, clicks, accessibility and the popup's position under the row stay
  * [Spinner]'s.
  */

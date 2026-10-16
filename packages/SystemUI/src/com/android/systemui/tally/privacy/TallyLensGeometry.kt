@@ -32,7 +32,7 @@ import android.view.Surface
  * The ring follows the outline of the display cutout, and of the lens when a device sets its
  * circle: an edge from 2 to 4 dp outside them, the 3 dp ring in the sensor colour from 4 to 7 dp,
  * and an edge from 7 to 9 dp ([edgeBand] covers both edges and lies under [ringBand]). Around a
- * round cutout around the lens these are circles; around the FP6's rectangular cutout, which
+ * round cutout around the lens these are circles. Around a rectangular cutout that
  * reaches the top of the screen and holds the lens, they are rounded bands around its sides and
  * bottom. Nothing is drawn nearer than [CLEARANCE_DP] to the cutout, so the ring stays on active
  * pixels. The lamp sits beside the lens, level with its centre, on the side the prototype puts it
