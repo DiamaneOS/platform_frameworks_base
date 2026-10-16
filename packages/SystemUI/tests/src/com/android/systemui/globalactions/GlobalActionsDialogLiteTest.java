@@ -504,15 +504,15 @@ public class GlobalActionsDialogLiteTest extends SysuiTestCase {
     }
 
     @Test
-    public void testShouldNotShowScreenshot() {
+    public void testShouldShowScreenshotWithGestureNavigation() {
         mContext.getOrCreateTestableResources().addOverride(
                 com.android.internal.R.integer.config_navBarInteractionMode,
-                WindowManagerPolicyConstants.NAV_BAR_MODE_3BUTTON);
+                WindowManagerPolicyConstants.NAV_BAR_MODE_GESTURAL);
 
         GlobalActionsDialogLite globalActionsDialogLite = createGlobalActionsDialogLite();
         GlobalActionsDialogLite.ScreenshotAction screenshotAction =
                 globalActionsDialogLite.new ScreenshotAction();
-        assertThat(screenshotAction.shouldShow()).isFalse();
+        assertThat(screenshotAction.shouldShow()).isTrue();
     }
 
     @Test
