@@ -33,7 +33,7 @@ import com.android.systemui.tally.lamp.TallyLampState
 /**
  * Tally's privacy dot: the shared live lamp ([TallyLampDrawable], 10 dp) on a backing, in the
  * colours for the area under it ([TallyIndicatorColors]), as the prototype's 16 dp dot. The backing
- * is a 15.5 dp disc of the colour drawn on the lamp's colour at 72 %; it keeps the lamp visible on
+ * is a 15.5 dp disc of the colour drawn on the lamp's colour at 72 %. It keeps the lamp visible on
  * any picture. The lamp lights at once, as every privacy lamp.
  */
 class TallyPrivacyDotDrawable(context: Context, private val sizePx: Int) :
@@ -54,7 +54,7 @@ class TallyPrivacyDotDrawable(context: Context, private val sizePx: Int) :
     val dotSizePx: Int
         get() = sizePx
 
-    /** Sets the dot's colours from the indicator colours for its area; the lamp is live. */
+    /** Sets the dot's colours from the indicator colours for its area. The lamp is live. */
     fun setColors(colors: TallyIndicatorColors) {
         lamp.colors = TallyLampColors.plain(colors.fill, sensor = true)
         lamp.setState(TallyLampState.LIVE)

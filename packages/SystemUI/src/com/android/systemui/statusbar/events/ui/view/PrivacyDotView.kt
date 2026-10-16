@@ -44,7 +44,7 @@ class PrivacyDotView(context: Context, attrs: AttributeSet) :
         if (TallyShell.isEnabled) {
             // Tally: only the dot's own column. This container reaches from the end of the status
             // bar content to the display's edge, wider than stock's around Tally's larger dot and
-            // its margin; the dot's column is narrower than stock's container on any device, and
+            // its margin. The dot's column is narrower than stock's container on any device, and
             // it still holds the whole dot for accessibility, which these touches are taken for.
             findViewById<View>(R.id.privacy_dot)?.let { dot ->
                 dotRect.setEmpty()

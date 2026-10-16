@@ -126,7 +126,7 @@ private class TallyVolumePanel(private val root: View) : ViewTreeObserver.OnPreD
         return true
     }
 
-    /** Measures the two backgrounds in [root]'s coordinates; returns whether the shape changed. */
+    /** Measures the two backgrounds in [root]'s coordinates. Returns whether the shape changed. */
     private fun update(): Boolean {
         // Not laid out yet: no panel (an empty rectangle keeps the shape empty).
         if (!background.boundsIn(root, backgroundBounds)) backgroundBounds.setEmpty()
@@ -163,13 +163,13 @@ private class PanelDrawable(context: Context) : Drawable() {
             color = context.getColor(TallyR.color.tally_outline_variant)
         }
 
-    /** The panel's outline in the host's coordinates; empty before the first shape. */
+    /** The panel's outline in the host's coordinates. Empty before the first shape. */
     val outline = Path()
     private val edge = Path()
     private val part = Path()
     private val inset = RectF()
 
-    /** Sets the panel to [first] and [second] together; an empty [first] clears it. */
+    /** Sets the panel to [first] and [second] together. An empty [first] clears it. */
     fun setShape(first: RectF, second: RectF?) {
         union(outline, first, second, 0f)
         // The hairline's centre runs half its width inside the outline.

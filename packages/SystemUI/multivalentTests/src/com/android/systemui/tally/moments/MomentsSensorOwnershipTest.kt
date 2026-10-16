@@ -102,7 +102,7 @@ class MomentsSensorOwnershipTest : SysuiTestCase() {
 
     @Test
     fun systemUiRestart_trustsTheRecord() {
-        // The toggles may read stale this early; the switch's record on disk decides.
+        // The toggles may read stale this early. The switch's record on disk decides.
         ownership.onRecord(record(CAMERA, MICROPHONE))
         blocked += setOf(CAMERA, MICROPHONE)
 

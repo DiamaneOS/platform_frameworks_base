@@ -242,7 +242,7 @@ public class SingleMetricNotificationFrameLayout extends FrameLayout {
 
     /**
      * The widest the value may be at the end of the header line and leave the header's words
-     * whole, where they fit the line without it; from the last measure.
+     * whole, where they fit the line without it. From the last measure.
      */
     protected int getMaxValueWidthForHeader() {
         return Integer.MAX_VALUE;
@@ -409,7 +409,7 @@ public class SingleMetricNotificationFrameLayout extends FrameLayout {
             int parentHeightMeasureSpec, int heightUsed) {
         if (child.getId() == R.id.metric_value_container) {
             final int availableWidth = MeasureSpec.getSize(parentWidthMeasureSpec);
-            // Beside the label, the value has its share of the width; on its own line, the
+            // Beside the label, the value has its share of the width. On its own line, the
             // label's.
             final int maxAllowedWidth = mValueOnOwnLine
                     ? availableWidth - getLabelTextStart()

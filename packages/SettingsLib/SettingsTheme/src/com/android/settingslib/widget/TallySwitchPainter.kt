@@ -24,12 +24,12 @@ import android.graphics.RectF
  * Draws the Tally switch as the prototype's `.tsw` does (app.css):
  * - Dark, a surfaceHigh track in the 2 dp outline border.
  * - Lit, the lamp over the whole switch, its border included, edged with the lit-edge line in
- *   lampOutline (light theme; in dark theme lampOutline is the lamp, so the lamp reaches the edge).
- *   While it wipes in, the lamp covers the switch from its start up to the wipe; once fully lit the
+ *   lampOutline (light theme, while in dark theme lampOutline is the lamp, so the lamp reaches the edge).
+ *   While it wipes in, the lamp covers the switch from its start up to the wipe. Once fully lit the
  *   border and track are not drawn under it, so no grey shows at its anti-aliased edge.
  * - The 24 dp square thumb, onLamp when on and outline when off, the colour changing at once.
  * - Pressed, the press layer over the switch's shape (not while disabled: a restricted row that
- *   stays clickable does not press its switch); focused, the focus ring in the accent, outside the
+ *   stays clickable does not press its switch). Focused, the focus ring in the accent, outside the
  *   switch (it draws past the switch's bounds).
  * - Disabled, all of it at the disabled-content opacity, as one layer.
  *

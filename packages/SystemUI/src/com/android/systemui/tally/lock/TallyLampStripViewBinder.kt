@@ -78,7 +78,7 @@ object TallyLampStripViewBinder {
                         keyguardInteractor.dozeAmount.collect {
                             view.alpha = 1f - it
                             // Faded out, the strip is not drawn, so its lamps stop, and screen
-                            // readers skip it; it keeps its place in the layout.
+                            // readers skip it. It keeps its place in the layout.
                             view.visibility = if (it < 1f) View.VISIBLE else View.INVISIBLE
                         }
                     }

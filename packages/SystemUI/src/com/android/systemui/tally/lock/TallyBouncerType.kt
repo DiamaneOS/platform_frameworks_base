@@ -24,7 +24,7 @@ import de.diamaneos.tally.R as TallyR
 /**
  * The Tally type for bouncer text whose typeface SystemUI sets in code: the PIN digits and the
  * bouncer's message lines. Only the typeface changes, to the family and weight of a Tally text
- * appearance (Sofia Sans); the sizes, colours and everything else stay as the bouncer sets them.
+ * appearance (Sofia Sans). The sizes, colours and everything else stay as the bouncer sets them.
  */
 object TallyBouncerType {
     /** The family and weight of the Tally text appearance [appearance], in [context]'s theme. */

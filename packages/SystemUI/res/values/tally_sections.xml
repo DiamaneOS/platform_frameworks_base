@@ -32,7 +32,7 @@
          cards' edge as stock's (a 48 dp key 4 dp in) -->
     <dimen name="tally_notification_section_clear_all_width">56dp</dimen>
     <!-- A card shows above the shelf only when at least its top margin and the upper half of its
-         icon fit (16 dp and 20 dp); with less, it goes into the shelf instead of showing as a
+         icon fit (16 dp and 20 dp). With less, it goes into the shelf instead of showing as a
          sliver -->
     <dimen name="tally_notification_shelf_min_visible">36dp</dimen>
 </resources>

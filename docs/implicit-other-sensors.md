@@ -13,7 +13,7 @@ apps with code. An absent marker, Boolean false or a value of another type retai
 existing behavior. An effective explicit `uses-permission` request is unchanged.
 This does not alter the permission's definition, grant additional authority,
 change signing identity, or require a package-name exception. Other Android bases
-may ignore the metadata; it is not a standard Android or upstream GrapheneOS API.
+may ignore the metadata. It is not a standard Android or upstream GrapheneOS API.
 
 An app that opts out and does not explicitly request `OTHER_SENSORS` has no such
 request for the permission manager to grant. The pinned grant-policy paths operate
@@ -26,7 +26,7 @@ Deploy the framework behavior together with the app metadata. Verify the active
 APK: a retained data-partition app update can shadow the system APK. Split-only
 metadata arrives after base validation and cannot undo an inserted request.
 Check both fresh installation and an upgrade from granted state, including a
-system-fixed grant; verify persistence across reboot and relevant users. Test
+system-fixed grant. Verify persistence across reboot and relevant users. Test
 absent/false/wrong-type markers and explicit requests to protect compatibility.
 
 The IMS network broker, Wi-Fi observer and call-audio bridge use no physical

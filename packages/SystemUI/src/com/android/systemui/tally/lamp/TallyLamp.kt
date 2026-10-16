@@ -48,14 +48,14 @@ import androidx.compose.ui.unit.Dp
  * description.
  *
  * @param state what the lamp shows.
- * @param size the lamp's diameter; [TallyLampDefaults.size] gives the token sizes.
+ * @param size the lamp's diameter. [TallyLampDefaults.size] gives the token sizes.
  * @param colors the lamp's colours: the theme's by default, [TallyLampDefaults.sensorColors] for a
  *   sensor lamp, [TallyLampDefaults.onLitFieldColors] on a lit field.
  * @param instantAppear whether a lit state shows at once instead of igniting. It is for sensor
  *   lamps by default: a sensor lamp appears with no spring delay, only its disappearance moves.
  * @param requestedSinceMillis when the request started, in uptime milliseconds
  *   (`SystemClock.uptimeMillis`), so that the requested dashes go on where they were when the lamp
- *   is shown again; by default the lamp counts from when it first shows the request.
+ *   is shown again. By default the lamp counts from when it first shows the request.
  * @param onRequestedStill called once per request, while the lamp is in the composition, when it
  *   has been requested for `tally_lamp_requested_still_ms` (5 s): the moment its words change to
  *   "Still trying…". The dashes are still by then.

@@ -28,14 +28,14 @@ import kotlin.math.sqrt
  *   move on the fill spring. A lamp that lights ignites: its fill starts from the ignite fraction,
  *   not from nothing. A change caught mid-flight goes on from where the lamp is, at its speed.
  *   Effects never overshoot, so the target stops a spring that would pass it.
- * - The ring changes form and colour at once; the painter hides it while the lamp is lit.
+ * - The ring changes form and colour at once. The painter hides it while the lamp is lit.
  * - The requested dashes turn once per turn time for as many whole turns as fit before the lamp is
  *   still (three), then rest where they started.
  * - A lamp that appears with [setState]'s `instantAppear` (sensor lamps, the privacy rule) is lit
- *   at once; only its disappearance moves.
+ *   at once. Only its disappearance moves.
  *
  * Times are uptime milliseconds, the frame clock of `AnimationUtils.currentAnimationTimeMillis`.
- * The springs follow the animator duration scale; at 0 (animations off) every change is at once and
+ * The springs follow the animator duration scale. At 0 (animations off) every change is at once and
  * the dashes do not turn. The turn keeps real time, as it counts towards "Still trying…". Nothing
  * is allocated after construction.
  */
@@ -44,7 +44,7 @@ internal class TallyLampMotion {
     var state: TallyLampState? = null
         private set
 
-    /** The disc's radius as a fraction of the on disc's; 0 draws no disc. */
+    /** The disc's radius as a fraction of the on disc's. 0 draws no disc. */
     val fill: Float
         get() = fillSpring.value
 
@@ -137,7 +137,7 @@ internal class TallyLampMotion {
                 fillSpring.snap(fillTarget)
                 haloSpring.snap(haloTarget)
             } else {
-                // A lamp that lights ignites from the ring; one caught while going out goes on
+                // A lamp that lights ignites from the ring. One caught while going out goes on
                 // from where it is.
                 if (fillTarget > 0f && fillSpring.value < IGNITE_BELOW) {
                     fillSpring.snap(igniteFraction)

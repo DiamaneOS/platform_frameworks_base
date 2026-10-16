@@ -47,7 +47,7 @@ import org.mockito.kotlin.whenever
 /**
  * The shade's notification sections and their headers, with the real sectioners in stock's order
  * (NotifCoordinators) and the real NodeSpecBuilder. With Tally on, every section present has its
- * header (Live, Conversations, Notifications, Silent); stock shows Silent's only. Either way a
+ * header (Live, Conversations, Notifications, Silent). Stock shows Silent's only. Either way a
  * header shows only for a section with notifications, and none shows on the lock screen.
  */
 @SmallTest

@@ -51,8 +51,8 @@ import kotlinx.coroutines.flow.stateIn
  * The area is read the way the status icons read it, never from night mode: the status bar's icon
  * tint (the app's light or dark status bar, as the window manager reports it), the lock screen's
  * own tint on the lock, and the shade's once it is pulled down. A dim of 15 % or more over the
- * status bar area makes it a dark area: the bouncer, a SystemUI dialog (the power menu included;
- * the few SystemUI dialogs that do not dim count too) and the dozing screen. An app's dimming
+ * status bar area makes it a dark area: the bouncer, a SystemUI dialog (the power menu included,
+ * and the few SystemUI dialogs that do not dim count too) and the dozing screen. An app's dimming
  * dialog reaches this through the app's status bar appearance. Where the area cannot be known to be
  * light, it counts as dark: a `_dark` variant with its black edge keeps 3:1 over any colour.
  *
@@ -132,8 +132,8 @@ constructor(
     /**
      * For indicators drawn above every window over the status bar area (the privacy dot, the lens
      * ring and the location lamp by the lens): what is shown under them. The lock screen's tint
-     * while the lock is up and not covered by an app, else the status bar's; the shade's once it is
-     * fully down, and while it moves, dark unless both are light; dark under a dim.
+     * while the lock is up and not covered by an app, else the status bar's. The shade's once it is
+     * fully down, and while it moves, dark unless both are light. Dark under a dim.
      */
     val isOverlayAreaDark: StateFlow<Boolean> =
         combine(

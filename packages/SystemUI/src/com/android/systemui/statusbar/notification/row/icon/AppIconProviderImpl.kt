@@ -131,8 +131,8 @@ constructor(
     /**
      * The factory for [packageName]'s standard-appearance icon in [style], the request's
      * [IconLook.tallyStyle]. With Tally, its icon follows the icon style: Minimal is stock's
-     * themed icon; Colour is the app's key for one of DiamaneOS's own apps and the app's own icon
-     * for any other; with no style, every app's own icon.
+     * themed icon. Colour is the app's key for one of DiamaneOS's own apps and the app's own icon
+     * for any other. With no style, every app's own icon.
      */
     @WorkerThread
     private fun standardIconFactoryFor(

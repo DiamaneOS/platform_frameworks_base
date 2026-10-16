@@ -85,7 +85,7 @@ class TallyLensIndicatorTest : SysuiTestCase() {
 
     @Before
     fun setUp() {
-        // The indicator starts only while Tally is on; tests take the build's flag.
+        // The indicator starts only while Tally is on. Tests take the build's flag.
         assumeTrue(TallyShell.isEnabled)
         // A punch hole at the top of a 1080 x 2400 display.
         val cutout =

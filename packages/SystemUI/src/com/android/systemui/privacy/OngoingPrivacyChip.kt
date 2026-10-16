@@ -199,7 +199,7 @@ constructor(
     }
 
     private fun applyTallyColors() {
-        // Screen capture alone takes the capture colours; with a sensor in use, the sensor's.
+        // Screen capture alone takes the capture colours. With a sensor in use, the sensor's.
         val colors = TallyIndicatorColors.forPrivacyItems(context, tallyAreaDark, privacyList)
         tallyBackground?.setColors(colors)
         iconColor = colors.onFill

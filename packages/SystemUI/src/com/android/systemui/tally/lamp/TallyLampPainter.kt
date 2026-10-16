@@ -27,7 +27,7 @@ import kotlin.math.min
 /**
  * Draws a lamp as the prototype's `T.Lamp` does, the same for views and Compose: the ring, the live
  * lamp's ring of light, then the disc over them. The disc is the on disc scaled by the fill, edge
- * included, and fades in its last third; the ring of light fades with its value and grows from 82 %
+ * included, and fades in its last third. The ring of light fades with its value and grows from 82 %
  * as it comes. Nothing is allocated while drawing.
  */
 internal class TallyLampPainter {
@@ -136,7 +136,7 @@ internal class TallyLampPainter {
         }
     }
 
-    /** Sets [paint] to [color] at [opacity] and [alpha]; false when that draws nothing. */
+    /** Sets [paint] to [color] at [opacity] and [alpha]. False when that draws nothing. */
     private fun setColor(paint: Paint, @ColorInt color: Int, opacity: Float, alpha: Int): Boolean {
         val a = (Color.alpha(color) * opacity * alpha / 255f + 0.5f).toInt()
         if (a <= 0) return false

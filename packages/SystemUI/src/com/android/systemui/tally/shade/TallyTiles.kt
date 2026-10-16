@@ -118,16 +118,16 @@ import kotlinx.coroutines.delay
 /**
  * Tally's Quick Settings tiles, as the prototype draws them (shade.js `tileView`, app.css `.tile`):
  * a tonal key with a lamp that shows the tile's state, lit as a whole in the lamp colour when on. A
- * tile that lights shows its lamp lit, then the lit field wipes across from the lamp's side; a tile
+ * tile that lights shows its lamp lit, then the lit field wipes across from the lamp's side. A tile
  * that goes off drains back into its lamp. Tiles with words (large tiles) carry their label and
- * state beside the lamp; tiles without words are keycaps with the lamp in their corner, and say
+ * state beside the lamp. Tiles without words are keycaps with the lamp in their corner, and say
  * their words to screen readers.
  *
  * Only the drawing is Tally's: the tile's clicks, long clicks, toggle target, haptics and launch
  * animations stay the upstream tile's, so what needs the unlock still waits for it.
  */
 object TallyTileDefaults {
-    /** Tiles with words take the card radius; keycaps take 22 % of their side. */
+    /** Tiles with words take the card radius. Keycaps take 22 % of their side. */
     @Composable
     fun rememberShape(iconOnly: Boolean): State<RoundedCornerShape> {
         val card = dimensionResource(TallyR.dimen.tally_radius_m)
@@ -138,7 +138,7 @@ object TallyTileDefaults {
     }
 
     /**
-     * The tile's colours at rest. The Tally content draws its own field and ink; these are for the
+     * The tile's colours at rest. The Tally content draws its own field and ink. These are for the
      * tile's expandable, the surface a dialog or activity grows from when the tile opens one.
      */
     @Composable
@@ -204,7 +204,7 @@ fun TallyTileContent(
     // The content takes the lit colours once the field has lit. Until then, and while it drains,
     // it keeps the unlit colours and the lit part of the field shows it in the colour for text on
     // the lamp, as the prototype's two layers do. The wipe carries the change, so the colours
-    // switch at once; an icon easing into the lit colour would flash its unlit one first.
+    // switch at once. An icon easing into the lit colour would flash its unlit one first.
     val fieldLit by remember(wipe) { derivedStateOf { wipe.value >= 1f } }
     val lit = state.isLit && fieldLit
     val edgeWidth = dimensionResource(TallyR.dimen.tally_stroke_lit_edge)
@@ -247,7 +247,7 @@ private class TileKeyPlate {
     private var tile: LayoutCoordinates? = null
     private var key: LayoutCoordinates? = null
 
-    /** The key's bounds in the tile; empty when the tile has no key. */
+    /** The key's bounds in the tile. Empty when the tile has no key. */
     var bounds by mutableStateOf(Rect.Zero)
         private set
 
@@ -610,7 +610,7 @@ private fun ToggleKey(
 
 /**
  * One line of a tile's words. Fit before truncate: a label that does not fit is set in Semi
- * Condensed; one that still does not fit fades at its end and scrolls once, as stock's labels do.
+ * Condensed. One that still does not fit fades at its end and scrolls once, as stock's labels do.
  */
 @Composable
 private fun TileText(

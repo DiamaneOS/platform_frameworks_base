@@ -98,7 +98,7 @@ constructor(
     private var chipMinWidth =
         context.resources.getDimensionPixelSize(R.dimen.ongoing_appops_chip_min_animation_width)
 
-    // Tally's privacy dot is larger than stock's; the chip shrinks into it.
+    // Tally's privacy dot is larger than stock's. The chip shrinks into it.
     private val dotSize =
         context.resources.getDimensionPixelSize(
             if (TallyShell.isEnabled) {

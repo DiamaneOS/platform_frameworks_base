@@ -85,7 +85,7 @@ data class PropertyData(
     var endedBeforeStartingCleanupHandler: ((Boolean) -> Unit)? = null,
     var startOffset: Float = 0f,
     var doubleOvershootAvoidingListener: DynamicAnimation.OnAnimationUpdateListener? = null,
-    /** Tally: the running spring cannot overshoot (an animation's own; the default one can). */
+    /** Tally: the running spring cannot overshoot (an animation's own, while the default one can). */
     var noOvershootSpring: Boolean = false,
 )
 

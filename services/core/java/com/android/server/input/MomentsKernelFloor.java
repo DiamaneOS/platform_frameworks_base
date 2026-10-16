@@ -68,7 +68,7 @@ import java.util.Map;
  * </ul>
  *
  * <p>The kernel's state comes from {@code config_momentsKernelFloorPath} (the switch driver's
- * {@code state} file); empty (the default) turns all of this off. Changes arrive on the input service's handler.
+ * {@code state} file). Empty (the default) turns all of this off. Changes arrive on the input service's handler.
  */
 final class MomentsKernelFloor {
     private static final String TAG = "MomentsKernelFloor";
@@ -190,7 +190,7 @@ final class MomentsKernelFloor {
     /**
      * With "Camera and microphone off" chosen but the kernel not blocking the camera, the
      * microphone or both this boot (sealed without them), only Android blocks those while the
-     * switch is down; a restart arms the kernel. Returns what only Android blocks (kernel bits),
+     * switch is down. A restart arms the kernel. Returns what only Android blocks (kernel bits),
      * 0 when the notice does not apply. What the kernel enforces comes from its own state file,
      * never from Android's view.
      */
@@ -249,7 +249,7 @@ final class MomentsKernelFloor {
 
     /**
      * Parses the switch driver's state line ("sealed=1 policy=0x3 ... enforced=0x1 ...
-     * blocked=0x3"); returns {enforced, blocked}, or null when a field is missing or malformed.
+     * blocked=0x3"). Returns {enforced, blocked}, or null when a field is missing or malformed.
      */
     @VisibleForTesting
     static int[] parseState(String line) {
@@ -329,7 +329,7 @@ final class MomentsKernelFloor {
         }
     }
 
-    // The system user's choice; the kernel floor is device-wide.
+    // The system user's choice. The kernel floor is device-wide.
     private void mirrorPolicy() {
         int action = mPlatform.momentsAction();
         String policy = action == Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
@@ -393,7 +393,7 @@ final class MomentsKernelFloor {
 
     /**
      * The notice naming what only Android blocks ({@code missing}, kernel bits). It stays until
-     * the user dismisses it; tapping it opens the switch's settings.
+     * the user dismisses it. Tapping it opens the switch's settings.
      */
     @VisibleForTesting
     static Notification buildNotice(Context context, String channel, int missing,
@@ -476,7 +476,7 @@ final class MomentsKernelFloor {
             Intent intent = new Intent(ACTION_MOMENTS_SETTINGS).setPackage(SETTINGS_PACKAGE);
             PendingIntent open = PendingIntent.getActivityAsUser(mContext, 0, intent,
                     PendingIntent.FLAG_IMMUTABLE, null, UserHandle.CURRENT);
-            // Explicit to system_server itself; immutable, so the shade cannot change its target.
+            // Explicit to system_server itself. Immutable, so the shade cannot change its target.
             PendingIntent restart = PendingIntent.getBroadcast(mContext, 0,
                     new Intent(ACTION_RESTART).setPackage(mContext.getPackageName()),
                     PendingIntent.FLAG_IMMUTABLE);

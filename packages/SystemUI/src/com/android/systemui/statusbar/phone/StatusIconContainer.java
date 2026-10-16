@@ -422,7 +422,7 @@ public class StatusIconContainer extends AlphaOptimizedLinearLayout {
      * Tally: keeps the VPN icon out of the overflow. Tally's privacy dot takes room at the end of
      * the status bar, so when the VPN icon would overflow, the icons after it give way instead
      * (TallyVpnIconLayout) and the VPN icon goes just before those that stay. Returns the new
-     * first index of the overflow; unchanged if the VPN icon does not overflow or cannot fit.
+     * first index of the overflow. Unchanged if the VPN icon does not overflow or cannot fit.
      */
     private int tallyKeepVpnIcon(int firstUnderflowIndex, float width, float contentStart,
             int maxVisible) {

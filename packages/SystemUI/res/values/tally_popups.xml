@@ -26,7 +26,7 @@
     <dimen name="tally_power_menu_travel">260dp</dimen>
     <!-- The shadow under the sheet: the prototype's one ambient shadow, as elevation -->
     <dimen name="tally_power_menu_elevation">2dp</dimen>
-    <!-- A row: icon, then its words; 14 dp between them, 6 and 12 dp inside -->
+    <!-- A row: icon, then its words. 14 dp between them, 6 and 12 dp inside -->
     <dimen name="tally_power_menu_row_gap">14dp</dimen>
     <dimen name="tally_power_menu_row_padding_vertical">6dp</dimen>
     <dimen name="tally_power_menu_row_padding_horizontal">12dp</dimen>

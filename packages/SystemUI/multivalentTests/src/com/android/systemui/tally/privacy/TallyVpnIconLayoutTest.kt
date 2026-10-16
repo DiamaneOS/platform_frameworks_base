@@ -69,7 +69,7 @@ class TallyVpnIconLayoutTest : SysuiTestCase() {
     @Test
     fun withoutRestrictionOnlyTheWidthCounts() {
         // Eight icons before an end edge at 184: only the first is over the dot. Restricted to six,
-        // two give way; without the restriction one does.
+        // two give way. Without the restriction one does.
         val eight = floatArrayOf(-4f, 20f, 44f, 68f, 92f, 116f, 140f, 164f)
         assertThat(keptStart(cut = 0, maxVisible = 6, endEdge = 184f, positions = eight))
             .isEqualTo(3)

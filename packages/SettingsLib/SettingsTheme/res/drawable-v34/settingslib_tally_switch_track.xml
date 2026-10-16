@@ -16,7 +16,7 @@
   -->
 
 <!-- Tally switch track, for Switch, SwitchCompat and MaterialSwitch. Off, the fill with the
-     border over it; on, the lamp over the whole switch, its border included, edged with the
+     border over it. On, the lamp over the whole switch, its border included, edged with the
      lit-edge line in lampOutline (in dark theme lampOutline is the lamp, so the lamp reaches the
      edge), as the prototype's lit switch. The padding, with the thumb's, sets where the thumb
      stops (see tally_switch.xml). -->

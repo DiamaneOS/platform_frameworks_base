@@ -36,7 +36,7 @@
     <string name="tally_moments_toast_after_unlock">The rest changes back after you unlock</string>
 
     <!-- Dialog text when an app tries the microphone while the Moments switch blocks it in the
-         kernel; there is no unblock button -->
+         kernel. There is no unblock button -->
     <string name="tally_moments_mic_blocked_by_switch">The Moments switch turns the microphone off. To use it, slide the switch back.</string>
     <!-- Same, for the camera -->
     <string name="tally_moments_camera_blocked_by_switch">The Moments switch turns the camera off. To use it, slide the switch back.</string>
@@ -44,7 +44,7 @@
     <string name="tally_moments_mic_camera_blocked_by_switch">The Moments switch turns the camera and microphone off. To use them, slide the switch back.</string>
 
     <!-- Short note (in place of the "Unblock" prompt) when an app tries the camera and
-         microphone while the Moments switch blocks both; apps get black frames and silence -->
+         microphone while the Moments switch blocks both. Apps get black frames and silence -->
     <string name="tally_moments_note_camera_mic_off">Camera and microphone are off — Moments switch</string>
     <!-- Same, camera only -->
     <string name="tally_moments_note_camera_off">Camera is off — Moments switch</string>
@@ -54,7 +54,7 @@
     <!-- Title of the one-time notification when the switch is on before the user chose what it
          does -->
     <string name="tally_moments_notice_title">Moments switch is on</string>
-    <!-- Text of that notification; tapping it opens the Moments switch settings -->
+    <!-- Text of that notification. Tapping it opens the Moments switch settings -->
     <string name="tally_moments_notice_text">Choose what it does</string>
 
     <!-- Title of the dialog when the user opens an app that Moments paused -->

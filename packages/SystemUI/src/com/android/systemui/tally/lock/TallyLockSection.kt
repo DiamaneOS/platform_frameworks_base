@@ -54,7 +54,7 @@ import kotlinx.coroutines.flow.map
  * The Tally lock screen's lamp strip, under the clock. The default blueprint uses this section in
  * place of KeyguardSliceViewSection while Tally is on: the Tally clock shows the date, and the
  * strip shows the next alarm and Do Not Disturb, which the slice showed. Under any other clock,
- * which has no date of its own, a date line takes the slice's place and the strip follows it; like
+ * which has no date of its own, a date line takes the slice's place and the strip follows it. Like
  * GrapheneOS's smartspace line, which it stands in for, the date line shows only while the user's
  * lock screen shows notifications. On the always-on display the strip gives way to the always-on
  * strip, which shows what the slice showed there besides the date. Like the slice section, it
@@ -163,7 +163,7 @@ constructor(
         constraintSet.apply {
             // Where the stock date line was: under the small clock's place, which SystemUI keeps
             // while the large clock shows. Hidden under the Tally clock, which has its own date,
-            // and, as GrapheneOS's smartspace line, while the lock screen hides notifications; the
+            // and, as GrapheneOS's smartspace line, while the lock screen hides notifications. The
             // strip then takes its place.
             constrainWidth(DATE_ID, ConstraintSet.MATCH_CONSTRAINT)
             constrainHeight(DATE_ID, ConstraintSet.WRAP_CONTENT)
@@ -197,7 +197,7 @@ constructor(
             )
             connect(STRIP_ID, ConstraintSet.END, ConstraintSet.PARENT_ID, ConstraintSet.END, side)
             if (tallyClock) {
-                // Under whichever face shows; both faces of the Tally clock sit in one place.
+                // Under whichever face shows. Both faces of the Tally clock sit in one place.
                 val clockId =
                     if (keyguardClockViewModel.isLargeClockVisible.value) {
                         ClockViewIds.LOCKSCREEN_CLOCK_VIEW_LARGE
@@ -232,7 +232,7 @@ constructor(
                 // GrapheneOS's built-in smartspace line shows only what these views show: its date
                 // is the Tally clock's or the date line's, its alarm and Do Not Disturb are the
                 // strip's, and its media while dozing is the always-on strip's. It goes under any
-                // clock, so nothing shows twice; the barrier above, which replaces its section's,
+                // clock, so nothing shows twice. The barrier above, which replaces its section's,
                 // leaves it out.
                 setVisibility(sharedR.id.bc_smartspace_view, View.GONE)
             }

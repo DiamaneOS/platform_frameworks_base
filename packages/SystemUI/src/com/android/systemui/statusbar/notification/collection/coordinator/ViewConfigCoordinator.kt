@@ -95,7 +95,7 @@ internal constructor(
         mConfigurationController.addCallback(this)
         mKeyguardUpdateMonitor.registerCallback(mKeyguardUpdateCallback)
         if (TallyShell.isEnabled) {
-            // DiamaneOS Tally: app icons follow the icon style chosen for Home; rows inflated
+            // DiamaneOS Tally: app icons follow the icon style chosen for Home. Rows inflated
             // before a change of style get their icons again, as after a theme change.
             applicationScope.launch {
                 tallyIconStyle.style.drop(1).collect { onTallyIconStyleChanged() }

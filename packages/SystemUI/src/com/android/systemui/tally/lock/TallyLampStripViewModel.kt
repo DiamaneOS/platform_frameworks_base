@@ -222,7 +222,7 @@ constructor(
         merge(minuteTicks, keyguardInteractor.dozeTimeTick.map { systemClock.currentTimeMillis() })
 
     /**
-     * Whether the user's lock screen shows notifications ([lockScreenShowsNotifications]); the lock
+     * Whether the user's lock screen shows notifications ([lockScreenShowsNotifications]). The lock
      * section's date line follows it too.
      */
     val lockScreenNotificationsShown: Flow<Boolean> =

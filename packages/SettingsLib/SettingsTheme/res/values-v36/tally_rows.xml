@@ -26,7 +26,7 @@
     <color name="settingslib_tally_background">@android:color/system_surface_container_low_light</color>
 
     <!-- A row is at least 64 dp tall, the prototype's .set-row (the token spec's row is 56 dp,
-         for lock cards and lists; Settings rows are 64). -->
+         for lock cards and lists, and Settings rows are 64). -->
     <dimen name="settingslib_tally_row_min_height">64dp</dimen>
     <!-- Cards sit 12 dp from the screen's sides (space 12). -->
     <dimen name="settingslib_tally_card_margin">12dp</dimen>
@@ -36,7 +36,7 @@
     <dimen name="settingslib_tally_group_row_padding">@dimen/settingslib_tally_row_inset</dimen>
     <!-- Above and below a row's text (space 8), inside the 64 dp minimum. -->
     <dimen name="settingslib_tally_row_padding_vertical">8dp</dimen>
-    <!-- Row icons: 24 dp glyphs (icon), 16 dp before the text (space 16); an app icon may be up
+    <!-- Row icons: 24 dp glyphs (icon), 16 dp before the text (space 16). An app icon may be up
          to 40 dp. -->
     <dimen name="settingslib_tally_icon_size">24dp</dimen>
     <dimen name="settingslib_tally_icon_max_size">40dp</dimen>
@@ -53,8 +53,8 @@
     <dimen name="settingslib_tally_body_line_height">20sp</dimen>
     <dimen name="settingslib_tally_section_line_height">16sp</dimen>
 
-    <!-- Type: Sofia Sans (the named family step 1 declares; sans-serif where it is absent).
-         item: 16 sp, 400 (dark 380); body: 14 sp, 400 (dark 380); section: 11 sp, 500, +0.06 em,
+    <!-- Type: Sofia Sans (the named family step 1 declares, or sans-serif where it is absent).
+         item: 16 sp, 400 (dark 380). Body: 14 sp, 400 (dark 380). Section: 11 sp, 500, +0.06 em,
          capitals. The colours are the stock state lists, whose roles are Tally's ink and muted
          (on_surface, on_surface_variant). -->
     <style name="TextAppearance.SettingsLib.Tally" parent="@android:style/TextAppearance.DeviceDefault">

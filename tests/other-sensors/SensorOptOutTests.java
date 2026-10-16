@@ -70,7 +70,7 @@ public final class SensorOptOutTests extends Instrumentation {
         finish(failed == 0 ? Activity.RESULT_OK : Activity.RESULT_CANCELED, result);
     }
 
-    /** Writes the stream to the file; java.nio.file needs API 26, and the floor is 23. */
+    /** Writes the stream to the file. java.nio.file needs API 26, and the floor is 23. */
     private static void copy(InputStream input, File file) throws IOException {
         try (OutputStream output = new FileOutputStream(file)) {
             byte[] buffer = new byte[64 * 1024];

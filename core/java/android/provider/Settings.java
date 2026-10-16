@@ -7589,7 +7589,7 @@ public final class Settings {
         public static final String TALLY_MOMENTS_SENSOR_NOTE = "tally_moments_sensor_note";
 
         /**
-         * 1 while Moments' Home filter is on; written by SystemUI, read by Launcher.
+         * 1 while Moments' Home filter is on. Written by SystemUI, read by Launcher.
          * @hide
          */
         @Protected(read = KnownSystemPackage.LAUNCHER, readWrite = KnownSystemPackage.SYSTEM_UI)
@@ -7597,7 +7597,7 @@ public final class Settings {
 
         /**
          * Whether the user is told when a device joins the Wi-Fi hotspot (1) or not (0, the
-         * default). Written by Settings and read by SystemUI; apps cannot read it.
+         * default). Written by Settings and read by SystemUI. Apps cannot read it.
          * @hide
          */
         @Protected(read = KnownSystemPackage.SYSTEM_UI, readWrite = KnownSystemPackage.SETTINGS)

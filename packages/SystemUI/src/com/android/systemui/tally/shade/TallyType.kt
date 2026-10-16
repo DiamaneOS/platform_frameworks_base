@@ -48,7 +48,7 @@ import de.diamaneos.tally.R as TallyR
  * (lighter in dark theme), tracking and figures. Sizes stay in sp, so the text follows the text
  * size setting as a TextView with the same appearance does.
  *
- * @param family the token naming the font family; [TallyR.string.tally_font_family_condensed] sets
+ * @param family the token naming the font family. [TallyR.string.tally_font_family_condensed] sets
  *   a label that does not fit in Semi Condensed.
  */
 @Composable

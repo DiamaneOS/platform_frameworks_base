@@ -31,7 +31,7 @@ import com.google.android.material.appbar.CollapsingToolbarLayout;
 
 /**
  * Tally: fits a page's collapsed title to its bar. A title too wide for the bar at the collapsed
- * size is set smaller, just enough to fit, down to the size of a row's title; only a title that
+ * size is set smaller, just enough to fit, down to the size of a row's title. Only a title that
  * does not fit even then still ends in an ellipsis. Pages open with the title collapsed, so stock
  * cut every long title ("Additional settings in the a…"), where the Tally prototype's page title
  * scales down as it docks.

@@ -216,7 +216,7 @@ public class ClipboardListener implements
 
     // DiamaneOS: true only if the clip carries EXTRA_QUIET_COPY and its source is the Canvas package
     // installed as a system app. The source is the package the clipboard service verified against
-    // the writing uid; a system package can only be updated with the same (or a rotated) signer.
+    // the writing uid. A system package can only be updated with the same (or a rotated) signer.
     @VisibleForTesting
     static boolean isQuietCopy(ClipData clipData, String clipSource, PackageManager pm,
             int userId) {

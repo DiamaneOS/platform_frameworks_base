@@ -67,7 +67,7 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
         }
     }
 
-    /** Shows [newItems], in the strip's order; an item not in the list is hidden. */
+    /** Shows [newItems], in the strip's order. An item not in the list is hidden. */
     fun setItems(newItems: List<TallyStripItem>) {
         items = newItems
         val byKind = newItems.associateBy { it.kind }
@@ -152,7 +152,7 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
             resolveSize(height + paddingTop + paddingBottom, heightMeasureSpec),
         )
         updateDescription(shown.filter { it.folded })
-        // A folded item's words are in the strip's description; screen readers skip the item.
+        // A folded item's words are in the strip's description. Screen readers skip the item.
         shown.forEach {
             it.importantForAccessibility =
                 if (it.folded) IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
@@ -241,7 +241,7 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
             }
         private var battery: TallyBatteryDrawable? = null
 
-        /** Set by the strip before it measures this item; not a layout request of its own. */
+        /** Set by the strip before it measures this item. Not a layout request of its own. */
         var showWords = true
         var folded = false
         var lamp: TallyLampState? = null
@@ -285,8 +285,8 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
             if (lampState != null) {
                 val sensor =
                     kind == TallyStripItem.Kind.CAMERA || kind == TallyStripItem.Kind.MICROPHONE
-                // The shared animated lamp: a sensor lamp in the sensor colour lights at once;
-                // the others take the lamp colours of the wallpaper's theme, with the strip's
+                // The shared animated lamp: a sensor lamp in the sensor colour lights at once.
+                // The others take the lamp colours of the wallpaper's theme, with the strip's
                 // muted off ring, and ignite or turn as their state changes.
                 lampView.colors =
                     if (sensor) TallyLampColors.sensor(wall)
@@ -313,7 +313,7 @@ class TallyLampStripView(context: Context) : ViewGroup(context) {
 
             val words =
                 when (kind) {
-                    // As the prototype: from 150 % text the alarm's time goes; its words keep it.
+                    // As the prototype: from 150 % text the alarm's time goes. Its words keep it.
                     TallyStripItem.Kind.ALARM -> item.alarmTime.takeUnless { isLargeText(context) }
                     TallyStripItem.Kind.BATTERY ->
                         if (!item.showBatteryPercent) null

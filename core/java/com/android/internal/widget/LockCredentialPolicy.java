@@ -72,8 +72,8 @@ public final class LockCredentialPolicy {
     public static final int MIN_STRONG_PASSWORD_LENGTH = 20;
 
     /**
-     * Fewest different characters in a strong password. Keeps out a repeated character or pair;
-     * it is not an estimate of strength.
+     * Fewest different characters in a strong password. Keeps out a repeated character or pair.
+     * It is not an estimate of strength.
      */
     public static final int MIN_STRONG_PASSWORD_DISTINCT_CHARS = 5;
 

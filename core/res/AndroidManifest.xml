@@ -7598,7 +7598,7 @@
         android:protectionLevel="signature|privileged" />
 
     <!-- Internal vendor voice-session control. The signed system bridge is the
-         only allowlisted application; AudioFlinger also verifies its package
+         only allowlisted application. AudioFlinger also verifies its package
          identity. This grants no general phone or audio-routing authority.
          @hide -->
     <permission android:name="android.permission.DIAMANEOS_CONTROL_CALL_AUDIO"

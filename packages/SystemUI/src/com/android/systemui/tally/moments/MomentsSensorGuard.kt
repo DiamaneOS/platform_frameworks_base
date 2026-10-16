@@ -46,7 +46,7 @@ import javax.inject.Inject
  * without interruption: the platform's "Unblock" prompt (an activity over the app, which pauses
  * it) is suppressed for those sensors, through the platform's own reminder suppression, and a
  * short toast names what the switch blocks instead, unless the user turned the note off
- * (`tally_moments_sensor_note`; then the block is silent). A block the user made themselves keeps
+ * (`tally_moments_sensor_note`, which makes the block silent). A block the user made themselves keeps
  * GrapheneOS's prompt. See [MomentsSensorOwnership].
  *
  * All state changes run on the background executor.
@@ -66,7 +66,7 @@ constructor(
 ) {
     // Cameras open now, by camera id: the app that opened each. With camera mute (the camera
     // stays connected and gets black frames) the camera service reports a blocked camera's use
-    // once, when it opens; this is how a later microphone attempt by the same app (a video
+    // once, when it opens. This is how a later microphone attempt by the same app (a video
     // recording) names the camera too. Background thread.
     private val openCameras = mutableMapOf<String, String>()
 
@@ -125,7 +125,7 @@ constructor(
             ) = onSensorOp(code, uid, packageName, flags, result)
         }
 
-    /** Starts watching; [record] gives the switch's record for a user. */
+    /** Starts watching. [record] gives the switch's record for a user. */
     fun start(record: (Int) -> List<MomentsApplied>) {
         recordOf = record
         service =

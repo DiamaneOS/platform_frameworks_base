@@ -2476,7 +2476,7 @@ public class LockSettingsService extends ILockSettings.Stub {
      * of the user. Having no credential is not judged. A weaker credential may
      * <ul>
      * <li>replace one that is known to be weaker: the user accepted the risk when that one was
-     *     set;
+     *     set.
      * <li>otherwise be set once after {@link #setWeakerCredentialRiskAccepted}.
      * </ul>
      *
@@ -2725,7 +2725,7 @@ public class LockSettingsService extends ILockSettings.Stub {
      * the credential is set, and it can be changed.
      *
      * @param counted whether to store and count the learning time
-     * @param limited whether to limit the strong auth timeout meanwhile; implies {@code counted}
+     * @param limited whether to limit the strong auth timeout meanwhile. Implies {@code counted}
      */
     private void setLearningPeriod(boolean counted, boolean limited, int userId) {
         final boolean wasCounted;

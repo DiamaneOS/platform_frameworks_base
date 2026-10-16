@@ -34,7 +34,7 @@ import javax.inject.Inject
 /**
  * Tally: tells the screenshot preview when the screenshot it shows is gone, whichever app removed
  * it (the preview's Delete, an editor, Files, a gallery). It observes the one saved MediaStore item
- * while the preview shows it and checks the item on each change; no polling. The item is SystemUI's
+ * while the preview shows it and checks the item on each change. No polling. The item is SystemUI's
  * own file, so this needs no access SystemUI does not already have.
  */
 class ScreenshotDeletionWatcher
@@ -102,7 +102,7 @@ constructor(
         return try {
             context.contentResolver.query(uri, PROJECTION, queryArgs, null).use { cursor ->
                 when {
-                    // The provider is unavailable; that says nothing about the file.
+                    // The provider is unavailable. That says nothing about the file.
                     cursor == null -> false
                     !cursor.moveToFirst() -> true
                     else -> cursor.getInt(0) != 0 || cursor.getInt(1) != 0

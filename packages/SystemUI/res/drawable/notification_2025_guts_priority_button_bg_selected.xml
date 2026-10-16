@@ -27,7 +27,7 @@
         android:featureFlag="!de.diamaneos.systemui.tally_shell" />
 
     <!-- Tally: the chosen option as the prototype's chosen key (.ps-key.chosen): an r8 row with a
-         control border in ink; its lamp is at the end of the label (tally_guts_option_lamp) -->
+         control border in ink. Its lamp is at the end of the label (tally_guts_option_lamp) -->
     <solid android:color="@color/tally_surface_high"
         android:featureFlag="de.diamaneos.systemui.tally_shell" />
 

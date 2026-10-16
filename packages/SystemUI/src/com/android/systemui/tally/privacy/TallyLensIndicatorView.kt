@@ -36,7 +36,7 @@ import kotlin.math.roundToInt
  * Draws the lens ring (camera in use) and the location lamp by the lens ([TallyLensGeometry]), in
  * the sensor colours for the area under them. Each one appears at once. When its sensor is no
  * longer in use, the ring fades out on the prototype's fill spring ([TallyFillSpringFade]) and the
- * lamp, the shared Tally lamp, goes out as every lamp does, on the same spring; [onIdle] is called
+ * lamp, the shared Tally lamp, goes out as every lamp does, on the same spring. [onIdle] is called
  * once neither is in use and both are out.
  */
 @SuppressLint("ViewConstructor")
@@ -85,7 +85,7 @@ class TallyLensIndicatorView(context: Context, private val onIdle: () -> Unit) :
     fun setColors(colors: TallyIndicatorColors) {
         if (this.colors == colors) return
         this.colors = colors
-        // One colour lit, edged with the indicators' edge; nothing is drawn once it is out.
+        // One colour lit, edged with the indicators' edge. Nothing is drawn once it is out.
         lamp.colors =
             TallyLampColors.plain(colors.fill, sensor = true)
                 .copy(litEdge = colors.edge, off = Color.TRANSPARENT)

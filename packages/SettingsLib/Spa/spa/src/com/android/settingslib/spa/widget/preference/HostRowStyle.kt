@@ -48,5 +48,5 @@ data class HostRowStyle(
     val bodyStyle: TextStyle = TextStyle.Default,
 )
 
-/** The [HostRowStyle] of the view list around a Compose row; null outside one. */
+/** The [HostRowStyle] of the view list around a Compose row. Null outside one. */
 val LocalHostRowStyle = staticCompositionLocalOf<HostRowStyle?> { null }

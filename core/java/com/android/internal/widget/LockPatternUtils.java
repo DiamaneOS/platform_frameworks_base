@@ -943,7 +943,7 @@ public class LockPatternUtils {
      * <p>The acceptance is good for one {@link #setLockCredential}. LockSettingsService keeps it
      * in memory for a few minutes at most and drops it as soon as any credential is set for the
      * user. Nothing is stored. It is needed again each time a weaker credential replaces a
-     * strong one or none; a weaker credential replaces a weaker one without it.
+     * strong one or none. A weaker credential replaces a weaker one without it.
      */
     public void setWeakerCredentialRiskAccepted(boolean accepted, int userId) {
         try {

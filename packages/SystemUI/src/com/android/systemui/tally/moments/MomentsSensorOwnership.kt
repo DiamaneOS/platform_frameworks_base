@@ -79,7 +79,7 @@ class MomentsSensorNoteThrottle(private val minGapMs: Long = MIN_GAP_MS) {
     private var lastAt = Long.MIN_VALUE
     private var lastKinds: Set<MomentsEffectKind> = emptySet()
 
-    /** [enabled] is the user's "show a note" setting; off means silent blocking. */
+    /** [enabled] is the user's "show a note" setting. Off means silent blocking. */
     fun shouldShow(kinds: Set<MomentsEffectKind>, nowMs: Long, enabled: Boolean = true): Boolean {
         if (!enabled || kinds.isEmpty()) return false
         val recent = lastAt != Long.MIN_VALUE && nowMs - lastAt < minGapMs

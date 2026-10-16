@@ -76,9 +76,9 @@ data class PaperLook(
 
 /**
  * Draws the paper: the design prototype's "Paper · fine" (wallpaper ideas, paper() with no
- * options), pixel for pixel at any size. The ground is a vertical gradient; the grain adds to every
+ * options), pixel for pixel at any size. The ground is a vertical gradient. The grain adds to every
  * pixel a uniform random step of -grain/2 to +grain/2 levels on red, green and blue alike, from a
- * fixed seed, so the picture never changes; then a radial vignette, centred at half the width and
+ * fixed seed, so the picture never changes. Then a radial vignette, centred at half the width and
  * 0.45 of the height with a radius of 0.72 of the height, clear to its middle and reaching the
  * vignette colour at its edge. The grain is one random step per device pixel.
  */

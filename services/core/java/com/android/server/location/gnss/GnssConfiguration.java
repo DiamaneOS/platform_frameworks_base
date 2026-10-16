@@ -558,7 +558,7 @@ public class GnssConfiguration {
 
         switch (psdsMode) {
             case GnssSettings.PSDS_SERVER_GRAPHENEOS:
-                // DiamaneOS serves Qualcomm's PSDS files only; other types get no server.
+                // DiamaneOS serves Qualcomm's PSDS files only. Other types get no server.
                 if (!"qualcomm".equals(psdsType)) {
                     Slog.e(TAG, "PSDS: no DiamaneOS server for type " + psdsType + ", disabling PSDS");
                     clearPsdsServerProps(props);

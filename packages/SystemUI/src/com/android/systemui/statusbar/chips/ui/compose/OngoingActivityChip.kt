@@ -222,7 +222,7 @@ private fun ChipBody(
     tallyTextStyle: TextStyle? = null,
 ) {
     // Tally: the capture chips' own padding, inside their edge (the chip's border). As stock, both
-    // sides take the same padding, so the icon stays centred when the text hides; the rest of the
+    // sides take the same padding, so the icon stays centred when the text hides. The rest of the
     // end padding goes after the text, next to an icon, and hides with it.
     val tallySidePadding =
         if (tallyEdgeWidth != null) {

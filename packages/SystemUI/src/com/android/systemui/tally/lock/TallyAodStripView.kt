@@ -52,7 +52,7 @@ class TallyAodStripView(context: Context) : LinearLayout(context) {
         refresh()
     }
 
-    /** Shows [items]; an item not in the list is hidden. */
+    /** Shows [items]. An item not in the list is hidden. */
     fun setItems(items: List<TallyAodItem>) {
         val byKind = items.associateBy { it.kind }
         itemViews.forEach { (kind, view) ->

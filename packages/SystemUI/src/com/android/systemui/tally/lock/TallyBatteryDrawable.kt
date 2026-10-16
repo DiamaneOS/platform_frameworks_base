@@ -32,7 +32,7 @@ import kotlin.math.min
  * its fill rising with the charge level, and while the battery charges a bolt that is cut out of
  * the fill and drawn in the empty part, as Material's charging glyphs. It has no size of its own
  * and draws its 24-unit box centred in its bounds. The strip gives the item its words and its
- * description; the glyph says nothing.
+ * description. The glyph says nothing.
  */
 class TallyBatteryDrawable : Drawable() {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)

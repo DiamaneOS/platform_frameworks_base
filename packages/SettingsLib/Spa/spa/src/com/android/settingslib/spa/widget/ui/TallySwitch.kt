@@ -60,7 +60,7 @@ import kotlinx.coroutines.launch
  * generated from the Tally token spec), in place of Material's pill switch.
  *
  * Its semantics are Material's Switch's: with [onCheckedChange] it is toggleable, with the switch
- * role, and at least the minimum touch target; without, it only draws, for a row that toggles it
+ * role, and at least the minimum touch target. Without, it only draws, for a row that toggles it
  * (share the row's [interactionSource] so that the switch shows the row's press and focus). It
  * moves only when [checked] changes after it is first shown, and follows the animator duration
  * scale, as the view does.
@@ -69,7 +69,7 @@ import kotlinx.coroutines.launch
  * effect later, whether the system has confirmed that what it controls is on. Then the thumb still
  * follows [checked] at once, and the lamp lights only while [checked] and [confirmedOn] are both
  * true, so a switch that is not confirmed shows unlit, as the view's `confirmedOn`. Only the
- * drawing follows it; the semantics stay [checked]'s.
+ * drawing follows it. The semantics stay [checked]'s.
  *
  * From API 34, as the colour roles it reads.
  */

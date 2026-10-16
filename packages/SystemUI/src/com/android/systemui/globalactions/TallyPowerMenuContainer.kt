@@ -28,7 +28,7 @@ import kotlin.math.max
  * Holds the Tally power menu by the power key (the prototype's `.pm`): in portrait, at the right
  * edge and centred on the key's height as SystemUI knows it
  * (`physical_power_button_center_screen_location_y`, which the wake animation also uses), kept
- * clear of the system bars; in landscape, centred, as stock's menu is.
+ * clear of the system bars. In landscape, centred, as stock's menu is.
  */
 class TallyPowerMenuContainer(context: Context, attrs: AttributeSet?) :
     FrameLayout(context, attrs) {

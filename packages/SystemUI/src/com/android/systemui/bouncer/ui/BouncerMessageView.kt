@@ -50,7 +50,7 @@ class BouncerMessageView : LinearLayout {
         secondaryMessageView = findViewById(R.id.bouncer_secondary_message_area)
 
         if (TallyShell.isEnabled) {
-            // Tally: the title and the message in Sofia Sans; only the typeface changes.
+            // Tally: the title and the message in Sofia Sans. Only the typeface changes.
             primaryMessageView?.apply {
                 typeface =
                     TallyBouncerType.typeface(context, TallyR.style.TextAppearance_Tally_Title)

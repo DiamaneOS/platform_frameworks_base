@@ -30,7 +30,7 @@ import kotlin.math.min
  * The Tally power menu's list (the prototype's `.pm`): the actions as rows, in the stock order, and
  * the small ones (screenshot, bug report) as keys two to a row under them. Which actions show (the
  * keyguard's and setup's filtering included), their order and what they do come from the stock
- * adapter unchanged; only where they sit changes.
+ * adapter unchanged. Only where they sit changes.
  */
 class TallyGlobalActionsLayout(context: Context, attrs: AttributeSet?) :
     GlobalActionsLayout(context, attrs) {

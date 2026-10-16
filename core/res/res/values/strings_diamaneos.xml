@@ -7,7 +7,7 @@
          cut. [CHAR LIMIT=60] -->
     <string name="moments_android_only_title" translatable="false">Restart to lock the camera and microphone off in the kernel</string>
     <java-symbol type="string" name="moments_android_only_title" />
-    <!-- Its text; tapping opens the Moments switch page. Keep this wording.
+    <!-- Its text. Tapping opens the Moments switch page. Keep this wording.
          [CHAR LIMIT=NONE] -->
     <string name="moments_android_only_text" translatable="false">Until you restart, only the Android framework blocks the camera and microphone.</string>
     <java-symbol type="string" name="moments_android_only_text" />

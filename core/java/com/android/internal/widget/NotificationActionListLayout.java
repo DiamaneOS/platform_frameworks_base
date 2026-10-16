@@ -155,7 +155,7 @@ public class NotificationActionListLayout extends LinearLayout {
                 tallest = Math.max(tallest, child.getMeasuredHeight());
             }
         }
-        // Tally: a key whose label took two lines is taller; the others match it, so the keys
+        // Tally: a key whose label took two lines is taller. The others match it, so the keys
         // stay one even row.
         final int tallestMeasureSpec = MeasureSpec.makeMeasureSpec(tallest, MeasureSpec.EXACTLY);
         for (int i = 0; i < numChildren; i++) {

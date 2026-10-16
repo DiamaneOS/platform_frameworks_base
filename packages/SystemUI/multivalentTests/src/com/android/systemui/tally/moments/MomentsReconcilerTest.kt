@@ -45,7 +45,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class MomentsReconcilerTest : SysuiTestCase() {
 
-    /** A phone whose settings start as [settings]; it records every call. */
+    /** A phone whose settings start as [settings]. It records every call. */
     private class FakePlatform : MomentsPlatform {
         val settings = mutableMapOf<MomentsEffectKind, Boolean>()
         val calls = mutableListOf<String>()
@@ -255,7 +255,7 @@ class MomentsReconcilerTest : SysuiTestCase() {
 
         r.reconcile(USER, inputs(on = false, unlocked = false, pausedApps = listOf("a.b")))
 
-        // Do Not Disturb and Home come back at once; paused apps wait for the unlock.
+        // Do Not Disturb and Home come back at once. Paused apps wait for the unlock.
         assertThat(platform.settings).containsExactly(DND, false, HOME, false, PAUSE_APPS, true)
     }
 

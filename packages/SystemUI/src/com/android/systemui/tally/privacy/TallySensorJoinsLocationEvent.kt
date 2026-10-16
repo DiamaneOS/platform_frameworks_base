@@ -25,6 +25,6 @@ import com.android.systemui.statusbar.events.PrivacyEvent
  * from location's colour to the sensors' one. Tally's dot has one colour for every sensor, so the
  * scheduler runs this event's chip even over the dot, as if no dot were showing
  * (`SystemStatusAnimationSchedulerImpl`). It is otherwise a stock [PrivacyEvent], with every
- * current privacy item; its name tells it apart in the scheduler's log.
+ * current privacy item. Its name tells it apart in the scheduler's log.
  */
 class TallySensorJoinsLocationEvent(showAnimation: Boolean) : PrivacyEvent(showAnimation)

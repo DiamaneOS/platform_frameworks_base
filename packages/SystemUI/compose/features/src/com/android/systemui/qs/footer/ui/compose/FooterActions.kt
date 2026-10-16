@@ -752,7 +752,7 @@ private fun numberButtonColors(): TextButtonColors {
 @ReadOnlyComposable
 private fun buttonColorsForModel(footerAction: FooterActionsButtonViewModel): ButtonColors {
     return if (TallyShell.isEnabled) {
-        // Tally: outlined keys in ink; the user switcher's avatar keeps its own colours.
+        // Tally: outlined keys in ink. The user switcher's avatar keeps its own colours.
         ButtonColors(
             icon =
                 if (footerAction is FooterActionsButtonViewModel.UserSwitcherViewModel) {

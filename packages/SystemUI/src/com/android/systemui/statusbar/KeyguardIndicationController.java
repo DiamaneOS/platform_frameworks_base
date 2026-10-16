@@ -1843,7 +1843,7 @@ public class KeyguardIndicationController {
     private void maybeShowSideFpsHint() {
         final int userId = getCurrentUser();
         // The count is read in the background, so it is ready by the first wake that may show
-        // the hint; until then the hint stays away.
+        // the hint. Until then the hint stays away.
         mSideFpsHintCounter.prefetch(userId);
         if (!mVisible
                 || mDozing

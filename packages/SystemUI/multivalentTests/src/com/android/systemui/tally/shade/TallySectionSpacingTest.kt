@@ -195,7 +195,7 @@ class TallySectionSpacingTest : SysuiTestCase() {
                 assertThat(view.height.toFloat()).isWithin(1f).of(dp(48f, c))
                 continue
             }
-            // The key doesn't make the header taller; it spans all of it.
+            // The key doesn't make the header taller. It spans all of it.
             assertThat(view.height.toFloat()).isWithin(1f).of(dp(24f, c) + line(label, c))
             assertThat(top(x, view)).isEqualTo(0)
             assertThat(x.height).isEqualTo(view.height)

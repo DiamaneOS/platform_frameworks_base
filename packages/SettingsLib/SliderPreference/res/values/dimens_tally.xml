@@ -26,7 +26,7 @@
     <dimen name="settingslib_tally_meter_radius">8dp</dimen>
     <!-- The value's lamp tick across the meter: 4 dp, as the volume meter's (.vol-tick). -->
     <dimen name="settingslib_tally_meter_tick_width">4dp</dimen>
-    <!-- The tick's edge in the lamp outline colour (hairline, 1 dp); in dark theme the lamp outline
+    <!-- The tick's edge in the lamp outline colour (hairline, 1 dp). In dark theme the lamp outline
          is the lamp itself. -->
     <dimen name="settingslib_tally_meter_tick_edge">1dp</dimen>
 </resources>

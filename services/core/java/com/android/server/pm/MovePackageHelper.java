@@ -113,7 +113,7 @@ public final class MovePackageHelper {
         }
 
         final boolean isInternalStorage = VolumeInfo.ID_PRIVATE_INTERNAL.equals(volumeUuid);
-        // DiamaneOS: apps stay on internal storage; adopted volumes are media only (noexec).
+        // DiamaneOS: apps stay on internal storage. Adopted volumes are media only (noexec).
         if (!isInternalStorage && !java.util.Objects.equals(StorageManager.UUID_PRIVATE_INTERNAL,
                 volumeUuid)) {
             throw new PackageManagerException(MOVE_FAILED_INTERNAL_ERROR,

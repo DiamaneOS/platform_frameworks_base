@@ -22,7 +22,7 @@ import kotlin.math.sqrt
 
 /**
  * A Tally spring: Android's SpringForce with a damping ratio of 1, so it never overshoots, solved
- * in closed form. A value leaves `from` at `velocity` towards `to`; with ω = √stiffness, the
+ * in closed form. A value leaves `from` at `velocity` towards `to`. With ω = √stiffness, the
  * distance d0 = from − to and b = velocity + ω·d0:
  * ```
  * x(t) = to + (d0 + b·t)·e^(−ω·t)        v(t) = (velocity − ω·b·t)·e^(−ω·t)
@@ -52,7 +52,7 @@ class TallySpring(stiffness: Float) {
 
     /**
      * The start velocity of a move a tap starts (the prototype's impulse): [impulse] · √k · the
-     * distance, so the first 120 Hz frame visibly moves; with a damping ratio of 1 it cannot
+     * distance, so the first 120 Hz frame visibly moves. With a damping ratio of 1 it cannot
      * overshoot.
      */
     fun impulse(from: Float, to: Float, impulse: Float): Float =
@@ -60,7 +60,7 @@ class TallySpring(stiffness: Float) {
 
     /**
      * How long, in whole milliseconds, the value takes to come within [tolerance] of [to] for good.
-     * It scans in steps of a millisecond for up to [SETTLE_MAX_MS]; it runs once when an animation
+     * It scans in steps of a millisecond for up to [SETTLE_MAX_MS]. It runs once when an animation
      * starts, never per frame.
      */
     fun settleMillis(from: Float, to: Float, velocity: Float, tolerance: Float): Long {

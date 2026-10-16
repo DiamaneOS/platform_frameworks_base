@@ -99,7 +99,7 @@ constructor(
                         .setTitle(R.string.tally_moments_paused_title)
                         .setMessage(R.string.tally_moments_paused_message)
                         .build()
-                // Critical apps (phone, launcher, ...) are refused; they stay usable.
+                // Critical apps (phone, launcher, ...) are refused. They stay usable.
                 val failed =
                     context.packageManager
                         .setPackagesSuspended(packages, true, null, null, info)
@@ -109,7 +109,7 @@ constructor(
                 else MomentsOutcome.changed(paused)
             }
             MomentsEffectKind.GREYSCALE -> {
-                // Saturation, as Bedtime mode does; the user's colour correction stays as it is.
+                // Saturation, as Bedtime mode does. The user's colour correction stays as it is.
                 if (
                     context.getSystemService(ColorDisplayManager::class.java)!!
                         .setSaturationLevel(0)
@@ -158,7 +158,7 @@ constructor(
                 }
             MomentsEffectKind.PAUSE_APPS -> {
                 val packages = undo.split(',').filter { it.isNotEmpty() }.toTypedArray()
-                // Lifts only SystemUI's own suspension; another app's stays.
+                // Lifts only SystemUI's own suspension. Another app's stays.
                 context.packageManager.setPackagesSuspended(
                     packages,
                     false,
@@ -203,7 +203,7 @@ constructor(
         if (isBlocked(SensorPrivacyManager.TOGGLE_TYPE_HARDWARE, sensor)) {
             return MomentsOutcome.ALREADY
         }
-        // SensorPrivacyManager refuses every change while the phone is locked; the input
+        // SensorPrivacyManager refuses every change while the phone is locked. The input
         // service does not. It can still refuse, as for the microphone in an emergency call.
         val blocked =
             try {

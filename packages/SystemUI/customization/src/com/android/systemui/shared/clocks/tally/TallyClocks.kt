@@ -41,7 +41,7 @@ object TallyClocks {
 
     /**
      * Whether the Tally shell is on. SystemUI code asks TallyShell, which lives in SystemUI itself
-     * and so is out of this library's reach (Wallpaper & style links the library without it); the
+     * and so is out of this library's reach (Wallpaper & style links the library without it). The
      * library reads the same build flag here, and only here.
      */
     @JvmStatic

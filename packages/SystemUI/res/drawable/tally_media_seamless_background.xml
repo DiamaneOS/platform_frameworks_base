@@ -16,7 +16,7 @@
   -->
 
 <!-- Tally: the media card's output key, a tonal key with the key radius
-     (qs_media_seamless_background's padding); its colour is set in code -->
+     (qs_media_seamless_background's padding). Its colour is set in code -->
 <ripple xmlns:android="http://schemas.android.com/apk/res/android"
     android:color="@color/tally_press">
     <item android:id="@android:id/background">

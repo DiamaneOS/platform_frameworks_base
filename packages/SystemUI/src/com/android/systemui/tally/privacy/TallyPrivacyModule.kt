@@ -25,7 +25,7 @@ import dagger.Provides
 import dagger.multibindings.ClassKey
 import dagger.multibindings.IntoMap
 
-/** Tally's privacy indicators that SystemUI starts; none of them is created while Tally is off. */
+/** Tally's privacy indicators that SystemUI starts. None of them is created while Tally is off. */
 @Module
 interface TallyPrivacyModule {
     companion object {

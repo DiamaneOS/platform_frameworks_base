@@ -445,7 +445,7 @@ class PhoneStatusBarViewTest : SysuiTestCase() {
         // dot's 32 dp at the end.
         attachFp6Like(Insets.of(/* left= */ 72, /* top= */ 0, /* right= */ 96, /* bottom= */ 0))
 
-        // The start side keeps stock's 444 px (148 dp), up to the cutout's left edge; the end
+        // The start side keeps stock's 444 px (148 dp), up to the cutout's left edge. The end
         // side starts at its right edge and takes the rest.
         assertThat(cutoutSpace.visibility).isEqualTo(View.VISIBLE)
         assertThat(cutoutSpace.width).isEqualTo(60)
@@ -465,7 +465,7 @@ class PhoneStatusBarViewTest : SysuiTestCase() {
         // In RTL the privacy dot, and its 32 dp, are at the left.
         attachFp6Like(Insets.of(/* left= */ 96, /* top= */ 0, /* right= */ 72, /* bottom= */ 0))
 
-        // The end side, now at the left, ends at the cutout's left edge; the start side keeps
+        // The end side, now at the left, ends at the cutout's left edge. The start side keeps
         // stock's 444 px from its right edge.
         assertThat(cutoutSpace.width).isEqualTo(60)
         assertThat(contents.left + endSide.left).isEqualTo(96 + 6)

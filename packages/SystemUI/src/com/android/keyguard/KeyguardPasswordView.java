@@ -202,7 +202,7 @@ public class KeyguardPasswordView extends KeyguardAbsKeyInputView {
     protected void setPasswordEntryEnabled(boolean enabled) {
         if (TallyShell.isEnabled()) {
             // Tally: the field keeps the colours its drawable draws and only fades while entry is
-            // disabled, as the PIN keys do; the stock tint would paint its fill and outline in the
+            // disabled, as the PIN keys do. The stock tint would paint its fill and outline in the
             // text colour.
             mPasswordEntry.setBackgroundTintMode(PorterDuff.Mode.DST_IN);
             mPasswordEntry.setBackgroundTintList(enabled ? null : ColorStateList.valueOf(

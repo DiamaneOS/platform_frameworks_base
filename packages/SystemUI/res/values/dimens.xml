@@ -2238,12 +2238,12 @@
     <dimen xmlns:android="http://schemas.android.com/apk/res/android"
         name="volume_dialog_floating_sliders_vertical_padding"
         android:featureFlag="de.diamaneos.systemui.tally_shell">@dimen/tally_space_xs</dimen>
-    <!-- The hairline around an extra slider's panel; none in stock -->
+    <!-- The hairline around an extra slider's panel. None in stock -->
     <dimen name="volume_dialog_floating_slider_edge">0dp</dimen>
     <dimen xmlns:android="http://schemas.android.com/apk/res/android"
         name="volume_dialog_floating_slider_edge"
         android:featureFlag="de.diamaneos.systemui.tally_shell">@dimen/tally_stroke_hairline</dimen>
-    <!-- The shadow under an extra slider's panel; none in stock -->
+    <!-- The shadow under an extra slider's panel. None in stock -->
     <dimen name="volume_dialog_floating_slider_elevation">0dp</dimen>
     <dimen xmlns:android="http://schemas.android.com/apk/res/android"
         name="volume_dialog_floating_slider_elevation"
@@ -2302,7 +2302,7 @@
     <dimen xmlns:android="http://schemas.android.com/apk/res/android"
         name="volume_dialog_ringer_button_inset"
         android:featureFlag="de.diamaneos.systemui.tally_shell">0dp</dimen>
-    <!-- The edge around a selected key; none in stock -->
+    <!-- The edge around a selected key. None in stock -->
     <dimen name="volume_dialog_ringer_selected_button_edge">0dp</dimen>
     <!-- Tally: a lit key has the lit edge (in the lamp itself in dark theme) -->
     <dimen xmlns:android="http://schemas.android.com/apk/res/android"

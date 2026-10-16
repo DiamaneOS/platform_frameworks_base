@@ -335,7 +335,7 @@ public class Clock extends TextView implements
         }
     }
 
-    /** Takes {@code locale} for the time's formats; returns whether it is new. */
+    /** Takes {@code locale} for the time's formats. Returns whether it is new. */
     private boolean updateLocale(Locale locale) {
         if (locale == null || locale.equals(mLocale)) {
             return false;

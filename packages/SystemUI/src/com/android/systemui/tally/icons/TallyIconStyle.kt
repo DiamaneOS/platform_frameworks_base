@@ -28,7 +28,7 @@ import kotlinx.coroutines.flow.stateIn
 
 /** DiamaneOS Tally's icon style, chosen in Wallpaper & style › Icons. */
 enum class TallyIconStyle {
-    /** DiamaneOS's own apps as keys in their own colours; every other app its own icon. */
+    /** DiamaneOS's own apps as keys in their own colours. Every other app its own icon. */
     COLOUR,
     /** Every app a monochrome glyph on the theme's key. */
     MINIMAL,
@@ -42,7 +42,7 @@ enum class TallyIconStyle {
          */
         const val SETTING = "tally_icon_style"
 
-        /** The style a value of [SETTING] names; the default, Colour, for none or another value. */
+        /** The style a value of [SETTING] names. The default, Colour, for none or another value. */
         fun fromSetting(value: String?): TallyIconStyle =
             when (value) {
                 "minimal" -> MINIMAL

@@ -70,7 +70,7 @@ internal fun MainSwitchPreference(model: SwitchPreferenceModel, modifier: Modifi
 /**
  * The main switch as a Tally row, in place of the coloured pill: the row in a card of its own, in
  * the surface colour with a hairline edge, and the Tally switch at its end, as the prototype's
- * switch rows in their Settings section. Only its look differs; the row is the same switch
+ * switch rows in their Settings section. Only its look differs. The row is the same switch
  * preference, with the same semantics.
  */
 @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)

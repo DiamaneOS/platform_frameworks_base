@@ -107,7 +107,7 @@ constructor(
             setCustomTitle(customTitleView)
             if (hardwareBlocked) {
                 setMessage(context.getString(hardwareBlockedMessage(context)))
-                // Only the switch unblocks; nothing to offer but OK.
+                // Only the switch unblocks. Nothing to offer but OK.
                 setButton(
                     BUTTON_NEGATIVE,
                     context.getString(android.R.string.ok),

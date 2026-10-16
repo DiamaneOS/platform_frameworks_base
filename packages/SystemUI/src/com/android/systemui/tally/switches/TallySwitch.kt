@@ -62,7 +62,7 @@ import kotlinx.coroutines.launch
  * flag off.
  *
  * It takes Material's `Switch` arguments and has its semantics and layout: with [onCheckedChange]
- * it is toggleable, with the switch role, and at least the minimum touch target; without, it only
+ * it is toggleable, with the switch role, and at least the minimum touch target. Without, it only
  * draws, for a row that toggles it. Its content description is the caller's [modifier]'s, it tells
  * accessibility its shape as Material's does, and it is 52 × 32 dp inside whatever size the
  * modifier gives, as Material's is. There is no thumb content: the thumb's position and the lamp

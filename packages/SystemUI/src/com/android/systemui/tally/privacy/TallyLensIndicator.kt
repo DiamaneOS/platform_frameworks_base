@@ -90,11 +90,11 @@ constructor(
 
     private var view: TallyLensIndicatorView? = null
     private var cameraInUse = false
-    // Whether the camera service's open and close reports are followed; if not, any camera counts.
+    // Whether the camera service's open and close reports are followed. If not, any camera counts.
     private var followsCameras = false
     private val openFrontCameras = mutableSetOf<String>()
     private val openOtherCameras = mutableSetOf<String>()
-    // Whether a front camera opened during the current camera use; see [frontCameraInUse].
+    // Whether a front camera opened during the current camera use. See [frontCameraInUse].
     private var frontCameraLatched = false
     // When the last open front camera closed (elapsed realtime), or null if none has.
     private var frontClosedAt: Long? = null
@@ -250,7 +250,7 @@ constructor(
             facing == null || facing == CameraCharacteristics.LENS_FACING_FRONT
         }
 
-    /** Shows what is in use now; the window is added when something lights up. */
+    /** Shows what is in use now. The window is added when something lights up. */
     private fun update() {
         val camera = frontCameraInUse
         val lit = camera || locationInUse
@@ -402,7 +402,7 @@ constructor(
         pw.println("  lensConfig=${lensConfig?.contentToString() ?: "inferred from the cutout"}")
     }
 
-    /** What the geometry depends on; the cutout itself is compared through its bounds. */
+    /** What the geometry depends on. The cutout itself is compared through its bounds. */
     private class GeometryKey(
         val rotation: Int,
         val cutoutBounds: Rect,

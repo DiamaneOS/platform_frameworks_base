@@ -25,7 +25,7 @@ import kotlin.math.sqrt
 /**
  * The Tally switch's motion, as the prototype's `T.tswitch`:
  * - The thumb moves on the pebble spring. A move from rest starts with the tap impulse (0.6 × √k ×
- *   distance), so the first frame already moves; a thumb caught in flight keeps its speed.
+ *   distance), so the first frame already moves. A thumb caught in flight keeps its speed.
  * - The lamp wipes in from the switch's start on the fill spring, and out towards it, never past
  *   its ends.
  * - The first frame of a move advances 1/120 s, as the prototype's first frame does.
@@ -33,7 +33,7 @@ import kotlin.math.sqrt
  *   reduced motion) the thumb jumps and the lamp's wipe runs linearly over the reduced-motion fade
  *   (120 ms) in real time. A spring still moving when animations go off ends at once.
  *
- * Times are nanoseconds of one clock (the frame clock); the thumb is in dp from its start and the
+ * Times are nanoseconds of one clock (the frame clock). The thumb is in dp from its start and the
  * wipe from 0 (dark) to 1 (lit). Nothing is allocated after construction.
  */
 internal class TallySwitchMotion {
@@ -107,7 +107,7 @@ internal class TallySwitchMotion {
             if (durationScale <= 0f) {
                 thumbSpring.snap(thumbTarget())
             } else {
-                // The prototype's impulse: from rest the move starts at 0.6 × √k × distance; a
+                // The prototype's impulse: from rest the move starts at 0.6 × √k × distance. A
                 // thumb already moving keeps its own velocity.
                 val velocity =
                     if (thumbSpring.moving) thumbSpring.velocity

@@ -16,7 +16,7 @@
   -->
 
 <!-- Tally: a section card segment (a section's last row: a hairline above it, the card's sides and
-     its rounded bottom) with the row's ripple over it, masked to the row's part of the card; the
+     its rounded bottom) with the row's ripple over it, masked to the row's part of the card. The
      segment itself is settingslib_tally_card_bottom. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android"
     android:paddingMode="stack"

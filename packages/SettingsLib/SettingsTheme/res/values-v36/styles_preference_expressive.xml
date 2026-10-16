@@ -47,7 +47,7 @@
         <item name="layout">@layout/settingslib_expressive_preference</item>
     </style>
 
-    <!-- Tally: a switch row has no ripple or focus highlight of its own; its switch shows both. -->
+    <!-- Tally: a switch row has no ripple or focus highlight of its own. Its switch shows both. -->
     <style name="SettingsLibPreference.SwitchPreferenceCompat.Expressive">
         <item name="layout">@layout/settingslib_tally_switch_preference</item>
         <item name="android:widgetLayout">@layout/settingslib_expressive_preference_switch</item>
@@ -103,7 +103,7 @@
         <item name="android:orientation">vertical</item>
     </style>
 
-    <!-- Tally: a 24 dp icon 16 dp before the text; an app icon keeps up to 40 dp. -->
+    <!-- Tally: a 24 dp icon 16 dp before the text. An app icon keeps up to 40 dp. -->
     <style name="ExpressivePreferenceIconFrameStyle">
         <item name="android:layout_width">wrap_content</item>
         <item name="android:layout_height">wrap_content</item>

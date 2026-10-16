@@ -46,7 +46,7 @@ import java.util.function.Supplier;
 /**
  * Reports the Moments switch, a built-in slider that sends one EV_SW code, to SystemUI.
  *
- * <p>The code comes from {@code config_momentsSwitchCode}; -1 (the default) turns all of this
+ * <p>The code comes from {@code config_momentsSwitchCode}. -1 (the default) turns all of this
  * off. Only one internal input device counts: the first one found that reports the code. The
  * kernel's switch reports carry no device, so each report only prompts a fresh read of that
  * device, and listeners hear about real changes only. A USB, Bluetooth or later-added device
@@ -111,7 +111,7 @@ final class MomentsSwitchController {
         mHandler = new Handler(looper);
         mInputDevices = inputDevices;
         mSensorBlocker = sensorBlocker;
-        // Linux has 16 switch codes (SW_MAX 0x10); the reader keeps codes below 32.
+        // Linux has 16 switch codes (SW_MAX 0x10). The reader keeps codes below 32.
         mCode = (code >= 0 && code < 32) ? code : -1;
         mActiveValue = activeValue == 0 ? 0 : 1;
     }
@@ -276,7 +276,7 @@ final class MomentsSwitchController {
         }
         int raw = mNative.getSwitchState(mDeviceId, InputDevice.SOURCE_ANY, mCode);
         if (raw != InputManager.SWITCH_STATE_ON && raw != InputManager.SWITCH_STATE_OFF) {
-            // The device went away; find it again on the next read.
+            // The device went away. Find it again on the next read.
             mDeviceId = NO_DEVICE;
             return InputManager.SWITCH_STATE_UNKNOWN;
         }
@@ -284,7 +284,7 @@ final class MomentsSwitchController {
                 : InputManager.SWITCH_STATE_OFF;
     }
 
-    // Keeps the pinned device while it exists; otherwise takes the internal device with the
+    // Keeps the pinned device while it exists. Otherwise takes the internal device with the
     // lowest id that reports the code, which is the one present since boot.
     @GuardedBy("mLock")
     private void pinDeviceLocked() {

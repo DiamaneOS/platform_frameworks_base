@@ -151,7 +151,7 @@ public class SettingsSpinnerAdapter<T> extends ArrayAdapter<T> {
         T item = getItem(position);
         textView.setText(item == null ? "" : item.toString());
         if (sIsExpressive) {
-            // Tally: one colour for every entry; the check is the selection's mark.
+            // Tally: one colour for every entry. The check is the selection's mark.
             textView.setTextColor(mDropdownColor);
         }
         return view;

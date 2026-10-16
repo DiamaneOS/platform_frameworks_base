@@ -1039,7 +1039,7 @@ public class MediaControlPanelTest : SysuiTestCase() {
         // Validate first binding
         assertThat(actionPlayPause.isEnabled()).isTrue()
         assertThat(actionPlayPause.contentDescription).isEqualTo("play")
-        // Tally: the play key is always a tonal key; stock takes the action's (here none).
+        // Tally: the play key is always a tonal key. Stock takes the action's (here none).
         if (TallyShell.isEnabled) {
             assertThat(actionPlayPause.getBackground()).isNotNull()
         } else {

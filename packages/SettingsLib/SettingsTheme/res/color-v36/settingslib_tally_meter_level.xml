@@ -16,7 +16,7 @@
   -->
 
 <!-- The level of a Tally meter: the ink at 16 % (a level is a value, so it takes no accent). Drawn
-     where the meter's track does not reach, so it lies on what is under the meter;
+     where the meter's track does not reach, so it lies on what is under the meter.
      UsageProgressBarPreference sets it over the track's high surface exactly. -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:color="@color/settingslib_tally_ink" android:alpha="0.16" />

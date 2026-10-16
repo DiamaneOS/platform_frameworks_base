@@ -16,7 +16,7 @@
   -->
 
 <!-- Tally switch border, the upper layer of settingslib_tally_switch_track. It gives the track
-     its size; the stroke is centred on the border radius, so the outer corners are the switch's
+     its size. The stroke is centred on the border radius, so the outer corners are the switch's
      radius. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">

@@ -60,7 +60,7 @@ import javax.inject.Inject
  * permission), waits [SETTLE_MS] so that a quick flip back does nothing, and hands the result to
  * [MomentsReconciler]. Each move gives a haptic at once ([MomentsReconciler.haptic]) and, once
  * settled, a brief toast. Boot, a SystemUI restart, a user switch, the unlock, a change in
- * Settings and the screen turning on all reconcile again; the reconciler makes each change only
+ * Settings and the screen turning on all reconcile again. The reconciler makes each change only
  * once.
  *
  * A change the system refused ([MomentsResult.pending]) is tried again shortly, at the unlock
@@ -214,7 +214,7 @@ constructor(
     }
 
     // Hardware-feedback usage, as Android's power and assistant button haptics: the "Vibration &
-    // haptics" settings and intensity apply; it plays on the lock screen and with the screen off.
+    // haptics" settings and intensity apply. It plays on the lock screen and with the screen off.
     private fun playHaptic(previous: Boolean?, on: Boolean) {
         if (previous == null || previous == on) return // not a move: skip the settings reads
         val user = userTracker.userId

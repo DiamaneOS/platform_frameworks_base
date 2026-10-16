@@ -32,7 +32,7 @@ import kotlin.math.abs
  * `Switch`: the same drawing and motion as [TallySwitch], and nothing else changed. Checking,
  * clicks, dragging, accessibility, saved state and the enabled state stay [Switch]'s.
  *
- * [Switch] slides its own thumb over 250 ms when it changes; that slide is ended at once, so the
+ * [Switch] slides its own thumb over 250 ms when it changes. That slide is ended at once, so the
  * thumb moves on the Tally spring instead, and a finger dragging the thumb still moves it. It draws
  * no background (the press layer is its press feedback) and only its own text, if any.
  *
@@ -63,7 +63,7 @@ constructor(
 
     /**
      * Whether the system has confirmed that what the switch controls is on, for a switch whose
-     * change takes effect later; null (the default) lights the lamp with the checked state. As
+     * change takes effect later. Null (the default) lights the lamp with the checked state. As
      * [TallySwitch.confirmedOn].
      */
     var confirmedOn: Boolean?

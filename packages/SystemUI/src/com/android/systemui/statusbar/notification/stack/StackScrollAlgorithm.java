@@ -859,7 +859,7 @@ public class StackScrollAlgorithm {
         } else if (TallyShell.isEnabled() && visibleIndex == 0
                 && child instanceof SectionHeaderView) {
             // Tally: a header at the top of the list has only .sec-h's 12 dp above its words, as
-            // no section's margin comes before it; the 4 dp over them stay empty.
+            // no section's margin comes before it. The 4 dp over them stay empty.
             return getTallyGapForLocation(fractionToShade, onKeyguard,
                     /* gapOnLockscreen= */ 0f, /* shadeGap= */ mTallyTopHeaderGap);
         } else if (TallyShell.isEnabled()

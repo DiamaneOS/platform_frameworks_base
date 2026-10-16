@@ -659,7 +659,7 @@ constructor(
         }
         if (shouldShow != currentViewState.shouldShowDot()) {
             if (shouldShow && state.designatedCorner != null) {
-                // Tally: a lamp appears at once; only its disappearance animates.
+                // Tally: a lamp appears at once. Only its disappearance animates.
                 showDotView(state.designatedCorner, animate = !TallyShell.isEnabled)
             } else if (!shouldShow && state.designatedCorner != null) {
                 hideDotView(state.designatedCorner, true)

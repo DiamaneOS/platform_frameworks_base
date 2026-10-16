@@ -16,7 +16,7 @@
   -->
 
 <!-- The Paper wallpaper (TallyWallpaper, TallyPaper): the design prototype's "Paper · fine". The
-     colours are written for Sodium; on the phone each keeps its tone and chroma and takes the hue
+     colours are written for Sodium. On the phone each keeps its tone and chroma and takes the hue
      of tally_paper_hue, the colour preset's. Both themes are here: the wallpaper picks one by the
      current dark theme setting, so there is no values-night variant. -->
 <resources>

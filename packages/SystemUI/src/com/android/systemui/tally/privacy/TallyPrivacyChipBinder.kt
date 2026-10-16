@@ -24,7 +24,7 @@ import com.android.systemui.privacy.OngoingPrivacyChip
 /** Keeps the privacy chip in the status bar in the colours for the area under it. */
 object TallyPrivacyChipBinder {
     /**
-     * Binds [view] if it is the privacy chip; other status bar event chips are left as they are.
+     * Binds [view] if it is the privacy chip. Other status bar event chips are left as they are.
      */
     @JvmStatic
     @MainThread

@@ -34,7 +34,7 @@ class TallyVolumePanelMotion(resources: Resources) {
     val stiffness = resources.getFloat(TallyR.dimen.tally_spring_stone_stiffness)
     val dampingRatio = resources.getFloat(TallyR.dimen.tally_spring_stone_damping_ratio)
 
-    /** A move from rest starts at the tap impulse (0.6 · √k · distance; the way is 0 to 1). */
+    /** A move from rest starts at the tap impulse (0.6 · √k · distance, where the way is 0 to 1). */
     private val impulse =
         resources.getFloat(TallyR.dimen.tally_motion_tap_impulse) * sqrt(stiffness)
 

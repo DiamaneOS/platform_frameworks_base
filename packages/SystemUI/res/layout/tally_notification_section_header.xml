@@ -20,7 +20,7 @@
      section type's 16 sp line, 8 dp (StackScrollAlgorithm starts it right under the card before
      it, and the card after it right under it). The stock layout (status_bar_notification_section_
      header) is 48 dp tall. The words and Silent's clear-all key take the header's full height to
-     tap; the key is 56 dp wide at the end, as stock's, its cross on the words' line. -->
+     tap. The key is 56 dp wide at the end, as stock's, its cross on the words' line. -->
 <com.android.systemui.statusbar.notification.stack.SectionHeaderView
     xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"

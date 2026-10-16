@@ -25,13 +25,13 @@ import android.provider.Settings.Secure
  * @property undo what [MomentsPlatform.revert] needs, or null when there is nothing to take back.
  * @property inEffect the setting is now as the switch wants it (changed now, or already so). False
  *   when this phone cannot do it (camera and microphone toggles not offered, Lockdown without a
- *   secure lock screen); the switch then never says it did.
+ *   secure lock screen). The switch then never says it did.
  * @property refused the system would not make the change now. It is not recorded and is tried
  *   again.
  */
 data class MomentsOutcome(val undo: String?, val inEffect: Boolean, val refused: Boolean = false) {
     companion object {
-        /** Changed now; [undo] takes it back. */
+        /** Changed now. [undo] takes it back. */
         fun changed(undo: String) = MomentsOutcome(undo, true)
 
         /** Already as wanted, or done for good (Lockdown): nothing to take back. */
@@ -52,11 +52,11 @@ interface MomentsPlatform {
 
     /**
      * Takes back a change made earlier, but only where the setting is still as the switch set it.
-     * Returns false when the system refused for now; the change then stays recorded.
+     * Returns false when the system refused for now. The change then stays recorded.
      */
     fun revert(effect: MomentsEffect, undo: String): Boolean
 
-    /** Sets a transient change again (the system forgets it on reboot); harmless when set. */
+    /** Sets a transient change again (the system forgets it on reboot). Harmless when set. */
     fun reassert(effect: MomentsEffect)
 }
 
@@ -109,7 +109,7 @@ data class MomentsResult(
  * restart or a repeated report change nothing twice.
  *
  * - Before setup finishes the switch does nothing.
- * - Until the user saves a choice or moves the switch, it does nothing either; if it is on, the
+ * - Until the user saves a choice or moves the switch, it does nothing either. If it is on, the
  *   user gets one notice asking what it should do. A move counts as choosing the default, Moments.
  * - Raising protection always happens at once, also on the lock screen. Taking back a change that
  *   lowers protection waits for the unlock.

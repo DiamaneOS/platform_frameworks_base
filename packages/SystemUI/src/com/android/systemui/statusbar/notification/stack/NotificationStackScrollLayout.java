@@ -6258,8 +6258,8 @@ public class NotificationStackScrollLayout
 
             if (view instanceof SectionHeaderView) {
                 // The only SectionHeaderView we have is the silent section header.
-                // Tally: every section has its header, and only Silent's goes with its section;
-                // the others stay with the cards clear-all leaves, or go with their section.
+                // Tally: every section has its header, and only Silent's goes with its section.
+                // The others stay with the cards clear-all leaves, or go with their section.
                 if (hideSilentSection
                         && (!TallyShell.isEnabled() || mSectionsManager.isSilentHeader(view))) {
                     viewsToHide.add(view);

@@ -328,7 +328,7 @@ public class NotificationHeaderViewWrapper extends NotificationViewWrapper imple
         TextView host = null;
         if (state != null) {
             for (TextView name : names) {
-                // The template hides a name with GONE; a transformation between the collapsed and
+                // The template hides a name with GONE. A transformation between the collapsed and
                 // expanded views may leave a shown one INVISIBLE for a while.
                 if (name != null && name.getVisibility() != GONE) {
                     host = name;

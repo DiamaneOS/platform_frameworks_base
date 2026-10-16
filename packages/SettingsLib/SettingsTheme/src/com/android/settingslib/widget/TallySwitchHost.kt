@@ -53,7 +53,7 @@ internal class TallySwitchHost(private val view: CompoundButton) {
 
     /**
      * What the system has confirmed for what the switch controls (see [TallySwitch.confirmedOn]):
-     * null lights the lamp with the checked state; otherwise the lamp lights only while the switch
+     * null lights the lamp with the checked state. Otherwise the lamp lights only while the switch
      * is checked and this is true.
      */
     var confirmedOn: Boolean? = null
@@ -116,7 +116,7 @@ internal class TallySwitchHost(private val view: CompoundButton) {
         view.invalidate()
     }
 
-    /** After [confirmedOn] changes: the lamp moves as for a checked change; the thumb stays. */
+    /** After [confirmedOn] changes: the lamp moves as for a checked change. The thumb stays. */
     private fun onLampChanged() {
         if (view.isAttachedToWindow && view.isLaidOut) {
             motion.animateTo(view.isChecked, lampLit, durationScale())

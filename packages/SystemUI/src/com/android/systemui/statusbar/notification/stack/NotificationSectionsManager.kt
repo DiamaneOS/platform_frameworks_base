@@ -104,7 +104,7 @@ internal constructor(
     val highlightsHeaderView: SectionHeaderView?
         get() = highlightsHeaderController.headerView
 
-    /** Tally: the Live section's header; only Tally inflates it. */
+    /** Tally: the Live section's header. Only Tally inflates it. */
     @VisibleForTesting
     val liveHeaderView: SectionHeaderView?
         get() = liveHeaderController.headerView

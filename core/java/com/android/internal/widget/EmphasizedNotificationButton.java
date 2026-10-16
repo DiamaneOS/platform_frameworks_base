@@ -82,7 +82,7 @@ public class EmphasizedNotificationButton extends Button {
     private static final int FIT_WHOLE = 0;
     /** The label fits the key on one line in the condensed family. */
     private static final int FIT_CONDENSED = 1;
-    /** The label takes two lines in the condensed family; the rest ends in an ellipsis. */
+    /** The label takes two lines in the condensed family. The rest ends in an ellipsis. */
     private static final int FIT_TWO_LINES = 2;
 
     private int mLabelFit = FIT_WHOLE;
@@ -130,7 +130,7 @@ public class EmphasizedNotificationButton extends Button {
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         // Tally: fit before truncate. A label wider than its key is set in the condensed family,
-        // then wraps to two lines between words; only what still does not fit ends in an
+        // then wraps to two lines between words. Only what still does not fit ends in an
         // ellipsis. The key keeps its 48 dp minimum height and grows with a second line.
         if (MeasureSpec.getMode(widthMeasureSpec) != MeasureSpec.UNSPECIFIED) {
             setLabelFit(chooseLabelFit(MeasureSpec.getSize(widthMeasureSpec)));

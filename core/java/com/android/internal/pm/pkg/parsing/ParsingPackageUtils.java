@@ -1069,7 +1069,7 @@ public class ParsingPackageUtils {
         }
 
         // Downstream opt-out from compatibility insertion only. Apps may still
-        // explicitly request OTHER_SENSORS; no existing request is removed.
+        // explicitly request OTHER_SENSORS. No existing request is removed.
         Bundle appMetadata = pkg.getMetaData();
         boolean noImplicitOtherSensors = appMetadata != null && appMetadata.getBoolean(
                 "de.diamaneos.permission.NO_IMPLICIT_OTHER_SENSORS", false);

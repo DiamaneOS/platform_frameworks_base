@@ -259,8 +259,8 @@ constructor(
     }
 
     /**
-     * Tally: schedules [event] as if no dot were showing. The dot goes; a privacy chip still in
-     * view gives way to it as a lower priority chip does (animating out, with no dot); and the new
+     * Tally: schedules [event] as if no dot were showing. The dot goes. A privacy chip still in
+     * view gives way to it as a lower priority chip does (animating out, with no dot), and the new
      * chip runs its full appear, display and disappear, into the dot again. Stock only updates the
      * dot, whose colour then changes, but Tally's dot has one colour for every sensor.
      */

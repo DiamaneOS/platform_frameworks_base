@@ -71,7 +71,7 @@ data class TallyLampColors(
                     Configuration.UI_MODE_NIGHT_YES
             val lamp = context.getColor(TallyR.color.tally_lamp)
             // In light theme the lamp outline edges the disc and draws the ring of light, so a lit
-            // lamp reads at 3:1 on light surfaces; in dark theme the lamp stands out by itself.
+            // lamp reads at 3:1 on light surfaces. In dark theme the lamp stands out by itself.
             val outline = context.getColor(TallyR.color.tally_lamp_outline)
             return TallyLampColors(
                 off = context.getColor(TallyR.color.tally_outline),

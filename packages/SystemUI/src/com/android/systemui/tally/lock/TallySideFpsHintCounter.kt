@@ -34,7 +34,7 @@ import javax.inject.Inject
  *
  * The count is one small number per user in SystemUI's own preferences for that user
  * ([UserFileManager]: SystemUI's device-protected storage, private to SystemUI, deleted with the
- * user and not in SystemUI's backup). It is read and written on the background thread; callers on
+ * user and not in SystemUI's backup). It is read and written on the background thread. Callers on
  * the main thread see the copy in memory, and a user whose count is not read yet has no wakes left
  * until it is.
  */
@@ -67,14 +67,14 @@ constructor(
         }
     }
 
-    /** Whether [userId] has seen the hint on fewer than [maxWakes] wakes; false until read. */
+    /** Whether [userId] has seen the hint on fewer than [maxWakes] wakes. False until read. */
     fun hasWakesLeft(userId: Int, maxWakes: Int): Boolean {
         val shown = wakesShown[userId] ?: return false
         return shown < maxWakes
     }
 
     /**
-     * Counts one more wake with the hint for [userId], written in the background; a count that
+     * Counts one more wake with the hint for [userId], written in the background. A count that
      * cannot be written stays counted in memory and never throws on the background thread.
      */
     fun countWake(userId: Int) {

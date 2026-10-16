@@ -29,7 +29,7 @@ import android.view.animation.AnimationUtils
 /**
  * The animated Tally lamp as a drawable, for views: [TallyLampView] wraps one, and it works as an
  * image or a compound drawable (`setCompoundDrawablesRelativeWithIntrinsicBounds`). It draws the
- * lamp at [lampSizePx], centred in its bounds on whole pixels; its intrinsic size is the lamp plus
+ * lamp at [lampSizePx], centred in its bounds on whole pixels. Its intrinsic size is the lamp plus
  * the live lamp's ring of light ([haloReachPx] on each side), so every state fits the same box.
  * With smaller bounds the ring of light draws past them, which is fine where the host does not
  * clip.
@@ -56,7 +56,7 @@ class TallyLampDrawable(context: Context) : Drawable() {
     private var stillPending = false
     private var stillNotified = false
 
-    /** The lamp's colours; the theme's by default. */
+    /** The lamp's colours. The theme's by default. */
     var colors: TallyLampColors = TallyLampColors.theme(context)
         set(value) {
             if (field == value) return
@@ -65,7 +65,7 @@ class TallyLampDrawable(context: Context) : Drawable() {
         }
 
     /**
-     * Whether a lit state shows at once instead of igniting; null (the default) for the colours'
+     * Whether a lit state shows at once instead of igniting. Null (the default) for the colours'
      * choice, which is at once for sensor lamps. Only a sensor lamp's disappearance may animate.
      */
     var instantAppear: Boolean? = null
@@ -110,7 +110,7 @@ class TallyLampDrawable(context: Context) : Drawable() {
     /**
      * Shows [state]. A requested lamp's dashes turn from [requestedSinceMillis], the uptime
      * (`SystemClock.uptimeMillis`) at which the request started, so a lamp shown again later goes
-     * on where it was; by default from when this lamp first shows the request.
+     * on where it was. By default from when this lamp first shows the request.
      */
     @JvmOverloads
     fun setState(
@@ -139,12 +139,12 @@ class TallyLampDrawable(context: Context) : Drawable() {
         updateStill()
     }
 
-    /** Draws the lamp at a token size; the host lays out again for the new size. */
+    /** Draws the lamp at a token size. The host lays out again for the new size. */
     fun setLampSize(size: TallyLampSize) {
         setLampSizePx(resources.getDimensionPixelSize(size.sizeRes))
     }
 
-    /** Sets the lamp's diameter; the host lays out again for the new [getIntrinsicWidth]. */
+    /** Sets the lamp's diameter. The host lays out again for the new [getIntrinsicWidth]. */
     fun setLampSizePx(px: Int) {
         if (px == sizePx) return
         sizePx = px

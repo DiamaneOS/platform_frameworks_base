@@ -185,7 +185,7 @@ constructor(
             .getSmallClockTopPadding()
     }
 
-    /** Tally: the Tally clock's own top margin under the status bar; other clocks keep stock's. */
+    /** Tally: the Tally clock's own top margin under the status bar. Other clocks keep stock's. */
     private fun clockTopMargin(): Int =
         if (TallyShell.isEnabled && currentClock.value?.config?.id == TALLY_CLOCK_ID) {
             TallyClocks.topMarginPx(context.resources)

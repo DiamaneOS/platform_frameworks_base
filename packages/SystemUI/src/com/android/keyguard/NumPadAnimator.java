@@ -152,7 +152,7 @@ class NumPadAnimator {
         mHeight = height;
         if (TallyShell.isEnabled()) {
             // Tally: a key is a rounded rectangle with the key radius, at rest and pressed. Only
-            // the shape changes; the press, enable and disable animations run as before.
+            // the shape changes. The press, enable and disable animations run as before.
             mStartRadius = mTallyKeyRadius;
             mEndRadius = mTallyKeyRadius;
         } else {

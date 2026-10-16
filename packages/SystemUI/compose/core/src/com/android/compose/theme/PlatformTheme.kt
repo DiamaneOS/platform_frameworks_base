@@ -73,7 +73,7 @@ fun PlatformTheme(isDarkTheme: Boolean = isSystemInDarkTheme(), content: @Compos
             )
         }
     val windowSizeClass = calculateWindowSizeClass()
-    // Tally: the shell's radii for Material's shape scale (TallyShapes); stock keeps Material's.
+    // Tally: the shell's radii for Material's shape scale (TallyShapes). Stock keeps Material's.
     val shapes = if (TallyShapes.isEnabled) TallyShapes.shapes() else MaterialTheme.shapes
 
     MaterialTheme(

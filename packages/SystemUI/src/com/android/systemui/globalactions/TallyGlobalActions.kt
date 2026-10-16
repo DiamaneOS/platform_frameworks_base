@@ -57,7 +57,7 @@ object TallyGlobalActions {
     fun styleItem(item: View, action: GlobalActionsDialogLite.Action, note: CharSequence?) {
         val isKey = isKey(action)
         item.setTag(R.id.tally_power_menu_key, isKey)
-        // The stock code sets its own typeface on the words; Tally's type comes back here.
+        // The stock code sets its own typeface on the words. Tally's type comes back here.
         item
             .requireViewById<TextView>(com.android.internal.R.id.message)
             .setTextAppearance(

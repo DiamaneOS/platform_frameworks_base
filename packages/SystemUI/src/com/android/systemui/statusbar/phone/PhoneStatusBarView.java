@@ -433,7 +433,7 @@ public class PhoneStatusBarView extends FrameLayout {
         }
     }
 
-    /** Sets a side's width and weight (stock's are 0 and 1); returns whether they changed. */
+    /** Sets a side's width and weight (stock's are 0 and 1). Returns whether they changed. */
     private static boolean tallySetSide(View side, int width, float weight) {
         LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) side.getLayoutParams();
         if (lp.width == width && lp.weight == weight) {

@@ -100,7 +100,7 @@ constructor(
             }
         } else {
             setContentView(R.layout.volume_dialog_horizontal)
-            // The ringer drawer uses start and end constraints; keep it expanding to the left.
+            // The ringer drawer uses start and end constraints. Keep it expanding to the left.
             requireViewById<View>(R.id.volume_ringer_drawer).layoutDirection =
                 View.LAYOUT_DIRECTION_LTR
         }

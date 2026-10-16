@@ -41,8 +41,8 @@ object TallyLiveCards {
      * Shows [state] as a small lamp beside [text]'s words (after them when [atEnd], else before),
      * or takes the lamp away when [state] is null. The text view keeps one lamp, the shell's
      * animated lamp, in its tag, and a new state moves that lamp, so a card that starts or stops
-     * playing animates its lamp. [context] is SystemUI's, whose resources and theme the lamp takes;
-     * a notification's views may carry the posting app's. [colors] are the lamp's, the theme's when
+     * playing animates its lamp. [context] is SystemUI's, whose resources and theme the lamp takes.
+     * A notification's views may carry the posting app's. [colors] are the lamp's, the theme's when
      * null.
      */
     @JvmStatic

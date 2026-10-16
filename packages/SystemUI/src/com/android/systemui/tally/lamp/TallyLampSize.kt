@@ -20,8 +20,8 @@ import androidx.annotation.DimenRes
 import de.diamaneos.tally.R as TallyR
 
 /**
- * The token sizes of a Tally lamp. A lamp may take any size, but these are the ones the shell uses;
- * lamps smaller than [DEFAULT] draw with the thinner ring, halo and gap.
+ * The token sizes of a Tally lamp. A lamp may take any size, but these are the ones the shell uses.
+ * Lamps smaller than [DEFAULT] draw with the thinner ring, halo and gap.
  */
 enum class TallyLampSize {
     /** 10 dp: inline readouts, chips, media output. */

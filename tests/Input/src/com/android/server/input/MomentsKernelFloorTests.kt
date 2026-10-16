@@ -38,7 +38,7 @@ class MomentsKernelFloorTests {
 
     private class FakePlatform : MomentsKernelFloor.Platform {
         var enforced = 0
-        // What the kernel blocks now; the switch driver blocks only while the line is down.
+        // What the kernel blocks now. The switch driver blocks only while the line is down.
         var blocked = 0
         var unreadable = false
         var users = intArrayOf(0, 10)
@@ -255,7 +255,7 @@ class MomentsKernelFloorTests {
 
     @Test
     fun switchOffAtBoot_neverClearsTheSoftwareToggle() {
-        // Turning the hardware toggle off also clears the software toggle; never do that
+        // Turning the hardware toggle off also clears the software toggle. Never do that
         // without having turned it on.
         platform.enforced = MomentsKernelFloor.KERNEL_MIC
         val floor = floor()
@@ -297,7 +297,7 @@ class MomentsKernelFloorTests {
 
     @Test
     fun injectedSwitch_kernelNotBlocking_noHardwareClaim() {
-        // An EV_SW injected on the evdev node moves Android's view only; the GPIO, and so the
+        // An EV_SW injected on the evdev node moves Android's view only. The GPIO, and so the
         // kernel, still say "not blocked".
         platform.enforced = MomentsKernelFloor.KERNEL_MIC
         platform.blocked = 0
@@ -310,7 +310,7 @@ class MomentsKernelFloorTests {
 
     @Test
     fun kernelBlocksWhileAndroidSaysOff_hardwareToggleFollowsTheKernel() {
-        // The reverse: an injected "up" while the line is down; the kernel still blocks.
+        // The reverse: an injected "up" while the line is down. The kernel still blocks.
         platform.enforced = MomentsKernelFloor.KERNEL_MIC
         platform.blocked = 3
         val floor = floor()
@@ -327,7 +327,7 @@ class MomentsKernelFloorTests {
         floor.onSwitchChanged(true)
         assertThat(platform.toggles).isEmpty()
 
-        // The real line goes down later; Android's view was already "on".
+        // The real line goes down later. Android's view was already "on".
         platform.blocked = 3
         floor.onSwitchChanged(true)
 
@@ -378,7 +378,7 @@ class MomentsKernelFloorTests {
         assertThat(platform.noticesPosted).isEqualTo(1)
 
         // Up and down again at once: posted again. If the user dismissed it,
-        // this alerts; if it still shows, the post only updates it (it alerts once).
+        // this alerts. If it still shows, the post only updates it (it alerts once).
         floor.onSwitchChanged(false)
         assertThat(platform.noticesPosted).isEqualTo(1)
         floor.onSwitchChanged(true)
@@ -530,7 +530,7 @@ class MomentsKernelFloorTests {
         platform.onActionChanged!!.run()
         assertThat(platform.noticesCancelled).isEqualTo(1)
 
-        // Choosing it again posts nothing by itself; the next move down does.
+        // Choosing it again posts nothing by itself. The next move down does.
         platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
         platform.onActionChanged!!.run()
         assertThat(platform.noticesPosted).isEqualTo(1)

@@ -205,7 +205,7 @@ class TallyRecentsStopTest : SysuiTestCase() {
         startFgs("pkg", 0)
         fgsExecutor.runAllReady()
 
-        // Active apps' thread only handed the report over; the report and its reads come after.
+        // Active apps' thread only handed the report over. The report and its reads come after.
         assertThat(reports).containsExactly(emptySet<TallyStoppableApp>())
         workExecutor.runAllReady()
         assertThat(reports)
@@ -337,7 +337,7 @@ class TallyRecentsStopTest : SysuiTestCase() {
     fun stopApp_forProfileThatUserTrackerNoLongerLists_doesNothing() {
         startFgs("work", 10)
         runAll()
-        // The profile is gone for UserTracker; FgsManagerController has not heard of it yet.
+        // The profile is gone for UserTracker. FgsManagerController has not heard of it yet.
         userProfiles.removeIf { it.id == 10 }
 
         underTest.stopApp("work", 10, RECENTS_UID)

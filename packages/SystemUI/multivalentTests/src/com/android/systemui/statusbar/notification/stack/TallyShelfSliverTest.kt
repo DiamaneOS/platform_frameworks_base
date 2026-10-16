@@ -35,7 +35,7 @@ import org.mockito.kotlin.whenever
 /**
  * Where a Tally card meets the shelf: a card goes into the shelf when less than its top margin and
  * the upper half of its icon (36 dp) would show above it, so the shade never shows a sliver of a
- * card; with that much or more it shows, clipped by the shelf as stock's.
+ * card. With that much or more it shows, clipped by the shelf as stock's.
  */
 @SmallTest
 @RunWith(AndroidJUnit4::class)

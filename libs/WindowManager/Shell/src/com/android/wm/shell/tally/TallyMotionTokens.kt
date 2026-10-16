@@ -27,7 +27,7 @@ import de.diamaneos.tally.R as TallyR
 object TallyMotionTokens {
     @Volatile private var cached: TallyPageMotion? = null
 
-    /** The page motion at the density of [res]; made once per density. */
+    /** The page motion at the density of [res]. Made once per density. */
     @JvmStatic
     fun pageMotion(res: Resources): TallyPageMotion {
         val density = res.displayMetrics.density

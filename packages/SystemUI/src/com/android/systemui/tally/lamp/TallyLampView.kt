@@ -33,7 +33,7 @@ import kotlin.math.roundToInt
  *
  * The lamp says nothing to accessibility services: put the state in words in the text next to it or
  * in its item's description, as every lamp carries words. Colours follow the view's theme unless
- * [colors] is set; pass colours from a context in the theme of the surface under the lamp (the lock
+ * [colors] is set. Pass colours from a context in the theme of the surface under the lamp (the lock
  * screen's wallpaper theme, for example) and set them again when that theme changes.
  */
 class TallyLampView @JvmOverloads constructor(context: Context, attrs: AttributeSet? = null) :
@@ -47,11 +47,11 @@ class TallyLampView @JvmOverloads constructor(context: Context, attrs: Attribute
     private var sizeDp = 0f
     private var themeColors = true
 
-    /** The state the lamp shows or is moving to; see [setState]. */
+    /** The state the lamp shows or is moving to. See [setState]. */
     val state: TallyLampState
         get() = lamp.state
 
-    /** The lamp's colours; setting them stops the view following its theme. */
+    /** The lamp's colours. Setting them stops the view following its theme. */
     var colors: TallyLampColors
         get() = lamp.colors
         set(value) {
@@ -81,7 +81,7 @@ class TallyLampView @JvmOverloads constructor(context: Context, attrs: Attribute
     val haloReachPx: Int
         get() = lamp.haloReachPx
 
-    /** Shows [state]; see [TallyLampDrawable.setState] for [requestedSinceMillis]. */
+    /** Shows [state]. See [TallyLampDrawable.setState] for [requestedSinceMillis]. */
     @JvmOverloads
     fun setState(
         state: TallyLampState,

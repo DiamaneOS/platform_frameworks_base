@@ -37,7 +37,7 @@ import kotlin.math.min
  *   progress is the finger's travel over [BACK_DISTANCE_DP]), moves [BACK_SHIFT_DP]·k the way the
  *   finger travels and follows the finger's vertical travel by [BACK_FOLLOW], at most
  *   [BACK_FOLLOW_MAX_DP], times k. Commit closes the page from where it is (the shift and the
- *   follow stay); cancel takes k back to 0 on slab.
+ *   follow stay). Cancel takes k back to 0 on slab.
  *
  * @param slabStiffness the slab spring, for full-screen surfaces (`tally_spring_slab_stiffness`)
  * @param fillStiffness the fill spring, for effects (`tally_spring_fill_stiffness`)

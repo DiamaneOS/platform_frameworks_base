@@ -2046,7 +2046,7 @@ public final class SensorPrivacyService extends SystemService {
         }
 
         // DiamaneOS: turns the software toggle on for the Moments switch, also while the device
-        // is locked. It cannot turn a toggle off; that still waits for the unlock.
+        // is locked. It cannot turn a toggle off. That still waits for the unlock.
         @Override
         public boolean blockForMomentsSwitch(int userId, int sensor) {
             final SensorPrivacyServiceImpl sps =

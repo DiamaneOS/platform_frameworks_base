@@ -153,7 +153,7 @@ fun BrightnessSlider(
             )
         }
     // Tally: the unfilled part of the track is the high surface with a hairline in the outline
-    // colour (drawTallyTrackEdge), as the prototype's meters; stock's surfaceEffect1 is all but
+    // colour (drawTallyTrackEdge), as the prototype's meters. Stock's surfaceEffect1 is all but
     // invisible (1.02:1) on the shade's and the brightness dialog's Tally background.
     val tallyTrackEdge =
         if (TallyShell.isEnabled) colorResource(TallyR.color.tally_outline) else null

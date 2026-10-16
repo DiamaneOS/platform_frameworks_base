@@ -80,8 +80,8 @@ import java.util.function.Consumer;
 /**
  * DiamaneOS Tally: activities and tasks open and close as the Tally prototype's pages
  * ({@link TallyPageMotion}). A page that opens enters from 16 dp to the side, in the reading
- * direction, on the slab spring and fades in on the fill spring; a page that closes scales to 0.9
- * on slab, its corners rounding as it goes, and fades out on fill; the page under either stays.
+ * direction, on the slab spring and fades in on the fill spring. A page that closes scales to 0.9
+ * on slab, its corners rounding as it goes, and fades out on fill. The page under either stays.
  *
  * <p>Only the motion changes: {@link DefaultTransitionHandler} asks {@link #isPageTransition}
  * whether a transition is one where it would play the framework's default activity or task

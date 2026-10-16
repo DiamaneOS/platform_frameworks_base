@@ -244,7 +244,7 @@ fun SmallTileContent(
     modifier: Modifier = Modifier,
     size: @Composable () -> Dp = { CommonTileDefaults.SmallTileIconSize },
     animateToEnd: Boolean = false,
-    // DiamaneOS Tally: Tally's tiles take a new colour at once; their lit field's wipe carries it.
+    // DiamaneOS Tally: Tally's tiles take a new colour at once. Their lit field's wipe carries it.
     animateColor: Boolean = true,
 ) {
     val context = LocalContext.current

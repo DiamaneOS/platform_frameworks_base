@@ -16,7 +16,7 @@
   -->
 
 <!-- The padding SettingsPreferenceGroupAdapter gives a row inside a section card whose layout is not
-     a Tally row (a slider, a dropdown, an app's own layout). Stock's two 16 dp steps here; on the
+     a Tally row (a slider, a dropdown, an app's own layout). Stock's two 16 dp steps here. On the
      expressive theme, where the cards are Tally's, the Tally row inset (values-v36/tally_rows.xml). -->
 <resources>
     <dimen name="settingslib_tally_group_row_padding">32dp</dimen>

@@ -225,7 +225,7 @@ public class CameraServiceProxy extends SystemService
 
     // DiamaneOS: 60, not 30. With a 30 Hz floor the display idles at 30 Hz while
     // a camera app previews, which halves UI and touch response and judders the
-    // preview; 60 gives every camera app the range [60, 60].
+    // preview. 60 gives every camera app the range [60, 60].
     private static final float MIN_PREVIEW_FPS = 60.0f;
     private static final float MAX_PREVIEW_FPS = 60.0f;
 

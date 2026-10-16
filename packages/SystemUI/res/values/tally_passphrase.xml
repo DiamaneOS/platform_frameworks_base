@@ -20,7 +20,7 @@
 <resources>
     <!-- Second line on the lock screen's password entry, in place of "Added security required.
          Password not used for a while.", while a newly set passphrase is asked for once a day
-         so that the user learns it. The count is the days of practice left, rounded up; the
+         so that the user learns it. The count is the days of practice left, rounded up. The
          last day reads without a number. [CHAR LIMIT=70] -->
     <string name="tally_lock_practice_passphrase">{count, plural,
         =1 {Last day of practice: type your passphrase.}
@@ -29,7 +29,7 @@
     </string>
     <!-- Second line on the lock screen's PIN entry, in place of "Added security required. PIN
          not used for a while.", while a newly set long random PIN is asked for once a day so
-         that the user learns it. The count is the days of practice left, rounded up; the last
+         that the user learns it. The count is the days of practice left, rounded up. The last
          day reads without a number. [CHAR LIMIT=70] -->
     <string name="tally_lock_practice_pin">{count, plural,
         =1 {Last day of practice: type your PIN.}

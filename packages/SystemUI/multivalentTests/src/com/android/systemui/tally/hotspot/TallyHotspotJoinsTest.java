@@ -112,7 +112,7 @@ public class TallyHotspotJoinsTest {
             final String mac = "a2:00:00:00:01:0" + i;
             all.add(mac);
             mJoins.onClients(new ArrayList<>(all), T0 + i);
-            // Two devices claim the same name; one claims a name with a line break in it.
+            // Two devices claim the same name. One claims a name with a line break in it.
             names.put(mac, i < 2 ? "Same" : i == 2 ? "Two\nlines" : "Device " + i);
         }
 

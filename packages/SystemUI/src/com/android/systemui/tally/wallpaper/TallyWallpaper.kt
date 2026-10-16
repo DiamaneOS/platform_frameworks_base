@@ -46,20 +46,20 @@ import com.android.systemui.monet.ColorScheme
  *
  * It is static. Each engine renders the paper once for its surface size, theme and palette into a
  * bitmap, keeps only that one, and draws it when the system asks (a new or resized surface). A
- * theme or palette change frees it and renders the new one; nothing animates. It turns offset
+ * theme or palette change frees it and renders the new one. Nothing animates. It turns offset
  * updates off, ignores zoom and touch, and answers colour requests for any area with the paper's
  * colours, so nothing reads its pixels back. SystemUI declares it only with the Tally flag on
  * (android:featureFlag).
  *
  * In Wallpaper & style, a preview engine shows the colours the picker previews
  * ([COMMAND_PREVIEW_COLOURS]): the paper of that colour's hue and theme, until the picker previews
- * none again. Only the preview changes; it reports no colours for them.
+ * none again. Only the preview changes. It reports no colours for them.
  */
 class TallyWallpaper : WallpaperService() {
     private var worker: HandlerThread? = null
     private var handler: Handler? = null
 
-    /** The live engines (one per display, and previews); used on the worker thread only. */
+    /** The live engines (one per display, and previews). Used on the worker thread only. */
     private val engines = mutableSetOf<PaperEngine>()
 
     override fun onCreate() {
@@ -96,7 +96,7 @@ class TallyWallpaper : WallpaperService() {
         @Volatile private var look = currentLook()
         @Volatile private var colors = colorsOf(TallyPaper.average(look))
 
-        /** The rendered paper, for [look] at [paperWidth] by [paperHeight]; the only one kept. */
+        /** The rendered paper, for [look] at [paperWidth] by [paperHeight]. The only one kept. */
         private var paper: Bitmap? = null
         private var paperWidth = 0
         private var paperHeight = 0
@@ -174,7 +174,7 @@ class TallyWallpaper : WallpaperService() {
         }
 
         /**
-         * Takes the current theme's paper, or the previewed colours'; true if it changed (the old
+         * Takes the current theme's paper, or the previewed colours'. True if it changed (the old
          * bitmap is freed).
          */
         private fun takeLook(): Boolean {
@@ -268,7 +268,7 @@ class TallyWallpaper : WallpaperService() {
 
         /**
          * The command Wallpaper & style sends a preview engine with the colours it previews:
-         * [EXTRA_SEED_COLOR], [EXTRA_THEME_STYLE] and [EXTRA_DARK_MODE]; without a seed, the paper
+         * [EXTRA_SEED_COLOR], [EXTRA_THEME_STYLE] and [EXTRA_DARK_MODE]. Without a seed, the paper
          * shows the applied colours again.
          */
         const val COMMAND_PREVIEW_COLOURS = "de.diamaneos.wallpaper.PREVIEW_COLOURS"
@@ -292,7 +292,7 @@ class TallyWallpaper : WallpaperService() {
 
         /**
          * Whether the lock screen of [userId] (the current user) shows the Paper wallpaper: as its
-         * own lock wallpaper, or as Home's when there is none. Calls the wallpaper service; not on
+         * own lock wallpaper, or as Home's when there is none. Calls the wallpaper service. Not on
          * the main thread.
          */
         @JvmStatic

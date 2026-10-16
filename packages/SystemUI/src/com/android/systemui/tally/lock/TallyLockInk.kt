@@ -52,7 +52,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * It is worked out again whenever it can change: when the wallpaper reports new colours (the
  * Paper reports new ones when the theme changes), when the night mode or the theme changes, when
  * the user changes, and when the lock screen shows or the device unlocks. Callers read
- * [isLightWallpaper] or collect [lightWallpaper]; Java callers add a listener.
+ * [isLightWallpaper] or collect [lightWallpaper]. Java callers add a listener.
  */
 @SysUISingleton
 class TallyLockInk
@@ -75,7 +75,7 @@ constructor(
 
     private val _lightWallpaper = MutableStateFlow(lightWallpaper(colors, isNight()))
 
-    /** Whether the lock wallpaper calls for dark ink; see [TallyLockInk]. */
+    /** Whether the lock wallpaper calls for dark ink. See [TallyLockInk]. */
     val lightWallpaper: StateFlow<Boolean> = _lightWallpaper.asStateFlow()
 
     /** The current value of [lightWallpaper]. */
@@ -165,8 +165,8 @@ constructor(
         private const val TAG = "TallyLockInk"
 
         /**
-         * Whether a lock wallpaper with [colors] takes dark ink: when its colours hint dark text;
-         * with no colours yet, in light theme ([night] false).
+         * Whether a lock wallpaper with [colors] takes dark ink: when its colours hint dark text.
+         * With no colours yet, in light theme ([night] false).
          */
         @VisibleForTesting
         @JvmStatic

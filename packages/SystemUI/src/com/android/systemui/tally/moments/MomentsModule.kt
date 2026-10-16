@@ -25,7 +25,7 @@ import dagger.Provides
 import dagger.multibindings.ClassKey
 import dagger.multibindings.IntoMap
 
-/** The Moments switch; not created while Tally is off. */
+/** The Moments switch. Not created while Tally is off. */
 @Module
 interface MomentsModule {
     companion object {

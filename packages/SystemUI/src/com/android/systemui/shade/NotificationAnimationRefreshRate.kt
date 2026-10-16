@@ -22,7 +22,7 @@ import android.os.Handler
  * Asks for the display's peak refresh rate while the notification stack animates.
  *
  * A display that switches between fixed refresh rates may idle at a very low rate, and
- * SurfaceFlinger only raises it on touch or for content it sees update often; on such a display it
+ * SurfaceFlinger only raises it on touch or for content it sees update often. On such a display it
  * does not use the toolkit's frame rate category votes. An animation that starts without a touch,
  * such as a heads-up or a notification its app replaces, then runs at the idle rate until
  * SurfaceFlinger's heuristics notice it. A minimum refresh rate on the shade window raises the rate
@@ -86,7 +86,7 @@ class NotificationAnimationRefreshRate(
         /**
          * The rate to ask for: the display's highest refresh rate within the user's limit, read the
          * way DisplayModeDirector reads the settings. The limit is the larger of the minimum and
-         * peak refresh rate settings; infinity asks for the highest rate, and a peak of 0 sets no
+         * peak refresh rate settings. Infinity asks for the highest rate, and a peak of 0 sets no
          * limit.
          */
         @JvmStatic

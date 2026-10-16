@@ -448,7 +448,7 @@ private const val MAX_CACHE_SIZE = 16
 
 /**
  * The room the privacy dot needs at the end of the status bar content. Tally's dot is 16 dp and
- * sits 16 dp from the display's edge, as in the prototype, so it needs both; stock's 6 dp dot needs
+ * sits 16 dp from the display's edge, as in the prototype, so it needs both. Stock's 6 dp dot needs
  * its minimum padding.
  */
 private fun Resources.privacyDotMinPadding(): Int =

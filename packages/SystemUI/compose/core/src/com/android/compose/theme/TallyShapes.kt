@@ -33,7 +33,7 @@ import de.diamaneos.tally.R as TallyR
 internal object TallyShapes {
     /**
      * Whether the Tally shell is on. SystemUI code asks TallyShell, which lives in SystemUI itself
-     * and so is out of this library's reach; the library reads the same build flag here, and only
+     * and so is out of this library's reach. The library reads the same build flag here, and only
      * here, as the clock library does (TallyClocks).
      */
     val isEnabled: Boolean
@@ -42,7 +42,7 @@ internal object TallyShapes {
     /**
      * Material's shape scale in the Tally radii: menus and fields 4 dp (extra small), chips 8 dp
      * (small), cards 12 dp (medium), and the large surfaces, dialogs and sheets 20 dp (large and
-     * extra large; Material's are 16 and 28 dp).
+     * extra large. Material's are 16 and 28 dp).
      */
     @Composable
     @ReadOnlyComposable

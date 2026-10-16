@@ -1328,7 +1328,7 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
 
     /**
      * Tally: a heads-up floating over the screen, or on its way out, has the stronger edge of the
-     * prototype's heads-up; in the shade and on the lock screen it is a card like the others.
+     * prototype's heads-up. In the shade and on the lock screen it is a card like the others.
      */
     private void updateTallyHeadsUpEdge() {
         if (mBackgroundNormal != null) {

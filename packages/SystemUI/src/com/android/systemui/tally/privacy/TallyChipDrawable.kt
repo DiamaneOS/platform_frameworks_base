@@ -28,7 +28,7 @@ import kotlin.math.ceil
 /**
  * The background of a Tally status bar chip: a rounded rectangle in the fill colour and, just
  * outside it, the edge ([TallyIndicatorColors]). The edge is drawn outside the drawable's bounds,
- * so the fill keeps the chip's full height; the outline includes the edge, so a view that clips to
+ * so the fill keeps the chip's full height. The outline includes the edge, so a view that clips to
  * its outline keeps it. The view's parent must not clip its children.
  */
 class TallyChipDrawable(private val cornerRadius: Float, private val edgeWidth: Float) :

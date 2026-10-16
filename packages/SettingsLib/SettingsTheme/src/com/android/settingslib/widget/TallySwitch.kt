@@ -39,7 +39,7 @@ import com.google.android.material.materialswitch.MaterialSwitch
  * It draws only the switch (and its own text, if it has any), from the values generated from the
  * Tally token spec: the thumb and track drawables it measures with are the Tally switch's size and
  * draw nothing, whatever its style sets. The press layer shows while it is pressed, directly or
- * through the row that toggles it; the focus ring while that row, or the switch when it takes focus
+ * through the row that toggles it. The focus ring while that row, or the switch when it takes focus
  * itself, has keyboard focus. See [TallySwitchPainter] and [TallySwitchMotion].
  *
  * The lamp lights with the checked state, unless the switch waits for the system to confirm a
@@ -71,8 +71,8 @@ constructor(
 
     /**
      * For a switch whose change takes effect later (Wi-Fi, Bluetooth): whether the system has
-     * confirmed that what the switch controls is on. The thumb follows the checked state at once;
-     * the lamp lights only while the switch is checked and this is true, so it waits for the
+     * confirmed that what the switch controls is on. The thumb follows the checked state at once.
+     * The lamp lights only while the switch is checked and this is true, so it waits for the
      * system, and a switch that is not confirmed shows unlit. Null, the default, lights the lamp
      * with the checked state, for a change that takes effect at once. Only the drawing follows it:
      * checking, clicks and accessibility stay the switch's.
@@ -97,7 +97,7 @@ constructor(
         val h = host ?: return super.onTouchEvent(event)
         val before = thumbPosition
         val handled = super.onTouchEvent(event)
-        // SwitchCompat moves its thumb under a dragging finger; the Tally thumb follows it.
+        // SwitchCompat moves its thumb under a dragging finger. The Tally thumb follows it.
         if (event.actionMasked == MotionEvent.ACTION_MOVE && thumbPosition != before) h.onDragged()
         h.onTouchEnded(event)
         return handled

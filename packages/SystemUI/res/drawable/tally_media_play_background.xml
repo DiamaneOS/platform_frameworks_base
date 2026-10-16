@@ -16,7 +16,7 @@
   -->
 
 <!-- Tally: the media card's play key, a 48 dp tonal key (qs_media_round_button_background's shape
-     as a key rather than a circle); its colour is set in code -->
+     as a key rather than a circle). Its colour is set in code -->
 <ripple xmlns:android="http://schemas.android.com/apk/res/android"
         android:color="@color/tally_press">
     <item android:id="@android:id/background">

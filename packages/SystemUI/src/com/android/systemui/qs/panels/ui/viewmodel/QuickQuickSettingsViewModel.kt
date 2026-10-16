@@ -79,7 +79,7 @@ constructor(
             .let { splitInRowsSequence(it, columns).take(rows).toList().flatten() }
     }
 
-    /** Tally: every current tile in order; the first pull shows as many as fit in one row. */
+    /** Tally: every current tile in order. The first pull shows as many as fit in one row. */
     val allTileViewModels by derivedStateOf {
         currentTiles.map { TileViewModel(it.tile, it.spec, it.expandable) }
     }

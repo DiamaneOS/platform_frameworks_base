@@ -47,7 +47,7 @@ import org.mockito.kotlin.mock
 /**
  * The lock section beside the lock screen's smartspace: with GrapheneOS's built-in smartspace it
  * adds its views as with none and hides that smartspace's line, whose rows it shows itself, so the
- * date shows once; with a smartspace plugin it adds nothing and leaves the plugin's smartspace as
+ * date shows once. With a smartspace plugin it adds nothing and leaves the plugin's smartspace as
  * it is.
  */
 @SmallTest
@@ -60,7 +60,7 @@ class TallyLockSectionTest : SysuiTestCase() {
 
     @Before
     fun setUp() {
-        // The default blueprint uses the section only while Tally is on; tests take the build's
+        // The default blueprint uses the section only while Tally is on. Tests take the build's
         // flag.
         assumeTrue(TallyShell.isEnabled)
         smartspaceLine = View(context).apply { id = sharedR.id.bc_smartspace_view }

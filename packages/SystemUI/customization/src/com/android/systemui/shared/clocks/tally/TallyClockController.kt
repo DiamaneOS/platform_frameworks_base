@@ -67,7 +67,7 @@ import kotlin.math.roundToInt
  * by 480 / densityDpi so it keeps its size on the glass at any display size.
  *
  * Both faces look the same and sit in the same place, so the clock does not move when notifications
- * come and go; the large face only takes the small face's place (see [TallyClockFaceLayout]).
+ * come and go. The large face only takes the small face's place (see [TallyClockFaceLayout]).
  */
 class TallyClockController(ctx: Context, settings: ClockSettings) : ClockController {
     private val timeKeeper: TimeKeeper = TimeKeeperImpl()
@@ -140,7 +140,7 @@ class TallyClockFaceController(
     private val fitPaint = TextPaint()
 
     // What the last fit was made for. The face is measured again whenever the lock screen's views
-    // are, also while the lock screen is hidden under the shade; with nothing new, the fit stands.
+    // are, also while the lock screen is hidden under the shade. With nothing new, the fit stands.
     private var fittedText: String? = null
     private var fittedSpec = 0
     private var fittedScreen = 0
@@ -201,7 +201,7 @@ class TallyClockFaceController(
             }
 
             // Called on density and font scale changes. The time keeps its size on the glass
-            // whatever the target size; the date is in sp and follows the text size.
+            // whatever the target size. The date is in sp and follows the text size.
             override fun onFontSettingChanged(fontSizePx: Float) {
                 applySizes()
             }
@@ -268,7 +268,7 @@ class TallyClockFaceController(
         TallyClocks.dateFormat(locale).apply { timeZone = timeKeeper.timeZone }
 
     /**
-     * Text appearances are read again on each call, so the date follows font scale changes; the
+     * Text appearances are read again on each call, so the date follows font scale changes. The
      * time takes its size on the glass, which [fitTime] may reduce when it measures.
      */
     private fun applySizes() {

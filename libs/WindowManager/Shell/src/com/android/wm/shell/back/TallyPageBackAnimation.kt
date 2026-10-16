@@ -40,14 +40,14 @@ import kotlin.math.max
  * DiamaneOS Tally's predictive Back between activities and between tasks: the Tally prototype's
  * page Back ([TallyPageMotion]). The closing activity or task is the page. It scales 1 → 0.9 with
  * the gesture, moves 8 dp the way the finger travels, follows the finger's vertical travel by a
- * quarter (at most 40 dp) and rounds its corners from 0 to 20 dp; what it goes back to shows under
+ * quarter (at most 40 dp) and rounds its corners from 0 to 20 dp. What it goes back to shows under
  * it, whole and still, with no scrim. Commit: the page scales on to 0.9 on the slab spring and
  * fades out on the fill spring, from where it is. Cancel: it goes back on slab.
  *
  * Which windows animate, the background under them, letterboxes, the status bar's appearance and
  * the finish stay [CrossActivityBackAnimation]'s, as stock's: only the motion is Tally's. It takes
  * the place of stock's default cross-activity and cross-task animations when Tally is on
- * (`ShellBackAnimationModule`); an app with a custom cross-activity animation keeps it
+ * (`ShellBackAnimationModule`). An app with a custom cross-activity animation keeps it
  * ([CustomCrossActivityBackAnimation] is chosen before this one), and Back to Home stays
  * Launcher's.
  *
@@ -93,7 +93,7 @@ class TallyPageBackAnimation(
     private var animator: ValueAnimator? = null
 
     init {
-        // Between tasks, stock's background colour for cross-task Back; between activities, the
+        // Between tasks, stock's background colour for cross-task Back. Between activities, the
         // entering task's own, as stock's cross-activity Back takes it.
         customizedBackgroundColor = backgroundColor
     }
@@ -163,7 +163,7 @@ class TallyPageBackAnimation(
             return
         }
         // The prototype's T.popPage: the page scales on to 0.9 on slab with a tap impulse and
-        // fades out on fill; its shift and vertical follow stay where the gesture left them.
+        // fades out on fill. Its shift and vertical follow stay where the gesture left them.
         val fromScale = motion.backScale(pageProgress)
         val dx = motion.backShift(pageProgress, direction)
         val dy = motion.backFollow(pageProgress, touchY - startTouchY)

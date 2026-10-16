@@ -1046,7 +1046,7 @@ public class PackageInstallerService extends IPackageInstaller.Stub implements
                 // For now, installs to adopted media are treated as internal from
                 // an install flag point-of-view.
                 params.installFlags |= PackageManager.INSTALL_INTERNAL;
-                // DiamaneOS: apps stay on internal storage; adopted volumes are media only.
+                // DiamaneOS: apps stay on internal storage. Adopted volumes are media only.
                 if (params.volumeUuid != null && !android.os.storage.VolumeInfo.ID_PRIVATE_INTERNAL
                         .equals(params.volumeUuid)) {
                     throw new IllegalArgumentException("Apps stay on internal storage");
