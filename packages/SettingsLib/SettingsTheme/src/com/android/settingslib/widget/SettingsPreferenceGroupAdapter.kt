@@ -171,9 +171,9 @@ open class SettingsPreferenceGroupAdapter @JvmOverloads constructor(
             //     - We're at the first index
             //     - We've skipped an index
             // Tally: a group is one card, and rows sit with no gap between them, so a group that
-            // started with no divider before it (at an expanded Expandable parent, or where the
-            // parent changed, such as a row after a category's rows) touched the card above it,
-            // edge on edge. Such a row now carries on the card it follows: cards break only at a
+            // starts with no divider before it (at an expanded Expandable parent, or where the
+            // parent changes, such as a row after a category's rows) would touch the card above
+            // it, edge on edge. Such a row carries on the card it follows: cards break only at a
             // divider (a category, a group divider or a space).
             if (itemSkipped) {
                 closeGroup(itemPositionStates, prevItemIndex)

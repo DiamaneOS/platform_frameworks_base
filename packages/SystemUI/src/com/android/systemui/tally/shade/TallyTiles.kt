@@ -240,8 +240,8 @@ fun TallyTileContent(
 /**
  * Where a tile's toggle key sits in the tile. The tile's field draws the key's plate, tonal where
  * the field is unlit and outlined where it is lit, so the plate wipes with the field. Drawn by the
- * key, the tonal plate showed on the lit part as a solid block in the colour for text on the lamp,
- * with the icon lost in it, until the field had lit.
+ * key, the tonal plate would show on the lit part as a solid block in the colour for text on the
+ * lamp, with the icon lost in it, until the field has lit.
  */
 private class TileKeyPlate {
     private var tile: LayoutCoordinates? = null
