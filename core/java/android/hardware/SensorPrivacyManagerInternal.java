@@ -66,4 +66,11 @@ public abstract class SensorPrivacyManagerInternal {
      *  Set the HW toggle sensor value based on HW switch states, called from InputManagerService
      */
     public abstract void setPhysicalToggleSensorPrivacy(int userId, int sensor, boolean enable);
+
+    /**
+     * DiamaneOS: turns the software toggle on for the Moments switch. It skips only the lock
+     * check and cannot turn a toggle off. The caller, InputManagerService, checks that the
+     * switch is on. Returns whether the toggle is on.
+     */
+    public abstract boolean blockForMomentsSwitch(int userId, int sensor);
 }

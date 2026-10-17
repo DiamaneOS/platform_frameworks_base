@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copyright (C) 2026 The DiamaneOS Project
+  SPDX-License-Identifier: Apache-2.0
+
+  French for values/tally_moments.xml, translated by the DiamaneOS project.
+-->
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <string name="tally_moments_toast_on">"Moments activé"</string>
+    <string name="tally_moments_toast_off">"Moments désactivé"</string>
+    <string name="tally_moments_toast_silent_on">"Mode silencieux activé"</string>
+    <string name="tally_moments_toast_silent_off">"Mode silencieux désactivé"</string>
+    <string name="tally_moments_toast_airplane_on">"Mode Avion activé"</string>
+    <string name="tally_moments_toast_airplane_off">"Mode Avion désactivé"</string>
+    <string name="tally_moments_toast_lockdown">"Verrouillé"</string>
+    <string name="tally_moments_toast_after_unlock">"Le reste sera rétabli après le déverrouillage"</string>
+    <string name="tally_moments_mic_blocked_by_switch">"Le bouton Moments désactive le micro. Pour l'utiliser, remettez le bouton dans sa position d'origine."</string>
+    <string name="tally_moments_camera_blocked_by_switch">"Le bouton Moments désactive l'appareil photo. Pour l'utiliser, remettez le bouton dans sa position d'origine."</string>
+    <string name="tally_moments_mic_camera_blocked_by_switch">"Le bouton Moments désactive l'appareil photo et le micro. Pour les utiliser, remettez le bouton dans sa position d'origine."</string>
+    <string name="tally_moments_note_camera_mic_off">"Appareil photo et micro désactivés — bouton Moments"</string>
+    <string name="tally_moments_note_camera_off">"Appareil photo désactivé — bouton Moments"</string>
+    <string name="tally_moments_note_mic_off">"Micro désactivé — bouton Moments"</string>
+    <string name="tally_moments_notice_title">"Le bouton Moments est activé"</string>
+    <string name="tally_moments_notice_text">"Choisissez son action"</string>
+    <string name="tally_moments_paused_title">"Mise en pause pour Moments"</string>
+    <string name="tally_moments_paused_message">"Cette appli est en pause tant que le bouton Moments est activé."</string>
+</resources>

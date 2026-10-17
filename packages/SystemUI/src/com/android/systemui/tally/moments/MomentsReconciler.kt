@@ -1,0 +1,198 @@
+/*
+ * Copyright (C) 2026 The DiamaneOS Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.android.systemui.tally.moments
+
+import android.os.VibrationEffect
+import android.provider.Settings.Secure
+
+/**
+ * What applying one change did.
+ *
+ * @property undo what [MomentsPlatform.revert] needs, or null when there is nothing to take back.
+ * @property inEffect the setting is now as the switch wants it (changed now, or already so). False
+ *   when this phone cannot do it (camera and microphone toggles not offered, Lockdown without a
+ *   secure lock screen). The switch then never says it did.
+ * @property refused the system would not make the change now. It is not recorded and is tried
+ *   again.
+ */
+data class MomentsOutcome(val undo: String?, val inEffect: Boolean, val refused: Boolean = false) {
+    companion object {
+        /** Changed now. [undo] takes it back. */
+        fun changed(undo: String) = MomentsOutcome(undo, true)
+
+        /** Already as wanted, or done for good (Lockdown): nothing to take back. */
+        val ALREADY = MomentsOutcome(null, true)
+
+        /** Not possible on this phone. */
+        val UNSUPPORTED = MomentsOutcome(null, false)
+
+        /** Not made now, as a microphone block in an emergency call. Tried again later. */
+        val REFUSED = MomentsOutcome(null, false, refused = true)
+    }
+}
+
+/** Makes and takes back the switch's changes for the current user. */
+interface MomentsPlatform {
+    /** Makes [effect]'s change. */
+    fun apply(effect: MomentsEffect): MomentsOutcome
+
+    /**
+     * Takes back a change made earlier, but only where the setting is still as the switch set it.
+     * Returns false when the system refused for now. The change then stays recorded.
+     */
+    fun revert(effect: MomentsEffect, undo: String): Boolean
+
+    /** Sets a transient change again (the system forgets it on reboot). Harmless when set. */
+    fun reassert(effect: MomentsEffect)
+}
+
+/** What the switch has done, per user. It survives SystemUI restarts and reboots. */
+interface MomentsStore {
+    fun record(user: Int): List<MomentsApplied>
+
+    fun setRecord(user: Int, record: List<MomentsApplied>)
+
+    /** Whether the user has moved the switch since setup finished. */
+    fun hasFlipped(user: Int): Boolean
+
+    fun setFlipped(user: Int)
+
+    fun noticeShown(user: Int): Boolean
+
+    fun setNoticeShown(user: Int)
+}
+
+/** The facts one reconcile works from. */
+data class MomentsInputs(
+    /** The switch's position (true = Moments on), or null while it is not known. */
+    val on: Boolean?,
+    /** Whether the switch moved since the last reconcile (not a boot or restart read). */
+    val flipped: Boolean,
+    val setupComplete: Boolean,
+    val unlocked: Boolean,
+    val config: MomentsConfig,
+)
+
+data class MomentsResult(
+    /** Changes this call made or found in effect (what a toast may name). */
+    val inEffect: Set<MomentsEffectKind> = emptySet(),
+    /** Changes this call took back. */
+    val reverted: Set<MomentsEffectKind> = emptySet(),
+    /** Some changes wait for the unlock before they are taken back. */
+    val waitingForUnlock: Boolean = false,
+    /** Changes the system refused for now. The next call tries again. */
+    val pending: Set<MomentsEffectKind> = emptySet(),
+    /** Post the one-time "choose what it does" notice. */
+    val showNotice: Boolean = false,
+    /** The notice is no longer needed. */
+    val dismissNotice: Boolean = false,
+)
+
+/**
+ * The Moments switch's state machine. Each call compares what the switch should have done (its
+ * position and the user's choice) with what it has done (the stored record), and closes the gap:
+ * it makes missing changes and takes back changes that are no longer wanted. So boot, a SystemUI
+ * restart or a repeated report change nothing twice.
+ *
+ * - Before setup finishes the switch does nothing.
+ * - Until the user saves a choice or moves the switch, it does nothing either. If it is on, the
+ *   user gets one notice asking what it should do. A move counts as choosing the default, Moments.
+ * - Raising protection always happens at once, also on the lock screen. Taking back a change that
+ *   lowers protection waits for the unlock.
+ * - A change is taken back only where the setting is still as the switch left it.
+ * - The record holds only what happened: a refused change is not recorded, and a refused
+ *   take-back stays recorded. Both are tried again on every later call.
+ */
+class MomentsReconciler(private val platform: MomentsPlatform, private val store: MomentsStore) {
+
+    fun reconcile(user: Int, inputs: MomentsInputs): MomentsResult {
+        if (!inputs.setupComplete) return MomentsResult()
+
+        if (inputs.flipped && !store.hasFlipped(user)) store.setFlipped(user)
+        val configured = inputs.config.action != null || store.hasFlipped(user)
+        if (!configured) {
+            if (inputs.on == true && !store.noticeShown(user)) {
+                store.setNoticeShown(user)
+                return MomentsResult(showNotice = true)
+            }
+            return MomentsResult()
+        }
+        val on = inputs.on ?: return MomentsResult(dismissNotice = true)
+
+        val wanted = if (on) inputs.config.effects() else emptyList()
+        val record = store.record(user)
+        val kept = mutableListOf<MomentsApplied>()
+        val reverted = mutableSetOf<MomentsEffectKind>()
+        val pending = mutableSetOf<MomentsEffectKind>()
+        var waiting = false
+        for (applied in record) {
+            when {
+                applied.effect in wanted -> kept += applied
+                applied.undo == null -> {}
+                applied.effect.kind.lowersProtection && !inputs.unlocked -> {
+                    kept += applied
+                    waiting = true
+                }
+                else -> {
+                    if (platform.revert(applied.effect, applied.undo)) {
+                        reverted += applied.effect.kind
+                    } else {
+                        kept += applied
+                        pending += applied.effect.kind
+                    }
+                }
+            }
+        }
+        if (kept != record) store.setRecord(user, kept)
+
+        val inEffect = mutableSetOf<MomentsEffectKind>()
+        for (effect in wanted) {
+            val existing = kept.find { it.effect == effect }
+            if (existing != null) {
+                if (effect.kind.transient && existing.undo != null) platform.reassert(effect)
+                continue
+            }
+            val outcome = platform.apply(effect)
+            if (outcome.refused) {
+                pending += effect.kind
+                continue
+            }
+            if (outcome.inEffect) inEffect += effect.kind
+            kept += MomentsApplied(effect, outcome.undo)
+            store.setRecord(user, kept)
+        }
+        return MomentsResult(
+            inEffect = inEffect,
+            reverted = reverted,
+            waitingForUnlock = waiting,
+            pending = pending,
+            dismissNotice = true,
+        )
+    }
+
+    /**
+     * The haptic for a move of the switch, played at once: a heavy click going down (Moments on), a
+     * lighter click going up. None for the first position known (boot, a SystemUI restart) or a
+     * repeat, before setup finishes and with "Nothing" chosen. With no choice saved a move counts
+     * as choosing Moments, so it gets one too. [action] is the saved choice, null when unset.
+     */
+    fun haptic(previous: Boolean?, on: Boolean, setupComplete: Boolean, action: Int?): Int? {
+        if (previous == null || previous == on || !setupComplete) return null
+        if (action == Secure.MOMENTS_ACTION_NOTHING) return null
+        return if (on) VibrationEffect.EFFECT_HEAVY_CLICK else VibrationEffect.EFFECT_CLICK
+    }
+}

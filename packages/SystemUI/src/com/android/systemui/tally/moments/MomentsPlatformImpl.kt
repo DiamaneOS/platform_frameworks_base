@@ -1,0 +1,255 @@
+/*
+ * Copyright (C) 2026 The DiamaneOS Project
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.android.systemui.tally.moments
+
+import android.app.NotificationManager
+import android.app.trust.TrustManager
+import android.content.Context
+import android.content.pm.SuspendDialogInfo
+import android.hardware.SensorPrivacyManager
+import android.hardware.SensorPrivacyManager.Sensors
+import android.hardware.SensorPrivacyManager.Sources
+import android.hardware.display.ColorDisplayManager
+import android.hardware.input.IInputManager
+import android.media.AudioManager
+import android.net.ConnectivityManager
+import android.os.RemoteException
+import android.os.ServiceManager
+import android.os.UserHandle
+import android.os.UserManager
+import android.provider.Settings.Global
+import android.provider.Settings.Secure
+import android.util.Log
+import android.view.IWindowManager
+import com.android.internal.widget.LockPatternUtils
+import com.android.internal.widget.LockPatternUtils.StrongAuthTracker.STRONG_AUTH_REQUIRED_AFTER_USER_LOCKDOWN
+import com.android.systemui.dagger.SysUISingleton
+import com.android.systemui.res.R
+import com.android.systemui.settings.UserTracker
+import com.android.systemui.statusbar.policy.IndividualSensorPrivacyController
+import com.android.systemui.statusbar.policy.KeyguardStateController
+import javax.inject.Inject
+
+/**
+ * The switch's changes, made through the APIs SystemUI's own tiles and power menu use, for the
+ * current user. Each one is taken back only where the setting is still as the switch set it.
+ *
+ * The camera and microphone block goes through the input service instead, which also blocks
+ * while the phone is locked.
+ */
+@SysUISingleton
+class MomentsPlatformImpl
+@Inject
+constructor(
+    private val userTracker: UserTracker,
+    private val sensorPrivacyController: IndividualSensorPrivacyController,
+    private val sensorPrivacyManager: SensorPrivacyManager,
+    private val keyguardStateController: KeyguardStateController,
+    private val lockPatternUtils: LockPatternUtils,
+    private val windowManager: IWindowManager,
+) : MomentsPlatform {
+
+    private val context: Context
+        get() = userTracker.userContext
+
+    private val user: Int
+        get() = userTracker.userId
+
+    private val inputManager: IInputManager? by lazy {
+        IInputManager.Stub.asInterface(ServiceManager.getService(Context.INPUT_SERVICE))
+    }
+
+    override fun apply(effect: MomentsEffect): MomentsOutcome =
+        when (effect.kind) {
+            MomentsEffectKind.DND -> {
+                val nm = context.getSystemService(NotificationManager::class.java)!!
+                if (nm.zenMode == Global.ZEN_MODE_OFF) {
+                    // The user's own Do Not Disturb, with the people and apps they allow.
+                    nm.setZenMode(Global.ZEN_MODE_IMPORTANT_INTERRUPTIONS, null, TAG, true)
+                    MomentsOutcome.changed(DONE)
+                } else {
+                    MomentsOutcome.ALREADY
+                }
+            }
+            MomentsEffectKind.HOME ->
+                if (Secure.getIntForUser(context.contentResolver, HOME_ACTIVE, 0, user) != 1) {
+                    Secure.putIntForUser(context.contentResolver, HOME_ACTIVE, 1, user)
+                    MomentsOutcome.changed(DONE)
+                } else {
+                    MomentsOutcome.ALREADY
+                }
+            MomentsEffectKind.PAUSE_APPS -> {
+                val packages = effect.param.split(',').filter { it.isNotEmpty() }.toTypedArray()
+                val info =
+                    SuspendDialogInfo.Builder()
+                        .setTitle(R.string.tally_moments_paused_title)
+                        .setMessage(R.string.tally_moments_paused_message)
+                        .build()
+                // Critical apps (phone, launcher, ...) are refused. They stay usable.
+                val failed =
+                    context.packageManager
+                        .setPackagesSuspended(packages, true, null, null, info)
+                        ?.toSet() ?: emptySet()
+                val paused = packages.filter { it !in failed }.joinToString(",")
+                if (paused.isEmpty()) MomentsOutcome.UNSUPPORTED
+                else MomentsOutcome.changed(paused)
+            }
+            MomentsEffectKind.GREYSCALE -> {
+                // Saturation, as Bedtime mode does. The user's colour correction stays as it is.
+                if (
+                    context.getSystemService(ColorDisplayManager::class.java)!!
+                        .setSaturationLevel(0)
+                ) {
+                    MomentsOutcome.changed(DONE)
+                } else {
+                    MomentsOutcome.UNSUPPORTED
+                }
+            }
+            MomentsEffectKind.CAMERA -> blockSensor(Sensors.CAMERA)
+            MomentsEffectKind.MICROPHONE -> blockSensor(Sensors.MICROPHONE)
+            MomentsEffectKind.RINGER -> {
+                val audio = context.getSystemService(AudioManager::class.java)!!
+                val previous = audio.ringerModeInternal
+                if (previous != AudioManager.RINGER_MODE_SILENT) {
+                    audio.ringerModeInternal = AudioManager.RINGER_MODE_SILENT
+                    MomentsOutcome.changed(previous.toString())
+                } else {
+                    MomentsOutcome.ALREADY
+                }
+            }
+            MomentsEffectKind.AIRPLANE ->
+                if (Global.getInt(context.contentResolver, Global.AIRPLANE_MODE_ON, 0) == 0) {
+                    context.getSystemService(ConnectivityManager::class.java)!!
+                        .setAirplaneMode(true)
+                    MomentsOutcome.changed(DONE)
+                } else {
+                    MomentsOutcome.ALREADY
+                }
+            // Lockdown ends only with the user's credential, never with the switch.
+            MomentsEffectKind.LOCKDOWN ->
+                if (lockdown()) MomentsOutcome.ALREADY else MomentsOutcome.UNSUPPORTED
+        }
+
+    override fun revert(effect: MomentsEffect, undo: String): Boolean {
+        when (effect.kind) {
+            MomentsEffectKind.DND -> {
+                val nm = context.getSystemService(NotificationManager::class.java)!!
+                if (nm.zenModeConfig?.isManualActive == true) {
+                    nm.setZenMode(Global.ZEN_MODE_OFF, null, TAG, true)
+                }
+            }
+            MomentsEffectKind.HOME ->
+                if (Secure.getIntForUser(context.contentResolver, HOME_ACTIVE, 0, user) == 1) {
+                    Secure.putIntForUser(context.contentResolver, HOME_ACTIVE, 0, user)
+                }
+            MomentsEffectKind.PAUSE_APPS -> {
+                val packages = undo.split(',').filter { it.isNotEmpty() }.toTypedArray()
+                // Lifts only SystemUI's own suspension. Another app's stays.
+                context.packageManager.setPackagesSuspended(
+                    packages,
+                    false,
+                    null,
+                    null,
+                    null as SuspendDialogInfo?,
+                )
+            }
+            MomentsEffectKind.GREYSCALE ->
+                context.getSystemService(ColorDisplayManager::class.java)!!.setSaturationLevel(100)
+            MomentsEffectKind.CAMERA -> return unblockSensor(Sensors.CAMERA)
+            MomentsEffectKind.MICROPHONE -> return unblockSensor(Sensors.MICROPHONE)
+            MomentsEffectKind.RINGER -> {
+                val audio = context.getSystemService(AudioManager::class.java)!!
+                val previous = undo.toIntOrNull() ?: return true
+                if (audio.ringerModeInternal == AudioManager.RINGER_MODE_SILENT) {
+                    audio.ringerModeInternal = previous
+                }
+            }
+            MomentsEffectKind.AIRPLANE ->
+                if (Global.getInt(context.contentResolver, Global.AIRPLANE_MODE_ON, 0) != 0) {
+                    context.getSystemService(ConnectivityManager::class.java)!!
+                        .setAirplaneMode(false)
+                }
+            MomentsEffectKind.LOCKDOWN -> {}
+        }
+        return true
+    }
+
+    override fun reassert(effect: MomentsEffect) {
+        if (effect.kind == MomentsEffectKind.GREYSCALE) {
+            context.getSystemService(ColorDisplayManager::class.java)!!.setSaturationLevel(0)
+        }
+    }
+
+    // Reads the toggles from the service: SystemUI's copy follows a change a moment later.
+    private fun blockSensor(sensor: Int): MomentsOutcome {
+        if (!sensorPrivacyController.supportsSensorToggle(sensor)) return MomentsOutcome.UNSUPPORTED
+        if (isBlocked(SensorPrivacyManager.TOGGLE_TYPE_SOFTWARE, sensor)) {
+            return MomentsOutcome.ALREADY
+        }
+        if (isBlocked(SensorPrivacyManager.TOGGLE_TYPE_HARDWARE, sensor)) {
+            return MomentsOutcome.ALREADY
+        }
+        // SensorPrivacyManager refuses every change while the phone is locked. The input
+        // service does not. It can still refuse, as for the microphone in an emergency call.
+        val blocked =
+            try {
+                inputManager?.blockSensorForMomentsSwitch(user, sensor) == true
+            } catch (e: RemoteException) {
+                Log.e(TAG, "Could not block sensor $sensor", e)
+                false
+            }
+        return if (blocked) MomentsOutcome.changed(DONE) else MomentsOutcome.REFUSED
+    }
+
+    // Returns whether the toggle is off. The service can still refuse for a moment after the
+    // unlock.
+    private fun unblockSensor(sensor: Int): Boolean {
+        if (!isBlocked(SensorPrivacyManager.TOGGLE_TYPE_SOFTWARE, sensor)) return true
+        sensorPrivacyController.setSensorBlocked(Sources.OTHER, sensor, false)
+        return !isBlocked(SensorPrivacyManager.TOGGLE_TYPE_SOFTWARE, sensor)
+    }
+
+    private fun isBlocked(toggleType: Int, sensor: Int) =
+        sensorPrivacyManager.isSensorPrivacyEnabled(toggleType, sensor)
+
+    // As the power menu's Lockdown: only with a secure lock screen, then lock every profile.
+    // Returns false when there is no secure lock screen, so nothing happened.
+    private fun lockdown(): Boolean {
+        if (!keyguardStateController.isMethodSecure) return false
+        lockPatternUtils.requireStrongAuth(
+            STRONG_AUTH_REQUIRED_AFTER_USER_LOCKDOWN,
+            UserHandle.USER_ALL,
+        )
+        try {
+            windowManager.lockNow(null)
+        } catch (e: RemoteException) {
+            Log.e(TAG, "Could not lock the device", e)
+        }
+        val trustManager = context.getSystemService(TrustManager::class.java) ?: return true
+        val userManager = context.getSystemService(UserManager::class.java) ?: return true
+        for (id in userManager.getEnabledProfileIds(user)) {
+            if (id != user) trustManager.setDeviceLockedForUser(id, true)
+        }
+        return true
+    }
+
+    private companion object {
+        const val TAG = "TallyMoments"
+        const val DONE = "1"
+        const val HOME_ACTIVE = Secure.TALLY_MOMENTS_HOME_ACTIVE
+    }
+}
