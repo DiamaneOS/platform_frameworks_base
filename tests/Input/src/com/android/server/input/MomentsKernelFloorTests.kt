@@ -109,6 +109,24 @@ class MomentsKernelFloorTests {
             androidBlocked = mask
             onAndroidBlockChanged!!.run()
         }
+
+        var delayed: Runnable? = null
+        val delays = mutableListOf<Long>()
+
+        override fun postDelayed(task: Runnable, delayMs: Long) {
+            delayed = task
+            delays += delayMs
+        }
+
+        override fun removeCallbacks(task: Runnable) {
+            if (delayed === task) delayed = null
+        }
+
+        fun runDelayed() {
+            val task = delayed!!
+            delayed = null
+            task.run()
+        }
     }
 
     private val platform = FakePlatform()
@@ -189,7 +207,44 @@ class MomentsKernelFloorTests {
         platform.toggles.clear()
         platform.blocked = 0
         floor.onSwitchChanged(false)
+        platform.runDelayed()
         assertThat(platform.toggles).containsExactly(0 to false, 10 to false).inOrder()
+    }
+
+    @Test
+    fun kernelReleasesTheMic_androidWaits_cameraDoesNot() {
+        platform.enforced = BOTH
+        val floor = floor()
+        platform.blocked = BOTH
+        floor.onSwitchChanged(true)
+        platform.toggles.clear()
+        platform.cameraToggles.clear()
+
+        platform.blocked = 0
+        floor.onSwitchChanged(false)
+        // A repeated report does not start the wait again.
+        floor.onSwitchChanged(false)
+
+        assertThat(platform.toggles).isEmpty()
+        assertThat(platform.cameraToggles).containsExactly(0 to false, 10 to false).inOrder()
+        assertThat(platform.delays).containsExactly(MomentsKernelFloor.MIC_RELEASE_DELAY_MS)
+    }
+
+    @Test
+    fun moveDownDuringTheWait_micStaysBlocked() {
+        platform.enforced = MomentsKernelFloor.KERNEL_MIC
+        val floor = floor()
+        platform.blocked = BOTH
+        floor.onSwitchChanged(true)
+        platform.blocked = 0
+        floor.onSwitchChanged(false)
+        platform.toggles.clear()
+
+        platform.blocked = BOTH
+        floor.onSwitchChanged(true)
+
+        assertThat(platform.delayed).isNull()
+        assertThat(platform.toggles).isEmpty()
     }
 
     @Test
