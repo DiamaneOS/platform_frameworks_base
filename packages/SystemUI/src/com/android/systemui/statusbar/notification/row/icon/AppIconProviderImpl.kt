@@ -29,8 +29,11 @@ import com.android.internal.R
 import com.android.launcher3.icons.BaseIconFactory
 import com.android.launcher3.icons.BaseIconFactory.IconOptions
 import com.android.launcher3.icons.BitmapInfo
+import com.android.launcher3.icons.IconThemeController
 import com.android.launcher3.icons.mono.ColorList
 import com.android.launcher3.icons.mono.MonoIconThemeController
+import com.android.launcher3.icons.tally.TallyAppKeys
+import com.android.launcher3.icons.tally.TallyColourIconThemeController
 import com.android.launcher3.util.UserIconInfo
 import com.android.systemui.Dumpable
 import com.android.systemui.Flags
@@ -38,10 +41,14 @@ import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.dump.DumpManager
 import com.android.systemui.notifications.content.icon.AppIconProvider
 import com.android.systemui.shade.ShadeDisplayAware
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.icons.TallyIconStyle
+import com.android.systemui.tally.icons.TallyIconStyleRepository
 import com.android.systemui.util.asIndenting
 import com.android.systemui.util.dpToPx
 import com.android.systemui.util.printSection
 import com.android.systemui.util.time.SystemClock
+import de.diamaneos.tally.R as TallyR
 import java.io.PrintWriter
 import javax.inject.Inject
 import kotlin.math.ceil
@@ -52,8 +59,9 @@ class AppIconProviderImpl
 constructor(
     @ShadeDisplayAware private val sysuiContext: Context,
     dumpManager: DumpManager,
-    systemClock: SystemClock,
+    private val systemClock: SystemClock,
     private val appIconHelper: AppIconHelper,
+    private val tallyIconStyle: TallyIconStyleRepository,
 ) : AppIconProvider, Dumpable {
     init {
         dumpManager.registerNormalDumpable(TAG, this)
@@ -68,31 +76,84 @@ constructor(
 
     private val standardIconFactory: BaseIconFactory
         get() =
-            BaseIconFactory(
-                context = sysuiContext,
-                fullResIconDpi = densityDpi,
-                iconBitmapSize = iconSize,
-                // Initialize the controller so that we can support themed icons.
+            standardIconFactory(
                 themeController =
-                    if (notificationsRedesignThemedAppIcons())
-                        MonoIconThemeController(
-                            shouldForceThemeIcon = true,
-                            colorProvider = { ctx ->
-                                val res = ctx.resources
-                                val bgColor = res.getColor(R.color.materialColorPrimary, null)
-                                val foregroundColor =
-                                    res.getColor(R.color.materialColorSurfaceContainerHigh, null)
-                                ColorList(
-                                    iconBackgroundColor = bgColor,
-                                    iconForegroundColor = foregroundColor,
-                                    iconAdaptiveBackgroundColor = bgColor,
-                                    badgeBackgroundColor = bgColor,
-                                    badgeForegroundColor = foregroundColor,
-                                )
-                            },
-                        )
-                    else null,
+                    if (notificationsRedesignThemedAppIcons()) themedController() else null
             )
+
+    /** The factory for standard-appearance icons, themed by [themeController]. */
+    private fun standardIconFactory(themeController: IconThemeController?) =
+        BaseIconFactory(
+            context = sysuiContext,
+            fullResIconDpi = densityDpi,
+            iconBitmapSize = iconSize,
+            // Initialize the controller so that we can support themed icons.
+            themeController = themeController,
+        )
+
+    /** Themed icons: every app's monochrome glyph on the theme's primary colour. */
+    private fun themedController(): IconThemeController =
+        MonoIconThemeController(
+            shouldForceThemeIcon = true,
+            colorProvider = { ctx ->
+                val res = ctx.resources
+                val bgColor = res.getColor(R.color.materialColorPrimary, null)
+                val foregroundColor = res.getColor(R.color.materialColorSurfaceContainerHigh, null)
+                ColorList(
+                    iconBackgroundColor = bgColor,
+                    iconForegroundColor = foregroundColor,
+                    iconAdaptiveBackgroundColor = bgColor,
+                    badgeBackgroundColor = bgColor,
+                    badgeForegroundColor = foregroundColor,
+                )
+            },
+        )
+
+    /**
+     * DiamaneOS Tally: the icon style of the current user's Home, or null with Tally off (stock:
+     * the themed icons flag decides).
+     */
+    private val tallyStyle: TallyIconStyle?
+        get() = if (TallyShell.isEnabled) tallyIconStyle.style.value else null
+
+    /** DiamaneOS Tally: the Colour style's keys, from the Tally tokens. */
+    private val colourController by lazy {
+        TallyColourIconThemeController(
+            TallyAppKeys.load(
+                sysuiContext.resources,
+                TallyR.array.tally_app_key_packages,
+                TallyR.array.tally_app_key_plates,
+                TallyR.array.tally_app_key_glyphs,
+            )
+        )
+    }
+
+    /**
+     * The factory for [packageName]'s standard-appearance icon in [style], the request's
+     * [IconLook.tallyStyle]. With Tally, its icon follows the icon style: Minimal is stock's
+     * themed icon. Colour is the app's key for one of DiamaneOS's own apps and the app's own icon
+     * for any other. With no style, every app's own icon.
+     */
+    @WorkerThread
+    private fun standardIconFactoryFor(
+        style: TallyIconStyle?,
+        packageName: String,
+    ): BaseIconFactory =
+        when (style) {
+            null -> standardIconFactory
+            TallyIconStyle.MINIMAL -> standardIconFactory(themedController())
+            TallyIconStyle.COLOUR ->
+                standardIconFactory(colourController.forPackage(sysuiContext, packageName))
+            TallyIconStyle.NONE -> standardIconFactory(themeController = null)
+        }
+
+    /** Whether standard-appearance icons in [style] are drawn themed, where their factory did. */
+    private fun isStandardIconThemed(style: TallyIconStyle?): Boolean =
+        when (style) {
+            null -> notificationsRedesignThemedAppIcons()
+            TallyIconStyle.NONE -> false
+            else -> true
+        }
 
     private val skeletonIconFactory: BaseIconFactory
         get() =
@@ -115,30 +176,78 @@ constructor(
                     ),
             )
 
-    /** Cache of standard-appearance icons as used in the notification row and guts */
-    private val standardCache = AppIconCache(systemClock = systemClock)
+    /**
+     * The caches of icons drawn for one [IconLook]. A request uses the caches of the look it saw,
+     * so an icon still being drawn when the look changes lands in the old look's caches, which no
+     * later request reads.
+     */
+    private class LookCaches(val look: IconLook, systemClock: SystemClock) {
+        /** Cache of standard-appearance icons as used in the notification row and guts */
+        val standard = AppIconCache(systemClock = systemClock)
 
-    /** Cache of black and white icons for use on AOD */
-    private val skeletonCache = AppIconCache(systemClock = systemClock)
+        /** Cache of black and white icons for use on AOD */
+        val skeleton = AppIconCache(systemClock = systemClock)
+    }
+
+    @Volatile private var caches: LookCaches? = null
+
+    /**
+     * What an icon's drawing depends on beyond its app: the display density and icon size, the two
+     * colours a themed icon takes, which the theme's dark or light mode and its palette set, and
+     * the Tally icon style. A drawable takes these when it is created, and the caches keep it, so
+     * an icon cached before a change of any of them would keep the old look in the rows that rebind
+     * for it.
+     */
+    private data class IconLook(
+        val densityDpi: Int,
+        val iconSize: Int,
+        val background: Int,
+        val foreground: Int,
+        val tallyStyle: TallyIconStyle?,
+    )
+
+    /** The caches for the look icons are drawn with now: new, empty ones when it has changed. */
+    private fun cachesForCurrentLook(): LookCaches {
+        val res = sysuiContext.resources
+        val look =
+            IconLook(
+                densityDpi = res.configuration.densityDpi,
+                iconSize = iconSize,
+                background = res.getColor(R.color.materialColorPrimary, null),
+                foreground = res.getColor(R.color.materialColorSurfaceContainerHigh, null),
+                tallyStyle = tallyStyle,
+            )
+        caches?.let { if (it.look == look) return it }
+        synchronized(this) {
+            caches?.let { if (it.look == look) return it }
+            return LookCaches(look, systemClock).also { caches = it }
+        }
+    }
 
     override fun getOrFetchAppIcon(
         packageName: String,
         userHandle: UserHandle,
         instanceKey: String,
-    ): Drawable =
-        standardCache.getOrFetchAppIcon(
+    ): Drawable {
+        // One look for the whole request: its caches, its factory and how its drawable is drawn.
+        val caches = cachesForCurrentLook()
+        val style = caches.look.tallyStyle
+        return caches.standard.getOrFetchAppIcon(
             packageName = packageName,
             userHandle = userHandle,
             drawableInstanceKey = instanceKey,
-            createDrawable = {
-                it.createIconDrawable(themed = notificationsRedesignThemedAppIcons())
-            },
+            createDrawable = { it.createIconDrawable(themed = isStandardIconThemed(style)) },
         ) {
-            fetchAppIconBitmapInfo(standardIconFactory, packageName, userHandle)
+            fetchAppIconBitmapInfo(
+                standardIconFactoryFor(style, packageName),
+                packageName,
+                userHandle,
+            )
         }
+    }
 
-    override fun getOrFetchSkeletonAppIcon(packageName: String, userHandle: UserHandle): Drawable =
-        skeletonCache.getOrFetchAppIcon(
+    override fun getOrFetchSkeletonAppIcon(packageName: String, userHandle: UserHandle): Drawable {
+        return cachesForCurrentLook().skeleton.getOrFetchAppIcon(
             packageName = packageName,
             userHandle = null, // these aren't badged, so they don't need to be sharded by user
             drawableInstanceKey = "SKELETON",
@@ -148,6 +257,7 @@ constructor(
         ) {
             fetchAppIconBitmapInfo(skeletonIconFactory, packageName, userHandle)
         }
+    }
 
     @WorkerThread
     private fun fetchAppIconBitmapInfo(
@@ -208,14 +318,17 @@ constructor(
     }
 
     override fun purgeCache(wantedPackages: Collection<String>) {
-        standardCache.purgeCache(wantedPackages)
-        skeletonCache.purgeCache(wantedPackages)
+        caches?.run {
+            standard.purgeCache(wantedPackages)
+            skeleton.purgeCache(wantedPackages)
+        }
     }
 
     override fun dump(pwOrig: PrintWriter, args: Array<out String>) {
         val pw = pwOrig.asIndenting()
-        pw.printSection("standard cache") { standardCache.dump(pw, args) }
-        pw.printSection("skeleton cache") { skeletonCache.dump(pw, args) }
+        val caches = caches
+        pw.printSection("standard cache") { caches?.standard?.dump(pw, args) }
+        pw.printSection("skeleton cache") { caches?.skeleton?.dump(pw, args) }
         pw.printSection("icon factory info") {
             val standardIconFactory = standardIconFactory
             pw.println("fullResIconDpi = ${standardIconFactory.fullResIconDpi}")
