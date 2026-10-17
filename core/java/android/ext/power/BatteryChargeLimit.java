@@ -27,4 +27,18 @@ public class BatteryChargeLimit {
     public static boolean isGoogleDevice() {
         return "Google".equals(Build.MANUFACTURER);
     }
+
+    /** Whether the device offers the charge limit. */
+    public static boolean isSupported(Context context) {
+        return isGoogleDevice() || isHealthHalLimit(context);
+    }
+
+    /**
+     * Whether the health HAL holds the charge limit through its LONG_LIFE charging policy, which
+     * BatteryService sets from the setting. Its hold shows as Android's battery defender state.
+     */
+    public static boolean isHealthHalLimit(Context context) {
+        return !isGoogleDevice() && context.getResources().getBoolean(
+                com.android.internal.R.bool.config_healthHalChargeLimit);
+    }
 }

@@ -111,6 +111,15 @@ public abstract class HealthServiceWrapper {
     }
 
     /**
+     * Calls into setChargingPolicy() in the health HAL. Does nothing if the HAL does not support
+     * it, as with HIDL.
+     *
+     * @param policy an {@link android.hardware.health.BatteryChargingPolicy} value
+     * @throws RemoteException for any transaction-level errors
+     */
+    public void setChargingPolicy(int policy) throws RemoteException {}
+
+    /**
      * Create a new HealthServiceWrapper instance.
      *
      * @param healthInfoCallback the callback to call when health info changes
