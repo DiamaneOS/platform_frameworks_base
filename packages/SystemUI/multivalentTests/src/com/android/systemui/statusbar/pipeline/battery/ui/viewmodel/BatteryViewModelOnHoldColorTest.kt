@@ -34,7 +34,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** The battery is green only while it charges. On hold it keeps the normal colour and the shield. */
+/** The battery is green only while charging. On hold it keeps the normal colour and the shield. */
 @SmallTest
 @RunWith(AndroidJUnit4::class)
 class BatteryViewModelOnHoldColorTest : SysuiTestCase() {
@@ -56,7 +56,10 @@ class BatteryViewModelOnHoldColorTest : SysuiTestCase() {
 
             assertThat(underTest.colorProfile)
                 .isEqualTo(
-                    ColorProfile(BatteryColors.DarkTheme.Charging, BatteryColors.LightTheme.Charging)
+                    ColorProfile(
+                        dark = BatteryColors.DarkTheme.Charging,
+                        light = BatteryColors.LightTheme.Charging,
+                    )
                 )
         }
 
@@ -70,7 +73,10 @@ class BatteryViewModelOnHoldColorTest : SysuiTestCase() {
             assertThat(underTest.attribution).isEqualTo(BatteryGlyph.Defend)
             assertThat(underTest.colorProfile)
                 .isEqualTo(
-                    ColorProfile(BatteryColors.DarkTheme.Default, BatteryColors.LightTheme.Default)
+                    ColorProfile(
+                        dark = BatteryColors.DarkTheme.Default,
+                        light = BatteryColors.LightTheme.Default,
+                    )
                 )
         }
 }
