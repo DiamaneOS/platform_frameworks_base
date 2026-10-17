@@ -64,6 +64,8 @@ import java.util.Map;
  *       kernel's own report counts, re-read at every switch report: Android's view of the switch
  *       can differ (injected input events), and then the software toggle stays in charge, so
  *       Android never claims a kernel block that is not there.
+ *   <li>A block applies at once. When the kernel releases the microphone, Android keeps its own
+ *       block for {@link #MIC_RELEASE_DELAY_MS} while the audio path settles.
  *   <li>{@link #ENFORCED_PROPERTY} tells Settings what the kernel enforces this boot.
  * </ul>
  *
@@ -81,6 +83,14 @@ final class MomentsKernelFloor {
     /** The kernel's sensor bits (include/linux/diamaneos_privsw.h). */
     static final int KERNEL_MIC = 1;
     static final int KERNEL_CAMERA = 1 << 1;
+
+    /**
+     * How long Android keeps the microphone blocked after the kernel releases it. The codec
+     * powers the mic biases at once and unmutes its decimators 100 ms later. The input and the
+     * voice processing then settle for about half a second, which a call's far end hears as noise.
+     */
+    @VisibleForTesting
+    static final long MIC_RELEASE_DELAY_MS = 1000;
 
     /** What the kernel blocks, as one platform hook. Separate for tests. */
     interface Platform {
@@ -103,6 +113,9 @@ final class MomentsKernelFloor {
         int androidBlocks();
         /** Runs {@code onChanged} on the handler when one of Android's toggles changes. */
         void watchAndroidBlock(Runnable onChanged);
+        /** Runs {@code task} on the handler after {@code delayMs}. */
+        void postDelayed(Runnable task, long delayMs);
+        void removeCallbacks(Runnable task);
     }
 
     private final Platform mPlatform;
@@ -121,6 +134,10 @@ final class MomentsKernelFloor {
     private boolean mMicApplied;
     @GuardedBy("mLock")
     private boolean mCameraApplied;
+    // The kernel released the microphone and Android's release waits (mMicApplied stays set).
+    @GuardedBy("mLock")
+    private boolean mMicReleasePending;
+    private final Runnable mReleaseMic = this::releaseMic;
     @GuardedBy("mLock")
     private String mPolicy;
     @GuardedBy("mLock")
@@ -294,8 +311,37 @@ final class MomentsKernelFloor {
 
     @GuardedBy("mLock")
     private void applyLocked() {
-        mMicApplied = applySensorLocked(Sensors.MICROPHONE, KERNEL_MIC, mMicApplied);
+        boolean micBlocked = (mBlocked & KERNEL_MIC) != 0;
+        if (micBlocked && mMicReleasePending) {
+            mMicReleasePending = false;
+            mPlatform.removeCallbacks(mReleaseMic);
+        }
+        if (mMicApplied && !micBlocked) {
+            if (!mMicReleasePending) {
+                mMicReleasePending = true;
+                mPlatform.postDelayed(mReleaseMic, MIC_RELEASE_DELAY_MS);
+                Slog.i(TAG, "Kernel releases the microphone. Android waits "
+                        + MIC_RELEASE_DELAY_MS + " ms");
+            }
+        } else {
+            mMicApplied = applySensorLocked(Sensors.MICROPHONE, KERNEL_MIC, mMicApplied);
+        }
         mCameraApplied = applySensorLocked(Sensors.CAMERA, KERNEL_CAMERA, mCameraApplied);
+    }
+
+    // Handler thread.
+    private void releaseMic() {
+        synchronized (mLock) {
+            if (!mMicReleasePending) {
+                return;
+            }
+            mMicReleasePending = false;
+            mMicApplied = false;
+            for (int userId : mPlatform.userIds()) {
+                mPlatform.setPhysicalToggle(userId, Sensors.MICROPHONE, false);
+            }
+            Slog.i(TAG, "Android releases the microphone");
+        }
     }
 
     // Returns whether the hardware toggle is now set for the sensor.
@@ -357,6 +403,7 @@ final class MomentsKernelFloor {
             pw.println("blocked now: " + maskToString(mBlocked));
             pw.println("switch on (Android's view): " + mSwitchOn);
             pw.println("hardware mic toggle set: " + mMicApplied);
+            pw.println("hardware mic toggle release waits: " + mMicReleasePending);
             pw.println("hardware camera toggle set: " + mCameraApplied);
             pw.println("policy for next boot: " + mPolicy);
             pw.println("android-only notice last named: " + maskToString(mNoticeMissing));
@@ -516,6 +563,16 @@ final class MomentsKernelFloor {
                     (userId, enabled) -> mHandler.post(onChanged);
             sensorPrivacy.addSensorPrivacyListenerForAllUsers(Sensors.MICROPHONE, listener);
             sensorPrivacy.addSensorPrivacyListenerForAllUsers(Sensors.CAMERA, listener);
+        }
+
+        @Override
+        public void postDelayed(Runnable task, long delayMs) {
+            mHandler.postDelayed(task, delayMs);
+        }
+
+        @Override
+        public void removeCallbacks(Runnable task) {
+            mHandler.removeCallbacks(task);
         }
 
         @Override
