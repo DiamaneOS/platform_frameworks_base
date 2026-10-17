@@ -5,3 +5,11 @@
 }
 
 -keep,allowoptimization,allowaccessmodification class com.android.systemui.dagger.DaggerReferenceGlobalRootComponent** { !synthetic *; }
+
+# RemoteViews calls view methods by reflection, and only those that carry @RemotableViewMethod,
+# for example the Tally notification icon's setOriginalIconColor. Keep those methods and the
+# annotation, or every notification that uses such a view fails to inflate.
+-keepattributes RuntimeVisibleAnnotations
+-keepclassmembers class com.android.systemui.** extends android.view.View {
+    @android.view.RemotableViewMethod <methods>;
+}
