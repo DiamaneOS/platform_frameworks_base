@@ -46,8 +46,8 @@
          The digest should be computed over the DER encoding of the trusted certificate
          using the SHA-256 digest algorithm. -->
     <string-array name="read_additional_security_state_known_signers">
-        <!-- bundled Auditor app certdigest -->
-        <item>990e04f0864b19f14f84e0e432f7a393f297ab105a22c1e1b10b442a4a62c42c</item>
+        <!-- bundled Auditor app certdigest (DiamaneOS Auditor, de.diamaneos.auditor) -->
+        <item>427bfd360586b829475f37abffd2548d93db3618e45c994de416469ef04bc2ec</item>
     </string-array>
     <java-symbol type="array" name="read_additional_security_state_known_signers" />
 
