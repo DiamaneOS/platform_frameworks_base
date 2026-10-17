@@ -35,12 +35,18 @@ import kotlin.math.min
  * on a keycap in the raised surface with the glyph in ink. Stock sets it on a circle in the
  * notification's colour, the accent, but in Tally a circle means a state and the accent reads as a
  * lit lamp. App icons are drawn as stock draws them.
+ *
+ * The view inflates in the posting app's context, which has no SystemUI resources, so the colours
+ * come from [systemUi].
  */
 @RemoteViews.RemoteView
-class TallyNotificationRowIconView(context: Context, attrs: AttributeSet?) :
+class TallyNotificationRowIconView(context: Context, attrs: AttributeSet?, systemUi: Context) :
     NotificationRowIconView(context, attrs) {
 
-    private val ink = context.getColor(TallyR.color.tally_ink)
+    private val ink = systemUi.getColor(TallyR.color.tally_ink)
+    private val keycap = systemUi.getColor(TallyR.color.tally_surface_high)
+    private val keycapRadius =
+        systemUi.resources.getFraction(TallyR.fraction.tally_keycap_radius, 1, 1)
 
     @RemotableViewMethod
     override fun setOriginalIconColor(color: Int) {
@@ -48,11 +54,7 @@ class TallyNotificationRowIconView(context: Context, attrs: AttributeSet?) :
         // An app icon has no background, and keeps its own colours.
         val plate = background ?: return
         if (plate !is KeycapPlate) {
-            background =
-                KeycapPlate(
-                    context.getColor(TallyR.color.tally_surface_high),
-                    resources.getFraction(TallyR.fraction.tally_keycap_radius, 1, 1),
-                )
+            background = KeycapPlate(keycap, keycapRadius)
         }
         if (color != Notification.COLOR_INVALID) {
             drawable?.mutate()?.colorFilter = PorterDuffColorFilter(ink, PorterDuff.Mode.SRC_ATOP)

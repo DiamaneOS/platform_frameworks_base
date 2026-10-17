@@ -56,7 +56,7 @@ constructor(
         return when (name) {
             NotificationRowIconView::class.java.name ->
                 (if (TallyShell.isEnabled) {
-                        TallyNotificationRowIconView(context, attrs)
+                        TallyNotificationRowIconView(context, attrs, row.context)
                     } else {
                         NotificationRowIconView(context, attrs)
                     })
