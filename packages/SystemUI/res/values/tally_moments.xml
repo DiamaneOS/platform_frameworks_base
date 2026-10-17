@@ -43,6 +43,11 @@
     <!-- Same, for the camera and the microphone -->
     <string name="tally_moments_mic_camera_blocked_by_switch">The Moments switch turns the camera and microphone off. To use them, slide the switch back.</string>
 
+    <!-- Dialog text when an emergency call starts while the Moments switch keeps the microphone
+         off in the kernel, under the title "Microphone is blocked". Only the switch turns it back
+         on -->
+    <string name="tally_moments_emergency_mic_off">Slide the switch up.</string>
+
     <!-- Short note (in place of the "Unblock" prompt) when an app tries the camera and
          microphone while the Moments switch blocks both. Apps get black frames and silence -->
     <string name="tally_moments_note_camera_mic_off">Camera and microphone are off — Moments switch</string>

@@ -82,6 +82,7 @@ constructor(
     private val vibratorHelper: VibratorHelper,
     private val bootCompleteCache: BootCompleteCache,
     private val sensorGuard: MomentsSensorGuard,
+    private val emergencyWarning: MomentsEmergencyWarning,
     platform: MomentsPlatformImpl,
     store: MomentsStoreImpl,
 ) : CoreStartable {
@@ -134,6 +135,7 @@ constructor(
             return
         }
         sensorGuard.start { user -> store.record(user) }
+        emergencyWarning.start()
         for (key in SETTINGS_KEYS) {
             context.contentResolver.registerContentObserver(
                 Secure.getUriFor(key),
@@ -203,6 +205,7 @@ constructor(
         }
 
     private fun onReport(on: Boolean, live: Boolean) {
+        emergencyWarning.onSwitch(on)
         val previous = lastReported
         lastReported = on
         if (live) playHaptic(previous, on)
@@ -349,6 +352,7 @@ constructor(
         pw.println("  last result: $lastResult")
         pw.println("  record: ${store.record(userTracker.userId)}")
         pw.println("  sensor prompts: ${sensorGuard.dump()}")
+        pw.println("  emergency warning: ${emergencyWarning.dump()}")
     }
 
     companion object {

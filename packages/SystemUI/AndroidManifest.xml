@@ -201,6 +201,9 @@
     <!-- DiamaneOS: read the Moments switch and pause the apps the user chose for Moments -->
     <uses-permission android:name="de.diamaneos.permission.MOMENTS_SWITCH" />
     <uses-permission android:name="android.permission.SUSPEND_APPS" />
+    <!-- DiamaneOS: warn when an emergency call starts while the Moments switch keeps the
+         microphone off -->
+    <uses-permission android:name="android.permission.READ_ACTIVE_EMERGENCY_SESSION" />
 
     <!-- Self permission for internal broadcasts. -->
     <permission android:name="com.android.systemui.permission.SELF"
