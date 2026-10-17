@@ -21,6 +21,7 @@ import androidx.test.filters.SmallTest
 import com.android.keyguard.KeyguardUpdateMonitor
 import com.android.keyguard.KeyguardUpdateMonitorCallback
 import com.android.systemui.SysuiTestCase
+import com.android.systemui.shared.settings.data.repository.FakeSecureSettingsRepository
 import com.android.systemui.statusbar.NotificationLockscreenUserManager
 import com.android.systemui.statusbar.NotificationLockscreenUserManager.UserChangedListener
 import com.android.systemui.statusbar.notification.ColorUpdateLogger
@@ -29,8 +30,10 @@ import com.android.systemui.statusbar.notification.collection.NotificationEntry
 import com.android.systemui.statusbar.notification.row.ExpandableNotificationRow
 import com.android.systemui.statusbar.notification.row.NotificationGutsManager
 import com.android.systemui.statusbar.policy.ConfigurationController
+import com.android.systemui.tally.icons.TallyIconStyleRepository
 import com.android.systemui.util.mockito.mock
 import com.android.systemui.util.mockito.withArgCaptor
+import kotlinx.coroutines.test.TestScope
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -59,6 +62,8 @@ class ViewConfigCoordinatorTest : SysuiTestCase() {
     private val gutsManager: NotificationGutsManager = mock()
     private val keyguardUpdateMonitor: KeyguardUpdateMonitor = mock()
     private val colorUpdateLogger: ColorUpdateLogger = mock()
+    private val testScope = TestScope()
+    private val tallyIconStyle = TallyIconStyleRepository(testScope, FakeSecureSettingsRepository())
 
     @Before
     fun setUp() {
@@ -71,6 +76,8 @@ class ViewConfigCoordinatorTest : SysuiTestCase() {
                 gutsManager,
                 keyguardUpdateMonitor,
                 colorUpdateLogger,
+                testScope,
+                tallyIconStyle,
             )
         coordinator.attach(pipeline)
         userChangedListener = withArgCaptor {

@@ -30,6 +30,8 @@ import com.android.systemui.notifications.content.icon.AppIconProvider
 import com.android.systemui.statusbar.notification.row.ExpandableNotificationRow
 import com.android.systemui.statusbar.notification.row.NotifRemoteViewsFactory
 import com.android.systemui.statusbar.notification.row.NotificationRowContentBinder
+import com.android.systemui.tally.TallyShell
+import com.android.systemui.tally.icons.TallyNotificationRowIconView
 import javax.inject.Inject
 
 /**
@@ -53,9 +55,12 @@ constructor(
     ): View? {
         return when (name) {
             NotificationRowIconView::class.java.name ->
-                NotificationRowIconView(context, attrs).also { view ->
-                    view.setIconProvider(createIconProvider(row, context))
-                }
+                (if (TallyShell.isEnabled) {
+                        TallyNotificationRowIconView(context, attrs, row.context)
+                    } else {
+                        NotificationRowIconView(context, attrs)
+                    })
+                    .also { view -> view.setIconProvider(createIconProvider(row, context)) }
 
             else -> null
         }
