@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copyright (C) 2026 The DiamaneOS Project
+  SPDX-License-Identifier: Apache-2.0
+
+  German for values/tally_moments.xml, translated by the DiamaneOS project.
+-->
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <string name="tally_moments_toast_on">"Moments an"</string>
+    <string name="tally_moments_toast_off">"Moments aus"</string>
+    <string name="tally_moments_toast_silent_on">"Lautlos-Modus an"</string>
+    <string name="tally_moments_toast_silent_off">"Lautlos-Modus aus"</string>
+    <string name="tally_moments_toast_airplane_on">"Flugmodus an"</string>
+    <string name="tally_moments_toast_airplane_off">"Flugmodus aus"</string>
+    <string name="tally_moments_toast_lockdown">"Gesperrt"</string>
+    <string name="tally_moments_toast_after_unlock">"Der Rest wird nach dem Entsperren zurückgesetzt"</string>
+    <string name="tally_moments_mic_blocked_by_switch">"Der Moments-Schalter schaltet das Mikrofon aus. Schiebe den Schalter zurück, um es zu verwenden."</string>
+    <string name="tally_moments_camera_blocked_by_switch">"Der Moments-Schalter schaltet die Kamera aus. Schiebe den Schalter zurück, um sie zu verwenden."</string>
+    <string name="tally_moments_mic_camera_blocked_by_switch">"Der Moments-Schalter schaltet Kamera und Mikrofon aus. Schiebe den Schalter zurück, um sie zu verwenden."</string>
+    <string name="tally_moments_note_camera_mic_off">"Kamera und Mikrofon sind aus — Moments-Schalter"</string>
+    <string name="tally_moments_note_camera_off">"Kamera ist aus — Moments-Schalter"</string>
+    <string name="tally_moments_note_mic_off">"Mikrofon ist aus — Moments-Schalter"</string>
+    <string name="tally_moments_notice_title">"Moments-Schalter ist an"</string>
+    <string name="tally_moments_notice_text">"Wähle aus, was er tun soll"</string>
+    <string name="tally_moments_paused_title">"Für Moments pausiert"</string>
+    <string name="tally_moments_paused_message">"Diese App ist pausiert, solange der Moments-Schalter an ist."</string>
+</resources>

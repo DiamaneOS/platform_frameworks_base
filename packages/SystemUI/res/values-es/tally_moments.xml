@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copyright (C) 2026 The DiamaneOS Project
+  SPDX-License-Identifier: Apache-2.0
+
+  Spanish for values/tally_moments.xml, translated by the DiamaneOS project.
+-->
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <string name="tally_moments_toast_on">"Moments activado"</string>
+    <string name="tally_moments_toast_off">"Moments desactivado"</string>
+    <string name="tally_moments_toast_silent_on">"Modo Silencio activado"</string>
+    <string name="tally_moments_toast_silent_off">"Modo Silencio desactivado"</string>
+    <string name="tally_moments_toast_airplane_on">"Modo Avión activado"</string>
+    <string name="tally_moments_toast_airplane_off">"Modo Avión desactivado"</string>
+    <string name="tally_moments_toast_lockdown">"Bloqueo de seguridad activado"</string>
+    <string name="tally_moments_toast_after_unlock">"El resto se restablecerá cuando desbloquees"</string>
+    <string name="tally_moments_mic_blocked_by_switch">"El interruptor Moments desactiva el micrófono. Para usarlo, desliza el interruptor a su posición anterior."</string>
+    <string name="tally_moments_camera_blocked_by_switch">"El interruptor Moments desactiva la cámara. Para usarla, desliza el interruptor a su posición anterior."</string>
+    <string name="tally_moments_mic_camera_blocked_by_switch">"El interruptor Moments desactiva la cámara y el micrófono. Para usarlos, desliza el interruptor a su posición anterior."</string>
+    <string name="tally_moments_note_camera_mic_off">"Cámara y micrófono desactivados — interruptor Moments"</string>
+    <string name="tally_moments_note_camera_off">"Cámara desactivada — interruptor Moments"</string>
+    <string name="tally_moments_note_mic_off">"Micrófono desactivado — interruptor Moments"</string>
+    <string name="tally_moments_notice_title">"El interruptor Moments está activado"</string>
+    <string name="tally_moments_notice_text">"Elige qué hace"</string>
+    <string name="tally_moments_paused_title">"En pausa por Moments"</string>
+    <string name="tally_moments_paused_message">"Esta aplicación está en pausa mientras el interruptor Moments esté activado."</string>
+</resources>
