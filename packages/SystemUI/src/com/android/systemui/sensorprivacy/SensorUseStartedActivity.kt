@@ -143,7 +143,19 @@ constructor(
             }
         }
 
-        mDialog = sensorUseDialogDelegateFactory.create(sensor, this, this).createDialog()
+        // Blocked by a switch (the Moments switch's kernel floor): no Unblock button, which
+        // would only lift the software toggle.
+        val hardwareBlocked =
+            if (sensor == ALL_SENSORS) {
+                sensorPrivacyController.isSensorBlockedByHardwareToggle(MICROPHONE) ||
+                    sensorPrivacyController.isSensorBlockedByHardwareToggle(CAMERA)
+            } else {
+                sensorPrivacyController.isSensorBlockedByHardwareToggle(sensor)
+            }
+        mDialog =
+            sensorUseDialogDelegateFactory
+                .create(sensor, hardwareBlocked, this, this)
+                .createDialog()
         mDialog!!.show()
 
         onBackInvokedDispatcher.registerOnBackInvokedCallback(
