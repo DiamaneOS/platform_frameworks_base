@@ -16,4 +16,10 @@
          when the device has no such kernel floor. -->
     <string name="config_momentsKernelFloorPath" translatable="false"></string>
     <java-symbol type="string" name="config_momentsKernelFloorPath" />
+
+    <!-- Whether the health HAL holds the battery at the charge limit (80 %) with its LONG_LIFE
+         charging policy. Settings then offers the limit and BatteryService passes the user's
+         choice to the HAL. Pixels use their own battery HAL instead. -->
+    <bool name="config_healthHalChargeLimit">false</bool>
+    <java-symbol type="bool" name="config_healthHalChargeLimit" />
 </resources>
