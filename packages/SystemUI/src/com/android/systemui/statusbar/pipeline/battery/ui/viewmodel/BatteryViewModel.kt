@@ -97,8 +97,8 @@ sealed class BatteryViewModel(
     private val _colorProfile: Flow<ColorProfile> =
         combine(interactor.batteryAttributionType, interactor.isCritical) { attr, isCritical ->
             when (attr) {
-                Charging,
-                Defend ->
+                // Charging on hold (Defend) keeps the normal colour, with its shield glyph.
+                Charging ->
                     ColorProfile(
                         dark = BatteryColors.DarkTheme.Charging,
                         light = BatteryColors.LightTheme.Charging,
