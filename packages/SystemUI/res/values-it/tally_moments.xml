@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copyright (C) 2026 The DiamaneOS Project
+  SPDX-License-Identifier: Apache-2.0
+
+  Italian for values/tally_moments.xml, translated by the DiamaneOS project.
+-->
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <string name="tally_moments_toast_on">"Moments attivato"</string>
+    <string name="tally_moments_toast_off">"Moments disattivato"</string>
+    <string name="tally_moments_toast_silent_on">"Modalità silenziosa attivata"</string>
+    <string name="tally_moments_toast_silent_off">"Modalità silenziosa disattivata"</string>
+    <string name="tally_moments_toast_airplane_on">"Modalità aereo attivata"</string>
+    <string name="tally_moments_toast_airplane_off">"Modalità aereo disattivata"</string>
+    <string name="tally_moments_toast_lockdown">"Bloccato"</string>
+    <string name="tally_moments_toast_after_unlock">"Il resto verrà ripristinato dopo lo sblocco"</string>
+    <string name="tally_moments_mic_blocked_by_switch">"L'interruttore Moments disattiva il microfono. Per usarlo, riporta indietro l'interruttore."</string>
+    <string name="tally_moments_camera_blocked_by_switch">"L'interruttore Moments disattiva la fotocamera. Per usarla, riporta indietro l'interruttore."</string>
+    <string name="tally_moments_mic_camera_blocked_by_switch">"L'interruttore Moments disattiva fotocamera e microfono. Per usarli, riporta indietro l'interruttore."</string>
+    <string name="tally_moments_note_camera_mic_off">"Fotocamera e microfono disattivati — interruttore Moments"</string>
+    <string name="tally_moments_note_camera_off">"Fotocamera disattivata — interruttore Moments"</string>
+    <string name="tally_moments_note_mic_off">"Microfono disattivato — interruttore Moments"</string>
+    <string name="tally_moments_notice_title">"L'interruttore Moments è attivo"</string>
+    <string name="tally_moments_notice_text">"Scegli cosa fa"</string>
+    <string name="tally_moments_paused_title">"In pausa per Moments"</string>
+    <string name="tally_moments_paused_message">"Questa app è in pausa finché l'interruttore Moments è attivo."</string>
+</resources>

@@ -141,6 +141,7 @@ import com.android.systemui.statusbar.connectivity.ConnectivityModule;
 import com.android.systemui.statusbar.dagger.StatusBarModule;
 import com.android.systemui.statusbar.domain.interactor.StatusBarRegionSamplingInteractorModule;
 import com.android.systemui.statusbar.events.StatusBarEventsModule;
+import com.android.systemui.tally.moments.MomentsModule;
 import com.android.systemui.statusbar.events.SystemStatusAnimationScheduler;
 import com.android.systemui.statusbar.notification.collection.NotifPipeline;
 import com.android.systemui.statusbar.notification.collection.inflation.NotificationRowBinder;
@@ -286,6 +287,7 @@ import javax.inject.Named;
         ScreenRecordModule.class,
         SmartspaceModule.class,
         StatusBarEventsModule.class,
+        MomentsModule.class,
         StatusBarFeaturePodsModule.class,
         StatusBarModule.class,
         StatusBarChipsModule.class,
