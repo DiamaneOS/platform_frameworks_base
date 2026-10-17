@@ -31,6 +31,7 @@ import com.android.systemui.kosmos.Kosmos
 import com.android.systemui.statusbar.notification.row.icon.AppIconHelper
 import com.android.systemui.statusbar.notification.row.icon.AppIconHelperImpl
 import com.android.systemui.statusbar.notification.row.icon.AppIconProviderImpl
+import com.android.systemui.tally.icons.tallyIconStyleRepository
 import com.android.systemui.util.time.fakeSystemClock
 import org.mockito.kotlin.any
 import org.mockito.kotlin.doReturn
@@ -93,7 +94,13 @@ var Kosmos.appIconHelper: AppIconHelper by Kosmos.Fixture { AppIconHelperImpl(ap
 
 var Kosmos.realAppIconProvider: AppIconProviderImpl by
     Kosmos.Fixture {
-        AppIconProviderImpl(applicationContext, dumpManager, fakeSystemClock, appIconHelper)
+        AppIconProviderImpl(
+            applicationContext,
+            dumpManager,
+            fakeSystemClock,
+            appIconHelper,
+            tallyIconStyleRepository,
+        )
     }
 
 class FallbackAppIconProvider(
