@@ -19,6 +19,7 @@ package com.android.systemui.screencapture.record.smallscreen.ui.viewmodel
 import android.app.ActivityOptions
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.DocumentsContract
 import android.view.Display
@@ -27,6 +28,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.android.internal.logging.UiEventLogger
 import com.android.systemui.broadcast.BroadcastSender
+import com.android.systemui.dagger.qualifiers.Background
 import com.android.systemui.lifecycle.HydratedActivatable
 import com.android.systemui.plugins.ActivityStarter
 import com.android.systemui.res.R
@@ -40,6 +42,8 @@ import com.android.systemui.settings.UserTracker
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.withContext
 
 private const val MIME_TYPE = "video/mp4"
 
@@ -56,12 +60,30 @@ constructor(
     private val parentUriRepository: ParentUriRepository,
     private val uiEventLogger: UiEventLogger,
     private val activityStarter: ActivityStarter,
+    private val packageManager: PackageManager,
+    @Background private val backgroundContext: CoroutineContext,
 ) : HydratedActivatable(), DrawableLoaderViewModel by drawableLoaderViewModel {
 
     var parentUri: Uri? by mutableStateOf(null)
         private set
 
+    /** Whether an installed app can edit the recording. Edit is hidden otherwise. */
+    var canEdit: Boolean by mutableStateOf(false)
+        private set
+
     override suspend fun onActivated() {
+        canEdit =
+            withContext(backgroundContext) {
+                packageManager
+                    .queryIntentActivitiesAsUser(
+                        Intent(Intent.ACTION_EDIT).setDataAndType(videoUri, MIME_TYPE),
+                        PackageManager.ResolveInfoFlags.of(
+                            PackageManager.MATCH_DEFAULT_ONLY.toLong()
+                        ),
+                        userTracker.userId,
+                    )
+                    .isNotEmpty()
+            }
         parentUri = parentUriRepository.getParentDirectoryUri(videoUri)
     }
 
