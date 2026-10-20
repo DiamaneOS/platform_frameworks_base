@@ -16,20 +16,32 @@
 
 package com.android.systemui.screencapture.record.smallscreen.ui.viewmodel
 
+import android.content.Intent
+import android.content.packageManager
+import android.content.pm.PackageManager
+import android.content.pm.ResolveInfo
 import android.net.Uri
 import android.view.Display
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.SmallTest
 import com.android.internal.logging.uiEventLoggerFake
 import com.android.systemui.SysuiTestCase
+import com.android.systemui.kosmos.runCurrent
 import com.android.systemui.kosmos.runTest
+import com.android.systemui.kosmos.testScope
+import com.android.systemui.lifecycle.activateIn
 import com.android.systemui.screencapture.record.shared.model.ScreenRecordEvent
 import com.android.systemui.screenrecord.ui.postRecordingActionsViewModelFactory
+import com.android.systemui.settings.userTracker
 import com.android.systemui.testKosmosNew
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.Mockito.mock
+import org.mockito.kotlin.any
+import org.mockito.kotlin.argThat
+import org.mockito.kotlin.eq
+import org.mockito.kotlin.whenever
 
 @SmallTest
 @RunWith(AndroidJUnit4::class)
@@ -59,6 +71,33 @@ class PostRecordingActionsViewModelTest : SysuiTestCase() {
 
             assertThat(uiEventLoggerFake.eventId(0))
                 .isEqualTo(ScreenRecordEvent.SCREEN_RECORD_POST_RECORDING_EDIT.id)
+        }
+
+    @Test
+    fun canEdit_falseWithoutEditor() =
+        kosmos.runTest {
+            underTest.activateIn(testScope)
+            runCurrent()
+
+            assertThat(underTest.canEdit).isFalse()
+        }
+
+    @Test
+    fun canEdit_trueWithEditor() =
+        kosmos.runTest {
+            whenever(
+                    packageManager.queryIntentActivitiesAsUser(
+                        argThat<Intent> { action == Intent.ACTION_EDIT && type == "video/mp4" },
+                        any<PackageManager.ResolveInfoFlags>(),
+                        eq(userTracker.userId),
+                    )
+                )
+                .thenReturn(listOf(ResolveInfo()))
+
+            underTest.activateIn(testScope)
+            runCurrent()
+
+            assertThat(underTest.canEdit).isTrue()
         }
 
     @Test
