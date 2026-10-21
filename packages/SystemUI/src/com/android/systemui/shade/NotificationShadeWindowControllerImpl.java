@@ -26,7 +26,6 @@ import static com.android.systemui.util.kotlin.JavaAdapterKt.collectFlow;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.IActivityManager;
-import android.content.ContentResolver;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
@@ -37,8 +36,6 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.RemoteException;
 import android.os.Trace;
-import android.os.UserHandle;
-import android.provider.Settings;
 import android.util.Log;
 import android.view.Display;
 import android.view.IWindow;
@@ -239,7 +236,7 @@ public class NotificationShadeWindowControllerImpl
         // Applied from a message: stack animations start while the window traverses.
         mNotificationAnimationRefreshRate = new NotificationAnimationRefreshRate(
                 mNotificationAnimationHandler,
-                this::getNotificationAnimationRefreshRate,
+                () -> NotificationAnimationPeakRefreshRate.forDisplay(mContext),
                 () -> mNotificationAnimationHandler.post(() -> apply(mCurrentState)));
         mTopUiController = topUiController;
         mKeyguardSurfaceBehindInteractor = keyguardSurfaceBehindInteractor;
@@ -523,32 +520,6 @@ public class NotificationShadeWindowControllerImpl
             return 0;
         }
         return mNotificationAnimationRefreshRate.getMinRefreshRate();
-    }
-
-    /**
-     * The refresh rate for notification animations: the display's highest, within the user's
-     * limit (Smooth display off caps it at 60 Hz), or 0 where the display adapts its refresh rate
-     * to the toolkit's own votes.
-     */
-    private float getNotificationAnimationRefreshRate() {
-        final Display display = mContext.getDisplay();
-        if (display == null || display.hasArrSupport()) {
-            return 0;
-        }
-        float highestRefreshRate = 0;
-        for (Display.Mode mode : display.getSupportedModes()) {
-            highestRefreshRate = Math.max(highestRefreshRate, mode.getRefreshRate());
-        }
-        final ContentResolver resolver = mContext.getContentResolver();
-        final float minSetting = Settings.System.getFloatForUser(resolver,
-                Settings.System.MIN_REFRESH_RATE, 0f, UserHandle.USER_CURRENT);
-        final float peakSetting = Settings.System.getFloatForUser(resolver,
-                Settings.System.PEAK_REFRESH_RATE,
-                mContext.getResources().getInteger(
-                        com.android.internal.R.integer.config_defaultPeakRefreshRate),
-                UserHandle.USER_CURRENT);
-        return NotificationAnimationRefreshRate.peakRefreshRate(
-                highestRefreshRate, minSetting, peakSetting);
     }
 
     private void adjustScreenOrientation(NotificationShadeWindowState state) {
