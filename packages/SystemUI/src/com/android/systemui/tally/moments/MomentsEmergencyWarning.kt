@@ -20,6 +20,7 @@ import android.content.Context
 import android.hardware.SensorPrivacyManager
 import android.hardware.SensorPrivacyManager.Sensors
 import android.os.Process
+import android.os.SystemClock
 import android.os.VibrationAttributes
 import android.os.VibrationEffect
 import android.telecom.TelecomManager
@@ -44,7 +45,8 @@ import javax.inject.Inject
  * but the kernel cannot tell calls apart. Only sliding the switch up turns the microphone back on.
  *
  * The emergency call is Telephony's outgoing emergency call event, the one that also lifts
- * Android's block. The kernel's block is the microphone's hardware toggle, which the input service
+ * Android's block. Any call within five minutes after it counts too, as the emergency service may
+ * call back after a dropped call, and Android does not lift its block for that. The kernel's block is the microphone's hardware toggle, which the input service
  * sets from the kernel's own report. All state changes run on the background executor.
  */
 @SysUISingleton
@@ -74,13 +76,18 @@ constructor(
                 placedEmergencyNumber: EmergencyNumber,
                 subscriptionId: Int,
             ) {
-                decision.emergencyCall = true
+                decision.onEmergencyCall(SystemClock.elapsedRealtime())
                 update()
             }
 
             override fun onCallStateChanged(state: Int) {
-                if (state != TelephonyManager.CALL_STATE_IDLE) return
-                decision.emergencyCall = false
+                when (state) {
+                    TelephonyManager.CALL_STATE_IDLE ->
+                        decision.onCallsEnded(SystemClock.elapsedRealtime())
+                    TelephonyManager.CALL_STATE_OFFHOOK ->
+                        decision.onCallOffHook(SystemClock.elapsedRealtime())
+                    else -> return
+                }
                 update()
             }
         }
