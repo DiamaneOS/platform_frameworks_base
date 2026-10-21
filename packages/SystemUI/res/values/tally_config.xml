@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ~ Copyright 2009, The Android Open Source Project
+  ~ Copyright (C) 2026 The DiamaneOS Project
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~      http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License
+  -->
+
+<!-- Tally's overrides of SystemUI's config.xml, and new device switches with their stock
+     default. -->
+<resources xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Doze: drop a single or double tap while the proximity sensor is covered. For tap
+     sensors that do not reject pocket touches themselves. The non-wake-up proximity sensor
+     then stays on while these gestures listen, and a tap waits up to 0.2 s for a current
+     reading. Needs a proximity sensor that keeps reporting readings several times a second. -->
+    <bool name="doze_proximity_check_before_tap">false</bool>
+
+    <!-- Tally: an expanded group stays one card, its children inside it -->
+    <bool xmlns:android="http://schemas.android.com/apk/res/android"
+        name="config_showGroupNotificationBgWhenExpanded"
+        android:featureFlag="de.diamaneos.systemui.tally_shell">true</bool>
+
+    <!-- Whether the vertical volume dialog is shown on the left edge of the screen, next to
+         volume buttons on the left side of the device. The dialog layout is mirrored. -->
+    <bool name="config_volumeDialogOnLeft">false</bool>
+</resources>

@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ~ Copyright 2010, The Android Open Source Project
+  ~ Copyright (C) 2026 The DiamaneOS Project
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~      http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License
+  -->
+
+<!-- Tally's colours for upstream SystemUI views: flagged overrides of stock values and new
+     names with their stock default. -->
+<resources xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Tally: the focused field takes the accent -->
+    <color name="bouncer_password_focus_color"
+        android:featureFlag="de.diamaneos.systemui.tally_shell">@color/tally_accent</color>
+
+    <!-- The dialog's surface behind the ringer drawer and the slider -->
+    <color name="volume_dialog_panel">@color/materialColorSurface</color>
+    <!-- Tally: the panel draws one surface around both (TallyVolumePanelViewBinder) -->
+    <color name="volume_dialog_panel"
+        android:featureFlag="de.diamaneos.systemui.tally_shell">@android:color/transparent</color>
+    <!-- The surface of an extra slider -->
+    <color name="volume_dialog_floating_panel">@color/materialColorSurface</color>
+    <color name="volume_dialog_floating_panel"
+        android:featureFlag="de.diamaneos.systemui.tally_shell">@color/tally_surface</color>
+    <!-- A ringer mode key that is not selected, and the captions key when off -->
+    <color name="volume_dialog_button">@color/materialColorSurfaceContainerHighest</color>
+    <!-- Tally: no fill (the lamp colour at no alpha, so a key lights by fading in) -->
+    <color name="volume_dialog_button"
+        android:featureFlag="de.diamaneos.systemui.tally_shell">@color/tally_volume_key</color>
+    <!-- The selected ringer mode key, and the captions key when on -->
+    <color name="volume_dialog_button_selected">@color/materialColorPrimary</color>
+    <!-- Tally: a lit key -->
+    <color name="volume_dialog_button_selected"
+        android:featureFlag="de.diamaneos.systemui.tally_shell">@color/tally_lamp</color>
+
+    <!-- Tally: the media card is a neutral card, so its words and icons are in ink -->
+    <color name="media_on_background"
+        android:featureFlag="de.diamaneos.systemui.tally_shell">@color/tally_ink</color>
+
+    <!-- Tally: a full-screen shell surface -->
+    <color name="bouncer_fallback_bg"
+        android:featureFlag="de.diamaneos.systemui.tally_shell">@color/tally_background</color>
+
+    <!-- The clipboard overlay's minimised chip: its icons, on clipboard_minimized_background -->
+    <color name="clipboard_minimized_icon">@color/materialColorOnSecondary</color>
+    <!-- Tally: the ink, on the chip's Tally surface -->
+    <color name="clipboard_minimized_icon"
+        android:featureFlag="de.diamaneos.systemui.tally_shell">@color/tally_ink</color>
+</resources>
