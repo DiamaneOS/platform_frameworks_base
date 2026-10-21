@@ -401,6 +401,12 @@ filegroup {
         "tests/src/**/systemui/settings/DisplayTrackerImplTest.kt",
         "tests/src/**/systemui/biometrics/ui/viewmodel/PromptViewModelTest.kt",
         "tests/src/**/systemui/wmshell/BubblesTest.java",
+        "tests/src/**/systemui/screenshot/ActionExecutorDeleteTest.kt",
+        "tests/src/**/systemui/tally/lock/TallyAodMediaTest.kt",
+        "tests/src/**/systemui/tally/lock/TallyLockNotificationsOffTest.kt",
+        "tests/src/**/systemui/tally/lock/TallyLockSectionTest.kt",
+        "tests/src/**/systemui/tally/lock/TallySideFpsHintCounterTest.kt",
+        "tests/src/**/systemui/tally/privacy/TallyLensIndicatorTest.kt",
     ],
 }
 
