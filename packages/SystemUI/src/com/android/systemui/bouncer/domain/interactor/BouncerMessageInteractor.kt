@@ -21,8 +21,6 @@ import android.hardware.biometrics.BiometricFaceConstants
 import android.hardware.biometrics.BiometricSourceType
 import android.os.CountDownTimer
 import android.security.Flags.secureLockDevice
-import android.util.Log
-import com.android.internal.widget.LockPatternUtils
 import com.android.internal.widget.LockPatternUtils.StrongAuthTracker.STRONG_AUTH_NOT_REQUIRED
 import com.android.keyguard.KeyguardSecurityModel
 import com.android.keyguard.KeyguardSecurityModel.SecurityMode
@@ -53,28 +51,23 @@ import com.android.systemui.util.kotlin.combine
 import dagger.Lazy
 import javax.inject.Inject
 import kotlin.math.roundToLong
-import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 private const val SYS_BOOT_REASON_PROP = "sys.boot.reason.last"
 private const val REBOOT_MAINLINE_UPDATE = "reboot,mainline_update"
 private const val TAG = "BouncerMessageInteractor"
-private const val MILLIS_IN_DAY = 24L * 60L * 60L * 1000L
 
 /** Handles business logic for the primary bouncer message area. */
 @SysUISingleton
@@ -96,8 +89,6 @@ constructor(
     deviceEntryBiometricsAllowedInteractor: DeviceEntryBiometricsAllowedInteractor,
     private val secureLockDeviceInteractor: Lazy<SecureLockDeviceInteractor>,
     @ShadeDisplayAware private val resources: Resources,
-    private val lockPatternUtils: LockPatternUtils,
-    @Background private val backgroundDispatcher: CoroutineDispatcher,
 ) {
     private val isFaceAuthCurrentlyAllowedOnBouncer =
         deviceEntryBiometricsAllowedInteractor.isFaceCurrentlyAllowedOnBouncer.stateIn(
@@ -119,37 +110,6 @@ constructor(
             SharingStarted.Eagerly,
             AuthenticationFlags(currentUserId, STRONG_AUTH_NOT_REQUIRED),
         )
-
-    /**
-     * The selected user's strong auth flags, with the days of daily practice that are left for a
-     * newly set passphrase or generated PIN. The days are 0 unless the credential is asked for
-     * because of the strong auth timeout while its learning period runs.
-     *
-     * The days are read again whenever the bouncer shows or hides, as they change while the flags
-     * stay the same. Lock settings can take seconds to answer while a credential is verified, so
-     * they are asked off the main thread.
-     */
-    private val authenticationFlagsAndPracticeDays: Flow<Pair<AuthenticationFlags, Long>> =
-        combine(authenticationFlags, primaryBouncerInteractor.isShowing) { flags, _ -> flags }
-            .mapLatest { flags -> Pair(flags, practiceDaysLeft(flags)) }
-            .distinctUntilChanged()
-
-    private suspend fun practiceDaysLeft(flags: AuthenticationFlags): Long {
-        if (!flags.isPrimaryAuthRequiredAfterTimeout) {
-            return 0L
-        }
-        val remainingMillis =
-            withContext(backgroundDispatcher) {
-                try {
-                    lockPatternUtils.getLearningPeriodRemainingMillis(flags.userId)
-                } catch (e: RuntimeException) {
-                    Log.w(TAG, "Could not read the learning period of user ${flags.userId}", e)
-                    0L
-                }
-            }
-        // A started day counts as a whole one, so the last day reads as 1.
-        return (remainingMillis.coerceAtLeast(0L) + MILLIS_IN_DAY - 1) / MILLIS_IN_DAY
-    }
 
     private val currentSecurityMode
         get() = securityModel.getSecurityMode(currentUserId)
@@ -242,7 +202,7 @@ constructor(
     private val initialBouncerMessage: Flow<BouncerMessageModel> =
         combine(
                 primaryBouncerInteractor.lastShownSecurityMode, // required to update defaultMessage
-                authenticationFlagsAndPracticeDays,
+                authenticationFlags,
                 trustRepository.isCurrentUserTrustManaged,
                 isAnyBiometricsEnabledAndEnrolled,
                 deviceEntryBiometricsAllowedInteractor.isFingerprintLockedOut,
@@ -255,7 +215,7 @@ constructor(
             .map {
                 (
                     _,
-                    flagsAndPracticeDays,
+                    flags,
                     _,
                     biometricsEnrolledAndEnabled,
                     fpLockedOut,
@@ -263,7 +223,6 @@ constructor(
                     isFingerprintAuthCurrentlyAllowedOnBouncer,
                     isFaceAuthCurrentlyAllowedOnBouncer,
                     enrolledStrongBiometricModalities) ->
-                val (flags, practiceDays) = flagsAndPracticeDays
                 val isTrustUsuallyManaged = trustRepository.isCurrentUserTrustUsuallyManaged.value
                 val trustOrBiometricsAvailable =
                     (isTrustUsuallyManaged || biometricsEnrolledAndEnabled)
@@ -303,18 +262,10 @@ constructor(
                             .toMessage()
                     }
                 } else if (trustOrBiometricsAvailable && flags.isPrimaryAuthRequiredAfterTimeout) {
-                    val practiceMessage =
-                        BouncerMessageStrings.authRequiredForDailyPractice(
+                    BouncerMessageStrings.authRequiredAfterPrimaryAuthTimeout(
                             currentSecurityMode.toAuthModel()
                         )
-                    if (practiceDays > 0 && practiceMessage.second != 0) {
-                        practiceMessage.toPracticeMessage(practiceDays)
-                    } else {
-                        BouncerMessageStrings.authRequiredAfterPrimaryAuthTimeout(
-                                currentSecurityMode.toAuthModel()
-                            )
-                            .toMessage()
-                    }
+                        .toMessage()
                 } else if (flags.isPrimaryAuthRequiredAfterDpmLockdown) {
                     BouncerMessageStrings.authRequiredAfterAdminLockdown(
                             currentSecurityMode.toAuthModel()
@@ -695,19 +646,6 @@ private fun Pair<Int, Int>.toMessage(): BouncerMessageModel {
     return BouncerMessageModel(
         message = Message(messageResId = this.first, animate = false),
         secondaryMessage = Message(messageResId = this.second, animate = false),
-    )
-}
-
-/** The secondary message is a plural string that counts the days of practice that are left. */
-private fun Pair<Int, Int>.toPracticeMessage(daysLeft: Long): BouncerMessageModel {
-    return BouncerMessageModel(
-        message = Message(messageResId = this.first, animate = false),
-        secondaryMessage =
-            Message(
-                messageResId = this.second,
-                formatterArgs = mapOf("count" to daysLeft),
-                animate = false,
-            ),
     )
 }
 
