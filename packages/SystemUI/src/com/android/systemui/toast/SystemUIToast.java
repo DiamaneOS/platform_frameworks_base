@@ -51,7 +51,6 @@ import com.android.systemui.tally.TallyShell;
  */
 public class SystemUIToast implements ToastPlugin.Toast {
     static final String TAG = "SystemUIToast";
-    private static final String TOAST_ICON_KEY = "TOAST";
     final Context mContext;
     final Context mDisplayContext;
     final CharSequence mText;
@@ -202,7 +201,8 @@ public class SystemUIToast implements ToastPlugin.Toast {
             toastView.findViewById(com.android.systemui.res.R.id.icon).setVisibility(View.GONE);
         } else {
             Drawable icon = TallyShell.isEnabled() && mAppIconProvider != null
-                    ? getStyledIcon(mContext, mAppIconProvider, mPackageName, mUserId)
+                    ? TallyToastIcon.getStyledIcon(mContext, mAppIconProvider, mPackageName,
+                            mUserId)
                     : getBadgedIcon(mContext, mPackageName, mUserId);
             if (icon == null) {
                 iconView.setVisibility(View.GONE);
@@ -288,39 +288,7 @@ public class SystemUIToast implements ToastPlugin.Toast {
         }
     }
 
-    /**
-     * Tally: the app's icon in the user's icon style, as Home and the notifications draw it, where
-     * {@link #getBadgedIcon} would show one.
-     */
-    @Nullable
-    private static Drawable getStyledIcon(@NonNull Context context,
-            @NonNull AppIconProvider appIconProvider, String packageName, int userId) {
-        if (!(context.getApplicationContext() instanceof Application)) {
-            return null;
-        }
-        try {
-            final PackageManager packageManager = context.getPackageManager();
-            final ApplicationInfo appInfo = packageManager.getApplicationInfoAsUser(
-                    packageName, PackageManager.ApplicationInfoFlags.of(0), userId);
-            if (appInfo == null || !showApplicationIcon(appInfo, packageManager)) {
-                return null;
-            }
-            final Drawable icon = appIconProvider.getOrFetchAppIcon(packageName,
-                    UserHandle.getUserHandleForUid(appInfo.uid), TOAST_ICON_KEY);
-            if (icon == null) {
-                return null;
-            }
-            // The cache shares one drawable per key, and two toasts can show at once.
-            final Drawable.ConstantState state = icon.getConstantState();
-            return state != null ? state.newDrawable() : icon;
-        } catch (NameNotFoundException e) {
-            Log.e(TAG, "Couldn't find application info for packageName=" + packageName
-                    + " userId=" + userId);
-            return null;
-        }
-    }
-
-    private static boolean showApplicationIcon(ApplicationInfo appInfo,
+    static boolean showApplicationIcon(ApplicationInfo appInfo,
             PackageManager packageManager) {
         if (hasFlag(appInfo.flags, FLAG_UPDATED_SYSTEM_APP | FLAG_SYSTEM)) {
             return packageManager.getLaunchIntentForPackage(appInfo.packageName) != null;
