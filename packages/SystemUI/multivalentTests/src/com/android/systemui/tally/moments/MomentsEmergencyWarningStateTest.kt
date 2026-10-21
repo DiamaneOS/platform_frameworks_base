@@ -20,6 +20,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.SmallTest
 import com.android.systemui.SysuiTestCase
 import com.android.systemui.tally.moments.MomentsEmergencyWarningState.Change.HIDE
+import com.android.systemui.tally.moments.MomentsEmergencyWarningState.Companion.CALLBACK_WINDOW_MS
 import com.android.systemui.tally.moments.MomentsEmergencyWarningState.Change.NONE
 import com.android.systemui.tally.moments.MomentsEmergencyWarningState.Change.SHOW
 import com.google.common.truth.Truth.assertThat
@@ -86,5 +87,30 @@ class MomentsEmergencyWarningStateTest : SysuiTestCase() {
         state.onDismissed()
         state.switchUp = false
         assertThat(state.update()).isEqualTo(SHOW)
+    }
+
+    @Test
+    fun callWithinTheCallbackWindow_shows() {
+        state.kernelBlocksMic = true
+        state.onEmergencyCall(nowMs = 0)
+        state.onCallsEnded(nowMs = 1_000)
+        assertThat(state.update()).isEqualTo(NONE)
+
+        state.onCallOffHook(nowMs = 1_000 + CALLBACK_WINDOW_MS - 1)
+        assertThat(state.update()).isEqualTo(SHOW)
+        state.onCallsEnded(nowMs = 1_000 + CALLBACK_WINDOW_MS)
+        assertThat(state.update()).isEqualTo(HIDE)
+    }
+
+    @Test
+    fun callAfterTheWindowOrWithoutEmergencyCall_noWarning() {
+        state.kernelBlocksMic = true
+        state.onCallOffHook(nowMs = 0)
+        assertThat(state.update()).isEqualTo(NONE)
+
+        state.onEmergencyCall(nowMs = 0)
+        state.onCallsEnded(nowMs = 0)
+        state.onCallOffHook(nowMs = CALLBACK_WINDOW_MS)
+        assertThat(state.update()).isEqualTo(NONE)
     }
 }
