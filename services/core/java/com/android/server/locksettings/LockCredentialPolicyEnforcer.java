@@ -315,11 +315,10 @@ final class LockCredentialPolicyEnforcer {
      * Makes a random PIN for the user. A PIN is of the strong class only if it came from here:
      * a caller cannot tell this service that a PIN was generated, it can only set the PIN that
      * this service generated. See {@link LockCredentialPolicy}. Called with the caller's identity
-     * cleared.
+     * cleared, after {@link #checkGeneratedPinLength}.
      */
     LockscreenCredential generateStrongPin(int length, int userId) {
-        Preconditions.checkArgumentInRange(length, LockCredentialPolicy.MIN_GENERATED_PIN_LENGTH,
-                DevicePolicyManager.MAX_PASSWORD_LENGTH, "length");
+        checkGeneratedPinLength(length);
         checkCredentialPolicyUser(userId);
         final LockscreenCredential pin = createRandomPin(length);
         final byte[] salt = SecureRandomUtils.randomBytes(GENERATED_PIN_SALT_LENGTH);
@@ -329,6 +328,12 @@ final class LockCredentialPolicyEnforcer {
             mGeneratedPins.put(userId, generatedPin);
         }
         return pin;
+    }
+
+    /** Refuses a generated PIN length out of range, before the caller's identity is cleared. */
+    static void checkGeneratedPinLength(int length) {
+        Preconditions.checkArgumentInRange(length, LockCredentialPolicy.MIN_GENERATED_PIN_LENGTH,
+                DevicePolicyManager.MAX_PASSWORD_LENGTH, "length");
     }
 
     private static LockscreenCredential createRandomPin(int length) {
