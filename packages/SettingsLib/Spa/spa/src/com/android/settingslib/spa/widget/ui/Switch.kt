@@ -41,23 +41,13 @@ internal fun SettingsSwitch(
     interactionSource: MutableInteractionSource = remember { MutableInteractionSource() },
 ) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-        // The Tally switch, with the semantics of the Material switch below.
-        if (checked != null) {
-            TallySwitch(
-                checked = checked,
-                onCheckedChange = wrapOnSwitchWithLog(onCheckedChange),
-                modifier = Modifier.contentDescription(contentDescription),
-                enabled = changeable(),
-                interactionSource = interactionSource,
-            )
-        } else {
-            TallySwitch(
-                checked = false,
-                onCheckedChange = null,
-                enabled = false,
-                interactionSource = interactionSource,
-            )
-        }
+        TallySettingsSwitch(
+            checked,
+            changeable,
+            contentDescription,
+            onCheckedChange,
+            interactionSource,
+        )
         return
     }
     if (checked != null) {
