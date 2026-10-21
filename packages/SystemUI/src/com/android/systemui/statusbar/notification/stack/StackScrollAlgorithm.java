@@ -860,16 +860,16 @@ public class StackScrollAlgorithm {
                 && child instanceof SectionHeaderView) {
             // Tally: a header at the top of the list has only .sec-h's 12 dp above its words, as
             // no section's margin comes before it. The 4 dp over them stay empty.
-            return getTallyGapForLocation(fractionToShade, onKeyguard,
+            return TallyStackSpacing.getTallyGapForLocation(fractionToShade, onKeyguard,
                     /* gapOnLockscreen= */ 0f, /* shadeGap= */ mTallyTopHeaderGap);
         } else if (TallyShell.isEnabled()
-                && followsSectionHeader(visibleIndex, child, previousChild)) {
+                && TallyStackSpacing.followsSectionHeader(visibleIndex, child, previousChild)) {
             // Tally: the header reaches down to this card itself (see getTallyShadeGap).
-            return getTallyGapForLocation(fractionToShade, onKeyguard,
+            return TallyStackSpacing.getTallyGapForLocation(fractionToShade, onKeyguard,
                     /* gapOnLockscreen= */ 0f, /* shadeGap= */ -mPaddingBetweenElements);
         } else if (childNeedsGapHeight(sectionProvider, visibleIndex, child, previousChild)) {
             if (TallyShell.isEnabled()) {
-                return getTallyGapForLocation(fractionToShade, onKeyguard,
+                return TallyStackSpacing.getTallyGapForLocation(fractionToShade, onKeyguard,
                         sectionProvider.isGroupingDisabled(child)
                                 ? mGroupingDisabledSectionGapHeight : mGapHeightOnLockscreen,
                         getTallyShadeGap(sectionProvider, child, previousChild));
@@ -901,28 +901,6 @@ public class StackScrollAlgorithm {
             return 0;
         }
         return mGapHeight;
-    }
-
-    /** Tally: whether {@code child} is the first card under a section header. */
-    private static boolean followsSectionHeader(int visibleIndex, View child, View previousChild) {
-        return visibleIndex > 0
-                && previousChild instanceof SectionHeaderView
-                && !(child instanceof FooterView);
-    }
-
-    /**
-     * Tally: {@link #getGapForLocation} with the shade's gap from {@link #getTallyShadeGap}. The
-     * lock screen keeps stock's gaps, and the gap moves between the two as stock's does.
-     */
-    private float getTallyGapForLocation(float fractionToShade, boolean onKeyguard,
-            float gapOnLockscreen, float shadeGap) {
-        if (fractionToShade > 0f) {
-            return MathUtils.lerp(gapOnLockscreen, shadeGap, fractionToShade);
-        }
-        if (onKeyguard) {
-            return gapOnLockscreen;
-        }
-        return shadeGap;
     }
 
     private boolean childNeedsBundleGap(View child, View previousChild) {
