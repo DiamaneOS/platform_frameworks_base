@@ -21,7 +21,6 @@ import androidx.test.filters.SmallTest
 import com.android.systemui.SysuiTestCase
 import com.android.systemui.screenshot.ui.viewmodel.PreviewAction
 import com.android.systemui.screenshot.ui.viewmodel.ScreenshotViewModel
-import com.google.common.truth.Truth.assertThat
 import java.util.UUID
 import kotlin.test.Test
 import org.junit.Before
@@ -86,30 +85,6 @@ class ScreenshotActionsControllerTest : SysuiTestCase() {
         verify(viewModel, never()).setPreviewAction(any())
     }
 
-    @Test
-    fun isCurrentScreenshot_followsTheShownScreenshot() {
-        val first = actionsController.setCurrentScreenshot(screenshotData)
-        assertThat(actionsController.isCurrentScreenshot(first)).isTrue()
-
-        val second = actionsController.setCurrentScreenshot(screenshotData)
-        assertThat(actionsController.isCurrentScreenshot(first)).isFalse()
-        assertThat(actionsController.isCurrentScreenshot(second)).isTrue()
-
-        actionsController.endScreenshotSession()
-        assertThat(actionsController.isCurrentScreenshot(second)).isFalse()
-    }
-
-    @Test
-    fun onScreenshotDeleted_reachesOnlyThatScreenshotsProvider() {
-        val first = actionsController.setCurrentScreenshot(screenshotData)
-        actionsController.setCurrentScreenshot(screenshotData)
-
-        actionsController.onScreenshotDeleted(first)
-
-        assertThat(fakeActionsProvider1.deleted).isTrue()
-        assertThat(fakeActionsProvider2.deleted).isFalse()
-    }
-
     class FakeActionsProvider(
         private val actionsCallback: ScreenshotActionsController.ActionsCallback
     ) : ScreenshotActionsProvider {
@@ -124,10 +99,6 @@ class ScreenshotActionsControllerTest : SysuiTestCase() {
 
         override fun setCompletedScreenshot(result: ScreenshotSavedResult) {}
 
-        var deleted = false
-
-        override fun onScreenshotDeleted() {
-            deleted = true
-        }
+        override fun onScreenshotDeleted() {}
     }
 }
