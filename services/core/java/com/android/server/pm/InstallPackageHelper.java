@@ -1642,6 +1642,12 @@ final class InstallPackageHelper {
                 isApex ? request.getApexInfo().modulePath : request.getCodePath());
         if (DEBUG_INSTALL) Slog.d(TAG, "installPackageLI: path=" + tmpPackageFile);
 
+        // DiamaneOS: apps stay on internal storage, also for a session restored from disk.
+        if (onExternal) {
+            throw new PrepareFailure(PackageManager.INSTALL_FAILED_INVALID_INSTALL_LOCATION,
+                    "Apps stay on internal storage");
+        }
+
         // Validity check
         if (instantApp && onExternal) {
             Slog.i(TAG, "Incompatible ephemeral install; external=" + onExternal);
