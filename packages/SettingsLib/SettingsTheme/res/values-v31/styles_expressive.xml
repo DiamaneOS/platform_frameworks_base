@@ -139,19 +139,4 @@
         <item name="cardElevation">0dp</item>
         <item name="rippleColor">?android:attr/colorControlHighlight</item>
     </style>
-
-    <!-- Tally: SettingsLib's expressive buttons are keys, with the token spec's key radius, 8 dp,
-         in place of Material's full-round buttons and their pressed morph. No pills in the shell's
-         own controls (Settings' pages are the shell's). -->
-    <style name="ShapeAppearance.SettingsLib.Tally.Key" parent="">
-        <item name="cornerFamily">rounded</item>
-        <item name="cornerSize">8dp</item>
-    </style>
-
-    <!-- Tally: an action key (an icon over its label, ActionButtonsPreference), radius 12, as the
-         prototype's quick keys. -->
-    <style name="ShapeAppearance.SettingsLib.Tally.ActionKey" parent="">
-        <item name="cornerFamily">rounded</item>
-        <item name="cornerSize">12dp</item>
-    </style>
 </resources>
