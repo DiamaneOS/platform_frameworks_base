@@ -2667,7 +2667,6 @@ public class LockSettingsService extends ILockSettings.Stub {
             forgetGeneratedPin(userId);
             mGeneratedPins.put(userId, generatedPin);
         }
-        Slogf.i(TAG, "Generated a PIN for user %d", userId);
         return pin;
     }
 
@@ -4692,13 +4691,13 @@ public class LockSettingsService extends ILockSettings.Stub {
                         + getBoolean(LockPatternUtils.DISABLE_LOCKSCREEN_KEY, false, userId));
             }
             pw.println("IsUseOneLockSettingEnabled: " + isUseOneLockSettingEnabledInternal(userId));
-            // Stored policy state only. The strength class of a password and a risk acceptance
-            // are not stored, and what is known of them in memory is not printed. The learning
-            // time is stored for every password, strong or not.
-            pw.println("GeneratedPin: "
-                    + mStorage.getBoolean(GENERATED_PIN_KEY, false, userId));
-            pw.println("LearningPeriodRemainingMs: "
-                    + mStorage.getLong(LEARNING_PERIOD_REMAINING_KEY, 0, userId));
+            // Stored policy state only. The strength class of a password, a risk acceptance and
+            // whether a PIN was generated are not printed. The learning time is stored for every
+            // password but only for a generated PIN, so user builds leave it out too.
+            if (Build.IS_DEBUGGABLE) {
+                pw.println("LearningPeriodRemainingMs: "
+                        + mStorage.getLong(LEARNING_PERIOD_REMAINING_KEY, 0, userId));
+            }
             pw.println(TextUtils.formatSimple("Metrics: %s",
                     getUserPasswordMetrics(userId) != null ? "known" : "unknown"));
             pw.decreaseIndent();
