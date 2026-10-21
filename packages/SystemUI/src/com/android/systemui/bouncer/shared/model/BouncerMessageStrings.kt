@@ -342,20 +342,6 @@ object BouncerMessageStrings {
         }
     }
 
-    /**
-     * Replaces [authRequiredAfterPrimaryAuthTimeout] while a newly set passphrase or generated PIN
-     * is asked for daily, for practice. The secondary message is a plural string that takes the
-     * days of practice that are left as "count". Empty for a pattern, which is never practised.
-     */
-    fun authRequiredForDailyPractice(securityMode: AuthenticationMethodModel): BouncerMessagePair {
-        return when (securityMode) {
-            Password ->
-                Pair(passwordDefaultMessage(false), R.string.tally_lock_practice_passphrase)
-            Pin -> Pair(pinDefaultMessage(false), R.string.tally_lock_practice_pin)
-            else -> EmptyMessage
-        }
-    }
-
     fun nonStrongAuthTimeout(
         securityMode: AuthenticationMethodModel,
         fpAuthIsAllowed: Boolean,
