@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ~ Copyright (C) 2006 The Android Open Source Project
+  ~ Copyright (C) 2026 The DiamaneOS Project
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~      http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License
+  -->
+
+<!-- Tally's styles for upstream SystemUI views: flagged overrides of stock styles and new
+     styles with their stock form. -->
+<resources xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Tally: the notification radius is a card's, so Quick Settings dialogs take Tally's dialog
+         radius instead -->
+    <style xmlns:android="http://schemas.android.com/apk/res/android"
+        name="Theme.SystemUI.Dialog.QuickSettings"
+        parent="@style/Theme.SystemUI.QuickSettings"
+        android:featureFlag="de.diamaneos.systemui.tally_shell">
+        <item name="android:dialogCornerRadius">@dimen/tally_radius_l</item>
+        <item name="android:buttonBarPositiveButtonStyle">@style/Widget.Dialog.Button.QuickSettings</item>
+        <item name="android:buttonBarNegativeButtonStyle">@style/Widget.Dialog.Button.QuickSettings</item>
+        <item name="android:buttonBarNeutralButtonStyle">@style/Widget.Dialog.Button.QuickSettings</item>
+    </style>
+
+    <!-- The label of a notification long-press option (notification_2025_info and the other
+         guts layouts): nothing of its own in stock. -->
+    <style name="NotificationGutsOptionLabel" />
+    <!-- Tally: the option's state lamp at the label's end (tally_guts_option_lamp), lit only on
+         the chosen option, whose row is selected. -->
+    <style name="NotificationGutsOptionLabel"
+        android:featureFlag="de.diamaneos.systemui.tally_shell">
+        <item name="android:drawableEnd">@drawable/tally_guts_option_lamp</item>
+        <item name="android:drawablePadding">@dimen/tally_space_s</item>
+    </style>
+
+    <!-- Tally: section headers in the section role (small capitals in the muted colour), on the
+         section type's own line (tally_notification_section_header, whose paddings above and
+         below it SectionHeaderView adds to the minimum height), 4 dp in from the cards' edge. The
+         words are centred on the line from their ascent and descent, as the prototype's line box
+         does. -->
+    <style xmlns:android="http://schemas.android.com/apk/res/android"
+        name="TextAppearance.NotificationSectionHeaderLabel"
+        parent="@android:style/Widget.DeviceDefault.Button.Borderless"
+        android:featureFlag="de.diamaneos.systemui.tally_shell">
+        <item name="android:textAppearance">@style/TextAppearance.Tally.Section</item>
+        <item name="android:textColor">@color/tally_ink_muted</item>
+        <item name="android:lineHeight">@dimen/tally_type_section_line_height</item>
+        <item name="android:minWidth">0dp</item>
+        <item name="android:minHeight">@dimen/tally_type_section_line_height</item>
+        <item name="android:paddingStart">@dimen/tally_notification_section_header_padding_side</item>
+        <item name="android:paddingEnd">@dimen/tally_notification_section_header_padding_side</item>
+        <item name="android:paddingTop">0dp</item>
+        <item name="android:paddingBottom">0dp</item>
+        <item name="android:gravity">start|center_vertical</item>
+        <item name="android:includeFontPadding">false</item>
+        <item name="android:background">?android:attr/selectableItemBackground</item>
+    </style>
+
+    <!-- Tally: the artist in the muted colour, under the title in ink -->
+    <style xmlns:android="http://schemas.android.com/apk/res/android"
+        name="MediaPlayer.Subtitle"
+        parent="MediaPlayer"
+        android:featureFlag="de.diamaneos.systemui.tally_shell">
+        <item name="android:textColor">@color/tally_ink_muted</item>
+    </style>
+</resources>
