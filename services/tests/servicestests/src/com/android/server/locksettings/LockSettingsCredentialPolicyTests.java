@@ -25,9 +25,9 @@ import static com.android.internal.widget.LockPatternUtils.CREDENTIAL_TYPE_NONE;
 import static com.android.internal.widget.LockPatternUtils.CREDENTIAL_TYPE_PASSWORD;
 import static com.android.internal.widget.LockPatternUtils.CREDENTIAL_TYPE_PATTERN;
 import static com.android.internal.widget.LockPatternUtils.CREDENTIAL_TYPE_PIN;
-import static com.android.server.locksettings.LockSettingsService.LEARNING_PERIOD_MS;
-import static com.android.server.locksettings.LockSettingsService.LEARNING_PERIOD_STRONG_AUTH_TIMEOUT_MS;
-import static com.android.server.locksettings.LockSettingsService.WEAKER_CREDENTIAL_RISK_ACCEPTANCE_DURATION_MS;
+import static com.android.server.locksettings.LockCredentialPolicyEnforcer.LEARNING_PERIOD_MS;
+import static com.android.server.locksettings.LockCredentialPolicyEnforcer.LEARNING_PERIOD_STRONG_AUTH_TIMEOUT_MS;
+import static com.android.server.locksettings.LockCredentialPolicyEnforcer.WEAKER_CREDENTIAL_RISK_ACCEPTANCE_DURATION_MS;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -83,6 +83,10 @@ public class LockSettingsCredentialPolicyTests extends BaseLockSettingsServiceTe
         assertThrows(IllegalStateException.class,
                 () -> mService.setLockCredential(credential, savedCredential, userId));
         assertEquals(typeBefore, mService.getCredentialType(userId));
+    }
+
+    private boolean setLearningPeriodRemainingForShell(long remainingMs, int userId) {
+        return mService.mCredentialPolicy.setLearningPeriodRemainingForShell(remainingMs, userId);
     }
 
     @Test
@@ -826,7 +830,7 @@ public class LockSettingsCredentialPolicyTests extends BaseLockSettingsServiceTe
                 PRIMARY_USER_ID));
 
         mInjector.setTimeSinceBoot(setAt.plusDays(3));
-        assertTrue(mService.setLearningPeriodRemainingForShell(sixHours, PRIMARY_USER_ID));
+        assertTrue(setLearningPeriodRemainingForShell(sixHours, PRIMARY_USER_ID));
         assertEquals(sixHours, mService.getLearningPeriodRemainingMillis(PRIMARY_USER_ID));
         assertEquals(Long.toString(sixHours),
                 mStorage.getString(LEARNING_REMAINING_KEY, null, PRIMARY_USER_ID));
@@ -838,15 +842,15 @@ public class LockSettingsCredentialPolicyTests extends BaseLockSettingsServiceTe
                 mService.getLearningPeriodRemainingMillis(PRIMARY_USER_ID));
 
         // Up to the full length, and no further.
-        assertTrue(mService.setLearningPeriodRemainingForShell(LEARNING_PERIOD_MS,
+        assertTrue(setLearningPeriodRemainingForShell(LEARNING_PERIOD_MS,
                 PRIMARY_USER_ID));
         assertEquals(LEARNING_PERIOD_MS,
                 mService.getLearningPeriodRemainingMillis(PRIMARY_USER_ID));
         assertThrows(IllegalArgumentException.class,
-                () -> mService.setLearningPeriodRemainingForShell(LEARNING_PERIOD_MS + 1,
+                () -> setLearningPeriodRemainingForShell(LEARNING_PERIOD_MS + 1,
                         PRIMARY_USER_ID));
         assertThrows(IllegalArgumentException.class,
-                () -> mService.setLearningPeriodRemainingForShell(-1, PRIMARY_USER_ID));
+                () -> setLearningPeriodRemainingForShell(-1, PRIMARY_USER_ID));
         assertEquals(LEARNING_PERIOD_MS,
                 mService.getLearningPeriodRemainingMillis(PRIMARY_USER_ID));
     }
@@ -857,14 +861,14 @@ public class LockSettingsCredentialPolicyTests extends BaseLockSettingsServiceTe
                 PRIMARY_USER_ID));
 
         reset(mStrongAuth);
-        assertTrue(mService.setLearningPeriodRemainingForShell(0, PRIMARY_USER_ID));
+        assertTrue(setLearningPeriodRemainingForShell(0, PRIMARY_USER_ID));
         assertEquals(0, mService.getLearningPeriodRemainingMillis(PRIMARY_USER_ID));
         assertNull(mStorage.getString(LEARNING_REMAINING_KEY, null, PRIMARY_USER_ID));
         verify(mStrongAuth).setStrongAuthTimeoutLimit(0, PRIMARY_USER_ID);
 
         // What is over stays over.
         reset(mStrongAuth);
-        assertFalse(mService.setLearningPeriodRemainingForShell(LEARNING_PERIOD_MS,
+        assertFalse(setLearningPeriodRemainingForShell(LEARNING_PERIOD_MS,
                 PRIMARY_USER_ID));
         assertEquals(0, mService.getLearningPeriodRemainingMillis(PRIMARY_USER_ID));
         assertNull(mStorage.getString(LEARNING_REMAINING_KEY, null, PRIMARY_USER_ID));
@@ -880,7 +884,7 @@ public class LockSettingsCredentialPolicyTests extends BaseLockSettingsServiceTe
 
         // The time is up, and no unlock has noted that yet.
         mInjector.setTimeSinceBoot(setAt.plus(Duration.ofMillis(LEARNING_PERIOD_MS)));
-        assertFalse(mService.setLearningPeriodRemainingForShell(LEARNING_PERIOD_MS,
+        assertFalse(setLearningPeriodRemainingForShell(LEARNING_PERIOD_MS,
                 PRIMARY_USER_ID));
         assertEquals(0, mService.getLearningPeriodRemainingMillis(PRIMARY_USER_ID));
         assertNull(mStorage.getString(LEARNING_REMAINING_KEY, null, PRIMARY_USER_ID));
@@ -889,17 +893,17 @@ public class LockSettingsCredentialPolicyTests extends BaseLockSettingsServiceTe
     @Test
     public void testShellCannotGiveALearningPeriodToACredentialWithoutOne() throws Exception {
         // No credential, a chosen PIN, a pattern.
-        assertFalse(mService.setLearningPeriodRemainingForShell(LEARNING_PERIOD_MS,
+        assertFalse(setLearningPeriodRemainingForShell(LEARNING_PERIOD_MS,
                 MANAGED_PROFILE_USER_ID));
         mService.setWeakerCredentialRiskAccepted(true, PRIMARY_USER_ID);
         assertTrue(mService.setLockCredential(newPin("123456"), nonePassword(),
                 PRIMARY_USER_ID));
-        assertFalse(mService.setLearningPeriodRemainingForShell(LEARNING_PERIOD_MS,
+        assertFalse(setLearningPeriodRemainingForShell(LEARNING_PERIOD_MS,
                 PRIMARY_USER_ID));
         mService.setWeakerCredentialRiskAccepted(true, SECONDARY_USER_ID);
         assertTrue(mService.setLockCredential(newPattern("123654"), nonePassword(),
                 SECONDARY_USER_ID));
-        assertFalse(mService.setLearningPeriodRemainingForShell(LEARNING_PERIOD_MS,
+        assertFalse(setLearningPeriodRemainingForShell(LEARNING_PERIOD_MS,
                 SECONDARY_USER_ID));
 
         assertNull(mStorage.getString(LEARNING_REMAINING_KEY, null, MANAGED_PROFILE_USER_ID));
@@ -918,8 +922,8 @@ public class LockSettingsCredentialPolicyTests extends BaseLockSettingsServiceTe
         assertTrue(mService.setLockCredential(newPassword("password"), nonePassword(),
                 SECONDARY_USER_ID));
 
-        assertTrue(mService.setLearningPeriodRemainingForShell(sixHours, PRIMARY_USER_ID));
-        assertTrue(mService.setLearningPeriodRemainingForShell(sixHours, SECONDARY_USER_ID));
+        assertTrue(setLearningPeriodRemainingForShell(sixHours, PRIMARY_USER_ID));
+        assertTrue(setLearningPeriodRemainingForShell(sixHours, SECONDARY_USER_ID));
 
         // Stored alike, but a weaker password is not asked for more often.
         assertSamePolicyStateStored(PRIMARY_USER_ID, SECONDARY_USER_ID);
@@ -1050,7 +1054,7 @@ public class LockSettingsCredentialPolicyTests extends BaseLockSettingsServiceTe
         mStorage.setBoolean(LEGACY_RISK_ACCEPTED_KEY, true, PRIMARY_USER_ID);
         mStorage.setBoolean(LEGACY_RISK_ACCEPTED_KEY, true, SECONDARY_USER_ID);
 
-        mService.removeLegacyCredentialPolicyState();
+        mService.mCredentialPolicy.removeLegacyCredentialPolicyState();
 
         assertNull(mStorage.getString(LEGACY_STRENGTH_KEY, null, PRIMARY_USER_ID));
         assertNull(mStorage.getString(LEGACY_RISK_ACCEPTED_KEY, null, PRIMARY_USER_ID));
