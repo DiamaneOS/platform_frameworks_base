@@ -2412,6 +2412,7 @@ public class LockSettingsService extends ILockSettings.Stub {
     @Override
     public LockscreenCredential generateStrongPin(int length, int userId) {
         checkWritePermission();
+        LockCredentialPolicyEnforcer.checkGeneratedPinLength(length);
         final long identity = Binder.clearCallingIdentity();
         try {
             return mCredentialPolicy.generateStrongPin(length, userId);
