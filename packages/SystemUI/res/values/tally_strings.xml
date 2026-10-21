@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ~ Copyright (c) 2009, The Android Open Source Project
+  ~ Copyright (C) 2026 The DiamaneOS Project
+  ~
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~
+  ~      http://www.apache.org/licenses/LICENSE-2.0
+  ~
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License
+  -->
+
+<!-- Tally's strings for upstream SystemUI views, and the flagged fallback clock id. -->
+<resources xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Tally: section title for what is going on now: live updates, calls and ongoing
+         foreground services. [CHAR LIMIT=40] -->
+    <string name="notification_section_header_live">Live</string>
+
+    <!-- Tally: name of the default wallpaper in Wallpaper & style: stone-coloured paper with a
+         fine grain, light or dark with the theme. [CHAR LIMIT=30] -->
+    <string name="tally_wallpaper_label">Paper</string>
+
+    <!-- Tally: the Tally lock clock (TallyClocks.TALLY_CLOCK_ID in the shared clock library) -->
+    <string xmlns:android="http://schemas.android.com/apk/res/android"
+        name="lockscreen_clock_id_fallback" translatable="false"
+        android:featureFlag="de.diamaneos.systemui.tally_shell">TALLY</string>
+</resources>

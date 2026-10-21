@@ -1911,14 +1911,6 @@
     <!-- Section title for highlighted notifications. [CHAR LIMIT=40] -->
     <string name="notification_section_header_highlights">Highlights</string>
 
-    <!-- Tally: section title for what is going on now: live updates, calls and ongoing
-         foreground services. [CHAR LIMIT=40] -->
-    <string name="notification_section_header_live">Live</string>
-
-    <!-- Tally: name of the default wallpaper in Wallpaper & style: stone-coloured paper with a
-         fine grain, light or dark with the theme. [CHAR LIMIT=30] -->
-    <string name="tally_wallpaper_label">Paper</string>
-
     <!-- Content description for accessibility: Tapping this button will dismiss all gentle notifications [CHAR LIMIT=NONE] -->
     <string name="accessibility_notification_section_header_gentle_clear_all">Clear all silent notifications</string>
 
@@ -3372,10 +3364,6 @@
 
     <!-- ClockId to use when none is set by user -->
     <string name="lockscreen_clock_id_fallback" translatable="false">DEFAULT</string>
-    <!-- Tally: the Tally lock clock (TallyClocks.TALLY_CLOCK_ID in the shared clock library) -->
-    <string xmlns:android="http://schemas.android.com/apk/res/android"
-        name="lockscreen_clock_id_fallback" translatable="false"
-        android:featureFlag="de.diamaneos.systemui.tally_shell">TALLY</string>
 
     <!-- SysUI Tuner: Format string for describing launching an app [CHAR LIMIT=60] -->
     <string name="tuner_launch_app">Launch <xliff:g id="app" example="Settings">%1$s</xliff:g></string>
