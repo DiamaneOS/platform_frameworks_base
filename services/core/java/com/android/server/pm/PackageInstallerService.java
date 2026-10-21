@@ -1036,6 +1036,13 @@ public class PackageInstallerService extends IPackageInstaller.Stub implements
                     throw new IllegalArgumentException("Invalid install mode: " + params.mode);
             }
 
+            // DiamaneOS: apps stay on internal storage, for every caller and flag. Adopted
+            // volumes are media only.
+            if (params.volumeUuid != null && !android.os.storage.VolumeInfo.ID_PRIVATE_INTERNAL
+                    .equals(params.volumeUuid)) {
+                throw new IllegalArgumentException("Apps stay on internal storage");
+            }
+
             // If caller requested explicit location, validity check it, otherwise
             // resolve the best internal or adopted location.
             if ((params.installFlags & PackageManager.INSTALL_INTERNAL) != 0) {
@@ -1046,11 +1053,6 @@ public class PackageInstallerService extends IPackageInstaller.Stub implements
                 // For now, installs to adopted media are treated as internal from
                 // an install flag point-of-view.
                 params.installFlags |= PackageManager.INSTALL_INTERNAL;
-                // DiamaneOS: apps stay on internal storage. Adopted volumes are media only.
-                if (params.volumeUuid != null && !android.os.storage.VolumeInfo.ID_PRIVATE_INTERNAL
-                        .equals(params.volumeUuid)) {
-                    throw new IllegalArgumentException("Apps stay on internal storage");
-                }
                 // Check if volumeUuid value is valid, else fail.
                 try {
                     StorageManager.convert(params.volumeUuid);
