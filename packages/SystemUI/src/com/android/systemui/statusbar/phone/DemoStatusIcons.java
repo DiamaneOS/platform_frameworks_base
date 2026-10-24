@@ -287,6 +287,7 @@ public class DemoStatusIcons extends StatusIconContainer implements DemoMode, Da
                     );
             ModernStatusBarMobileView view = viewAndJob.getFirst();
             mBindingJobs.put(subId, viewAndJob.getSecond());
+            applyColors(view);
             // mobile always goes at the end
             mModernMobileViews.add(view);
             addView(view, getChildCount(), createLayoutParams());
@@ -298,6 +299,7 @@ public class DemoStatusIcons extends StatusIconContainer implements DemoMode, Da
                             "mobile",
                             mMobileIconsViewModel.get().viewModelForSub(subId, mLocation)
                     );
+            applyColors(view);
 
             // mobile always goes at the end
             mModernMobileViews.add(view);
@@ -324,7 +326,7 @@ public class DemoStatusIcons extends StatusIconContainer implements DemoMode, Da
         }
 
         mModernWifiView = view;
-        mModernWifiView.setStaticDrawableColor(mColor, mContrastColor);
+        applyColors(mModernWifiView);
         addView(view, viewIndex, createLayoutParams());
     }
 
@@ -334,7 +336,15 @@ public class DemoStatusIcons extends StatusIconContainer implements DemoMode, Da
         // existing icon for the slot. But since we hope to remove this class soon, we won't spend
         // the time adding that logic.
         ModernStatusBarView view = holder.getInitializer().createAndBind(mContext);
+        applyColors(view);
         addView(view, createLayoutParams());
+    }
+
+    // DiamaneOS: views added after the last dark change kept the default light tint, so the
+    // demo's mobile icon was white on a light status bar.
+    private void applyColors(StatusIconDisplayable view) {
+        view.setStaticDrawableColor(mColor, mContrastColor);
+        view.setDecorColor(mColor);
     }
 
     public void onRemoveIcon(StatusIconDisplayable view) {
