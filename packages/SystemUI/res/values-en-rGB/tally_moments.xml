@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copyright (C) 2026 The DiamaneOS Project
+  SPDX-License-Identifier: Apache-2.0
+
+  The values/tally_moments.xml toasts that name airplane mode, in the spelling of SystemUI's
+  status_bar_airplane for this locale ("Aeroplane mode"). The others stay as in values/.
+-->
+<resources>
+    <string name="tally_moments_toast_airplane_on">"Aeroplane mode on"</string>
+    <string name="tally_moments_toast_airplane_off">"Aeroplane mode off"</string>
+</resources>
