@@ -31,10 +31,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.hardware.usb.UsbManager;
 import android.hardware.usb.UsbPort;
 import android.hardware.usb.UsbPortStatus;
 import android.os.BatteryManager;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.PowerManager;
 import android.os.PowerSaveState;
@@ -48,6 +50,7 @@ import com.android.settingslib.fuelgauge.BatterySaverUtils;
 import com.android.systemui.SysuiTestCase;
 import com.android.systemui.animation.Expandable;
 import com.android.systemui.broadcast.BroadcastDispatcher;
+import com.android.systemui.demomode.DemoMode;
 import com.android.systemui.demomode.DemoModeController;
 import com.android.systemui.dump.DumpManager;
 import com.android.systemui.power.EnhancedEstimates;
@@ -344,6 +347,29 @@ public class BatteryControllerTest extends SysuiTestCase {
         assertThat(callback.powerSaverOn).isTrue();
     }
 
+    @Test
+    public void demoModeFinished_readsTheRealBatteryBack() {
+        Intent sticky = getContext().registerReceiver(null,
+                new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        int realLevel = (int) (100f * sticky.getIntExtra(BatteryManager.EXTRA_LEVEL, 0)
+                / sticky.getIntExtra(BatteryManager.EXTRA_SCALE, 100));
+        boolean realPluggedIn = sticky.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0;
+        when(mDemoModeController.isInDemoMode()).thenReturn(true);
+        mBatteryController.onDemoModeStarted();
+        Bundle args = new Bundle();
+        args.putString("level", realLevel == 100 ? "1" : "100");
+        args.putString("plugged", Boolean.toString(!realPluggedIn));
+        mBatteryController.dispatchDemoCommand(DemoMode.COMMAND_BATTERY, args);
+        TestCallback callback = new TestCallback();
+        mBatteryController.addCallback(callback);
+
+        when(mDemoModeController.isInDemoMode()).thenReturn(false);
+        mBatteryController.onDemoModeFinished();
+
+        assertThat(callback.level).isEqualTo(realLevel);
+        assertThat(callback.pluggedIn).isEqualTo(realPluggedIn);
+    }
+
     private Intent createChargingIntent(boolean charging) {
         Intent intent = new Intent(Intent.ACTION_BATTERY_CHANGED);
         if (charging) {
@@ -369,10 +395,12 @@ public class BatteryControllerTest extends SysuiTestCase {
 
     private static class TestCallback
         implements BatteryController.BatteryStateChangeCallback {
+        int level = -1;
         boolean pluggedIn = false;
         boolean powerSaverOn = false;
         @Override
         public void onBatteryLevelChanged(int level, boolean pluggedIn, boolean charging) {
+            this.level = level;
             this.pluggedIn = pluggedIn;
         }
 
