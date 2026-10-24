@@ -54,14 +54,14 @@ import javax.inject.Inject;
 
 /**
  * Offers Auditor in a notification when the primary user finishes setup, and again after each
- * restart until the user taps it or swipes it away. Tapping it opens Auditor's add-this-phone
- * screen. Nothing opens by itself. The Setup Wizard cannot post it: it disables itself at the end,
- * and that removes its notifications.
+ * restart until the user taps it, swipes it away or pairs the phone in Auditor. Tapping it opens
+ * Auditor's add-this-phone screen. Nothing opens by itself. The Setup Wizard cannot post it: it
+ * disables itself at the end, and that removes its notifications.
  */
 @SysUISingleton
 public class AuditorSetupNotice implements CoreStartable {
     private static final String TAG = "AuditorSetupNotice";
-    private static final String AUDITOR = "de.diamaneos.auditor";
+    private static final String AUDITOR = AuditorSetupTrigger.AUDITOR;
     private static final String ACTION_ADD_THIS_PHONE =
             "de.diamaneos.auditor.action.ADD_THIS_PHONE";
     private static final String ACTION_DISMISSED =
@@ -103,6 +103,18 @@ public class AuditorSetupNotice implements CoreStartable {
             if (reason == REASON_CLICK && isNotice(entry.getSbn())) {
                 mBgExecutor.execute(AuditorSetupNotice.this::onUserDone);
             }
+        }
+
+        // Auditor posts this after each successful remote pairing or verification, also for a
+        // phone paired before the notice was offered. Only Auditor can post as its package.
+        @Override
+        public void onEntryAdded(NotificationEntry entry) {
+            onAuditorNotification(entry.getSbn());
+        }
+
+        @Override
+        public void onEntryUpdated(NotificationEntry entry) {
+            onAuditorNotification(entry.getSbn());
         }
     };
 
@@ -152,6 +164,21 @@ public class AuditorSetupNotice implements CoreStartable {
         return mContext.getPackageName().equals(sbn.getPackageName())
                 && NOTICE_TAG.equals(sbn.getTag()) && sbn.getId() == NOTICE_ID
                 && UserHandle.SYSTEM.equals(sbn.getUser());
+    }
+
+    private void onAuditorNotification(StatusBarNotification sbn) {
+        if (UserHandle.SYSTEM.equals(sbn.getUser()) && AuditorSetupTrigger.isRemoteVerified(
+                sbn.getPackageName(), sbn.getNotification().getChannelId())) {
+            mBgExecutor.execute(this::onPaired);
+        }
+    }
+
+    private void onPaired() {
+        if (!mTrigger.onUserDone()) return;
+        saveState();
+        mContext.getSystemService(NotificationManager.class)
+                .cancelAsUser(NOTICE_TAG, NOTICE_ID, UserHandle.SYSTEM);
+        Log.i(TAG, "notice done, the phone is paired in Auditor");
     }
 
     private void onSetupChanged() {

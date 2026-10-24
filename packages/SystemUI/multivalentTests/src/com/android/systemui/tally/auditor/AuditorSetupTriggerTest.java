@@ -84,6 +84,17 @@ public class AuditorSetupTriggerTest {
     }
 
     @Test
+    public void onlyAuditorsSuccessNoteCountsAsPaired() {
+        assertTrue(AuditorSetupTrigger.isRemoteVerified("de.diamaneos.auditor",
+                "remote_verification"));
+        assertFalse(AuditorSetupTrigger.isRemoteVerified("de.diamaneos.auditor",
+                "remote_verification_failure_2"));
+        assertFalse(AuditorSetupTrigger.isRemoteVerified("app.attestation.auditor",
+                "remote_verification"));
+        assertFalse(AuditorSetupTrigger.isRemoteVerified("de.diamaneos.auditor", null));
+    }
+
+    @Test
     public void nothingBeforeStart() {
         final AuditorSetupTrigger trigger = new AuditorSetupTrigger();
         assertFalse(trigger.onSetupChanged(true));
