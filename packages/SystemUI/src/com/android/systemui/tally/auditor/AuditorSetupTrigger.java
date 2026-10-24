@@ -18,10 +18,14 @@ package com.android.systemui.tally.auditor;
 
 /**
  * When to offer Auditor: when the primary user's setup finishes while SystemUI runs, and again at
- * each start until the user taps the notice or swipes it away. A boot that starts with setup done
- * and nothing offered (normal boots, updates) never offers it.
+ * each start until the user taps the notice, swipes it away or pairs the phone in Auditor. A boot
+ * that starts with setup done and nothing offered (normal boots, updates) never offers it.
  */
 final class AuditorSetupTrigger {
+    static final String AUDITOR = "de.diamaneos.auditor";
+    // Auditor's RemoteVerifyJob NOTIFICATION_CHANNEL_SUCCESS_ID. Keep it in step on rebases.
+    static final String REMOTE_VERIFIED_CHANNEL = "remote_verification";
+
     /** Stored states. A factory reset clears them, so the next setup offers Auditor again. */
     static final int NEW = 0;
     static final int OFFERED = 1;
@@ -48,7 +52,10 @@ final class AuditorSetupTrigger {
         return true;
     }
 
-    /** The user tapped or swiped away the notice. Returns whether the state became DONE. */
+    /**
+     * The user tapped or swiped away the notice, or paired the phone in Auditor. Returns whether
+     * the state became DONE.
+     */
     boolean onUserDone() {
         if (mState != OFFERED) return false;
         mState = DONE;
@@ -57,5 +64,10 @@ final class AuditorSetupTrigger {
 
     int state() {
         return mState;
+    }
+
+    /** Whether a notification is Auditor's note of a successful remote pairing or verification. */
+    static boolean isRemoteVerified(String packageName, String channelId) {
+        return AUDITOR.equals(packageName) && REMOTE_VERIFIED_CHANNEL.equals(channelId);
     }
 }
