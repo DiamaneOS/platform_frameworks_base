@@ -290,11 +290,7 @@ public class BatteryControllerImpl extends BroadcastReceiver implements BatteryC
         } else if (action.equals(PowerManager.ACTION_POWER_SAVE_MODE_CHANGED)) {
             updatePowerSave();
         } else if (action.equals(UsbManager.ACTION_USB_PORT_COMPLIANCE_CHANGED)) {
-            boolean isIncompatibleCharging = Utils.containsIncompatibleChargers(mContext, TAG);
-            if (isIncompatibleCharging != mIsIncompatibleCharging) {
-                mIsIncompatibleCharging = isIncompatibleCharging;
-                fireIsIncompatibleChargingChanged();
-            }
+            updateIncompatibleCharging();
         } else if (action.equals(ACTION_LEVEL_TEST)) {
             mLogger.logEnterTestMode();
             mTestMode = true;
@@ -561,6 +557,22 @@ public class BatteryControllerImpl extends BroadcastReceiver implements BatteryC
     public void onDemoModeFinished() {
         registerReceiver();
         updatePowerSave();
+        // DiamaneOS: the dispatcher does not replay the sticky ACTION_BATTERY_CHANGED, so the
+        // demo's battery stayed until the next real change, such as a replug.
+        Intent intent = mContext.registerReceiver(null,
+                new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        if (intent != null) {
+            onReceive(mContext, intent);
+        }
+        updateIncompatibleCharging();
+    }
+
+    private void updateIncompatibleCharging() {
+        boolean isIncompatibleCharging = Utils.containsIncompatibleChargers(mContext, TAG);
+        if (isIncompatibleCharging != mIsIncompatibleCharging) {
+            mIsIncompatibleCharging = isIncompatibleCharging;
+            fireIsIncompatibleChargingChanged();
+        }
     }
 
     @Override
