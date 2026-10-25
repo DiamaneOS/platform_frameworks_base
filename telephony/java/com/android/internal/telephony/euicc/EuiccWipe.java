@@ -1,6 +1,7 @@
 package com.android.internal.telephony.euicc;
 
 import android.content.Context;
+import android.telephony.SubscriptionInfo;
 import android.telephony.TelephonyManager;
 import android.telephony.UiccSlotInfo;
 import android.telephony.euicc.EuiccCardManager;
@@ -11,12 +12,18 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 public class EuiccWipe {
     static final String TAG = EuiccWipe.class.getSimpleName();
 
     public static boolean run(Context ctx, int flags) {
+        return run(ctx, flags, 0);
+    }
+
+    /** DiamaneOS: as {@link #run(Context, int)}, giving up after timeoutMillis if above 0. */
+    public static boolean run(Context ctx, int flags, long timeoutMillis) {
         Log.d(TAG, "start");
 
         var telephonyManager = ctx.getSystemService(TelephonyManager.class);
@@ -37,7 +44,8 @@ public class EuiccWipe {
             return false;
         }
 
-        Executor callbackExecutor = Executors.newSingleThreadExecutor();
+        // DiamaneOS: the callback only completes a future. A thread per call would stay idle.
+        Executor callbackExecutor = Runnable::run;
         ArrayList<CompletableFuture<Integer>> futures = new ArrayList<>();
 
         for (UiccSlotInfo usi : usiArr) {
@@ -53,7 +61,8 @@ public class EuiccWipe {
             var cb = new EuiccCardManager.ResultCallback<Void>() {
                 @Override
                 public void onComplete(int resultCode, Void result) {
-                    Log.d(TAG, "onComplete: cardId " + cardId + " resultCode " + resultCode);
+                    Log.d(TAG, "onComplete: cardId " + SubscriptionInfo.getPrintableId(cardId)
+                            + " resultCode " + resultCode);
                     future.complete(resultCode);
                 }
             };
@@ -65,13 +74,22 @@ public class EuiccWipe {
             futures.add(future);
         }
 
+        if (futures.isEmpty()) {
+            Log.d(TAG, "no eUICC found");
+            return false;
+        }
+
         CompletableFuture<Void> allFutures = CompletableFuture.allOf(
                 futures.toArray(new CompletableFuture[0]));
 
         // await completion
         try {
-            allFutures.get();
-        } catch (InterruptedException | ExecutionException e) {
+            if (timeoutMillis > 0) {
+                allFutures.get(timeoutMillis, TimeUnit.MILLISECONDS);
+            } else {
+                allFutures.get();
+            }
+        } catch (InterruptedException | ExecutionException | TimeoutException e) {
             Log.e(TAG, "", e);
             return false;
         }

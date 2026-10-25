@@ -18,6 +18,7 @@ package android.os;
 
 import static android.view.Display.DEFAULT_DISPLAY;
 
+import android.Manifest;
 import android.annotation.FlaggedApi;
 import android.annotation.IntDef;
 import android.annotation.NonNull;
@@ -36,9 +37,11 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.IntentSender;
 import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
 import android.hardware.display.DisplayManager;
 import android.os.image.DynamicSystemManager;
 import android.provider.Settings;
+import android.service.euicc.EuiccService;
 import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
 import android.telephony.euicc.EuiccManager;
@@ -46,6 +49,8 @@ import android.text.TextUtils;
 import android.text.format.DateFormat;
 import android.util.Log;
 import android.view.Display;
+
+import com.android.internal.telephony.euicc.EuiccWipe;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -1003,6 +1008,23 @@ public class RecoverySystem {
      */
     public static boolean wipeEuiccData(Context context, final String packageName) {
         ContentResolver cr = context.getContentResolver();
+        EuiccManager euiccManager = (EuiccManager) context.getSystemService(
+                Context.EUICC_SERVICE);
+        if (euiccManager != null && euiccManager.isEnabled() && !hasEuiccService(context)) {
+            // DiamaneOS: with eSIM support off no eSIM manager takes the request, and the
+            // provisioned flag below misses eSIMs kept from before. Reset the chip directly, as
+            // the duress wipe does, but without its duress flag.
+            boolean wiped;
+            try {
+                wiped = EuiccWipe.run(context, 0 /* flags */,
+                        getEuiccFactoryResetTimeoutMillis(cr));
+            } catch (RuntimeException e) {
+                Log.e(TAG, "Error wiping eUICC data without an eSIM manager", e);
+                wiped = false;
+            }
+            Log.d(TAG, "Wiped eUICC data without an eSIM manager: " + wiped);
+            return wiped;
+        }
         if (Settings.Global.getInt(cr, Settings.Global.EUICC_PROVISIONED, 0) == 0) {
             // If the eUICC isn't provisioned, there's no reason to either wipe or retain profiles,
             // as there's nothing to wipe nor retain.
@@ -1010,8 +1032,6 @@ public class RecoverySystem {
             return true;
         }
 
-        EuiccManager euiccManager = (EuiccManager) context.getSystemService(
-                Context.EUICC_SERVICE);
         if (euiccManager != null && euiccManager.isEnabled()) {
             CountDownLatch euiccFactoryResetLatch = new CountDownLatch(1);
             final AtomicBoolean wipingSucceeded = new AtomicBoolean(false);
@@ -1051,15 +1071,7 @@ public class RecoverySystem {
                     .registerReceiver(euiccWipeFinishReceiver, filterConsent, null, euiccHandler);
             euiccManager.eraseSubscriptions(callbackIntent);
             try {
-                long waitingTimeMillis = Settings.Global.getLong(
-                        context.getContentResolver(),
-                        Settings.Global.EUICC_FACTORY_RESET_TIMEOUT_MILLIS,
-                        DEFAULT_EUICC_FACTORY_RESET_TIMEOUT_MILLIS);
-                if (waitingTimeMillis < MIN_EUICC_FACTORY_RESET_TIMEOUT_MILLIS) {
-                    waitingTimeMillis = MIN_EUICC_FACTORY_RESET_TIMEOUT_MILLIS;
-                } else if (waitingTimeMillis > MAX_EUICC_FACTORY_RESET_TIMEOUT_MILLIS) {
-                    waitingTimeMillis = MAX_EUICC_FACTORY_RESET_TIMEOUT_MILLIS;
-                }
+                long waitingTimeMillis = getEuiccFactoryResetTimeoutMillis(cr);
                 if (!euiccFactoryResetLatch.await(waitingTimeMillis, TimeUnit.MILLISECONDS)) {
                     Log.e(TAG, "Timeout wiping eUICC data.");
                     return false;
@@ -1072,6 +1084,37 @@ public class RecoverySystem {
                 context.getApplicationContext().unregisterReceiver(euiccWipeFinishReceiver);
             }
             return wipingSucceeded.get();
+        }
+        return false;
+    }
+
+    private static long getEuiccFactoryResetTimeoutMillis(ContentResolver cr) {
+        long waitingTimeMillis = Settings.Global.getLong(cr,
+                Settings.Global.EUICC_FACTORY_RESET_TIMEOUT_MILLIS,
+                DEFAULT_EUICC_FACTORY_RESET_TIMEOUT_MILLIS);
+        if (waitingTimeMillis < MIN_EUICC_FACTORY_RESET_TIMEOUT_MILLIS) {
+            waitingTimeMillis = MIN_EUICC_FACTORY_RESET_TIMEOUT_MILLIS;
+        } else if (waitingTimeMillis > MAX_EUICC_FACTORY_RESET_TIMEOUT_MILLIS) {
+            waitingTimeMillis = MAX_EUICC_FACTORY_RESET_TIMEOUT_MILLIS;
+        }
+        return waitingTimeMillis;
+    }
+
+    /** DiamaneOS: whether an eSIM manager can take requests, by EuiccConnector's checks. */
+    private static boolean hasEuiccService(Context context) {
+        final PackageManager pm = context.getPackageManager();
+        final List<ResolveInfo> services = pm.queryIntentServices(
+                new Intent(EuiccService.EUICC_SERVICE_INTERFACE),
+                PackageManager.MATCH_SYSTEM_ONLY | PackageManager.MATCH_DIRECT_BOOT_AUTO
+                        | PackageManager.GET_RESOLVED_FILTER);
+        for (ResolveInfo info : services) {
+            if (info.serviceInfo != null
+                    && Manifest.permission.BIND_EUICC_SERVICE.equals(info.serviceInfo.permission)
+                    && info.filter != null && info.filter.getPriority() != 0
+                    && pm.checkPermission(Manifest.permission.WRITE_EMBEDDED_SUBSCRIPTIONS,
+                            info.serviceInfo.packageName) == PackageManager.PERMISSION_GRANTED) {
+                return true;
+            }
         }
         return false;
     }
