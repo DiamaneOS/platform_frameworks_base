@@ -224,4 +224,10 @@ interface ISystemUiProxy {
      * shell is on.
      */
     oneway void stopApp(String packageName, int userId) = 1001;
+
+    /**
+     * Turns the screen off for Home's double tap, as a press of the power button does, so the
+     * phone locks as the power button would lock it. Does nothing unless the Tally shell is on.
+     */
+    oneway void goToSleep() = 1002;
 }

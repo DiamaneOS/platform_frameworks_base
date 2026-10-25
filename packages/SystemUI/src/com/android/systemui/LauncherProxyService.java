@@ -64,6 +64,7 @@ import android.os.IBinder;
 import android.os.IRemoteCallback;
 import android.os.Looper;
 import android.os.PatternMatcher;
+import android.os.PowerManager;
 import android.os.RemoteException;
 import android.os.SystemClock;
 import android.os.Trace;
@@ -518,6 +519,17 @@ public class LauncherProxyService implements CallbackController<LauncherProxyLis
             final int callingUid = Binder.getCallingUid();
             verifyCallerAndClearCallingIdentity("stopApp", () ->
                     mTallyRecentsStop.get().stopApp(packageName, userId, callingUid));
+        }
+
+        @Override
+        public void goToSleep() {
+            if (!TallyShell.isEnabled()) {
+                return;
+            }
+            verifyCallerAndClearCallingIdentityPostMain("goToSleep", () ->
+                    mContext.getSystemService(PowerManager.class).goToSleep(
+                            SystemClock.uptimeMillis(),
+                            PowerManager.GO_TO_SLEEP_REASON_POWER_BUTTON, 0 /* flags */));
         }
 
         private boolean verifyCaller(String reason) {
