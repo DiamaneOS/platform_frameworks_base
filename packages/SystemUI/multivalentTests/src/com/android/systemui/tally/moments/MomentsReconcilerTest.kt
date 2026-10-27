@@ -292,6 +292,26 @@ class MomentsReconcilerTest : SysuiTestCase() {
     }
 
     @Test
+    fun lockdown_isHeldWhileTheSwitchIsOn() {
+        val r = reconciler()
+        val action = Secure.MOMENTS_ACTION_LOCKDOWN
+        assertThat(r.holdsLockdown(USER, on = true)).isFalse()
+
+        r.reconcile(USER, inputs(on = true, action = action))
+        assertThat(r.holdsLockdown(USER, on = true)).isTrue()
+        // The position is read live: moved back, it holds nothing, even before the reconcile.
+        assertThat(r.holdsLockdown(USER, on = false)).isFalse()
+        assertThat(r.holdsLockdown(USER, on = null)).isFalse()
+        assertThat(r.holdsLockdown(OTHER_USER, on = true)).isFalse()
+
+        r.reconcile(USER, inputs(on = false, action = action))
+        assertThat(r.holdsLockdown(USER, on = true)).isFalse()
+
+        r.reconcile(USER, inputs(on = true, action = Secure.MOMENTS_ACTION_SILENT))
+        assertThat(r.holdsLockdown(USER, on = true)).isFalse()
+    }
+
+    @Test
     fun airplane_isItsOwnAction() {
         val r = reconciler()
         val action = Secure.MOMENTS_ACTION_AIRPLANE
