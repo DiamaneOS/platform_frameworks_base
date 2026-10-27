@@ -42,30 +42,37 @@ interface Vote {
     // default vote ranks lower, so any other vote that conflicts wins.
     int PRIORITY_BRIGHTNESS_RAMP = 1;
 
+    // PRIORITY_SCREEN_ON_MIN_RENDER_FRAME_RATE votes [config_screenOnMinRefreshRate, inf] while an
+    // internal display is on, outside battery saver, so content that starts moving without a touch
+    // does not begin at the panel's lowest rate. Above the brightness ramp, so a vote that rules
+    // out the ramp's rate drops the ramp first and keeps this lower floor. Every other vote that
+    // conflicts wins.
+    int PRIORITY_SCREEN_ON_MIN_RENDER_FRAME_RATE = 2;
+
     // PRIORITY_FLICKER_REFRESH_RATE votes for a single refresh rate like [60,60], [90,90] or
     // null. It is used to set a preferred refresh rate value in case the higher priority votes
     // result is a range.
-    static final int PRIORITY_FLICKER_REFRESH_RATE = 2;
+    static final int PRIORITY_FLICKER_REFRESH_RATE = 3;
 
     // High-brightness-mode may need a specific range of refresh-rates to function properly.
-    int PRIORITY_HIGH_BRIGHTNESS_MODE = 3;
+    int PRIORITY_HIGH_BRIGHTNESS_MODE = 4;
 
     // SETTING_MIN_RENDER_FRAME_RATE is used to propose a lower bound of the render frame rate.
     // It votes [minRefreshRate, Float.POSITIVE_INFINITY]
-    int PRIORITY_USER_SETTING_MIN_RENDER_FRAME_RATE = 4;
+    int PRIORITY_USER_SETTING_MIN_RENDER_FRAME_RATE = 5;
 
     // Restrict displays allowed HDR mode (HDR+SDR / SDR-only).
-    int PRIORITY_USER_SETTING_HDR_MODE = 5;
+    int PRIORITY_USER_SETTING_HDR_MODE = 6;
 
     // User setting preferred display mode
-    int PRIORITY_USER_SETTING_DISPLAY_PREFERRED_OPTIONS = 6;
+    int PRIORITY_USER_SETTING_DISPLAY_PREFERRED_OPTIONS = 7;
 
     // APP_REQUEST_RENDER_FRAME_RATE_RANGE is used to for internal apps to limit the render
     // frame rate in certain cases, mostly to preserve power.
     // @see android.view.WindowManager.LayoutParams#preferredMinRefreshRate
     // @see android.view.WindowManager.LayoutParams#preferredMaxRefreshRate
     // It votes to [preferredMinRefreshRate, preferredMaxRefreshRate].
-    int PRIORITY_APP_REQUEST_RENDER_FRAME_RATE_RANGE = 7;
+    int PRIORITY_APP_REQUEST_RENDER_FRAME_RATE_RANGE = 8;
 
     // We split the app request into different priorities in case we can satisfy one desire
     // without the other.
@@ -91,81 +98,82 @@ interface Vote {
     // The preferred refresh rate is set on the main surface of the app outside of
     // DisplayModeDirector.
     // @see com.android.server.wm.WindowState#updateFrameRateSelectionPriorityIfNeeded
-    int PRIORITY_APP_REQUEST_BASE_MODE_REFRESH_RATE = 8;
+    int PRIORITY_APP_REQUEST_BASE_MODE_REFRESH_RATE = 9;
 
-    int PRIORITY_APP_REQUEST_SIZE = 9;
+    int PRIORITY_APP_REQUEST_SIZE = 10;
 
     // PRIORITY_REJECTED_MODES rejects the modes for which the mode config failed
     // so that the modeset can be retried for next available mode after filtering
     // out the rejected modes for the connected display
-    int PRIORITY_REJECTED_MODES = 10;
+    int PRIORITY_REJECTED_MODES = 11;
 
     // PRIORITY_USER_SETTING_PEAK_REFRESH_RATE restricts physical refresh rate to
     // [0, max(PEAK, MIN)], depending on user settings peakRR/minRR values
-    int PRIORITY_USER_SETTING_PEAK_REFRESH_RATE = 11;
+    int PRIORITY_USER_SETTING_PEAK_REFRESH_RATE = 12;
 
     // PRIORITY_USER_SETTING_PEAK_RENDER_FRAME_RATE has a higher priority than
     // PRIORITY_USER_SETTING_PEAK_REFRESH_RATE and will limit render rate to [0, max(PEAK, MIN)]
     // in case physical refresh rate vote is discarded (due to other high priority votes),
     // render rate vote can still apply
-    int PRIORITY_USER_SETTING_PEAK_RENDER_FRAME_RATE = 12;
+    int PRIORITY_USER_SETTING_PEAK_RENDER_FRAME_RATE = 13;
 
     // Restrict all displays physical refresh rate to 60Hz when external display is connected.
     // It votes [59Hz, 61Hz].
-    int PRIORITY_SYNCHRONIZED_REFRESH_RATE = 13;
+    int PRIORITY_SYNCHRONIZED_REFRESH_RATE = 14;
 
     // PRIORITY_SYNCHRONIZED_RENDER_FRAME_RATE has a higher priority than
     // PRIORITY_SYNCHRONIZED_REFRESH_RATE and will limit render rate to [59Hz, 61Hz].
     // In case physical refresh rate vote discarded (due to physical refresh rate not supported),
     // render rate vote can still apply.
-    int PRIORITY_SYNCHRONIZED_RENDER_FRAME_RATE = 14;
+    int PRIORITY_SYNCHRONIZED_RENDER_FRAME_RATE = 15;
 
     // Restrict displays max available resolution and refresh rates. It votes [0, LIMIT]
-    int PRIORITY_LIMIT_MODE = 15;
+    int PRIORITY_LIMIT_MODE = 16;
 
     // To avoid delay in switching between 60HZ -> 90HZ when activating LHBM, set refresh
     // rate to max value (same as for PRIORITY_UDFPS) on lock screen
-    int PRIORITY_AUTH_OPTIMIZER_RENDER_FRAME_RATE = 16;
+    int PRIORITY_AUTH_OPTIMIZER_RENDER_FRAME_RATE = 17;
 
     // For concurrent displays we want to limit refresh rate on all displays
-    int PRIORITY_LAYOUT_LIMITED_REFRESH_RATE = 17;
+    int PRIORITY_LAYOUT_LIMITED_REFRESH_RATE = 18;
 
     // For concurrent displays we want to limit refresh rate on all displays
-    int PRIORITY_LAYOUT_LIMITED_FRAME_RATE = 18;
+    int PRIORITY_LAYOUT_LIMITED_FRAME_RATE = 19;
 
     // For internal application to limit display modes to specific ids
-    int PRIORITY_SYSTEM_REQUESTED_MODES = 19;
+    int PRIORITY_SYSTEM_REQUESTED_MODES = 20;
 
     // PRIORITY_LOW_POWER_MODE_MODES limits display modes to specific refreshRate-vsync pairs if
     // Settings.Global.LOW_POWER_MODE is on.
     // Lower priority that PRIORITY_LOW_POWER_MODE_RENDER_RATE and if discarded (due to other
     // higher priority votes), render rate limit can still apply
-    int PRIORITY_LOW_POWER_MODE_MODES = 20;
+    int PRIORITY_LOW_POWER_MODE_MODES = 21;
 
     // PRIORITY_LOW_POWER_MODE_RENDER_RATE force the render frame rate to [0, 60HZ] if
     // Settings.Global.LOW_POWER_MODE is on.
-    int PRIORITY_LOW_POWER_MODE_RENDER_RATE = 21;
+    int PRIORITY_LOW_POWER_MODE_RENDER_RATE = 22;
 
     // PRIORITY_FLICKER_REFRESH_RATE_SWITCH votes for disabling refresh rate switching. If the
     // higher priority voters' result is a range, it will fix the rate to a single choice.
     // It's used to avoid refresh rate switches in certain conditions which may result in the
     // user seeing the display flickering when the switches occur.
-    int PRIORITY_FLICKER_REFRESH_RATE_SWITCH = 22;
+    int PRIORITY_FLICKER_REFRESH_RATE_SWITCH = 23;
 
     // Force display to [0, 60HZ] if skin temperature is at or above CRITICAL.
-    int PRIORITY_SKIN_TEMPERATURE = 23;
+    int PRIORITY_SKIN_TEMPERATURE = 24;
 
     // The proximity sensor needs the refresh rate to be locked in order to function, so this is
     // set to a high priority.
-    int PRIORITY_PROXIMITY = 24;
+    int PRIORITY_PROXIMITY = 25;
 
     // The Under-Display Fingerprint Sensor (UDFPS) needs the refresh rate to be locked in order
     // to function, so this needs to be the highest priority of all votes.
-    int PRIORITY_UDFPS = 25;
+    int PRIORITY_UDFPS = 26;
 
     @IntDef(prefix = { "PRIORITY_" }, value = {
             PRIORITY_DEFAULT_RENDER_FRAME_RATE,
             PRIORITY_BRIGHTNESS_RAMP,
+            PRIORITY_SCREEN_ON_MIN_RENDER_FRAME_RATE,
             PRIORITY_FLICKER_REFRESH_RATE,
             PRIORITY_HIGH_BRIGHTNESS_MODE,
             PRIORITY_USER_SETTING_MIN_RENDER_FRAME_RATE,
@@ -322,6 +330,8 @@ interface Vote {
                 return "PRIORITY_DEFAULT_REFRESH_RATE";
             case PRIORITY_BRIGHTNESS_RAMP:
                 return "PRIORITY_BRIGHTNESS_RAMP";
+            case PRIORITY_SCREEN_ON_MIN_RENDER_FRAME_RATE:
+                return "PRIORITY_SCREEN_ON_MIN_RENDER_FRAME_RATE";
             case PRIORITY_FLICKER_REFRESH_RATE:
                 return "PRIORITY_FLICKER_REFRESH_RATE";
             case PRIORITY_FLICKER_REFRESH_RATE_SWITCH:

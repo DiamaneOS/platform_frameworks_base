@@ -65,6 +65,7 @@ import android.hardware.display.DisplayManagerGlobal;
 import android.hardware.display.DisplayManagerInternal;
 import android.hardware.display.DisplayManagerInternal.RefreshRateLimitation;
 import android.hardware.fingerprint.IUdfpsRefreshRateRequestCallback;
+import android.net.Uri;
 import android.os.Handler;
 import android.os.IThermalEventListener;
 import android.os.Looper;
@@ -740,6 +741,106 @@ public class DisplayModeDirectorTest {
         DesiredDisplayModeSpecs desiredSpecs = director.getDesiredDisplayModeSpecs(DISPLAY_ID);
         assertThat(desiredSpecs.primary.render.min).isZero();
         assertThat(desiredSpecs.primary.render.max).isWithin(FLOAT_TOLERANCE).of(30);
+    }
+
+    @Test
+    public void testScreenOnMinRefreshRate_holdsWhileOn() {
+        mContext.getOrCreateTestableResources().addOverride(
+                R.integer.config_screenOnMinRefreshRate, 30);
+        DisplayModeDirector director = createDirectorFromRefreshRateArray(
+                new float[]{10, 30, 60, 90, 120}, /* baseModeId= */ 10);
+
+        director.setScreenOn(DISPLAY_ID, true);
+        DesiredDisplayModeSpecs desiredSpecs = director.getDesiredDisplayModeSpecs(DISPLAY_ID);
+        assertThat(desiredSpecs.primary.physical.min).isWithin(FLOAT_TOLERANCE).of(30);
+        assertThat(desiredSpecs.primary.render.min).isWithin(FLOAT_TOLERANCE).of(30);
+        assertThat(desiredSpecs.primary.physical.max).isAtLeast(120f);
+        assertNull(director.getVote(DISPLAY_ID_2, Vote.PRIORITY_SCREEN_ON_MIN_RENDER_FRAME_RATE));
+
+        // Doze and off report the screen as not on.
+        director.setScreenOn(DISPLAY_ID, false);
+        assertNull(director.getVote(DISPLAY_ID, Vote.PRIORITY_SCREEN_ON_MIN_RENDER_FRAME_RATE));
+        desiredSpecs = director.getDesiredDisplayModeSpecs(DISPLAY_ID);
+        assertThat(desiredSpecs.primary.physical.min).isZero();
+        assertThat(desiredSpecs.primary.render.min).isZero();
+    }
+
+    @Test
+    public void testScreenOnMinRefreshRate_offWhenZero() {
+        mContext.getOrCreateTestableResources().addOverride(
+                R.integer.config_screenOnMinRefreshRate, 0);
+        DisplayModeDirector director = createDirectorFromRefreshRateArray(
+                new float[]{10, 30, 60, 90, 120}, /* baseModeId= */ 10);
+
+        director.setScreenOn(DISPLAY_ID, true);
+        assertNull(director.getVote(DISPLAY_ID, Vote.PRIORITY_SCREEN_ON_MIN_RENDER_FRAME_RATE));
+        assertThat(director.getDesiredDisplayModeSpecs(DISPLAY_ID).primary.render.min).isZero();
+    }
+
+    @Test
+    public void testScreenOnMinRefreshRate_offInLowPowerMode() {
+        mContext.getOrCreateTestableResources().addOverride(
+                R.integer.config_screenOnMinRefreshRate, 30);
+        DisplayModeDirector director = createDirectorFromRefreshRateArray(
+                new float[]{10, 30, 60, 90, 120}, /* baseModeId= */ 10);
+        Uri lowPowerUri = Settings.Global.getUriFor(Settings.Global.LOW_POWER_MODE);
+
+        Settings.Global.putInt(mContext.getContentResolver(), Settings.Global.LOW_POWER_MODE, 1);
+        director.getSettingsObserver().onChange(false, lowPowerUri, 0);
+        director.setScreenOn(DISPLAY_ID, true);
+        assertNull(director.getVote(DISPLAY_ID, Vote.PRIORITY_SCREEN_ON_MIN_RENDER_FRAME_RATE));
+        assertThat(director.getDesiredDisplayModeSpecs(DISPLAY_ID).primary.render.min).isZero();
+
+        Settings.Global.putInt(mContext.getContentResolver(), Settings.Global.LOW_POWER_MODE, 0);
+        director.getSettingsObserver().onChange(false, lowPowerUri, 0);
+        assertThat(director.getDesiredDisplayModeSpecs(DISPLAY_ID).primary.render.min)
+                .isWithin(FLOAT_TOLERANCE).of(30);
+    }
+
+    @Test
+    public void testScreenOnMinRefreshRate_priority() {
+        assertTrue(Vote.PRIORITY_SCREEN_ON_MIN_RENDER_FRAME_RATE > Vote.PRIORITY_BRIGHTNESS_RAMP);
+        assertTrue(Vote.PRIORITY_SCREEN_ON_MIN_RENDER_FRAME_RATE
+                < Vote.PRIORITY_FLICKER_REFRESH_RATE);
+
+        mContext.getOrCreateTestableResources().addOverride(
+                R.integer.config_screenOnMinRefreshRate, 30);
+        DisplayModeDirector director = createDirectorFromRefreshRateArray(
+                new float[]{10, 30, 60, 90, 120}, /* baseModeId= */ 10);
+        director.setScreenOn(DISPLAY_ID, true);
+        director.setBrightnessRampActive(DISPLAY_ID, true);
+        Vote floor = director.getVote(DISPLAY_ID, Vote.PRIORITY_SCREEN_ON_MIN_RENDER_FRAME_RATE);
+        Vote ramp = director.getVote(DISPLAY_ID, Vote.PRIORITY_BRIGHTNESS_RAMP);
+        SparseArray<Vote> votes = new SparseArray<>();
+        SparseArray<SparseArray<Vote>> votesByDisplay = new SparseArray<>();
+        votesByDisplay.put(DISPLAY_ID, votes);
+        votes.put(Vote.PRIORITY_SCREEN_ON_MIN_RENDER_FRAME_RATE, floor);
+        votes.put(Vote.PRIORITY_BRIGHTNESS_RAMP, ramp);
+
+        // A request that rules out the ramp's rate drops the ramp and keeps the floor.
+        votes.put(Vote.PRIORITY_APP_REQUEST_RENDER_FRAME_RATE_RANGE,
+                Vote.forRenderFrameRates(0, 30));
+        director.injectVotesByDisplay(votesByDisplay);
+        DesiredDisplayModeSpecs desiredSpecs = director.getDesiredDisplayModeSpecs(DISPLAY_ID);
+        assertThat(desiredSpecs.primary.render.min).isWithin(FLOAT_TOLERANCE).of(30);
+        assertThat(desiredSpecs.primary.render.max).isWithin(FLOAT_TOLERANCE).of(30);
+
+        // A request below the floor wins.
+        votes.put(Vote.PRIORITY_APP_REQUEST_RENDER_FRAME_RATE_RANGE,
+                Vote.forRenderFrameRates(0, 10));
+        director.injectVotesByDisplay(votesByDisplay);
+        desiredSpecs = director.getDesiredDisplayModeSpecs(DISPLAY_ID);
+        assertThat(desiredSpecs.primary.render.min).isZero();
+        assertThat(desiredSpecs.primary.render.max).isWithin(FLOAT_TOLERANCE).of(10);
+
+        // The user's minimum rate (Force peak refresh rate) still raises it.
+        votes.remove(Vote.PRIORITY_APP_REQUEST_RENDER_FRAME_RATE_RANGE);
+        votes.remove(Vote.PRIORITY_BRIGHTNESS_RAMP);
+        votes.put(Vote.PRIORITY_USER_SETTING_MIN_RENDER_FRAME_RATE,
+                Vote.forRenderFrameRates(120, Float.POSITIVE_INFINITY));
+        director.injectVotesByDisplay(votesByDisplay);
+        desiredSpecs = director.getDesiredDisplayModeSpecs(DISPLAY_ID);
+        assertThat(desiredSpecs.primary.render.min).isWithin(FLOAT_TOLERANCE).of(120);
     }
 
     /** Resolution range voting disabled */

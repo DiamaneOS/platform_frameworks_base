@@ -2640,6 +2640,94 @@ public final class DisplayPowerControllerTest {
         assertTrue(ramps.isEmpty());
     }
 
+    @Test
+    public void testScreenOnListener_reportsOnAndOff() {
+        List<Boolean> states = new ArrayList<>();
+        mHolder.dpc.setScreenOnListener(states::add);
+        when(mHolder.displayPowerState.getScreenState()).thenReturn(Display.STATE_ON);
+        DisplayPowerRequest dpr = new DisplayPowerRequest();
+        dpr.policy = DisplayPowerRequest.POLICY_BRIGHT;
+        mHolder.dpc.requestPowerState(dpr, /* waitForNegativeProximity= */ false);
+        advanceTime(1); // Run updatePowerState
+        assertEquals(List.of(true), states);
+
+        // Dimming keeps the screen on.
+        dpr = new DisplayPowerRequest();
+        dpr.policy = DisplayPowerRequest.POLICY_DIM;
+        mHolder.dpc.requestPowerState(dpr, /* waitForNegativeProximity= */ false);
+        advanceTime(1); // Run updatePowerState
+        assertEquals(List.of(true), states);
+
+        when(mHolder.displayPowerState.getScreenState()).thenReturn(Display.STATE_OFF);
+        dpr = new DisplayPowerRequest();
+        dpr.policy = DisplayPowerRequest.POLICY_OFF;
+        mHolder.dpc.requestPowerState(dpr, /* waitForNegativeProximity= */ false);
+        advanceTime(1); // Run updatePowerState
+        assertEquals(List.of(true, false), states);
+    }
+
+    @Test
+    public void testScreenOnListener_offInDoze() {
+        List<Boolean> states = new ArrayList<>();
+        mHolder.dpc.setScreenOnListener(states::add);
+        when(mHolder.displayPowerState.getScreenState()).thenReturn(Display.STATE_ON);
+        DisplayPowerRequest dpr = new DisplayPowerRequest();
+        dpr.policy = DisplayPowerRequest.POLICY_BRIGHT;
+        mHolder.dpc.requestPowerState(dpr, /* waitForNegativeProximity= */ false);
+        advanceTime(1); // Run updatePowerState
+
+        when(mHolder.displayPowerState.getScreenState()).thenReturn(Display.STATE_DOZE);
+        dpr = new DisplayPowerRequest();
+        dpr.policy = DisplayPowerRequest.POLICY_DOZE;
+        mHolder.dpc.requestPowerState(dpr, /* waitForNegativeProximity= */ false);
+        advanceTime(1); // Run updatePowerState
+        assertEquals(List.of(true, false), states);
+    }
+
+    @Test
+    public void testScreenOnListener_notForDozePulse() {
+        List<Boolean> states = new ArrayList<>();
+        mHolder.dpc.setScreenOnListener(states::add);
+        when(mHolder.displayPowerState.getScreenState()).thenReturn(Display.STATE_ON);
+        DisplayPowerRequest dpr = new DisplayPowerRequest();
+        dpr.policy = DisplayPowerRequest.POLICY_DOZE;
+        dpr.dozeScreenState = Display.STATE_ON;
+        mHolder.dpc.requestPowerState(dpr, /* waitForNegativeProximity= */ false);
+        advanceTime(1); // Run updatePowerState
+        assertTrue(states.isEmpty());
+    }
+
+    @Test
+    public void testScreenOnListener_endsOnStop() {
+        List<Boolean> states = new ArrayList<>();
+        mHolder.dpc.setScreenOnListener(states::add);
+        when(mHolder.displayPowerState.getScreenState()).thenReturn(Display.STATE_ON);
+        DisplayPowerRequest dpr = new DisplayPowerRequest();
+        dpr.policy = DisplayPowerRequest.POLICY_BRIGHT;
+        mHolder.dpc.requestPowerState(dpr, /* waitForNegativeProximity= */ false);
+        advanceTime(1); // Run updatePowerState
+
+        mHolder.dpc.stop();
+        advanceTime(1);
+        assertEquals(List.of(true, false), states);
+    }
+
+    @Test
+    public void testScreenOnListener_notForExternalDisplay() {
+        DisplayDeviceInfo deviceInfo = new DisplayDeviceInfo();
+        deviceInfo.type = Display.TYPE_EXTERNAL;
+        deviceInfo.uniqueId = UNIQUE_ID;
+        mHolder = createDisplayPowerController(DISPLAY_ID, deviceInfo);
+        List<Boolean> states = new ArrayList<>();
+        mHolder.dpc.setScreenOnListener(states::add);
+        when(mHolder.displayPowerState.getScreenState()).thenReturn(Display.STATE_ON);
+        DisplayPowerRequest dpr = new DisplayPowerRequest();
+        dpr.policy = DisplayPowerRequest.POLICY_BRIGHT;
+        mHolder.dpc.requestPowerState(dpr, /* waitForNegativeProximity= */ false);
+        advanceTime(1); // Run updatePowerState
+        assertTrue(states.isEmpty());
+    }
+
     private void advanceTime(long timeMs) {
         mClock.fastForward(timeMs);
         mTestLooper.dispatchAll();
