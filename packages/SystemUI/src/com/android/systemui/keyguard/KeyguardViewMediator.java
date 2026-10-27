@@ -184,6 +184,7 @@ import com.android.systemui.statusbar.phone.ScreenOffAnimationController;
 import com.android.systemui.statusbar.phone.ScrimController;
 import com.android.systemui.statusbar.policy.KeyguardStateController;
 import com.android.systemui.statusbar.policy.UserSwitcherController;
+import com.android.systemui.tally.moments.MomentsLockdownHold;
 import com.android.systemui.user.domain.interactor.SelectedUserInteractor;
 import com.android.systemui.util.DeviceConfigProxy;
 import com.android.systemui.util.kotlin.JavaAdapter;
@@ -1094,7 +1095,10 @@ public class KeyguardViewMediator implements CoreStartable,
                     return  KeyguardSecurityView.PROMPT_REASON_RESTART;
                 }
             } else if (any && (strongAuth & STRONG_AUTH_REQUIRED_AFTER_TIMEOUT) != 0) {
-                return KeyguardSecurityView.PROMPT_REASON_TIMEOUT;
+                // DiamaneOS: the Moments switch holds Lockdown with this reason.
+                return MomentsLockdownHold.isAskedFor(currentUser)
+                        ? KeyguardSecurityView.PROMPT_REASON_USER_REQUEST
+                        : KeyguardSecurityView.PROMPT_REASON_TIMEOUT;
             } else if (any && (strongAuth & STRONG_AUTH_REQUIRED_AFTER_USER_LOCKDOWN) != 0) {
                 return KeyguardSecurityView.PROMPT_REASON_USER_REQUEST;
             } else if ((strongAuth & STRONG_AUTH_REQUIRED_AFTER_DPM_LOCK_NOW) != 0) {
