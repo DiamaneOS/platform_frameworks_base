@@ -61,7 +61,7 @@ import javax.inject.Inject
  * [MomentsReconciler]. Each move gives a haptic at once ([MomentsReconciler.haptic]) and, once
  * settled, a brief toast. Boot, a SystemUI restart, a user switch, the unlock, a change in
  * Settings and the screen turning on all reconcile again. The reconciler makes each change only
- * once.
+ * once. While the switch holds Lockdown, [MomentsLockdownHold] keeps biometric unlock off.
  *
  * A change the system refused ([MomentsResult.pending]) is tried again shortly, at the unlock
  * and when the screen turns on. A change that finishes after the move gets its toast then.
@@ -85,10 +85,12 @@ constructor(
     private val emergencyWarning: MomentsEmergencyWarning,
     platform: MomentsPlatformImpl,
     store: MomentsStoreImpl,
+    lockdownAuth: MomentsLockdownAuth,
 ) : CoreStartable {
 
     private val reconciler = MomentsReconciler(platform, store)
     private val store: MomentsStore = store
+    private val lockdownHold = MomentsLockdownHold(lockdownAuth)
 
     // Background thread only.
     private var lastReported: Boolean? = null
@@ -257,6 +259,7 @@ constructor(
         if (on != null) lastReconciled = on
         lastResult = result
         sensorGuard.refresh()
+        lockdownHold.update(if (reconciler.holdsLockdown(user, on)) user else null)
         if (result.showNotice) postNotice(user)
         if (result.dismissNotice) cancelNotice(user)
         val owed = owedToastUser == user
@@ -351,6 +354,7 @@ constructor(
         pw.println("  position: ${lastReported?.let { if (it) "on" else "off" } ?: "unknown"}")
         pw.println("  last result: $lastResult")
         pw.println("  record: ${store.record(userTracker.userId)}")
+        pw.println("  lockdown held for: ${lockdownHold.heldFor ?: "no one"}")
         pw.println("  sensor prompts: ${sensorGuard.dump()}")
         pw.println("  emergency warning: ${emergencyWarning.dump()}")
     }

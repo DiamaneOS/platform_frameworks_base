@@ -45,6 +45,7 @@ import com.android.systemui.keyguard.shared.model.AuthenticationFlags
 import com.android.systemui.res.R
 import com.android.systemui.securelockdevice.domain.interactor.SecureLockDeviceInteractor
 import com.android.systemui.shade.ShadeDisplayAware
+import com.android.systemui.tally.moments.MomentsLockdownHold
 import com.android.systemui.user.data.repository.UserRepository
 import com.android.systemui.util.kotlin.Nonuple
 import com.android.systemui.util.kotlin.combine
@@ -261,6 +262,16 @@ constructor(
                             )
                             .toMessage()
                     }
+                } else if (
+                    trustOrBiometricsAvailable &&
+                        flags.isPrimaryAuthRequiredAfterTimeout &&
+                        MomentsLockdownHold.isAskedFor(flags.userId)
+                ) {
+                    // DiamaneOS: the Moments switch holds Lockdown with the timeout's reason.
+                    BouncerMessageStrings.authRequiredAfterUserLockdown(
+                            currentSecurityMode.toAuthModel()
+                        )
+                        .toMessage()
                 } else if (trustOrBiometricsAvailable && flags.isPrimaryAuthRequiredAfterTimeout) {
                     BouncerMessageStrings.authRequiredAfterPrimaryAuthTimeout(
                             currentSecurityMode.toAuthModel()
