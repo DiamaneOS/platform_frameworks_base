@@ -443,6 +443,11 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
     private volatile Consumer<Boolean> mBrightnessRampListener;
     private boolean mBrightnessRampReported;
 
+    // Told when an internal display turns on and when it leaves on for doze or off.
+    @Nullable
+    private volatile Consumer<Boolean> mScreenOnListener;
+    private boolean mScreenOnReported;
+
     // True if this DisplayPowerController has been stopped and should no longer be running.
     private boolean mStopped;
 
@@ -840,6 +845,11 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
     /** Sets the listener told when a brightness ramp starts and ends. */
     public void setBrightnessRampListener(@Nullable Consumer<Boolean> listener) {
         mBrightnessRampListener = listener;
+    }
+
+    /** Sets the listener told when an internal display turns on and when it leaves on. */
+    public void setScreenOnListener(@Nullable Consumer<Boolean> listener) {
+        mScreenOnListener = listener;
     }
 
     public BrightnessConfiguration getDefaultBrightnessConfiguration() {
@@ -1282,6 +1292,7 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
     /** Clean up all resources that are accessed via the {@link #mHandler} thread. */
     private void cleanupHandlerThreadAfterStop() {
         updateBrightnessRampState(false);
+        updateScreenOnState(false);
         clearDisplayBrightnessFollowers();
         mDisplayPowerProximityStateController.cleanup();
         mBrightnessRangeController.stop();
@@ -1782,9 +1793,12 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
             mWakelockController.releaseWakelock(WakelockController.WAKE_LOCK_UNFINISHED_BUSINESS);
         }
 
-        // Hold a smooth refresh rate while the brightness ramps. Doze and off keep low rates.
-        updateBrightnessRampState(mIsDisplayInternal && state == Display.STATE_ON
-                && mScreenBrightnessRampAnimator.isAnimating());
+        // Refresh rate floors while the screen is on and while the brightness ramps. Doze, also
+        // its pulses and AOD animations in STATE_ON, and off keep low rates.
+        final boolean screenOn = mIsDisplayInternal && state == Display.STATE_ON
+                && mPowerRequest.policy != DisplayPowerRequest.POLICY_DOZE;
+        updateScreenOnState(screenOn);
+        updateBrightnessRampState(screenOn && mScreenBrightnessRampAnimator.isAnimating());
 
         // Record if dozing for future comparison.
         mDozing = state != Display.STATE_ON;
@@ -2187,6 +2201,17 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
         final Consumer<Boolean> listener = mBrightnessRampListener;
         if (listener != null) {
             listener.accept(ramping);
+        }
+    }
+
+    private void updateScreenOnState(boolean on) {
+        if (on == mScreenOnReported) {
+            return;
+        }
+        mScreenOnReported = on;
+        final Consumer<Boolean> listener = mScreenOnListener;
+        if (listener != null) {
+            listener.accept(on);
         }
     }
 

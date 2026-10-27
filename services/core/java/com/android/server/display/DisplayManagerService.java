@@ -4528,6 +4528,8 @@ public final class DisplayManagerService extends SystemService {
         final int displayId = display.getDisplayIdLocked();
         displayPowerController.setBrightnessRampListener(
                 ramping -> mDisplayModeDirector.setBrightnessRampActive(displayId, ramping));
+        displayPowerController.setScreenOnListener(
+                on -> mDisplayModeDirector.setScreenOn(displayId, on));
         mDisplayPowerControllers.append(displayId, displayPowerController);
         return displayPowerController;
     }

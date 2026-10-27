@@ -199,6 +199,15 @@ public class DisplayModeDirector {
 
     private final DisplayDeviceConfigProvider mDisplayDeviceConfigProvider;
 
+    // Lowest render rate while an internal display is on, from config_screenOnMinRefreshRate.
+    // Null when the device sets none.
+    @Nullable
+    private final Vote mScreenOnMinRefreshRateVote;
+
+    // Internal displays that are on, as reported by their DisplayPowerController.
+    @GuardedBy("mLock")
+    private final SparseBooleanArray mScreenOnByDisplay = new SparseBooleanArray();
+
     public DisplayModeDirector(@NonNull Context context, @NonNull Handler handler,
                                @NonNull DisplayManagerFlags displayManagerFlags,
                                @NonNull DisplayDeviceConfigProvider displayDeviceConfigProvider,
@@ -243,6 +252,11 @@ public class DisplayModeDirector {
         mSystemRequestObserver = mInjector.getSystemRequestObserver(mVotesStorage);
         mAlwaysRespectAppRequest = false;
         mSupportsFrameRateOverride = injector.supportsFrameRateOverride();
+        final int screenOnMinRefreshRate =
+                context.getResources().getInteger(R.integer.config_screenOnMinRefreshRate);
+        mScreenOnMinRefreshRateVote = screenOnMinRefreshRate > 0
+                ? Vote.forRenderFrameRates(screenOnMinRefreshRate, Float.POSITIVE_INFINITY)
+                : null;
     }
 
     /**
@@ -606,6 +620,28 @@ public class DisplayModeDirector {
     }
 
     /**
+     * Holds the screen-on minimum refresh rate on the display while it is on, outside battery
+     * saver. DisplayPowerController reports only internal displays, and doze as not on.
+     */
+    public void setScreenOn(int displayId, boolean on) {
+        synchronized (mLock) {
+            if (on) {
+                mScreenOnByDisplay.put(displayId, true);
+            } else {
+                mScreenOnByDisplay.delete(displayId);
+            }
+            updateScreenOnVoteLocked(displayId);
+        }
+    }
+
+    @GuardedBy("mLock")
+    private void updateScreenOnVoteLocked(int displayId) {
+        final boolean hold = mScreenOnByDisplay.get(displayId) && !mSettingsObserver.mIsLowPower;
+        mVotesStorage.updateVote(displayId, Vote.PRIORITY_SCREEN_ON_MIN_RENDER_FRAME_RATE,
+                hold ? mScreenOnMinRefreshRateVote : null);
+    }
+
+    /**
      * Called when the user switches.
      */
     public void onSwitchUser() {
@@ -635,6 +671,8 @@ public class DisplayModeDirector {
             }
             pw.println("  mModeSwitchingType: " + switchingTypeToString(mModeSwitchingType));
             pw.println("  mAlwaysRespectAppRequest: " + mAlwaysRespectAppRequest);
+            pw.println("  mScreenOnMinRefreshRateVote: " + mScreenOnMinRefreshRateVote);
+            pw.println("  mScreenOnByDisplay: " + mScreenOnByDisplay);
             mSettingsObserver.dumpLocked(pw);
             mAppRequestObserver.dumpLocked(pw);
             mBrightnessObserver.dumpLocked(pw);
@@ -1193,6 +1231,9 @@ public class DisplayModeDirector {
             mVotesStorage.updateGlobalVote(Vote.PRIORITY_LOW_POWER_MODE_RENDER_RATE, vote);
             mBrightnessObserver.onLowPowerModeEnabledLocked(mIsLowPower);
             updateLowPowerModeAllowedModesLocked();
+            for (int i = 0; i < mScreenOnByDisplay.size(); i++) {
+                updateScreenOnVoteLocked(mScreenOnByDisplay.keyAt(i));
+            }
         }
 
         @GuardedBy("mLock")
