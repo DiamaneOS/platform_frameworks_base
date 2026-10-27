@@ -32,8 +32,8 @@ public class ExtSettings {
 
     public static final IntSetting AUTO_REBOOT_TIMEOUT = new IntSetting(
             Setting.Scope.GLOBAL, Settings.Global.AUTO_REBOOT_TIMEOUT,
-            // default value: 18 hours
-            (int) TimeUnit.HOURS.toMillis(18));
+            // default value: 12 hours (GrapheneOS: 18)
+            (int) TimeUnit.HOURS.toMillis(12));
 
     public static final BoolSetting SCREENSHOT_TIMESTAMP_EXIF = new BoolSetting(
             Setting.Scope.PER_USER, Settings.Secure.SCREENSHOT_TIMESTAMP_EXIF, false);
@@ -58,11 +58,13 @@ public class ExtSettings {
 
     // The amount of time in milliseconds before a disconnected Bluetooth adapter is turned off
     public static final IntSetting BLUETOOTH_AUTO_OFF = new IntSetting(
-            Setting.Scope.GLOBAL, Settings.Global.BLUETOOTH_AUTO_OFF, 0 /* off by default */);
+            Setting.Scope.GLOBAL, Settings.Global.BLUETOOTH_AUTO_OFF,
+            (int) TimeUnit.MINUTES.toMillis(10) /* GrapheneOS: off by default */);
 
-    // The amount of time in milliseconds before a Nfc adapter is turned off
+    // The amount of time in milliseconds before an unused NFC adapter is turned off
     public static final IntSetting NFC_AUTO_OFF = new IntSetting(
-            Setting.Scope.GLOBAL, Settings.Global.NFC_AUTO_OFF, 0 /* off by default */);
+            Setting.Scope.GLOBAL, Settings.Global.NFC_AUTO_OFF,
+            (int) TimeUnit.MINUTES.toMillis(10) /* GrapheneOS: off by default */);
 
     public static final BoolSysProperty ALLOW_NATIVE_DEBUG_BY_DEFAULT = new BoolSysProperty(
             "persist.native_debug", defaultBool(R.bool.setting_default_allow_native_debugging));
