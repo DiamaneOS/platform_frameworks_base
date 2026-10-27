@@ -146,7 +146,9 @@ final class LockCredentialPolicyEnforcer {
                 + " (pattern, PIN or short password), and the current credential is not known to"
                 + " be a weaker one, so none can be set. Accepted without that:"
                 + " a password of at least " + LockCredentialPolicy.MIN_STRONG_PASSWORD_LENGTH
-                + " characters that is not only digits and has at least "
+                + " characters, or a short-list password of "
+                + LockCredentialPolicy.SHORT_LIST_PASSWORD_LENGTH
+                + " letters, that is not only digits and has at least "
                 + LockCredentialPolicy.MIN_STRONG_PASSWORD_DISTINCT_CHARS
                 + " different characters.";
     }

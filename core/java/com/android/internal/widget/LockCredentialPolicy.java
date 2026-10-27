@@ -58,18 +58,25 @@ public final class LockCredentialPolicy {
     public static final int STRENGTH_WEAKER = 1;
 
     /**
-     * A password that is at least {@link #MIN_STRONG_PASSWORD_LENGTH} characters long, is not made
-     * of digits only and has at least {@link #MIN_STRONG_PASSWORD_DISTINCT_CHARS} different
-     * characters, or a PIN of at least {@link #MIN_GENERATED_PIN_LENGTH} digits that
-     * LockSettingsService generated.
+     * A password that is at least {@link #MIN_STRONG_PASSWORD_LENGTH} characters long, or a
+     * {@link #SHORT_LIST_PASSWORD_LENGTH short-list password}, that is not made of digits only and
+     * has at least {@link #MIN_STRONG_PASSWORD_DISTINCT_CHARS} different characters. Or a PIN of
+     * at least {@link #MIN_GENERATED_PIN_LENGTH} digits that LockSettingsService generated.
      */
     public static final int STRENGTH_STRONG = 2;
 
     /** Shortest PIN that is strong when it was generated. Chosen PINs are weaker at any length. */
     public static final int MIN_GENERATED_PIN_LENGTH = 20;
 
-    /** Shortest password that can be strong. */
+    /** Shortest password that can be strong, other than a short-list password. */
     public static final int MIN_STRONG_PASSWORD_LENGTH = 20;
+
+    /**
+     * Length of a short-list password: the first three letters of six words of EFF's short word
+     * list 2, as Settings generates it. No two words of the list start with the same three
+     * letters, so the letters stand for the words: 62 bits when the words are random.
+     */
+    public static final int SHORT_LIST_PASSWORD_LENGTH = 18;
 
     /**
      * Fewest different characters in a strong password. Keeps out a repeated character or pair.
@@ -117,7 +124,7 @@ public final class LockCredentialPolicy {
     }
 
     private static boolean isStrongPassword(byte[] password) {
-        if (password.length < MIN_STRONG_PASSWORD_LENGTH) {
+        if (password.length < MIN_STRONG_PASSWORD_LENGTH && !isShortListPassword(password)) {
             return false;
         }
         boolean digitsOnly = true;
@@ -137,5 +144,99 @@ public final class LockCredentialPolicy {
         Arrays.fill(seen, false);
         // A password of digits is a PIN, and a PIN is only strong when it was generated.
         return !digitsOnly && distinctChars >= MIN_STRONG_PASSWORD_DISTINCT_CHARS;
+    }
+
+    private static final int SHORT_LIST_PREFIX_LENGTH = 3;
+
+    // The first three letters of the 1,295 words of EFF's short word list 2 made of a to z only
+    // (all but yo-yo), in the order of the list, which is sorted. The list is by the Electronic
+    // Frontier Foundation, under CC BY 3.0 US:
+    // https://www.eff.org/files/2016/09/08/eff_short_wordlist_2_0.txt
+    private static final String SHORT_LIST_PREFIXES =
+            "aarabaabbabdabhabiabnabrabsabuabyacaaccaceachaciacoacqacractacuaeraesaffafl"
+            + "afraftagaageaggaghagiagnagoagraidaimajaalaalbalcalfalgalialkalmaloalpalrals"
+            + "altalualwamaambameamiammamnamoampamuanaancandaneanganiankannanoansantanxany"
+            + "aorapaapnapoappapraquaraarbardareargariarmaroarrarsartasbascaseashasiaslaso"
+            + "aspastasyatlatmatoatrattatyaucaudaugausautauxavaaveaviavoawaawhawkawnawoaxi"
+            + "azababbacbadbagbakbalbambanbarbasbatbazblablebliblobluboabobbodbogbohboibon"
+            + "booborbosbotbouboxbrebribrobrububbucbudbufbulbunbusbuzcabcaccadcafcagcahcaj"
+            + "cakcalcamcancapcarcascatcaucavceacedcelcemcencerceschachechichlchochrchucil"
+            + "cincircitcivclacleclicloclucoacobcoccodcoecofcogcohcolcomconcopcorcoscotcou"
+            + "covcoycozcracrecricrocrucrycubcuccudcufcuiculcupcurcuscutcybcyccylcymcyncyp"
+            + "cytdacdafdagdaidaldandardasdatdaudawdaydazdeadebdecdeddeedefdegdehdeldemden"
+            + "deodepderdesdetdevdexdiadibdicdifdigdildimdindiodipdirdisditdivdizdocdoddol"
+            + "domdondoodordoudowdozdradredridrodrudrydubducdufdugdumdupdurdusdutduvdwadwe"
+            + "dwidyndyseageareaseaveboeccecheclecoecsedgediedueeleereffeggegoejeelaelbeld"
+            + "eleelfelielkelleloelseluelvemaembemcemeemiemoempemuenaencendeneenfengenheni"
+            + "enjenlenoenqenrensentenuenvenzepiequeraergerreruesceskesoespessestetceteeth"
+            + "etieuceuleupeutevaeveevievoexaexcexeexfexhexiexoexpexqextexufabfacfadfaifal"
+            + "famfanfasfaufavfeafebfedfeefeifelfemfenferfesfetfeufevfibficfidfigfilfinfis"
+            + "fixflafleflifloflyfoafocfogfolfonfoofosfoufoxfrafrefrifrofrufrygadgaigalgam"
+            + "gangargasgatgaugeagecgemgengeogergesgetgeyghogibgidgifgiggimgirgivgizglagle"
+            + "gliglogluglygnagnogoagoggolgongoogorgosgotgougovgragregrigrogruguagueguigul"
+            + "gumgurgusgutgymgyngyrhabhachaghaihalhamhanhapharhashathauhazheahedhefheihel"
+            + "hemhenherheshexhubhudhufhughulhumhunhurhushyahybhydhyghypibuiceiciicoideidi"
+            + "idligligniguillimaimbimiimmimpiodionipaiphiriirkiroirrislisoissitaiteitiitu"
+            + "ivojabjacjagjaijaljamjanjarjasjaujawjayjazjeajeejeljeojerjetjezjifjigjinjob"
+            + "jocjogjohjoijokjoujovjoyjubjudjugjuijujjukjumjunjurjusjuvkabkamkankarkaykee"
+            + "kenkerketkhakickilkimkinkiokiskitkleknakneknikoakrylabladlaklanlaplarlaslat"
+            + "laulavlaxlazlecleflegleilemlenleolepletleulevlewlialibliclifligliklillimlin"
+            + "liolipliqlislitlivlizllalualublucludlugluklullumlunlurlusluxlyrmacmaemagmah"
+            + "maimajmakmalmammanmapmarmasmatmavmaxmaymoamobmocmodmoimolmommonmoomormosmot"
+            + "moumovmowmozmucmudmugmulmummunmupmurmusmutmyrmysmytnainamnannapnarnasnatnau"
+            + "navneanebnecnefnegneinemneonepnernesnetneunevnexnicnienimninnirnucnugnuinul"
+            + "numnupnurnutnyloasoatobeobiobjoblobnobsobtobvoccoceoctocuoffoftoiloinoldoly"
+            + "omiomnonconionlonsonwonyoomopaopeopiopooppoptopuoscosmostothougoutovaoveowl"
+            + "oxfoxioxyoysozopacpadpagpajpalpampanpapparpaspatpaupavpaypebpecpedpegpelpen"
+            + "peopepperpespetpewphaphephophrphyplapleplopluplypnepodpoepogpoipokpolponpop"
+            + "porpospoupowpraprepripropruprypsepsypubpucpuepulpumpunpuppurpusputpuzpyrpyt"
+            + "quaquequiquoracradragrairamranrarrasravrearebrecreerefregrehreirejrekrelrem"
+            + "renreorepreqrerresretreurevrewrharherhirhurhyribricridrigrimriprisritrivroa"
+            + "robrocromroprotrouroyrubrudrugruirulrumrunruprussabsacsadsafsaisalsamsansap"
+            + "sarsassatsausavsaxscasceschsciscoscrscuscysecsedsegseiselsemsensepseqserses"
+            + "setsevshasheshishoshrshushysiasibsiesilsimsinsissitsixsizskaskeskiskuskysla"
+            + "sleslisloslusmasmesmismosmusnasnesnisnosnuspesphspisplsposprspuspysqustaste"
+            + "stistostrstustysuasubsucsudsufsugsuisulsupsursusswasweswiswosycsylsymsynsyr"
+            + "systabtactadtaetagtaktaltamtantaptartastattavthathethithothrthuthwtiatidtie"
+            + "tigtimtintiptirtistratretritrotrutrytubtuetugtultumtupturtustuttuxtwetwityr"
+            + "ultumbumpunaunbuncunduneunfungunhuniunjunkunlunmunnunounpunqunrunsuntunuunv"
+            + "unwunyunzupbupcupdupfupguphupkupluppuprupsuptupwuraurburcureurgurouseushute"
+            + "utiutmutouttvacvagvalvanvapvarvasvegvehvelvenvervesvetvexvicvidvievigvilvin"
+            + "viovipvirvisvitvivvixvocvogvoivolvouvoyvulwafwagwakwalwanwaswatwavwhewhiwho"
+            + "wicwidwiewifwikwilwinwipwirwiswizwobwolwomwooworwouwrawrewriwroxerxylyacyah"
+            + "yaryeayesyidyieyodyogyupzeazebzepzeszigzilzipzirzodzomzoozuc";
+
+    private static boolean isShortListPassword(byte[] password) {
+        if (password.length != SHORT_LIST_PASSWORD_LENGTH) {
+            return false;
+        }
+        for (int i = 0; i < password.length; i += SHORT_LIST_PREFIX_LENGTH) {
+            if (!isShortListPrefix(password, i)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // A binary search of SHORT_LIST_PREFIXES for the three bytes at the offset.
+    private static boolean isShortListPrefix(byte[] password, int offset) {
+        int low = 0;
+        int high = SHORT_LIST_PREFIXES.length() / SHORT_LIST_PREFIX_LENGTH - 1;
+        while (low <= high) {
+            final int middle = (low + high) >>> 1;
+            int order = 0;
+            for (int i = 0; i < SHORT_LIST_PREFIX_LENGTH && order == 0; i++) {
+                order = (password[offset + i] & 0xff)
+                        - SHORT_LIST_PREFIXES.charAt(middle * SHORT_LIST_PREFIX_LENGTH + i);
+            }
+            if (order == 0) {
+                return true;
+            } else if (order < 0) {
+                high = middle - 1;
+            } else {
+                low = middle + 1;
+            }
+        }
+        return false;
     }
 }
