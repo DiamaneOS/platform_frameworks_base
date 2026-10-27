@@ -30,9 +30,14 @@ import androidx.test.runner.AndroidJUnit4;
 import com.android.internal.widget.LockCredentialPolicy;
 import com.android.internal.widget.LockPatternUtils;
 import com.android.internal.widget.LockscreenCredential;
+import com.android.internal.widget.ShortListPasswords;
 
 import org.junit.Test;
 import org.junit.runner.RunWith;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 
 /** atest FrameworksServicesTests:LockCredentialPolicyTest */
 @SmallTest
@@ -49,6 +54,10 @@ public class LockCredentialPolicyTest {
 
     private static int passwordStrength(String password) {
         return strength(LockscreenCredential.createPassword(password), /* generated= */ false);
+    }
+
+    private static int generatedPasswordStrength(String password) {
+        return strength(LockscreenCredential.createPassword(password), /* generated= */ true);
     }
 
     @Test
@@ -93,7 +102,7 @@ public class LockCredentialPolicyTest {
     public void testPasswordOfDigitsIsWeaker() {
         assertEquals(STRENGTH_WEAKER, passwordStrength(TWENTY_DIGITS));
         assertEquals(STRENGTH_WEAKER, passwordStrength(TWENTY_DIGITS + TWENTY_DIGITS));
-        // Marking a password as generated changes nothing: only PINs are generated.
+        // Marking it as generated changes nothing: digits only are never a strong password.
         assertEquals(STRENGTH_WEAKER,
                 strength(LockscreenCredential.createPassword(TWENTY_DIGITS), true));
     }
@@ -103,6 +112,45 @@ public class LockCredentialPolicyTest {
         assertEquals(STRENGTH_WEAKER, passwordStrength("aaaaaaaaaaaaaaaaaaaa"));
         assertEquals(STRENGTH_WEAKER, passwordStrength("abcdabcdabcdabcdabcd"));
         assertEquals(STRENGTH_STRONG, passwordStrength("abcdeabcdeabcdeabcde"));
+    }
+
+    @Test
+    public void testShortListPasswordIsStrongOnlyWhenGenerated() {
+        // uncle abandoned fox gem oat pry, and the first and last words of the list.
+        for (String letters : new String[] {"uncabafoxgemoatpry", "aarzucaarzucaarzuc"}) {
+            assertEquals(STRENGTH_STRONG, generatedPasswordStrength(letters));
+            // Typed by a person, it is a short password like any other.
+            assertEquals(STRENGTH_WEAKER, passwordStrength(letters));
+        }
+        // 17 and 19 letters, three letters that start no word, yo-yo, capitals, a space.
+        for (String letters : new String[] {"uncabafoxgemoatpr", "uncabafoxgemoatprya",
+                "uncabafoxgemoatqqq", "uncabafoxgemoatyo-", "UNCabafoxgemoatpry",
+                "unc abafoxgemoatpr"}) {
+            assertEquals(letters, STRENGTH_WEAKER, generatedPasswordStrength(letters));
+        }
+        // Fewer than five different letters: aardvark agency grape eggnog earlobe greyhound.
+        assertEquals(STRENGTH_WEAKER, generatedPasswordStrength("aaragegraeggeargre"));
+    }
+
+    @Test
+    public void testShortListPrefixesAreThoseOfTheList() throws Exception {
+        // Settings' ShortListTest pins the same hash of the prefixes its word list has.
+        final StringBuilder accepted = new StringBuilder();
+        final char[] prefix = new char[3];
+        for (int i = 0; i < 26 * 26 * 26; i++) {
+            prefix[0] = (char) ('a' + i / (26 * 26));
+            prefix[1] = (char) ('a' + i / 26 % 26);
+            prefix[2] = (char) ('a' + i % 26);
+            if (generatedPasswordStrength(new String(prefix) + "abafoxgemoatpry")
+                    == STRENGTH_STRONG) {
+                accepted.append(prefix);
+            }
+        }
+        assertEquals(ShortListPasswords.PREFIX_COUNT * 3, accepted.length());
+        assertEquals(1295, ShortListPasswords.PREFIX_COUNT);
+        assertEquals("ef92078b878508cbd4c33129e107999979e5d8bc14705c3818a202709871f6d7",
+                HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
+                        .digest(accepted.toString().getBytes(StandardCharsets.US_ASCII))));
     }
 
     @Test

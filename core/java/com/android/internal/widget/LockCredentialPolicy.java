@@ -58,17 +58,17 @@ public final class LockCredentialPolicy {
     public static final int STRENGTH_WEAKER = 1;
 
     /**
-     * A password that is at least {@link #MIN_STRONG_PASSWORD_LENGTH} characters long, is not made
-     * of digits only and has at least {@link #MIN_STRONG_PASSWORD_DISTINCT_CHARS} different
-     * characters, or a PIN of at least {@link #MIN_GENERATED_PIN_LENGTH} digits that
-     * LockSettingsService generated.
+     * A password that is at least {@link #MIN_STRONG_PASSWORD_LENGTH} characters long, or a
+     * short-list password that LockSettingsService generated, that is not made of digits only
+     * and has at least {@link #MIN_STRONG_PASSWORD_DISTINCT_CHARS} different characters. Or a PIN
+     * of at least {@link #MIN_GENERATED_PIN_LENGTH} digits that LockSettingsService generated.
      */
     public static final int STRENGTH_STRONG = 2;
 
     /** Shortest PIN that is strong when it was generated. Chosen PINs are weaker at any length. */
     public static final int MIN_GENERATED_PIN_LENGTH = 20;
 
-    /** Shortest password that can be strong. */
+    /** Shortest password that can be strong, other than a generated short-list password. */
     public static final int MIN_STRONG_PASSWORD_LENGTH = 20;
 
     /**
@@ -96,9 +96,10 @@ public final class LockCredentialPolicy {
      * Returns the strength class of a credential.
      *
      * @param generated whether LockSettingsService generated the credential, with
-     *     {@link LockPatternUtils#generateStrongPin}. The service knows what it generated and
-     *     does not take a caller's word for it. A screen that checks a PIN before saving it
-     *     passes whether it got the PIN from there.
+     *     {@link LockPatternUtils#generateStrongPin} or
+     *     {@link LockPatternUtils#generateShortListPassword}. The service knows what it generated
+     *     and does not take a caller's word for it. A screen that checks a credential before
+     *     saving it passes whether it got the credential from there.
      */
     public static int getStrength(@NonNull LockscreenCredential credential, boolean generated) {
         switch (credential.getType()) {
@@ -108,7 +109,7 @@ public final class LockCredentialPolicy {
                 return generated && credential.size() >= MIN_GENERATED_PIN_LENGTH
                         ? STRENGTH_STRONG : STRENGTH_WEAKER;
             case CREDENTIAL_TYPE_PASSWORD:
-                return isStrongPassword(credential.getCredential())
+                return isStrongPassword(credential.getCredential(), generated)
                         ? STRENGTH_STRONG : STRENGTH_WEAKER;
             default:
                 // Patterns: there are fewer than 400,000 of them.
@@ -116,8 +117,11 @@ public final class LockCredentialPolicy {
         }
     }
 
-    private static boolean isStrongPassword(byte[] password) {
-        if (password.length < MIN_STRONG_PASSWORD_LENGTH) {
+    private static boolean isStrongPassword(byte[] password, boolean generated) {
+        // A short-list password is only strong when it was generated: one a person picks of the
+        // same shape is a short password like any other.
+        if (password.length < MIN_STRONG_PASSWORD_LENGTH
+                && !(generated && ShortListPasswords.isShortListPassword(password))) {
             return false;
         }
         boolean digitsOnly = true;
