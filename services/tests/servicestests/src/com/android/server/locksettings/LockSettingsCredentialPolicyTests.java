@@ -47,6 +47,7 @@ import androidx.test.filters.SmallTest;
 import androidx.test.runner.AndroidJUnit4;
 
 import com.android.internal.widget.LockscreenCredential;
+import com.android.internal.widget.ShortListPasswords;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -624,6 +625,79 @@ public class LockSettingsCredentialPolicyTests extends BaseLockSettingsServiceTe
                 LockscreenCredential.createPassword(new String(pin.getCredential()));
 
         assertRefused(PRIMARY_USER_ID, password, nonePassword());
+    }
+
+    @Test
+    public void testGeneratedShortListPasswordIsStrong() throws Exception {
+        final LockscreenCredential password = mService.generateShortListPassword(PRIMARY_USER_ID);
+        assertTrue(password.isPassword());
+        assertTrue(ShortListPasswords.isShortListPassword(password.getCredential()));
+
+        assertTrue(mService.setLockCredential(password, nonePassword(), PRIMARY_USER_ID));
+        assertEquals(STRENGTH_STRONG, mService.getCredentialStrength(PRIMARY_USER_ID));
+        assertTrue(mStorage.getBoolean(GENERATED_PIN_KEY, false, PRIMARY_USER_ID));
+
+        // As after a restart: strong again once it is entered.
+        mService.lockUser(PRIMARY_USER_ID);
+        assertEquals(STRENGTH_UNKNOWN, mService.getCredentialStrength(PRIMARY_USER_ID));
+        assertTrue(mService.verifyCredential(password, PRIMARY_USER_ID, 0 /* flags */)
+                .isMatched());
+        assertEquals(STRENGTH_STRONG, mService.getCredentialStrength(PRIMARY_USER_ID));
+
+        // The mark goes with the password it was made for.
+        assertTrue(mService.setLockCredential(newPassword(STRONG_PASSWORD), password,
+                PRIMARY_USER_ID));
+        assertNull(mStorage.getString(GENERATED_PIN_KEY, null, PRIMARY_USER_ID));
+    }
+
+    @Test
+    public void testTypedShortListPasswordIsRefused() throws Exception {
+        final LockscreenCredential generated =
+                mService.generateShortListPassword(PRIMARY_USER_ID);
+
+        // The same shape typed by a person is a short password. The chance that the generated
+        // one is these letters is 2^-62.
+        assertRefused(PRIMARY_USER_ID, newPassword("uncabafoxgemoatpry"), nonePassword());
+        // Once a PIN was generated, the password generated before no longer counts.
+        final LockscreenCredential pin = mService.generateStrongPin(20, PRIMARY_USER_ID);
+        assertRefused(PRIMARY_USER_ID, generated, nonePassword());
+        assertTrue(mService.setLockCredential(pin, nonePassword(), PRIMARY_USER_ID));
+    }
+
+    @Test
+    public void testTypedShortListPasswordStaysWeaker() throws Exception {
+        final LockscreenCredential typed = newPassword("uncabafoxgemoatpry");
+        mService.setWeakerCredentialRiskAccepted(true, PRIMARY_USER_ID);
+        assertTrue(mService.setLockCredential(typed, nonePassword(), PRIMARY_USER_ID));
+        assertEquals(STRENGTH_WEAKER, mService.getCredentialStrength(PRIMARY_USER_ID));
+        assertNull(mStorage.getString(GENERATED_PIN_KEY, null, PRIMARY_USER_ID));
+
+        mService.lockUser(PRIMARY_USER_ID);
+        assertTrue(mService.verifyCredential(typed, PRIMARY_USER_ID, 0 /* flags */).isMatched());
+        assertEquals(STRENGTH_WEAKER, mService.getCredentialStrength(PRIMARY_USER_ID));
+    }
+
+    @Test
+    public void testGeneratedPinDoesNotCountAfterAShortListPassword() throws Exception {
+        final LockscreenCredential pin = mService.generateStrongPin(20, PRIMARY_USER_ID);
+        final LockscreenCredential password = mService.generateShortListPassword(PRIMARY_USER_ID);
+
+        assertRefused(PRIMARY_USER_ID, pin, nonePassword());
+        assertTrue(mService.setLockCredential(password, nonePassword(), PRIMARY_USER_ID));
+    }
+
+    @Test
+    public void testGeneratedShortListPasswordsDiffer() throws Exception {
+        final LockscreenCredential first = mService.generateShortListPassword(PRIMARY_USER_ID);
+        final LockscreenCredential second = mService.generateShortListPassword(PRIMARY_USER_ID);
+        assertFalse(first.equals(second));
+
+        // Only the last one made for the user, and only for that user.
+        assertRefused(PRIMARY_USER_ID, first, nonePassword());
+        assertRefused(SECONDARY_USER_ID, second, nonePassword());
+        assertThrows(IllegalArgumentException.class,
+                () -> mService.generateShortListPassword(DOES_NOT_EXIST_USER_ID));
+        assertTrue(mService.setLockCredential(second, nonePassword(), PRIMARY_USER_ID));
     }
 
     @Test

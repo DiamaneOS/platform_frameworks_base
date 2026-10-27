@@ -123,5 +123,6 @@ interface ILockSettings {
     void setWeakerCredentialRiskAccepted(boolean accepted, int userId);
     int getCredentialStrength(int userId);
     LockscreenCredential generateStrongPin(int length, int userId);
+    LockscreenCredential generateShortListPassword(int userId);
     long getLearningPeriodRemainingMillis(int userId);
 }
