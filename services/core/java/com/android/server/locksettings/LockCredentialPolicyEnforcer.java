@@ -37,25 +37,29 @@ import com.android.internal.util.Preconditions;
 import com.android.internal.widget.LockCredentialPolicy;
 import com.android.internal.widget.LockPatternUtils;
 import com.android.internal.widget.LockscreenCredential;
+import com.android.internal.widget.ShortListPasswords;
 
 import java.nio.CharBuffer;
 import java.security.MessageDigest;
+import java.security.SecureRandom;
+import java.util.Arrays;
 import java.util.function.IntUnaryOperator;
 
 /**
  * Applies {@link LockCredentialPolicy} for {@link LockSettingsService}: which primary credentials
- * may be set, generated PINs, risk acceptances and learning periods. The service keeps the binder
- * entry points and their permission checks, and calls in here.
+ * may be set, generated credentials, risk acceptances and learning periods. The service keeps
+ * the binder entry points and their permission checks, and calls in here.
  */
 final class LockCredentialPolicyEnforcer {
 
     // Lock credential policy state. Only this class writes these keys: the setBoolean(), setLong()
     // and setString() of LockSettingsService refuse them.
     private static final String CREDENTIAL_POLICY_KEY_PREFIX = "de.diamaneos.credential.";
-    // Whether the user's PIN is one that generateStrongPin() made. Nothing else about the
-    // strength of a credential is stored: see mCredentialStrengths.
-    private static final String GENERATED_PIN_KEY =
-            CREDENTIAL_POLICY_KEY_PREFIX + "generated_pin";
+    // Whether the user's credential is one that this service generated: a PIN from
+    // generateStrongPin() or a short-list password from generateShortListPassword(). The key's
+    // name is from when only PINs were generated. Nothing else about the strength of a
+    // credential is stored: see mCredentialStrengths.
+    private static final String GENERATED_KEY = CREDENTIAL_POLICY_KEY_PREFIX + "generated_pin";
     // Earlier code stored the strength class and the risk acceptance. Neither is stored any more,
     // since either can say that a password is a weaker one. systemReady() removes what is left.
     private static final String[] LEGACY_CREDENTIAL_POLICY_KEYS = {
@@ -71,8 +75,9 @@ final class LockCredentialPolicyEnforcer {
     private static final String LEARNING_PERIOD_REMAINING_KEY =
             CREDENTIAL_POLICY_KEY_PREFIX + "learning_remaining_ms";
 
-    private static final byte[] PERSONALIZATION_GENERATED_PIN = "generated-pin".getBytes();
-    private static final int GENERATED_PIN_SALT_LENGTH = 32;
+    private static final byte[] PERSONALIZATION_GENERATED = "generated-credential".getBytes();
+    private static final int GENERATED_SALT_LENGTH = 32;
+    private static final SecureRandom RANDOM = new SecureRandom();
 
     // While a user learns a new strong credential, biometrics stop working this long after the
     // credential was last entered, so that it is typed about once a day. Afterwards the timeout
@@ -92,10 +97,10 @@ final class LockCredentialPolicyEnforcer {
     // The type of each user's primary credential, as LockSettingsService knows it.
     private final IntUnaryOperator mPrimaryCredentialType;
 
-    // The PIN that generateStrongPin() last made for each user and that has not been set yet.
-    // Only a salted hash of it is kept, and only in memory, until a credential is set for the
-    // user. Guarded by itself.
-    private final SparseArray<GeneratedPin> mGeneratedPins = new SparseArray<>();
+    // The PIN or short-list password that this service last generated for each user and that
+    // has not been set yet. Only its type and a salted hash are kept, and only in memory, until
+    // a credential is set for the user. Guarded by itself.
+    private final SparseArray<Generated> mGenerated = new SparseArray<>();
 
     // Time since boot until which each user's acceptance of the risk of a weaker credential holds.
     // It is used up by the next credential that is set for the user. Guarded by itself, and not
@@ -105,7 +110,8 @@ final class LockCredentialPolicyEnforcer {
     // The strength class of each user's primary credential, known from the moment the credential
     // is set or entered until the user is locked or the device restarts. Guarded by itself. It is
     // not stored: next to the stored data it would tell whoever copied the storage whether a
-    // password is short.
+    // chosen password is short. Only GENERATED_KEY says that a password is a generated
+    // short-list one, which is random and gives nothing away beyond its known 62 bits.
     private final SparseIntArray mCredentialStrengths = new SparseIntArray();
 
     // Time since boot up to which each user's learning period has been counted. No entry: nothing
@@ -134,7 +140,7 @@ final class LockCredentialPolicyEnforcer {
      * have as the primary credential of the user.
      */
     int getNewCredentialStrength(LockscreenCredential credential, int userId) {
-        return LockCredentialPolicy.getStrength(credential, isGeneratedPin(credential, userId));
+        return LockCredentialPolicy.getStrength(credential, isGenerated(credential, userId));
     }
 
     /**
@@ -146,9 +152,7 @@ final class LockCredentialPolicyEnforcer {
                 + " (pattern, PIN or short password), and the current credential is not known to"
                 + " be a weaker one, so none can be set. Accepted without that:"
                 + " a password of at least " + LockCredentialPolicy.MIN_STRONG_PASSWORD_LENGTH
-                + " characters, or a short-list password of "
-                + LockCredentialPolicy.SHORT_LIST_PASSWORD_LENGTH
-                + " letters, that is not only digits and has at least "
+                + " characters that is not only digits and has at least "
                 + LockCredentialPolicy.MIN_STRONG_PASSWORD_DISTINCT_CHARS
                 + " different characters.";
     }
@@ -213,8 +217,9 @@ final class LockCredentialPolicyEnforcer {
      * credential, given that credential.
      */
     private int getCurrentCredentialStrength(LockscreenCredential credential, int userId) {
+        // The mark is removed whenever another credential is set, so it is this one's.
         return LockCredentialPolicy.getStrength(credential,
-                credential.isPin() && mStorage.getBoolean(GENERATED_PIN_KEY, false, userId));
+                mStorage.getBoolean(GENERATED_KEY, false, userId));
     }
 
     /**
@@ -251,25 +256,27 @@ final class LockCredentialPolicyEnforcer {
      */
     void onPrimaryCredentialChanged(LockscreenCredential credential, int strength,
             boolean isLockTiedToParent, int userId) {
-        forgetGeneratedPin(userId);
+        forgetGenerated(userId);
         // An acceptance is for one weaker credential, and for none if another kind was set.
         forgetWeakerRiskAcceptance(userId);
         if (!mInjector.isLockCredentialPolicyEnabled()) {
             return;
         }
         rememberCredentialStrength(strength, userId);
-        // A generated PIN cannot be told from a chosen one later, so this much is stored. A PIN
-        // is only strong if it was generated.
-        if (credential.isPin() && strength == LockCredentialPolicy.STRENGTH_STRONG) {
-            mStorage.setBoolean(GENERATED_PIN_KEY, true, userId);
-        } else if (mStorage.getString(GENERATED_PIN_KEY, null, userId) != null) {
-            mStorage.removeKey(GENERATED_PIN_KEY, userId);
+        // A generated PIN or short-list password cannot be told from a chosen one later, so this
+        // much is stored. Each is only strong if it was generated.
+        if (strength == LockCredentialPolicy.STRENGTH_STRONG && LockCredentialPolicy.getStrength(
+                credential, /* generated= */ false) != LockCredentialPolicy.STRENGTH_STRONG) {
+            mStorage.setBoolean(GENERATED_KEY, true, userId);
+        } else if (mStorage.getString(GENERATED_KEY, null, userId) != null) {
+            mStorage.removeKey(GENERATED_KEY, userId);
         }
         // A strong credential is long, and the user has to learn it: only for a strong one is
         // the strong auth timeout limited. The learning time is stored and counted for every
-        // password all the same, so that the stored state does not tell a strong password from
-        // a weaker one. For a PIN the stored type and mark already tell. The random password of
-        // a profile whose lock is tied to its parent's is never typed.
+        // password all the same, so that the stored state does not tell a strong chosen password
+        // from a weaker one. For a PIN and a generated short-list password the stored type and
+        // mark already tell. The random password of a profile whose lock is tied to its parent's
+        // is never typed.
         final boolean strong = strength == LockCredentialPolicy.STRENGTH_STRONG;
         setLearningPeriod(/* counted= */ !isLockTiedToParent && (credential.isPassword() || strong),
                 /* limited= */ !isLockTiedToParent && strong, userId);
@@ -298,11 +305,13 @@ final class LockCredentialPolicyEnforcer {
         }
     }
 
-    private static final class GeneratedPin {
+    private static final class Generated {
+        final int mType;
         final byte[] mSalt;
         final byte[] mHash;
 
-        GeneratedPin(byte[] salt, byte[] hash) {
+        Generated(int type, byte[] salt, byte[] hash) {
+            mType = type;
             mSalt = salt;
             mHash = hash;
         }
@@ -323,13 +332,39 @@ final class LockCredentialPolicyEnforcer {
         checkGeneratedPinLength(length);
         checkCredentialPolicyUser(userId);
         final LockscreenCredential pin = createRandomPin(length);
-        final byte[] salt = SecureRandomUtils.randomBytes(GENERATED_PIN_SALT_LENGTH);
-        final GeneratedPin generatedPin = new GeneratedPin(salt, hashGeneratedPin(salt, pin));
-        synchronized (mGeneratedPins) {
-            forgetGeneratedPin(userId);
-            mGeneratedPins.put(userId, generatedPin);
-        }
+        rememberGenerated(pin, userId);
         return pin;
+    }
+
+    /**
+     * Makes a random short-list password for the user, see {@link ShortListPasswords}. Like a
+     * generated PIN, it is of the strong class only if it came from here. Called with the
+     * caller's identity cleared.
+     */
+    LockscreenCredential generateShortListPassword(int userId) {
+        checkCredentialPolicyUser(userId);
+        final char[] letters = new char[ShortListPasswords.LENGTH];
+        try {
+            ShortListPasswords.generate(RANDOM,
+                    LockCredentialPolicy.MIN_STRONG_PASSWORD_DISTINCT_CHARS, letters);
+            final LockscreenCredential password =
+                    LockscreenCredential.createPassword(CharBuffer.wrap(letters));
+            rememberGenerated(password, userId);
+            return password;
+        } finally {
+            Arrays.fill(letters, '\0');
+        }
+    }
+
+    // Only the last credential generated for a user counts as generated.
+    private void rememberGenerated(LockscreenCredential credential, int userId) {
+        final byte[] salt = SecureRandomUtils.randomBytes(GENERATED_SALT_LENGTH);
+        final Generated generated = new Generated(credential.getType(), salt,
+                hashGenerated(salt, credential));
+        synchronized (mGenerated) {
+            forgetGenerated(userId);
+            mGenerated.put(userId, generated);
+        }
     }
 
     /** Refuses a generated PIN length out of range, before the caller's identity is cleared. */
@@ -359,24 +394,21 @@ final class LockCredentialPolicyEnforcer {
         }
     }
 
-    private static byte[] hashGeneratedPin(byte[] salt, LockscreenCredential pin) {
-        return SyntheticPasswordCrypto.personalizedHash(PERSONALIZATION_GENERATED_PIN, salt,
-                pin.getCredential());
+    private static byte[] hashGenerated(byte[] salt, LockscreenCredential credential) {
+        return SyntheticPasswordCrypto.personalizedHash(PERSONALIZATION_GENERATED, salt,
+                credential.getCredential());
     }
 
-    /** Returns whether the credential is the PIN that this service last generated for the user. */
-    private boolean isGeneratedPin(LockscreenCredential credential, int userId) {
-        if (!credential.isPin()) {
-            return false;
-        }
-        synchronized (mGeneratedPins) {
-            final GeneratedPin generatedPin = mGeneratedPins.get(userId);
-            if (generatedPin == null) {
+    /** Returns whether the credential is the one that this service last generated for the user. */
+    private boolean isGenerated(LockscreenCredential credential, int userId) {
+        synchronized (mGenerated) {
+            final Generated generated = mGenerated.get(userId);
+            if (generated == null || generated.mType != credential.getType()) {
                 return false;
             }
-            final byte[] hash = hashGeneratedPin(generatedPin.mSalt, credential);
+            final byte[] hash = hashGenerated(generated.mSalt, credential);
             try {
-                return MessageDigest.isEqual(hash, generatedPin.mHash);
+                return MessageDigest.isEqual(hash, generated.mHash);
             } finally {
                 ArrayUtils.zeroize(hash);
             }
@@ -528,12 +560,12 @@ final class LockCredentialPolicyEnforcer {
         return true;
     }
 
-    private void forgetGeneratedPin(int userId) {
-        synchronized (mGeneratedPins) {
-            final GeneratedPin generatedPin = mGeneratedPins.get(userId);
-            if (generatedPin != null) {
-                generatedPin.zeroize();
-                mGeneratedPins.remove(userId);
+    private void forgetGenerated(int userId) {
+        synchronized (mGenerated) {
+            final Generated generated = mGenerated.get(userId);
+            if (generated != null) {
+                generated.zeroize();
+                mGenerated.remove(userId);
             }
         }
     }
@@ -546,7 +578,7 @@ final class LockCredentialPolicyEnforcer {
                 return LockCredentialPolicy.STRENGTH_WEAKER;
             case CREDENTIAL_TYPE_PIN:
                 // Strong only if it is the PIN that this service generated.
-                return mStorage.getBoolean(GENERATED_PIN_KEY, false, userId)
+                return mStorage.getBoolean(GENERATED_KEY, false, userId)
                         ? LockCredentialPolicy.STRENGTH_STRONG
                         : LockCredentialPolicy.STRENGTH_WEAKER;
             default:
@@ -562,7 +594,7 @@ final class LockCredentialPolicyEnforcer {
 
     /** Forgets what is kept in memory for a user who was removed. */
     void removeUser(int userId) {
-        forgetGeneratedPin(userId);
+        forgetGenerated(userId);
         forgetCredentialStrength(userId);
         forgetWeakerRiskAcceptance(userId);
         synchronized (mLearningPeriodCountedUntil) {
@@ -586,7 +618,7 @@ final class LockCredentialPolicyEnforcer {
 
     void dump(IndentingPrintWriter pw, int userId) {
         // Stored policy state only. The strength class of a password, a risk acceptance and
-        // whether a PIN was generated are not printed. The learning time is stored for every
+        // whether a credential was generated are not printed. The learning time is stored for every
         // password but only for a generated PIN, so user builds leave it out too.
         if (Build.IS_DEBUGGABLE) {
             pw.println("LearningPeriodRemainingMs: "

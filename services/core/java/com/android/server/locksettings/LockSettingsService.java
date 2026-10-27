@@ -2422,6 +2422,17 @@ public class LockSettingsService extends ILockSettings.Stub {
     }
 
     @Override
+    public LockscreenCredential generateShortListPassword(int userId) {
+        checkWritePermission();
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            return mCredentialPolicy.generateShortListPassword(userId);
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+        }
+    }
+
+    @Override
     public long getLearningPeriodRemainingMillis(int userId) {
         checkReadPermission();
         return mCredentialPolicy.getLearningPeriodRemainingMillis(userId);

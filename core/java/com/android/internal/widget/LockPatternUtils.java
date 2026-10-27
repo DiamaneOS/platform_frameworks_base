@@ -994,6 +994,22 @@ public class LockPatternUtils {
     }
 
     /**
+     * Returns a new random short-list password for the user: the first three letters of six
+     * words, see {@link ShortListPasswords}. Set with {@link #setLockCredential}, it counts as
+     * {@link LockCredentialPolicy#STRENGTH_STRONG strong}, which the same letters typed by a
+     * person do not. As for {@link #generateStrongPin}, only the last one generated for the user
+     * counts, and the caller must not log or store it and must zeroize it when done.
+     */
+    @NonNull
+    public LockscreenCredential generateShortListPassword(int userId) {
+        try {
+            return getLockSettings().generateShortListPassword(userId);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /**
      * Returns how much is left of the user's learning period, in milliseconds, or 0 if none is
      * running.
      *
