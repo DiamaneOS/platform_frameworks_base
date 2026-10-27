@@ -121,6 +121,7 @@ import org.mockito.Mock;
 import org.mockito.quality.Strictness;
 import org.mockito.stubbing.Answer;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @SmallTest
@@ -2551,6 +2552,92 @@ public final class DisplayPowerControllerTest {
     private static <T> void addLocalServiceMock(Class<T> clazz, T mock) {
         LocalServices.removeServiceForTest(clazz);
         LocalServices.addService(clazz, mock);
+    }
+
+    @Test
+    public void testBrightnessRampListener_reportsRampWhileOn() {
+        List<Boolean> ramps = new ArrayList<>();
+        mHolder.dpc.setBrightnessRampListener(ramps::add);
+        when(mHolder.displayPowerState.getScreenState()).thenReturn(Display.STATE_ON);
+        when(mHolder.animator.isAnimating()).thenReturn(true);
+        DisplayPowerRequest dpr = new DisplayPowerRequest();
+        dpr.policy = DisplayPowerRequest.POLICY_DIM;
+        mHolder.dpc.requestPowerState(dpr, /* waitForNegativeProximity= */ false);
+        advanceTime(1); // Run updatePowerState
+        assertEquals(List.of(true), ramps);
+
+        ArgumentCaptor<RampAnimator.Listener> rampListener =
+                ArgumentCaptor.forClass(RampAnimator.Listener.class);
+        verify(mHolder.animator).setListener(rampListener.capture());
+        when(mHolder.animator.isAnimating()).thenReturn(false);
+        rampListener.getValue().onAnimationEnd();
+        advanceTime(1); // Run updatePowerState
+        assertEquals(List.of(true, false), ramps);
+    }
+
+    @Test
+    public void testBrightnessRampListener_endsOnStop() {
+        List<Boolean> ramps = new ArrayList<>();
+        mHolder.dpc.setBrightnessRampListener(ramps::add);
+        when(mHolder.displayPowerState.getScreenState()).thenReturn(Display.STATE_ON);
+        when(mHolder.animator.isAnimating()).thenReturn(true);
+        DisplayPowerRequest dpr = new DisplayPowerRequest();
+        dpr.policy = DisplayPowerRequest.POLICY_BRIGHT;
+        mHolder.dpc.requestPowerState(dpr, /* waitForNegativeProximity= */ false);
+        advanceTime(1); // Run updatePowerState
+
+        mHolder.dpc.stop();
+        advanceTime(1);
+        assertEquals(List.of(true, false), ramps);
+    }
+
+    @Test
+    public void testBrightnessRampListener_endsWhenScreenTurnsOff() {
+        List<Boolean> ramps = new ArrayList<>();
+        mHolder.dpc.setBrightnessRampListener(ramps::add);
+        when(mHolder.displayPowerState.getScreenState()).thenReturn(Display.STATE_ON);
+        when(mHolder.animator.isAnimating()).thenReturn(true);
+        DisplayPowerRequest dpr = new DisplayPowerRequest();
+        dpr.policy = DisplayPowerRequest.POLICY_DIM;
+        mHolder.dpc.requestPowerState(dpr, /* waitForNegativeProximity= */ false);
+        advanceTime(1); // Run updatePowerState
+
+        when(mHolder.displayPowerState.getScreenState()).thenReturn(Display.STATE_OFF);
+        dpr = new DisplayPowerRequest();
+        dpr.policy = DisplayPowerRequest.POLICY_OFF;
+        mHolder.dpc.requestPowerState(dpr, /* waitForNegativeProximity= */ false);
+        advanceTime(1); // Run updatePowerState
+        assertEquals(List.of(true, false), ramps);
+    }
+
+    @Test
+    public void testBrightnessRampListener_notInDoze() {
+        List<Boolean> ramps = new ArrayList<>();
+        mHolder.dpc.setBrightnessRampListener(ramps::add);
+        when(mHolder.displayPowerState.getScreenState()).thenReturn(Display.STATE_DOZE);
+        when(mHolder.animator.isAnimating()).thenReturn(true);
+        DisplayPowerRequest dpr = new DisplayPowerRequest();
+        dpr.policy = DisplayPowerRequest.POLICY_DOZE;
+        mHolder.dpc.requestPowerState(dpr, /* waitForNegativeProximity= */ false);
+        advanceTime(1); // Run updatePowerState
+        assertTrue(ramps.isEmpty());
+    }
+
+    @Test
+    public void testBrightnessRampListener_notForExternalDisplay() {
+        DisplayDeviceInfo deviceInfo = new DisplayDeviceInfo();
+        deviceInfo.type = Display.TYPE_EXTERNAL;
+        deviceInfo.uniqueId = UNIQUE_ID;
+        mHolder = createDisplayPowerController(DISPLAY_ID, deviceInfo);
+        List<Boolean> ramps = new ArrayList<>();
+        mHolder.dpc.setBrightnessRampListener(ramps::add);
+        when(mHolder.displayPowerState.getScreenState()).thenReturn(Display.STATE_ON);
+        when(mHolder.animator.isAnimating()).thenReturn(true);
+        DisplayPowerRequest dpr = new DisplayPowerRequest();
+        dpr.policy = DisplayPowerRequest.POLICY_BRIGHT;
+        mHolder.dpc.requestPowerState(dpr, /* waitForNegativeProximity= */ false);
+        advanceTime(1); // Run updatePowerState
+        assertTrue(ramps.isEmpty());
     }
 
     private void advanceTime(long timeMs) {

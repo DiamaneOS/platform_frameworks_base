@@ -4525,7 +4525,10 @@ public final class DisplayManagerService extends SystemService {
                 mSensorManager, mDisplayBlanker, display, mBrightnessTracker, brightnessSetting,
                 () -> handleBrightnessChange(display), hbmMetadata, mBootCompleted, mFlags,
                 mPluginManager);
-        mDisplayPowerControllers.append(display.getDisplayIdLocked(), displayPowerController);
+        final int displayId = display.getDisplayIdLocked();
+        displayPowerController.setBrightnessRampListener(
+                ramping -> mDisplayModeDirector.setBrightnessRampActive(displayId, ramping));
+        mDisplayPowerControllers.append(displayId, displayPowerController);
         return displayPowerController;
     }
 
