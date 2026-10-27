@@ -699,6 +699,49 @@ public class DisplayModeDirectorTest {
         assertThat(desiredSpecs.primary.render.max).isWithin(FLOAT_TOLERANCE).of(90);
     }
 
+    @Test
+    public void testBrightnessRampHoldsMinRefreshRate() {
+        DisplayModeDirector director = createDirectorFromRefreshRateArray(
+                new float[]{10, 30, 60, 90, 120}, /* baseModeId= */ 10);
+
+        director.setBrightnessRampActive(DISPLAY_ID, true);
+        assertThat(director.getVote(DISPLAY_ID, Vote.PRIORITY_BRIGHTNESS_RAMP)).isNotNull();
+        DesiredDisplayModeSpecs desiredSpecs = director.getDesiredDisplayModeSpecs(DISPLAY_ID);
+        assertThat(desiredSpecs.primary.physical.min).isWithin(FLOAT_TOLERANCE)
+                .of(DisplayModeDirector.BRIGHTNESS_RAMP_MIN_REFRESH_RATE);
+        assertThat(desiredSpecs.primary.render.min).isWithin(FLOAT_TOLERANCE)
+                .of(DisplayModeDirector.BRIGHTNESS_RAMP_MIN_REFRESH_RATE);
+        assertThat(desiredSpecs.primary.physical.max).isAtLeast(120f);
+
+        director.setBrightnessRampActive(DISPLAY_ID, false);
+        assertNull(director.getVote(DISPLAY_ID, Vote.PRIORITY_BRIGHTNESS_RAMP));
+        desiredSpecs = director.getDesiredDisplayModeSpecs(DISPLAY_ID);
+        assertThat(desiredSpecs.primary.physical.min).isZero();
+        assertThat(desiredSpecs.primary.render.min).isZero();
+    }
+
+    @Test
+    public void testBrightnessRampYieldsToOtherVotes() {
+        assertTrue(Vote.PRIORITY_BRIGHTNESS_RAMP > Vote.PRIORITY_DEFAULT_RENDER_FRAME_RATE);
+        assertTrue(Vote.PRIORITY_BRIGHTNESS_RAMP < Vote.PRIORITY_FLICKER_REFRESH_RATE);
+
+        DisplayModeDirector director = createDirectorFromRefreshRateArray(
+                new float[]{10, 30, 60, 90, 120}, /* baseModeId= */ 10);
+        director.setBrightnessRampActive(DISPLAY_ID, true);
+        SparseArray<Vote> votes = new SparseArray<>();
+        SparseArray<SparseArray<Vote>> votesByDisplay = new SparseArray<>();
+        votesByDisplay.put(DISPLAY_ID, votes);
+        votes.put(Vote.PRIORITY_BRIGHTNESS_RAMP,
+                director.getVote(DISPLAY_ID, Vote.PRIORITY_BRIGHTNESS_RAMP));
+        votes.put(Vote.PRIORITY_APP_REQUEST_RENDER_FRAME_RATE_RANGE,
+                Vote.forRenderFrameRates(0, 30));
+        director.injectVotesByDisplay(votesByDisplay);
+
+        DesiredDisplayModeSpecs desiredSpecs = director.getDesiredDisplayModeSpecs(DISPLAY_ID);
+        assertThat(desiredSpecs.primary.render.min).isZero();
+        assertThat(desiredSpecs.primary.render.max).isWithin(FLOAT_TOLERANCE).of(30);
+    }
+
     /** Resolution range voting disabled */
     @Test
     public void testAppRequestRefreshRateRange() {

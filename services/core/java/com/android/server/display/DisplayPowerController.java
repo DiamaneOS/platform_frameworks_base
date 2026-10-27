@@ -118,6 +118,7 @@ import com.android.server.policy.WindowManagerPolicy;
 import java.io.PrintWriter;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 /**
  * Controls the power state of the display.
@@ -436,6 +437,11 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
     // Animators.
     private ObjectAnimator mColorFadeOffAnimator;
     private DualRampAnimator<DisplayPowerState> mScreenBrightnessRampAnimator;
+
+    // Told while a brightness ramp animates on an internal display that is on or dimming.
+    @Nullable
+    private volatile Consumer<Boolean> mBrightnessRampListener;
+    private boolean mBrightnessRampReported;
 
     // True if this DisplayPowerController has been stopped and should no longer be running.
     private boolean mStopped;
@@ -829,6 +835,11 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
         }
         unblockScreenOnByDisplayOffload();
         mDisplayOffloadSession = session;
+    }
+
+    /** Sets the listener told when a brightness ramp starts and ends. */
+    public void setBrightnessRampListener(@Nullable Consumer<Boolean> listener) {
+        mBrightnessRampListener = listener;
     }
 
     public BrightnessConfiguration getDefaultBrightnessConfiguration() {
@@ -1270,6 +1281,7 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
 
     /** Clean up all resources that are accessed via the {@link #mHandler} thread. */
     private void cleanupHandlerThreadAfterStop() {
+        updateBrightnessRampState(false);
         clearDisplayBrightnessFollowers();
         mDisplayPowerProximityStateController.cleanup();
         mBrightnessRangeController.stop();
@@ -1770,6 +1782,10 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
             mWakelockController.releaseWakelock(WakelockController.WAKE_LOCK_UNFINISHED_BUSINESS);
         }
 
+        // Hold a smooth refresh rate while the brightness ramps. Doze and off keep low rates.
+        updateBrightnessRampState(mIsDisplayInternal && state == Display.STATE_ON
+                && mScreenBrightnessRampAnimator.isAnimating());
+
         // Record if dozing for future comparison.
         mDozing = state != Display.STATE_ON;
 
@@ -2161,6 +2177,17 @@ final class DisplayPowerController implements AutomaticBrightnessController.Call
         }
         return MathUtils.constrain(value, mBrightnessRangeController.getCurrentBrightnessMin(),
                 mBrightnessRangeController.getCurrentBrightnessMax());
+    }
+
+    private void updateBrightnessRampState(boolean ramping) {
+        if (ramping == mBrightnessRampReported) {
+            return;
+        }
+        mBrightnessRampReported = ramping;
+        final Consumer<Boolean> listener = mBrightnessRampListener;
+        if (listener != null) {
+            listener.accept(ramping);
+        }
     }
 
     private void animateScreenBrightness(float target, float sdrTarget, float rate) {
