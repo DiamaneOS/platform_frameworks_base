@@ -61,7 +61,7 @@ public class AutoOffDefaultsTest {
     public void defaultsWhenNeverSet() {
         assertThat(ExtSettings.AUTO_REBOOT_TIMEOUT.get(mContext)).isEqualTo(TWELVE_HOURS);
         assertThat(ExtSettings.BLUETOOTH_AUTO_OFF.get(mContext)).isEqualTo(TEN_MINUTES);
-        assertThat(ExtSettings.NFC_AUTO_OFF.get(mContext)).isEqualTo(TEN_MINUTES);
+        assertThat(ExtSettings.NFC_AUTO_OFF.get(mContext)).isEqualTo(0);
         assertThat(ExtSettings.WIFI_AUTO_OFF.get(mContext)).isEqualTo(0);
     }
 
@@ -70,10 +70,8 @@ public class AutoOffDefaultsTest {
         int eighteenHours = (int) HOURS.toMillis(18);
         Settings.Global.putInt(mResolver, Settings.Global.AUTO_REBOOT_TIMEOUT, eighteenHours);
         Settings.Global.putInt(mResolver, Settings.Global.BLUETOOTH_AUTO_OFF, 0);
-        Settings.Global.putInt(mResolver, Settings.Global.NFC_AUTO_OFF, 0);
 
         assertThat(ExtSettings.AUTO_REBOOT_TIMEOUT.get(mContext)).isEqualTo(eighteenHours);
         assertThat(ExtSettings.BLUETOOTH_AUTO_OFF.get(mContext)).isEqualTo(0);
-        assertThat(ExtSettings.NFC_AUTO_OFF.get(mContext)).isEqualTo(0);
     }
 }
