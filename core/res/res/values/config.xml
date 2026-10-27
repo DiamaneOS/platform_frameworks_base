@@ -6023,6 +6023,11 @@
          non-zero. -->
     <integer name="config_defaultPeakRefreshRate">0</integer>
 
+    <!-- Lowest refresh rate, in Hz, while an internal display is on. Doze, the always-on display,
+         off and battery saver keep the display's lowest rates. Votes that ask for less, such as
+         thermal limits or app requests, still win. 0 turns it off. -->
+    <integer name="config_screenOnMinRefreshRate">0</integer>
+
     <!-- External display peak refresh rate for the given device. Change this value if you want to
          prevent the framework from using higher refresh rates, even if display modes with higher
          refresh rates are available from hardware composer. Only has an effect if this value and
