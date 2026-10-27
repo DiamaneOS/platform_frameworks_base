@@ -184,6 +184,10 @@ class MomentsReconciler(private val platform: MomentsPlatform, private val store
         )
     }
 
+    /** Whether the switch, [on] or not, holds Lockdown for [user]: on, with Lockdown made. */
+    fun holdsLockdown(user: Int, on: Boolean?): Boolean =
+        on == true && store.record(user).any { it.effect.kind == MomentsEffectKind.LOCKDOWN }
+
     /**
      * The haptic for a move of the switch, played at once: a heavy click going down (Moments on), a
      * lighter click going up. None for the first position known (boot, a SystemUI restart) or a

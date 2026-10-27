@@ -139,7 +139,8 @@ constructor(
                 } else {
                     MomentsOutcome.ALREADY
                 }
-            // Lockdown ends only with the user's credential, never with the switch.
+            // Lockdown ends only with the user's credential, never with the switch. While the
+            // switch stays on, MomentsLockdownHold asks for the credential again after each unlock.
             MomentsEffectKind.LOCKDOWN ->
                 if (lockdown()) MomentsOutcome.ALREADY else MomentsOutcome.UNSUPPORTED
         }
