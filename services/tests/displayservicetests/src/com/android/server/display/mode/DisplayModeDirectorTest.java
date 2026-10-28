@@ -701,24 +701,47 @@ public class DisplayModeDirectorTest {
     }
 
     @Test
-    public void testBrightnessRampHoldsMinRefreshRate() {
+    public void testBrightnessRampHoldsPeakRefreshRate() {
         DisplayModeDirector director = createDirectorFromRefreshRateArray(
                 new float[]{10, 30, 60, 90, 120}, /* baseModeId= */ 10);
 
         director.setBrightnessRampActive(DISPLAY_ID, true);
         assertThat(director.getVote(DISPLAY_ID, Vote.PRIORITY_BRIGHTNESS_RAMP)).isNotNull();
         DesiredDisplayModeSpecs desiredSpecs = director.getDesiredDisplayModeSpecs(DISPLAY_ID);
-        assertThat(desiredSpecs.primary.physical.min).isWithin(FLOAT_TOLERANCE)
-                .of(DisplayModeDirector.BRIGHTNESS_RAMP_MIN_REFRESH_RATE);
-        assertThat(desiredSpecs.primary.render.min).isWithin(FLOAT_TOLERANCE)
-                .of(DisplayModeDirector.BRIGHTNESS_RAMP_MIN_REFRESH_RATE);
-        assertThat(desiredSpecs.primary.physical.max).isAtLeast(120f);
+        assertThat(desiredSpecs.primary.physical.min).isWithin(FLOAT_TOLERANCE).of(120);
+        assertThat(desiredSpecs.primary.render.min).isWithin(FLOAT_TOLERANCE).of(120);
 
         director.setBrightnessRampActive(DISPLAY_ID, false);
+        assertNull(director.getVote(DISPLAY_ID, Vote.PRIORITY_BRIGHTNESS_RAMP_PEAK));
         assertNull(director.getVote(DISPLAY_ID, Vote.PRIORITY_BRIGHTNESS_RAMP));
         desiredSpecs = director.getDesiredDisplayModeSpecs(DISPLAY_ID);
         assertThat(desiredSpecs.primary.physical.min).isZero();
         assertThat(desiredSpecs.primary.render.min).isZero();
+    }
+
+    @Test
+    public void testBrightnessRampHoldsMinRefreshRateWhenPeakIsRuledOut() {
+        assertTrue(Vote.PRIORITY_BRIGHTNESS_RAMP_PEAK > Vote.PRIORITY_DEFAULT_RENDER_FRAME_RATE);
+        assertTrue(Vote.PRIORITY_BRIGHTNESS_RAMP_PEAK < Vote.PRIORITY_BRIGHTNESS_RAMP);
+
+        DisplayModeDirector director = createDirectorFromRefreshRateArray(
+                new float[]{10, 30, 60, 90, 120}, /* baseModeId= */ 10);
+        director.setBrightnessRampActive(DISPLAY_ID, true);
+        SparseArray<Vote> votes = new SparseArray<>();
+        SparseArray<SparseArray<Vote>> votesByDisplay = new SparseArray<>();
+        votesByDisplay.put(DISPLAY_ID, votes);
+        for (int priority : new int[]{Vote.PRIORITY_BRIGHTNESS_RAMP_PEAK,
+                Vote.PRIORITY_BRIGHTNESS_RAMP}) {
+            votes.put(priority, director.getVote(DISPLAY_ID, priority));
+        }
+        // Battery saver caps the render rate at 60.
+        votes.put(Vote.PRIORITY_LOW_POWER_MODE_RENDER_RATE, Vote.forRenderFrameRates(0, 60));
+        director.injectVotesByDisplay(votesByDisplay);
+
+        DesiredDisplayModeSpecs desiredSpecs = director.getDesiredDisplayModeSpecs(DISPLAY_ID);
+        assertThat(desiredSpecs.primary.render.min).isWithin(FLOAT_TOLERANCE)
+                .of(DisplayModeDirector.BRIGHTNESS_RAMP_MIN_REFRESH_RATE);
+        assertThat(desiredSpecs.primary.render.max).isWithin(FLOAT_TOLERANCE).of(60);
     }
 
     @Test
