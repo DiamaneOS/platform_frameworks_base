@@ -123,7 +123,8 @@ public class DisplayModeDirector {
     private static final String TAG = "DisplayModeDirector";
     private boolean mLoggingEnabled;
 
-    // Lowest render rate while a brightness ramp animates. It also lifts the physical rate.
+    // Lowest render rate while a brightness ramp animates and its peak vote is dropped. It also
+    // lifts the physical rate.
     @VisibleForTesting
     static final float BRIGHTNESS_RAMP_MIN_REFRESH_RATE = 60f;
     private static final Vote BRIGHTNESS_RAMP_VOTE = Vote.forRenderFrameRates(
@@ -611,10 +612,22 @@ public class DisplayModeDirector {
     }
 
     /**
-     * Holds the display at {@link #BRIGHTNESS_RAMP_MIN_REFRESH_RATE} or more while its brightness
-     * ramps. The ramp steps once per frame, so an idle display at a low rate shows visible steps.
+     * Holds the display at its peak refresh rate while its brightness ramps, or at
+     * {@link #BRIGHTNESS_RAMP_MIN_REFRESH_RATE} or more when a higher vote rules out the peak. The
+     * ramp steps once per frame, so an idle display at a low rate shows visible steps.
      */
     public void setBrightnessRampActive(int displayId, boolean active) {
+        Vote peakVote = null;
+        if (active) {
+            synchronized (mLock) {
+                final float peak = mSupportedModesByDisplay.contains(displayId)
+                        ? getMaxRefreshRateLocked(displayId) : 0f;
+                if (peak > BRIGHTNESS_RAMP_MIN_REFRESH_RATE) {
+                    peakVote = Vote.forRenderFrameRates(peak, Float.POSITIVE_INFINITY);
+                }
+            }
+        }
+        mVotesStorage.updateVote(displayId, Vote.PRIORITY_BRIGHTNESS_RAMP_PEAK, peakVote);
         mVotesStorage.updateVote(displayId, Vote.PRIORITY_BRIGHTNESS_RAMP,
                 active ? BRIGHTNESS_RAMP_VOTE : null);
     }
