@@ -14,6 +14,8 @@ public interface KnownSystemPackage {
     int SYSTEM_UI = 2;
     int SETUP_WIZARD = 3;
     int LAUNCHER = 4;
+    /** @hide */
+    int NFC = 5;
 
     /** @hide */
     @IntDef(value = {
@@ -22,6 +24,7 @@ public interface KnownSystemPackage {
             SYSTEM_UI,
             SETUP_WIZARD,
             LAUNCHER,
+            NFC,
     })
     @Retention(RetentionPolicy.SOURCE)
     @interface Enum {}

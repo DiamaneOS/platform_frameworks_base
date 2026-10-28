@@ -24,6 +24,8 @@ public final class KnownSystemPackages {
     @NonNull public final String contactsProvider;
     @NonNull public final String launcher;
     @NonNull public final String mediaProvider;
+    /** @hide */
+    @NonNull public final String nfc;
     @NonNull public final String permissionController;
     @NonNull public final String settings;
     @NonNull public final String setupWizard;
@@ -35,6 +37,7 @@ public final class KnownSystemPackages {
         contactsProvider = "com.android.providers.contacts";
         launcher = "com.android.launcher3";
         mediaProvider = "com.android.providers.media.module";
+        nfc = "com.android.nfc";
         permissionController = "com.android.permissioncontroller";
         settings = "com.android.settings";
         setupWizard = "app.grapheneos.setupwizard";
@@ -50,6 +53,7 @@ public final class KnownSystemPackages {
             case KnownSystemPackage.SYSTEM_UI -> systemUi;
             case KnownSystemPackage.SETUP_WIZARD -> setupWizard;
             case KnownSystemPackage.LAUNCHER -> launcher;
+            case KnownSystemPackage.NFC -> nfc;
             default -> throw new IllegalArgumentException();
         };
     }
