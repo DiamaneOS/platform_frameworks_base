@@ -24,11 +24,13 @@ import static org.junit.Assert.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
@@ -73,33 +75,57 @@ public class DozeTapProximityCheckTest extends SysuiTestCase {
     }
 
     @Test
-    public void setListening_usesTheNonWakeUpSensor() {
-        mCheck.setListening(true);
-        mCheck.setListening(true);
+    public void enabled_idle_leavesTheSensorOff() {
+        // GIVEN taps may check
+        mCheck.setEnabled(true);
 
+        // WHEN the device dozes untouched for hours
+        mClock.advanceTime(0 /* awakeMillis */, 9 * 60 * 60 * 1000L /* sleepMillis */);
+        mExecutor.runAllReady();
+
+        // THEN the proximity sensor stays off
+        verify(mSensorManager, never()).registerListener(any(), any(Sensor.class), anyInt());
+    }
+
+    @Test
+    public void check_turnsTheNonWakeUpSensorOnUntilTheAnswer() {
+        mCheck.setEnabled(true);
+
+        // WHEN a tap asks
+        mCheck.check(mResults::add);
+
+        // THEN the non-wake-up sensor turns on and the tap waits for a reading
         verify(mSensorManager).registerListener(mCheck, mSensor,
                 SensorManager.SENSOR_DELAY_GAME);
         verify(mSensorManager, never()).getDefaultSensor(Sensor.TYPE_PROXIMITY, true);
         verify(mSensorManager, never()).getDefaultSensor(Sensor.TYPE_PROXIMITY);
+        verify(mSensorManager, never()).unregisterListener(any(SensorEventListener.class));
+        assertEquals(0, mResults.size());
 
-        mCheck.setListening(false);
+        // WHEN the first reading arrives
+        mClock.advanceTime(50);
+        sendReading(true /* near */, 0 /* ageMs */);
 
+        // THEN the tap gets it, the sensor turns off and the timeout is gone
+        assertEquals(List.of(true), mResults);
         verify(mSensorManager).unregisterListener(mCheck);
+        assertEquals(0, mExecutor.numPending());
     }
 
     @Test
-    public void check_notListening_isNotKnown() {
+    public void check_notEnabled_isNotKnown() {
         mCheck.check(mResults::add);
 
         assertEquals(1, mResults.size());
         assertNull(mResults.get(0));
+        verify(mSensorManager, never()).registerListener(any(), any(Sensor.class), anyInt());
     }
 
     @Test
     public void check_noNonWakeUpSensor_isNotKnown() {
         when(mSensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY, false)).thenReturn(null);
         mCheck = new DozeTapProximityCheck(mSensorManager, mExecutor, mClock);
-        mCheck.setListening(true);
+        mCheck.setEnabled(true);
 
         mCheck.check(mResults::add);
 
@@ -110,91 +136,136 @@ public class DozeTapProximityCheckTest extends SysuiTestCase {
 
     @Test
     public void check_currentReading_answersAtOnce() {
-        mCheck.setListening(true);
+        // GIVEN a tap got a reading
+        mCheck.setEnabled(true);
+        mCheck.check(mResults::add);
         sendReading(true /* near */, 0 /* ageMs */);
+
+        // WHEN the next tap asks while that reading is current
         mClock.advanceTime(CURRENT_READING_AGE_MS);
-
         mCheck.check(mResults::add);
 
-        assertEquals(List.of(true), mResults);
-
-        sendReading(false /* near */, 0 /* ageMs */);
-        mCheck.check(mResults::add);
-
-        assertEquals(List.of(true, false), mResults);
+        // THEN it answers at once, without the sensor
+        assertEquals(List.of(true, true), mResults);
+        verify(mSensorManager, times(1)).registerListener(any(), any(Sensor.class), anyInt());
         assertEquals(0, mExecutor.numPending());
+
+        // WHEN a tap asks once that reading is old
+        mClock.advanceTime(1);
+        mCheck.check(mResults::add);
+
+        // THEN it turns the sensor on again and waits
+        assertEquals(2, mResults.size());
+        verify(mSensorManager, times(2)).registerListener(mCheck, mSensor,
+                SensorManager.SENSOR_DELAY_GAME);
     }
 
     @Test
-    public void check_oldReading_waitsForACurrentOne() {
-        // GIVEN the last reading arrived before the device slept
-        mCheck.setListening(true);
-        sendReading(false /* near */, 0 /* ageMs */);
+    public void check_oldFirstReading_waitsForACurrentOne() {
+        // GIVEN the device slept a while
+        mCheck.setEnabled(true);
         mClock.advanceTime(0 /* awakeMillis */, 60_000 /* sleepMillis */);
 
         // WHEN a tap asks, and a second tap right after it
         mCheck.check(mResults::add);
         mCheck.check(mResults::add);
 
-        // THEN it waits
+        // THEN both wait on one sensor registration
         assertEquals(0, mResults.size());
+        verify(mSensorManager, times(1)).registerListener(any(), any(Sensor.class), anyInt());
 
-        // WHEN a reading from before the tap arrives late
+        // WHEN the sensor service first hands over a reading from before the tap
         mClock.advanceTime(20);
         sendReading(false /* near */, 5_000 /* ageMs */);
 
-        // THEN it keeps waiting
+        // THEN they keep waiting with the sensor on
         assertEquals(0, mResults.size());
+        verify(mSensorManager, never()).unregisterListener(any(SensorEventListener.class));
 
         // WHEN a current reading arrives
         mClock.advanceTime(80);
         sendReading(true /* near */, 10 /* ageMs */);
 
-        // THEN both get it, and the timeout is gone
+        // THEN both get it, the sensor turns off and the timeout is gone
         assertEquals(List.of(true, true), mResults);
+        verify(mSensorManager).unregisterListener(mCheck);
         assertEquals(0, mExecutor.numPending());
     }
 
     @Test
-    public void check_noReadingInTime_isNotKnown() {
-        mCheck.setListening(true);
+    public void check_noReadingInTime_isNotKnownAndTurnsTheSensorOff() {
+        mCheck.setEnabled(true);
 
         mCheck.check(mResults::add);
         mClock.advanceTime(TIMEOUT_MS - 1);
         mExecutor.runAllReady();
 
         assertEquals(0, mResults.size());
+        verify(mSensorManager, never()).unregisterListener(any(SensorEventListener.class));
 
         mClock.advanceTime(1);
         mExecutor.runAllReady();
 
         assertEquals(1, mResults.size());
         assertNull(mResults.get(0));
+        verify(mSensorManager).unregisterListener(mCheck);
 
-        // A later reading answers the next check, not the one that timed out
+        // A reading that still arrives after the timeout does not count for the next tap
         sendReading(true /* near */, 0 /* ageMs */);
-        assertEquals(1, mResults.size());
         mCheck.check(mResults::add);
-        assertEquals(Boolean.TRUE, mResults.get(1));
+
+        assertEquals(1, mResults.size());
+        verify(mSensorManager, times(2)).registerListener(mCheck, mSensor,
+                SensorManager.SENSOR_DELAY_GAME);
     }
 
     @Test
-    public void stopListening_answersWaitingChecksAndForgetsTheReading() {
-        mCheck.setListening(true);
+    public void disable_endsAWaitingCheckAndTurnsTheSensorOff() {
+        mCheck.setEnabled(true);
         mCheck.check(mResults::add);
 
-        mCheck.setListening(false);
+        // WHEN the tap sensors stop listening while a tap waits
+        mCheck.setEnabled(false);
 
+        // THEN the tap gets "not known", the sensor turns off and the timeout is gone
         assertEquals(1, mResults.size());
         assertNull(mResults.get(0));
+        verify(mSensorManager).unregisterListener(mCheck);
         assertEquals(0, mExecutor.numPending());
 
-        // A reading that still arrives after stopping, and one from before, do not count
+        // WHEN a reading still arrives after that
         sendReading(true /* near */, 0 /* ageMs */);
-        mCheck.setListening(true);
+
+        // THEN it does not count once taps check again
+        mCheck.setEnabled(true);
         mCheck.check(mResults::add);
 
         assertEquals(1, mResults.size());
+    }
+
+    @Test
+    public void disable_forgetsTheLastReading() {
+        mCheck.setEnabled(true);
+        mCheck.check(mResults::add);
+        sendReading(false /* near */, 0 /* ageMs */);
+
+        mCheck.setEnabled(false);
+        mCheck.setEnabled(true);
+        mCheck.check(mResults::add);
+
+        // THEN the second tap waits for a new reading
+        assertEquals(List.of(false), mResults);
+        verify(mSensorManager, times(2)).registerListener(mCheck, mSensor,
+                SensorManager.SENSOR_DELAY_GAME);
+    }
+
+    @Test
+    public void disable_idle_doesNotTouchTheSensor() {
+        mCheck.setEnabled(true);
+        mCheck.setEnabled(false);
+
+        verify(mSensorManager, never()).registerListener(any(), any(Sensor.class), anyInt());
+        verify(mSensorManager, never()).unregisterListener(any(SensorEventListener.class));
     }
 
     private void sendReading(boolean near, long ageMs) {

@@ -40,19 +40,23 @@ import javax.inject.Inject;
  * Tells {@link DozeTriggers} whether the proximity sensor is covered when a tap arrives, for
  * devices whose tap sensors do not reject pocket touches themselves.
  *
- * It listens to the non-wake-up proximity sensor while the tap sensors listen. A non-wake-up
- * sensor cannot wake the device or keep it awake, unlike the wake-up one where the sensor
- * reports every sample instead of changes only. Its readings stop while the device sleeps, so
- * a tap, which wakes the device, waits a moment for a current reading. That needs a proximity
- * sensor that keeps reporting readings several times a second.
+ * A tap turns the non-wake-up proximity sensor on, waits for its first current reading and
+ * turns it off again. The sensor stays off while the device dozes untouched: sampling it all
+ * the time keeps the sensor hub and the SoC out of their deepest sleep. A non-wake-up sensor
+ * cannot wake the device or keep it awake, and it can give its first reading much sooner than
+ * the wake-up one that ProximityCheck uses. An on-change sensor reports its state when it is
+ * turned on.
  */
 public class DozeTapProximityCheck implements SensorEventListener {
     /** A reading at most this old is current: nothing covers or clears the sensor faster. */
     @VisibleForTesting
     static final long CURRENT_READING_AGE_MS = 300;
-    /** How long a tap waits for a current reading. */
+    /**
+     * How long a tap waits for a current reading after turning the sensor on. A first reading
+     * can take more than 100 ms.
+     */
     @VisibleForTesting
-    static final long TIMEOUT_MS = 200;
+    static final long TIMEOUT_MS = 300;
 
     private static final long NANOS_PER_MS = 1_000_000;
 
@@ -63,7 +67,8 @@ public class DozeTapProximityCheck implements SensorEventListener {
     private final Sensor mSensor;
 
     private final List<Consumer<Boolean>> mCallbacks = new ArrayList<>();
-    private boolean mListening;
+    private boolean mEnabled;
+    private boolean mRegistered;
     private boolean mHasReading;
     private boolean mNear;
     private long mReadingTimeNanos;
@@ -80,56 +85,61 @@ public class DozeTapProximityCheck implements SensorEventListener {
         mSensor = sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY, false /* wakeUp */);
     }
 
-    /** Listens to the sensor, or stops and answers the waiting checks with "not known". */
-    public void setListening(boolean listening) {
-        if (mSensor == null || mListening == listening) {
+    /**
+     * Whether taps may check, which follows the tap sensors. Turning it off answers a waiting
+     * check with "not known", turns the sensor off and forgets the last reading.
+     */
+    public void setEnabled(boolean enabled) {
+        if (mEnabled == enabled) {
             return;
         }
-        mListening = listening;
-        if (listening) {
-            // Not a sampling rate, the sensor has its own: this asks for each reading as it is
-            // taken instead of in batches.
-            mSensorManager.registerListener(this, mSensor, SensorManager.SENSOR_DELAY_GAME);
-        } else {
-            mSensorManager.unregisterListener(this);
+        mEnabled = enabled;
+        if (!enabled) {
             mHasReading = false;
             finish(null);
         }
     }
 
     /**
-     * Calls back with true if the sensor is covered, false if it is clear, or null if there is
-     * no current reading: at once where there is one, otherwise with the next reading or after
-     * {@link #TIMEOUT_MS}. The caller keeps the device awake until then.
+     * Calls back with true if the sensor is covered, false if it is clear, or null if that is
+     * not known: at once where a current reading is known, otherwise with the first current
+     * reading after turning the sensor on, or after {@link #TIMEOUT_MS}. The sensor goes off
+     * again with the answer. The caller keeps the device awake until then.
      */
     public void check(Consumer<Boolean> callback) {
-        if (!mListening) {
+        if (mSensor == null || !mEnabled) {
             callback.accept(null);
             return;
         }
+        if (!mCallbacks.isEmpty()) {
+            mCallbacks.add(callback);
+            return;
+        }
         final long now = mSystemClock.elapsedRealtimeNanos();
-        if (mCallbacks.isEmpty()) {
-            if (hasCurrentReading(now)) {
-                callback.accept(mNear);
-                return;
-            }
-            mCheckStartNanos = now;
-            mCancelTimeout = mMainExecutor.executeDelayed(() -> finish(null), TIMEOUT_MS);
+        if (hasCurrentReading(now)) {
+            callback.accept(mNear);
+            return;
         }
         mCallbacks.add(callback);
+        mCheckStartNanos = now;
+        mCancelTimeout = mMainExecutor.executeDelayed(() -> finish(null), TIMEOUT_MS);
+        mRegistered = true;
+        // Each reading as it is taken, not in batches.
+        mSensorManager.registerListener(this, mSensor, SensorManager.SENSOR_DELAY_GAME);
     }
 
     @Override
     public void onSensorChanged(SensorEvent event) {
-        if (!mListening) {
+        // Turning the sensor off takes effect later, so readings can still arrive after it.
+        if (!mRegistered) {
             return;
         }
         mNear = event.values[0] < mSensor.getMaximumRange();
         mReadingTimeNanos = event.timestamp;
         mHasReading = true;
-        // Readings held back while the device slept can still arrive after the tap: only one
-        // that is current for the waiting check answers it.
-        if (!mCallbacks.isEmpty() && hasCurrentReading(mCheckStartNanos)) {
+        // The first reading can be one from before the tap that the sensor service kept or
+        // held back while the device slept: only a current one answers.
+        if (hasCurrentReading(mCheckStartNanos)) {
             finish(mNear);
         }
     }
@@ -148,6 +158,10 @@ public class DozeTapProximityCheck implements SensorEventListener {
             mCancelTimeout.run();
             mCancelTimeout = null;
         }
+        if (mRegistered) {
+            mRegistered = false;
+            mSensorManager.unregisterListener(this);
+        }
         if (mCallbacks.isEmpty()) {
             return;
         }
@@ -159,7 +173,8 @@ public class DozeTapProximityCheck implements SensorEventListener {
     /** Dump current state */
     public void dump(PrintWriter pw) {
         pw.println("TapProximityCheck: {sensor=" + (mSensor != null ? mSensor.getName() : null)
-                + ", listening=" + mListening
+                + ", enabled=" + mEnabled
+                + ", registered=" + mRegistered
                 + ", near=" + (mHasReading ? mNear : null)
                 + ", readingAgeMs=" + (mHasReading
                         ? (mSystemClock.elapsedRealtimeNanos() - mReadingTimeNanos) / NANOS_PER_MS

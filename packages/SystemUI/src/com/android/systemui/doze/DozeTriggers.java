@@ -246,7 +246,7 @@ public class DozeTriggers implements DozeMachine.Part {
     public void destroy() {
         mDozeSensors.destroy();
         mProxCheck.destroy();
-        mTapProximityCheck.setListening(false);
+        mTapProximityCheck.setEnabled(false);
     }
 
     private void onNotification(Runnable onPulseSuppressedListener) {
@@ -404,18 +404,6 @@ public class DozeTriggers implements DozeMachine.Part {
         return mKeyguardStateController.isOccluded();
     }
 
-    /**
-     * Whether a single or double tap gesture is on that may only wake the device while the
-     * proximity sensor is not covered.
-     */
-    private boolean tapsNeedProximity() {
-        if (!mDozeParameters.getProxCheckBeforeTap()) {
-            return false;
-        }
-        final int userId = mSelectedUserInteractor.getSelectedUserId();
-        return mConfig.tapGestureEnabled(userId) || mConfig.doubleTapGestureEnabled(userId);
-    }
-
     private void gentleWakeUp(@DozeLog.Reason int reason) {
         // Log screen wake up reason (lift/pickup, tap, double-tap)
         Optional.ofNullable(DozingUpdateUiEvent.fromReason(reason))
@@ -558,9 +546,10 @@ public class DozeTriggers implements DozeMachine.Part {
             default:
         }
         mDozeSensors.setListening(mWantSensors, mWantTouchScreenSensors, mInAod);
-        // Follows the tap sensors, which do not depend on the display state.
-        mTapProximityCheck.setListening(
-                mWantSensors && mWantTouchScreenSensors && tapsNeedProximity());
+        // Follows the tap sensors, which do not depend on the display state. The proximity
+        // sensor is on only while a tap waits for its answer, and that wait ends with them.
+        mTapProximityCheck.setEnabled(mWantSensors && mWantTouchScreenSensors
+                && mDozeParameters.getProxCheckBeforeTap());
     }
 
     private void registerCallbacks() {
