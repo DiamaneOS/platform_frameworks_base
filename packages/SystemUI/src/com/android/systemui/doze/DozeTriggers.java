@@ -228,6 +228,7 @@ public class DozeTriggers implements DozeMachine.Part {
         mDockManager = dockManager;
         mProxCheck = proxCheck;
         mTapProximityCheck = tapProximityCheck;
+        mDozeSensors.setTapSensorsCallback(this::onTapSensorsListening);
         mDozeLog = dozeLog;
         mBroadcastDispatcher = broadcastDispatcher;
         mAuthController = authController;
@@ -405,15 +406,11 @@ public class DozeTriggers implements DozeMachine.Part {
     }
 
     /**
-     * Whether a single or double tap gesture is on that may only wake the device while the
-     * proximity sensor is not covered.
+     * The tap proximity check listens while a single or double tap sensor listens, on devices
+     * that drop taps while the proximity sensor is covered.
      */
-    private boolean tapsNeedProximity() {
-        if (!mDozeParameters.getProxCheckBeforeTap()) {
-            return false;
-        }
-        final int userId = mSelectedUserInteractor.getSelectedUserId();
-        return mConfig.tapGestureEnabled(userId) || mConfig.doubleTapGestureEnabled(userId);
+    private void onTapSensorsListening(boolean listening) {
+        mTapProximityCheck.setListening(listening && mDozeParameters.getProxCheckBeforeTap());
     }
 
     private void gentleWakeUp(@DozeLog.Reason int reason) {
@@ -558,9 +555,6 @@ public class DozeTriggers implements DozeMachine.Part {
             default:
         }
         mDozeSensors.setListening(mWantSensors, mWantTouchScreenSensors, mInAod);
-        // Follows the tap sensors, which do not depend on the display state.
-        mTapProximityCheck.setListening(
-                mWantSensors && mWantTouchScreenSensors && tapsNeedProximity());
     }
 
     private void registerCallbacks() {
