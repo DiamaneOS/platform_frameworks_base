@@ -34,7 +34,6 @@ import static org.mockito.Mockito.when;
 
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
-import android.hardware.SensorManager;
 import android.hardware.TriggerEvent;
 import android.hardware.TriggerEventListener;
 import android.hardware.display.AmbientDisplayConfiguration;
@@ -303,96 +302,90 @@ public class DozeTriggersTapProximityTest extends SysuiTestCase {
     }
 
     @Test
-    public void transitionToDoze_tapProxCheck_enablesWithoutWakeUpProximity() throws Exception {
-        setupDozeTriggersWithTapProxCheck(mConfig);
+    public void transitionToDoze_tapProxCheck_listensOnceAtFiveHertz() throws Exception {
+        DozeTapProximityCheck check = setupDozeTriggersWithRealTapProxCheck();
 
-        mTriggers.transitionTo(DozeMachine.State.INITIALIZED, DozeMachine.State.DOZE);
+        startDozing();
+        mTriggers.onScreenState(Display.STATE_DOZE);
         mTriggers.onScreenState(Display.STATE_OFF);
 
-        // THEN taps may check, and the wake-up proximity sensor stays off
-        verify(mTapProximityCheck).setEnabled(true);
+        // THEN the non-wake-up proximity sensor listens once without batching, and the
+        // wake-up one stays off
+        verify(mTapProximitySensorManager, times(1))
+                .registerListener(check, mNonWakeUpProximity, 200_000, 0);
         assertFalse(mProximitySensor.isRegistered());
     }
 
     @Test
-    public void transitionToPulsing_tapProxCheck_disables() throws Exception {
-        setupDozeTriggersWithTapProxCheck(mConfig);
-        mTriggers.transitionTo(DozeMachine.State.INITIALIZED, DozeMachine.State.DOZE);
-        clearInvocations(mTapProximityCheck);
-
-        // WHEN the touch sensors stop listening
-        mTriggers.transitionTo(DozeMachine.State.DOZE, DozeMachine.State.DOZE_REQUEST_PULSE);
-        mTriggers.transitionTo(DozeMachine.State.DOZE_REQUEST_PULSE,
-                DozeMachine.State.DOZE_PULSING);
-
-        verify(mTapProximityCheck).setEnabled(false);
-    }
-
-    @Test
-    public void transitionToDoze_noTapProxCheck_doesNotEnable() {
-        mTriggers.transitionTo(DozeMachine.State.INITIALIZED, DozeMachine.State.DOZE);
-        mTriggers.onScreenState(Display.STATE_OFF);
-
-        verify(mTapProximityCheck, never()).setEnabled(true);
-        assertFalse(mProximitySensor.isRegistered());
-    }
-
-    @Test
-    public void doze_tapProxCheck_idle_leavesProximityOff() throws Exception {
+    public void transitionToDoze_tapProxCheck_tapsOff_doesNotListen() throws Exception {
         setupDozeTriggersWithRealTapProxCheck();
+        when(mConfig.tapGestureEnabled(anyInt())).thenReturn(false);
 
-        // WHEN the device dozes untouched for hours with tap to wake on
         startDozing();
-        mClock.advanceTime(0 /* awakeMillis */, 9 * 60 * 60 * 1000L /* sleepMillis */);
-        mCheckExecutor.runAllReady();
 
-        // THEN the tap sensor listens and no proximity sensor is on
-        verify(mSensors).requestTriggerSensor(any(), eq(mTapSensor));
         verify(mTapProximitySensorManager, never())
-                .registerListener(any(), any(Sensor.class), anyInt());
+                .registerListener(any(), any(Sensor.class), anyInt(), anyInt());
+    }
+
+    @Test
+    public void transitionToDoze_noTapProxCheck_doesNotListen() {
+        startDozing();
+
+        verify(mTapProximityCheck, never()).setListening(true);
         assertFalse(mProximitySensor.isRegistered());
     }
 
     @Test
-    public void tap_tapProxCheck_clear_turnsProximityOnUntilTheAnswer() throws Exception {
+    public void tap_tapProxCheck_coveredReading_dropsTapAtOnce() throws Exception {
         DozeTapProximityCheck check = setupDozeTriggersWithRealTapProxCheck();
         startDozing();
-
-        // WHEN a tap arrives
-        mTriggers.onSensor(DozeLog.REASON_SENSOR_TAP, 100, 200, null);
-
-        // THEN the non-wake-up proximity sensor turns on and the tap waits for it
-        verify(mTapProximitySensorManager).registerListener(check, mNonWakeUpProximity,
-                SensorManager.SENSOR_DELAY_GAME);
-        verify(mMachine, never()).wakeUp(anyInt());
-
-        // WHEN its first reading says clear
-        mClock.advanceTime(50);
-        sendTapProximityReading(check, false /* near */);
-
-        // THEN the tap wakes the device and the sensor turns off
-        verify(mMachine).wakeUp(DozeLog.REASON_SENSOR_TAP);
-        verify(mTapProximitySensorManager).unregisterListener(check);
-        assertEquals(0, mCheckExecutor.numPending());
-    }
-
-    @Test
-    public void tap_tapProxCheck_covered_dropsTapAndTurnsProximityOff() throws Exception {
-        DozeTapProximityCheck check = setupDozeTriggersWithRealTapProxCheck();
-        startDozing();
+        sendTapProximityReading(check, true /* near */);
 
         mTriggers.onSensor(DozeLog.REASON_SENSOR_DOUBLE_TAP, 100, 200, null);
-        sendTapProximityReading(check, true /* near */);
 
         verify(mMachine, never()).wakeUp(anyInt());
         verify(mDozeLog).traceSensorEventDropped(DozeLog.REASON_SENSOR_DOUBLE_TAP,
                 "prox reporting near");
-        verify(mTapProximitySensorManager).unregisterListener(check);
+        assertEquals(0, mCheckExecutor.numPending());
     }
 
     @Test
-    public void tap_tapProxCheck_noReading_wakesAtTheTimeoutAndTurnsProximityOff()
-            throws Exception {
+    public void tap_tapProxCheck_clearReading_wakesUpAtOnce() throws Exception {
+        DozeTapProximityCheck check = setupDozeTriggersWithRealTapProxCheck();
+        startDozing();
+        sendTapProximityReading(check, false /* near */);
+
+        mTriggers.onSensor(DozeLog.REASON_SENSOR_TAP, 100, 200, null);
+
+        verify(mMachine).wakeUp(DozeLog.REASON_SENSOR_TAP);
+        assertEquals(0, mCheckExecutor.numPending());
+    }
+
+    @Test
+    public void tap_tapProxCheck_oldReading_waitsForTheNextOne() throws Exception {
+        // GIVEN the last reading, covered, came before the device slept
+        DozeTapProximityCheck check = setupDozeTriggersWithRealTapProxCheck();
+        startDozing();
+        sendTapProximityReading(check, true /* near */);
+        mClock.advanceTime(0 /* awakeMillis */, 60_000 /* sleepMillis */);
+
+        // WHEN a tap arrives
+        mTriggers.onSensor(DozeLog.REASON_SENSOR_TAP, 100, 200, null);
+
+        // THEN it waits
+        verify(mMachine, never()).wakeUp(anyInt());
+
+        // WHEN the next reading says clear
+        mClock.advanceTime(DozeTapProximityCheck.SAMPLING_PERIOD_US / 1000);
+        sendTapProximityReading(check, false /* near */);
+
+        // THEN the tap wakes the device
+        verify(mMachine).wakeUp(DozeLog.REASON_SENSOR_TAP);
+        assertEquals(0, mCheckExecutor.numPending());
+    }
+
+    @Test
+    public void tap_tapProxCheck_noReading_wakesUpAtTheTimeout() throws Exception {
         DozeTapProximityCheck check = setupDozeTriggersWithRealTapProxCheck();
         startDozing();
 
@@ -400,47 +393,69 @@ public class DozeTriggersTapProximityTest extends SysuiTestCase {
         mClock.advanceTime(DozeTapProximityCheck.TIMEOUT_MS);
         mCheckExecutor.runAllReady();
 
-        // THEN a sensor that stays silent does not disable the taps
+        // THEN a sensor that stays silent does not disable the taps, and it keeps listening
         verify(mMachine).wakeUp(DozeLog.REASON_SENSOR_TAP);
+        verify(mTapProximitySensorManager, never()).unregisterListener(check);
+    }
+
+    @Test
+    public void transitionToPulsing_tapProxCheck_stopsListening() throws Exception {
+        DozeTapProximityCheck check = setupDozeTriggersWithRealTapProxCheck();
+        startDozing();
+
+        // WHEN the touch sensors stop listening
+        mTriggers.transitionTo(DozeMachine.State.DOZE, DozeMachine.State.DOZE_REQUEST_PULSE);
+        mTriggers.transitionTo(DozeMachine.State.DOZE_REQUEST_PULSE,
+                DozeMachine.State.DOZE_PULSING);
+
         verify(mTapProximitySensorManager).unregisterListener(check);
     }
 
     @Test
-    public void dozeEndsWhileATapWaits_turnsProximityOff() throws Exception {
+    public void dozeEndsWhileATapWaits_stopsListening() throws Exception {
         DozeTapProximityCheck check = setupDozeTriggersWithRealTapProxCheck();
         startDozing();
         mTriggers.onSensor(DozeLog.REASON_SENSOR_TAP, 100, 200, null);
 
-        // WHEN the screen turns on before the reading arrives
+        // WHEN the screen turns on before a current reading arrives
         mTriggers.transitionTo(DozeMachine.State.DOZE, DozeMachine.State.FINISH);
 
-        // THEN the sensor turns off and the timeout is gone
+        // THEN the sensor stops and the timeout is gone
         verify(mTapProximitySensorManager).unregisterListener(check);
         assertEquals(0, mCheckExecutor.numPending());
     }
 
     @Test
-    public void tapToWakeSwitchedOffDuringDoze_leavesNoProximityListener() throws Exception {
-        // GIVEN the device dozes and a tap was checked
+    public void destroy_tapProxCheck_stopsListening() throws Exception {
         DozeTapProximityCheck check = setupDozeTriggersWithRealTapProxCheck();
         startDozing();
-        mTriggers.onSensor(DozeLog.REASON_SENSOR_TAP, 100, 200, null);
-        sendTapProximityReading(check, true /* near */);
 
-        // WHEN tap to wake is switched off while the device dozes, which stops the tap sensor
-        when(mConfig.tapGestureEnabled(anyInt())).thenReturn(false);
-        mSettings.putIntForUser(Settings.Secure.DOZE_TAP_SCREEN_GESTURE, 0,
-                mSelectedUserInteractor.getSelectedUserId());
-        TestableLooper.get(this).processAllMessages();
-        waitForSensorManager();
-        verify(mSensors).cancelTriggerSensor(any(), eq(mTapSensor));
+        mTriggers.destroy();
 
-        // THEN the proximity sensor was on only for the tap and stays off
-        mClock.advanceTime(0 /* awakeMillis */, 9 * 60 * 60 * 1000L /* sleepMillis */);
-        mCheckExecutor.runAllReady();
-        verify(mTapProximitySensorManager, times(1))
-                .registerListener(any(), any(Sensor.class), anyInt());
         verify(mTapProximitySensorManager, times(1)).unregisterListener(check);
+    }
+
+    @Test
+    public void tapToWakeSwitchedOffDuringDoze_stopsListening() throws Exception {
+        // GIVEN the device dozes with the proximity sensor listening for taps
+        DozeTapProximityCheck check = setupDozeTriggersWithRealTapProxCheck();
+        startDozing();
+        verify(mTapProximitySensorManager)
+                .registerListener(check, mNonWakeUpProximity, 200_000, 0);
+
+        // WHEN tap to wake is switched off while the device dozes
+        switchTapToWake(false);
+
+        // THEN the tap sensor and the proximity sensor stop
+        verify(mSensors).cancelTriggerSensor(any(), eq(mTapSensor));
+        verify(mTapProximitySensorManager).unregisterListener(check);
+
+        // WHEN it is switched on again
+        switchTapToWake(true);
+
+        // THEN the proximity sensor listens again
+        verify(mTapProximitySensorManager, times(2))
+                .registerListener(check, mNonWakeUpProximity, 200_000, 0);
     }
 
     private void waitForSensorManager() {
@@ -476,6 +491,15 @@ public class DozeTriggersTapProximityTest extends SysuiTestCase {
         DozeParameters dozeParameters = DozeConfigurationUtil.createMockParameters();
         when(dozeParameters.getProxCheckBeforeTap()).thenReturn(true);
         return dozeParameters;
+    }
+
+    /** Switches tap to wake as Settings does, which the doze sensors observe. */
+    private void switchTapToWake(boolean on) {
+        when(mConfig.tapGestureEnabled(anyInt())).thenReturn(on);
+        mSettings.putIntForUser(Settings.Secure.DOZE_TAP_SCREEN_GESTURE, on ? 1 : 0,
+                mSelectedUserInteractor.getSelectedUserId());
+        TestableLooper.get(this).processAllMessages();
+        waitForSensorManager();
     }
 
     private void startDozing() {

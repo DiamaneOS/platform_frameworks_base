@@ -43,6 +43,7 @@ import android.util.IndentingPrintWriter;
 import android.view.Display;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 
 import com.android.internal.R;
@@ -129,6 +130,10 @@ public class DozeSensors {
 
     // whether to only register sensors that use prox when the display state is dozing or off
     private boolean mSelectivelyRegisterProxSensors;
+
+    @Nullable
+    private Consumer<Boolean> mTapSensorsCallback;
+    private boolean mTapSensorsListening;
 
     @VisibleForTesting
     public enum DozeSensorsUiEvent implements UiEventLogger.UiEventEnum {
@@ -540,10 +545,35 @@ public class DozeSensors {
      */
     public void reregisterTapSensors() {
         for (TriggerSensor s : mTriggerSensors) {
-            if (s.mPulseReason == DozeLog.REASON_SENSOR_TAP
-                    || s.mPulseReason == DozeLog.REASON_SENSOR_DOUBLE_TAP) {
+            if (s.isTapSensor()) {
                 s.updateListening();
             }
+        }
+    }
+
+    /**
+     * Calls back with true when a single or double tap sensor starts to listen, and with false
+     * when none listens any more, for example when doze ends or tap to wake is switched off. A
+     * one-shot tap sensor that just fired still counts as listening.
+     */
+    public void setTapSensorsCallback(@Nullable Consumer<Boolean> callback) {
+        mTapSensorsCallback = callback;
+    }
+
+    private void updateTapSensorsListening() {
+        boolean listening = false;
+        for (TriggerSensor s : mTriggerSensors) {
+            if (s.isTapSensor() && s.wantsToListen()) {
+                listening = true;
+                break;
+            }
+        }
+        if (mTapSensorsListening == listening) {
+            return;
+        }
+        mTapSensorsListening = listening;
+        if (mTapSensorsCallback != null) {
+            mTapSensorsCallback.accept(listening);
         }
     }
 
@@ -712,6 +742,24 @@ public class DozeSensors {
         }
 
         public void updateListening() {
+            updateRegistration();
+            if (isTapSensor()) {
+                updateTapSensorsListening();
+            }
+        }
+
+        boolean isTapSensor() {
+            return mPulseReason == DozeLog.REASON_SENSOR_TAP
+                    || mPulseReason == DozeLog.REASON_SENSOR_DOUBLE_TAP;
+        }
+
+        /** Whether the sensor should listen, also between a one-shot event and re-registering. */
+        boolean wantsToListen() {
+            return mConfigured && mSensors[mPosture] != null && mRequested && !mDisabled
+                    && (enabledBySetting() || mIgnoresSetting);
+        }
+
+        private void updateRegistration() {
             final Sensor sensor = mSensors[mPosture];
 
             if (!mConfigured || sensor == null) return;

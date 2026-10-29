@@ -43,6 +43,7 @@ import android.database.ContentObserver;
 import android.hardware.Sensor;
 import android.hardware.TriggerEvent;
 import android.hardware.display.AmbientDisplayConfiguration;
+import android.provider.Settings;
 import android.testing.TestableLooper;
 import android.testing.TestableLooper.RunWithLooper;
 
@@ -206,6 +207,51 @@ public class DozeSensorsTest extends SysuiTestCase {
 
         // THEN the tap sensor is enabled
         assertTrue(mSensorTap.enabledBySetting());
+    }
+
+    @Test
+    public void tapSensorsCallback_followsTheTapSensor() throws Exception {
+        // GIVEN a tap sensor with tap to wake on
+        when(mAmbientDisplayConfiguration.enabled(anyInt())).thenReturn(true);
+        when(mAmbientDisplayConfiguration.tapGestureEnabled(anyInt())).thenReturn(true);
+        Sensor mockSensor = mock(Sensor.class);
+        TriggerSensor tapSensor = mDozeSensors.createTapSensor(mockSensor);
+        mDozeSensors.addSensor(tapSensor);
+        when(mSensorManager.requestTriggerSensor(eq(tapSensor), eq(mockSensor)))
+                .thenReturn(true);
+        List<Boolean> listening = new ArrayList<>();
+        mDozeSensors.setTapSensorsCallback(listening::add);
+
+        // WHEN it starts to listen
+        tapSensor.setListening(true);
+
+        // THEN the callback hears it
+        assertEquals(List.of(true), listening);
+
+        // WHEN the one-shot sensor fires
+        Constructor<TriggerEvent> constructor =
+                TriggerEvent.class.getDeclaredConstructor(Integer.TYPE);
+        constructor.setAccessible(true);
+        tapSensor.onTrigger(constructor.newInstance(2));
+        mTestableLooper.processAllMessages();
+
+        // THEN it still counts as listening while the tap is handled
+        verify(mCallback).onSensorPulse(eq(REASON_SENSOR_TAP), anyFloat(), anyFloat(), any());
+        assertEquals(List.of(true), listening);
+
+        // WHEN tap to wake is switched off, which the settings observer passes on
+        when(mAmbientDisplayConfiguration.tapGestureEnabled(anyInt())).thenReturn(false);
+        tapSensor.updateListening();
+
+        // THEN the callback hears that no tap sensor listens
+        assertEquals(List.of(true, false), listening);
+
+        // WHEN it is switched on again, and then doze stops the sensor
+        when(mAmbientDisplayConfiguration.tapGestureEnabled(anyInt())).thenReturn(true);
+        tapSensor.updateListening();
+        tapSensor.setListening(false);
+
+        assertEquals(List.of(true, false, true, false), listening);
     }
 
     @Test
@@ -592,6 +638,22 @@ public class DozeSensorsTest extends SysuiTestCase {
                 }
             }
             mTriggerSensors = new TriggerSensor[] {mTriggerSensor, mSensorTap};
+        }
+
+        /** Creates a single tap sensor that follows the tap to wake setting. */
+        public TriggerSensor createTapSensor(Sensor sensor) {
+            return new TriggerSensor(/* sensor */ sensor,
+                    /* setting name */ Settings.Secure.DOZE_TAP_SCREEN_GESTURE,
+                    /* settingDefault */ true,
+                    /* configured */ true,
+                    /* pulseReason*/ REASON_SENSOR_TAP,
+                    /* reportsTouchCoordinate*/ true,
+                    /* requiresTouchscreen */ true,
+                    /* ignoresSetting */ false,
+                    /* requiresProx */ false,
+                    /* immediatelyReRegister */ false,
+                    /* requiresAod */ false
+            );
         }
 
         public TriggerSensor createDozeSensorWithSettingEnabled(Sensor sensor,
