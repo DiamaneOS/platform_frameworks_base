@@ -27,8 +27,14 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.database.ContentObserver;
 import android.hardware.display.AmbientDisplayConfiguration;
+import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
+import android.os.UserHandle;
+import android.provider.Settings;
 import android.text.format.Formatter;
 import android.util.IndentingPrintWriter;
 import android.util.Log;
@@ -61,6 +67,7 @@ import com.android.systemui.util.settings.SecureSettings;
 import com.android.systemui.util.wakelock.WakeLock;
 
 import java.io.PrintWriter;
+import java.util.Collection;
 import java.util.Optional;
 import java.util.function.Consumer;
 
@@ -102,6 +109,7 @@ public class DozeTriggers implements DozeMachine.Part {
     private final DockManager mDockManager;
     private final ProximityCheck mProxCheck;
     private final DozeTapProximityCheck mTapProximityCheck;
+    private final SecureSettings mSecureSettings;
     private final BroadcastDispatcher mBroadcastDispatcher;
     private final AuthController mAuthController;
     private final KeyguardStateController mKeyguardStateController;
@@ -117,12 +125,26 @@ public class DozeTriggers implements DozeMachine.Part {
     private boolean mWantTouchScreenSensors;
     private boolean mWantSensors;
     private boolean mInAod;
+    private boolean mTapSensorsListening;
 
     private final UserTracker.Callback mUserChangedCallback =
             new UserTracker.Callback() {
                 @Override
                 public void onUserChanged(int newUser, @NonNull Context userContext) {
                     mDozeSensors.onUserSwitched();
+                    // The pocket check is the new user's.
+                    updateTapProximityListening();
+                }
+            };
+
+    private final ContentObserver mPocketCheckObserver =
+            new ContentObserver(new Handler(Looper.getMainLooper())) {
+                @Override
+                public void onChange(boolean selfChange, Collection<Uri> uris, int flags,
+                        int userId) {
+                    if (userId == mSelectedUserInteractor.getSelectedUserId()) {
+                        updateTapProximityListening();
+                    }
                 }
             };
 
@@ -229,6 +251,7 @@ public class DozeTriggers implements DozeMachine.Part {
         mProxCheck = proxCheck;
         mTapProximityCheck = tapProximityCheck;
         mDozeSensors.setTapSensorsCallback(this::onTapSensorsListening);
+        mSecureSettings = secureSettings;
         mDozeLog = dozeLog;
         mBroadcastDispatcher = broadcastDispatcher;
         mAuthController = authController;
@@ -334,7 +357,7 @@ public class DozeTriggers implements DozeMachine.Part {
                 requestPulse(pulseReason, true /* alreadyPerformedProxCheck */,
                         null /* onPulseSuppressedListener */);
             }
-        } else if ((isTap || isDoubleTap) && mDozeParameters.getProxCheckBeforeTap()) {
+        } else if ((isTap || isDoubleTap) && checksProximityBeforeTap()) {
             // A touch controller also reports taps from a pocket or bag: drop the tap while
             // the proximity sensor is covered.
             final long start = SystemClock.uptimeMillis();
@@ -406,11 +429,49 @@ public class DozeTriggers implements DozeMachine.Part {
     }
 
     /**
-     * The tap proximity check listens while a single or double tap sensor listens, on devices
-     * that drop taps while the proximity sensor is covered.
+     * Whether a tap may only wake the device while the proximity sensor is not covered: the
+     * device asks for it and the user has not turned the pocket check off.
      */
+    private boolean checksProximityBeforeTap() {
+        return mDozeParameters.getProxCheckBeforeTap()
+                && parsePocketCheck(mSecureSettings.getStringForUser(
+                        Settings.Secure.TALLY_POCKET_CHECK,
+                        mSelectedUserInteractor.getSelectedUserId()));
+    }
+
+    /**
+     * Reads the stored pocket check as {@code BoolSetting.get} does for
+     * {@code ExtSettings.TALLY_POCKET_CHECK}: "true" and "false", or the integers 1 and 0.
+     * Nothing stored or anything else means the default, on.
+     */
+    @VisibleForTesting
+    static boolean parsePocketCheck(@Nullable String value) {
+        if (value == null || value.equals("true")) {
+            return true;
+        }
+        if (value.equals("false")) {
+            return false;
+        }
+        try {
+            // 0 is off. 1, and any other number, is the default.
+            return Integer.parseInt(value) != 0;
+        } catch (NumberFormatException e) {
+            return true;
+        }
+    }
+
+    /** Called when a single or double tap sensor starts or stops listening. */
     private void onTapSensorsListening(boolean listening) {
-        mTapProximityCheck.setListening(listening && mDozeParameters.getProxCheckBeforeTap());
+        mTapSensorsListening = listening;
+        updateTapProximityListening();
+    }
+
+    /**
+     * The tap proximity check listens while a single or double tap sensor listens, on devices
+     * that drop taps while the proximity sensor is covered and while the user wants that.
+     */
+    private void updateTapProximityListening() {
+        mTapProximityCheck.setListening(mTapSensorsListening && checksProximityBeforeTap());
     }
 
     private void gentleWakeUp(@DozeLog.Reason int reason) {
@@ -562,6 +623,8 @@ public class DozeTriggers implements DozeMachine.Part {
         mDockManager.addListener(mDockEventListener);
         mDozeHost.addCallback(mHostCallback);
         mUserTracker.addCallback(mUserChangedCallback, mContext.getMainExecutor());
+        mSecureSettings.registerContentObserverForUserAsync(Settings.Secure.TALLY_POCKET_CHECK,
+                mPocketCheckObserver, UserHandle.USER_ALL);
     }
 
     private void unregisterCallbacks() {
@@ -569,6 +632,7 @@ public class DozeTriggers implements DozeMachine.Part {
         mDozeHost.removeCallback(mHostCallback);
         mDockManager.removeListener(mDockEventListener);
         mUserTracker.removeCallback(mUserChangedCallback);
+        mSecureSettings.unregisterContentObserverAsync(mPocketCheckObserver);
     }
 
     private void stopListeningToAllTriggers() {
