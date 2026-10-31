@@ -217,6 +217,96 @@ public class DozeTapProximityCheckTest extends SysuiTestCase {
         assertEquals(1, mResults.size());
     }
 
+    @Test
+    public void reading_wideRangeSensor_zeroIsNearAndTheFarReadingIsFar() {
+        // The FP6's sensor reports 0 covered and 131.6 clear, below a range limit of 200.
+        when(mSensor.getMaximumRange()).thenReturn(200f);
+        mCheck.setListening(true);
+
+        sendValue(0f);
+        mCheck.check(mResults::add);
+        sendValue(131.6f);
+        mCheck.check(mResults::add);
+
+        assertEquals(List.of(true, false), mResults);
+    }
+
+    @Test
+    public void reading_binarySensor_zeroIsNearAndTheMaximumRangeIsFar() {
+        when(mSensor.getMaximumRange()).thenReturn(5f);
+        mCheck.setListening(true);
+
+        sendValue(0f);
+        mCheck.check(mResults::add);
+        sendValue(5f);
+        mCheck.check(mResults::add);
+
+        assertEquals(List.of(true, false), mResults);
+    }
+
+    @Test
+    public void reading_farEqualsAnUnroundMaximumRange_isFar() {
+        // Below the typical threshold the range limit is the threshold, and the far reading is it.
+        final float range = 1.7f;
+        when(mSensor.getMaximumRange()).thenReturn(range);
+        mCheck.setListening(true);
+
+        sendValue(0f);
+        mCheck.check(mResults::add);
+        sendValue(range);
+        mCheck.check(mResults::add);
+
+        assertEquals(List.of(true, false), mResults);
+    }
+
+    @Test
+    public void reading_negative_isNotNear() {
+        when(mSensor.getMaximumRange()).thenReturn(200f);
+        mCheck.setListening(true);
+
+        sendValue(-1f);
+        mCheck.check(mResults::add);
+
+        assertEquals(List.of(false), mResults);
+    }
+
+    @Test
+    public void threshold_isTakenOncePerRegistration() {
+        when(mSensor.getMaximumRange()).thenReturn(200f);
+        mCheck.setListening(true);
+        sendValue(3f);
+        sendValue(3f);
+
+        verify(mSensor, times(1)).getMaximumRange();
+
+        // A narrower range reported later counts from the next registration.
+        when(mSensor.getMaximumRange()).thenReturn(1f);
+        sendValue(3f);
+        mCheck.check(mResults::add);
+        assertEquals(List.of(true), mResults);
+
+        mCheck.setListening(false);
+        mCheck.setListening(true);
+        sendValue(3f);
+        mCheck.check(mResults::add);
+        assertEquals(List.of(true, false), mResults);
+    }
+
+    private void sendValue(float value) {
+        try {
+            Constructor<SensorEvent> constructor =
+                    SensorEvent.class.getDeclaredConstructor(Integer.TYPE);
+            constructor.setAccessible(true);
+            SensorEvent event = constructor.newInstance(1);
+            event.sensor = mSensor;
+            event.timestamp = mClock.elapsedRealtimeNanos();
+            event.values[0] = value;
+            mCheck.onSensorChanged(event);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     private void sendReading(boolean near, long ageMs) {
         try {
             Constructor<SensorEvent> constructor =
