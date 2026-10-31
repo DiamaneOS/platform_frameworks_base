@@ -48,6 +48,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -56,9 +57,13 @@ import java.util.Map;
  * the switch is on, if it was armed at boot.
  *
  * <ul>
- *   <li>The kernel learns its policy once per boot: init writes {@link #POLICY_PROPERTY} to it
- *       early in boot and the kernel seals it. This class keeps that property equal to the
- *       system user's Moments action, so a change reaches the kernel at the next boot.
+ *   <li>The kernel learns its policy at boot: init writes {@link #POLICY_PROPERTY} to it early
+ *       in boot. After that the kernel accepts only a write that keeps every sensor it already
+ *       enforces. This class keeps the property equal to the system user's Moments action, so a
+ *       removal reaches the kernel at the next boot. When the action becomes "Camera and
+ *       microphone off" the sensors are also written to the kernel's policy file at once, after
+ *       the property, and the kernel's state is read again. If the kernel refuses, the property
+ *       arms it at the next boot.
  *   <li>While the kernel blocks the microphone, Android shows it as a hardware toggle: the
  *       "unblock" prompt then points to the switch, as on devices with a mute switch. Only the
  *       kernel's own report counts, re-read at every switch report: Android's view of the switch
@@ -70,7 +75,8 @@ import java.util.Map;
  * </ul>
  *
  * <p>The kernel's state comes from {@code config_momentsKernelFloorPath} (the switch driver's
- * {@code state} file). Empty (the default) turns all of this off. Changes arrive on the input service's handler.
+ * {@code state} file) and its policy file is the {@code policy} file next to it. Empty (the
+ * default) turns all of this off. Changes arrive on the input service's handler.
  */
 final class MomentsKernelFloor {
     private static final String TAG = "MomentsKernelFloor";
@@ -92,6 +98,9 @@ final class MomentsKernelFloor {
     @VisibleForTesting
     static final long MIC_RELEASE_DELAY_MS = 1000;
 
+    /** The switch driver's policy file, next to its state file. */
+    private static final String POLICY_FILE = "policy";
+
     /** What the kernel blocks, as one platform hook. Separate for tests. */
     interface Platform {
         /** The kernel's state line, or null when it cannot be read. */
@@ -102,6 +111,12 @@ final class MomentsKernelFloor {
         /** The system user's Moments action, or -1 when unset. */
         int momentsAction();
         void setProperty(String key, String value);
+        /**
+         * Writes {@code mask} (kernel bits) to the kernel's policy file. The kernel refuses a mask
+         * that drops a sensor it enforces. Returns false when the write failed. Even when it
+         * returns true, only the state file says what the kernel enforces.
+         */
+        boolean writeKernelPolicy(int mask);
         void watch(Runnable onActionChanged, java.util.function.IntConsumer onUserSwitched);
         /**
          * Tells the user that only Android blocks {@code missing} (kernel bits) until a restart.
@@ -378,8 +393,9 @@ final class MomentsKernelFloor {
     // The system user's choice. The kernel floor is device-wide.
     private void mirrorPolicy() {
         int action = mPlatform.momentsAction();
-        String policy = action == Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
-                ? Integer.toString(KERNEL_MIC | KERNEL_CAMERA) : "0";
+        int mask = action == Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+                ? KERNEL_MIC | KERNEL_CAMERA : 0;
+        String policy = Integer.toString(mask);
         synchronized (mLock) {
             mAction = action;
             updateNoticeLocked();
@@ -388,8 +404,58 @@ final class MomentsKernelFloor {
             }
             mPolicy = policy;
         }
+        // The property first. If the kernel write then fails or the process dies, the next boot
+        // still arms what the user chose. The other order could leave the kernel ahead of the
+        // property, and the next boot would then start with less than this one.
         mPlatform.setProperty(POLICY_PROPERTY, policy);
         Slog.i(TAG, "Kernel policy for the next boot: " + policy);
+        // A removal waits for the next boot, the kernel would refuse it.
+        if (mask != 0) {
+            armKernel(mask);
+        }
+    }
+
+    // Adds the sensors to the kernel's policy now, unless it enforces them already. Whatever the
+    // write reports, the state file is read again and the toggles and the notice follow it.
+    private void armKernel(int mask) {
+        synchronized (mLock) {
+            refreshKernelLocked();
+            if ((mEnforced & mask) == mask) {
+                return;
+            }
+        }
+        if (!mPlatform.writeKernelPolicy(mask)) {
+            Slog.w(TAG, "Kernel did not take the policy " + mask + ". It arms at the next boot");
+        }
+        synchronized (mLock) {
+            refreshKernelLocked();
+            applyLocked();
+            // With the switch down and the kernel still short of the sensors, this tells the user
+            // as a move down does. It also cancels a notice that no longer applies.
+            maybePostNoticeLocked();
+        }
+    }
+
+    /** The policy file next to the state file. */
+    @VisibleForTesting
+    static Path policyPath(String statePath) {
+        return Path.of(statePath).resolveSibling(POLICY_FILE);
+    }
+
+    /**
+     * Writes {@code mask} to the policy file in one write. SELinux lets system_server open and
+     * write this file and nothing else, so it is opened for writing only: no create, no truncate.
+     */
+    @VisibleForTesting
+    static boolean writePolicyFile(Path file, int mask) {
+        try {
+            Files.writeString(file, Integer.toString(mask), StandardCharsets.US_ASCII,
+                    StandardOpenOption.WRITE);
+            return true;
+        } catch (IOException | SecurityException e) {
+            Slog.e(TAG, "Cannot write " + file, e);
+            return false;
+        }
     }
 
     void dump(IndentingPrintWriter pw) {
@@ -516,6 +582,11 @@ final class MomentsKernelFloor {
             } catch (RuntimeException e) {
                 Slog.e(TAG, "Cannot set " + key, e);
             }
+        }
+
+        @Override
+        public boolean writeKernelPolicy(int mask) {
+            return writePolicyFile(policyPath(mPath), mask);
         }
 
         @Override
