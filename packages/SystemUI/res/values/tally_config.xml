@@ -22,7 +22,8 @@
     <!-- Doze: drop a single or double tap while the proximity sensor is covered. For tap
      sensors that do not reject pocket touches themselves. The non-wake-up proximity sensor
      then reports five times a second while these gestures listen, and a tap without a current
-     reading waits up to 0.4 s for the next one. -->
+     reading waits up to 0.4 s for the next one.
+     The user can turn this off with Pocket check in Settings. -->
     <bool name="doze_proximity_check_before_tap">false</bool>
 
     <!-- Tally: an expanded group stays one card, its children inside it -->

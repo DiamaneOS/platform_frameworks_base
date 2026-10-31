@@ -7603,6 +7603,15 @@ public final class Settings {
         @Protected(read = KnownSystemPackage.SYSTEM_UI, readWrite = KnownSystemPackage.SETTINGS)
         public static final String TALLY_HOTSPOT_JOIN_NOTICE = "tally_hotspot_join_notice";
 
+        /**
+         * Whether a tap that wakes the screen is dropped while the proximity sensor is covered, as
+         * in a pocket or bag (1, the default), or wakes it at once (0). Written by Settings and
+         * read by SystemUI. Apps cannot read it.
+         * @hide
+         */
+        @Protected(read = KnownSystemPackage.SYSTEM_UI, readWrite = KnownSystemPackage.SETTINGS)
+        public static final String TALLY_POCKET_CHECK = "tally_pocket_check";
+
         // ExtSettings END
 
         // NOTE: If you add new settings here, be sure to add them to
