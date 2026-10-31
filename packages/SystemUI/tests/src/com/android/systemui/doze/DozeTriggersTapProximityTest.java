@@ -19,6 +19,7 @@ package com.android.systemui.doze;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyFloat;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -37,6 +38,7 @@ import android.hardware.SensorEvent;
 import android.hardware.TriggerEvent;
 import android.hardware.TriggerEventListener;
 import android.hardware.display.AmbientDisplayConfiguration;
+import android.os.UserHandle;
 import android.provider.Settings;
 import android.testing.TestableLooper;
 import android.testing.TestableLooper.RunWithLooper;
@@ -120,6 +122,8 @@ public class DozeTriggersTapProximityTest extends SysuiTestCase {
     private Sensor mNonWakeUpProximity;
     @Captor
     private ArgumentCaptor<DozeHost.Callback> mHostCallbackCaptor;
+    @Captor
+    private ArgumentCaptor<UserTracker.Callback> mUserCallbackCaptor;
 
     private DozeTriggers mTriggers;
     private FakeSensorManager mSensors;
@@ -458,6 +462,210 @@ public class DozeTriggersTapProximityTest extends SysuiTestCase {
                 .registerListener(check, mNonWakeUpProximity, 200_000, 0);
     }
 
+    @Test
+    public void test_onSensor_tap_pocketCheckOff_wakesUpUnchecked() throws Exception {
+        // GIVEN a device that asks for the check and the user turned the pocket check off
+        setupDozeTriggersWithTapProxCheck(mConfig);
+        setPocketCheck(false);
+        answerTapProximityCheck(true);
+
+        mTriggers.onSensor(DozeLog.REASON_SENSOR_TAP, 100, 200, null);
+
+        // THEN a tap wakes the device without asking any proximity sensor
+        verify(mTapProximityCheck, never()).check(any());
+        verify(mProximityCheck, never()).check(anyLong(), any());
+        verify(mHost).onSlpiTap(100, 200);
+        verify(mMachine).wakeUp(DozeLog.REASON_SENSOR_TAP);
+    }
+
+    @Test
+    public void test_onSensor_doubleTap_pocketCheckOff_wakesUpUnchecked() throws Exception {
+        setupDozeTriggersWithTapProxCheck(mConfig);
+        setPocketCheck(false);
+        answerTapProximityCheck(true);
+
+        mTriggers.onSensor(DozeLog.REASON_SENSOR_DOUBLE_TAP, 100, 200, null);
+
+        verify(mTapProximityCheck, never()).check(any());
+        verify(mProximityCheck, never()).check(anyLong(), any());
+        verify(mHost).onSlpiTap(100, 200);
+        verify(mMachine).wakeUp(DozeLog.REASON_SENSOR_DOUBLE_TAP);
+    }
+
+    @Test
+    public void test_onSensor_doubleTap_pocketCheckOn_near_dropsTap() throws Exception {
+        setupDozeTriggersWithTapProxCheck(mConfig);
+        setPocketCheck(true);
+        answerTapProximityCheck(true);
+
+        mTriggers.onSensor(DozeLog.REASON_SENSOR_DOUBLE_TAP, 100, 200, null);
+
+        verify(mHost, never()).onSlpiTap(anyFloat(), anyFloat());
+        verify(mMachine, never()).wakeUp(anyInt());
+    }
+
+    @Test
+    public void test_onSensor_tap_pocketCheckOffForAnotherUser_stillChecks() throws Exception {
+        // GIVEN the pocket check is off for user 10 and on for the selected user
+        setupDozeTriggersWithTapProxCheck(mConfig);
+        mSettings.putIntForUser(Settings.Secure.TALLY_POCKET_CHECK, 0, 10);
+        answerTapProximityCheck(true);
+
+        mTriggers.onSensor(DozeLog.REASON_SENSOR_TAP, 100, 200, null);
+
+        // THEN the selected user's tap is checked
+        verify(mTapProximityCheck).check(any());
+        verify(mMachine, never()).wakeUp(anyInt());
+    }
+
+    @Test
+    public void transitionToDoze_tapProxCheck_pocketCheckOff_doesNotListen() throws Exception {
+        setupDozeTriggersWithRealTapProxCheck();
+        setPocketCheck(false);
+
+        startDozing();
+
+        // THEN no proximity sensor is registered for taps
+        verify(mTapProximitySensorManager, never())
+                .registerListener(any(), any(Sensor.class), anyInt(), anyInt());
+        assertFalse(mProximitySensor.isRegistered());
+    }
+
+    @Test
+    public void tap_pocketCheckOff_coveredReading_wakesUp() throws Exception {
+        DozeTapProximityCheck check = setupDozeTriggersWithRealTapProxCheck();
+        setPocketCheck(false);
+        startDozing();
+        sendTapProximityReading(check, true /* near */);
+
+        mTriggers.onSensor(DozeLog.REASON_SENSOR_DOUBLE_TAP, 100, 200, null);
+
+        // THEN the tap wakes the device at once, with no wait for a reading
+        verify(mMachine).wakeUp(DozeLog.REASON_SENSOR_DOUBLE_TAP);
+        assertEquals(0, mCheckExecutor.numPending());
+    }
+
+    @Test
+    public void pocketCheckSwitchedOff_whileDozing_stopsListening() throws Exception {
+        // GIVEN the device dozes with the proximity sensor listening for taps
+        DozeTapProximityCheck check = setupDozeTriggersWithRealTapProxCheck();
+        mTriggers.transitionTo(DozeMachine.State.UNINITIALIZED, DozeMachine.State.INITIALIZED);
+        startDozing();
+        verify(mTapProximitySensorManager)
+                .registerListener(check, mNonWakeUpProximity, 200_000, 0);
+
+        // WHEN the user turns the pocket check off
+        setPocketCheck(false);
+
+        // THEN the proximity sensor stops and the tap sensor keeps listening
+        verify(mTapProximitySensorManager).unregisterListener(check);
+        verify(mSensors, never()).cancelTriggerSensor(any(), eq(mTapSensor));
+    }
+
+    @Test
+    public void pocketCheckSwitchedOn_whileDozing_startsListening() throws Exception {
+        // GIVEN the device dozes with the pocket check off
+        DozeTapProximityCheck check = setupDozeTriggersWithRealTapProxCheck();
+        setPocketCheck(false);
+        mTriggers.transitionTo(DozeMachine.State.UNINITIALIZED, DozeMachine.State.INITIALIZED);
+        startDozing();
+        verify(mTapProximitySensorManager, never())
+                .registerListener(any(), any(Sensor.class), anyInt(), anyInt());
+
+        // WHEN the user turns the pocket check on
+        setPocketCheck(true);
+
+        // THEN the proximity sensor listens
+        verify(mTapProximitySensorManager)
+                .registerListener(check, mNonWakeUpProximity, 200_000, 0);
+    }
+
+    @Test
+    public void pocketCheckChangedForAnotherUser_keepsListening() throws Exception {
+        DozeTapProximityCheck check = setupDozeTriggersWithRealTapProxCheck();
+        mTriggers.transitionTo(DozeMachine.State.UNINITIALIZED, DozeMachine.State.INITIALIZED);
+        startDozing();
+
+        mSettings.putIntForUser(Settings.Secure.TALLY_POCKET_CHECK, 0, 10);
+        TestableLooper.get(this).processAllMessages();
+
+        verify(mTapProximitySensorManager, never()).unregisterListener(check);
+    }
+
+    @Test
+    public void userSwitch_pocketCheckOffThenOn_startsListening() throws Exception {
+        // GIVEN the selected user turned the pocket check off and another user left it on
+        DozeTapProximityCheck check = setupDozeTriggersWithRealTapProxCheck();
+        setPocketCheck(false, UserHandle.USER_SYSTEM);
+        setPocketCheck(true, 10);
+        mTriggers.transitionTo(DozeMachine.State.UNINITIALIZED, DozeMachine.State.INITIALIZED);
+        startDozing();
+        verify(mTapProximitySensorManager, never())
+                .registerListener(any(), any(Sensor.class), anyInt(), anyInt());
+
+        // WHEN the other user becomes the selected one while the device dozes
+        switchUser(10);
+
+        // THEN the proximity sensor listens for that user's taps
+        verify(mTapProximitySensorManager)
+                .registerListener(check, mNonWakeUpProximity, 200_000, 0);
+    }
+
+    @Test
+    public void userSwitch_pocketCheckOnThenOff_stopsListening() throws Exception {
+        DozeTapProximityCheck check = setupDozeTriggersWithRealTapProxCheck();
+        setPocketCheck(true, UserHandle.USER_SYSTEM);
+        setPocketCheck(false, 10);
+        mTriggers.transitionTo(DozeMachine.State.UNINITIALIZED, DozeMachine.State.INITIALIZED);
+        startDozing();
+        verify(mTapProximitySensorManager)
+                .registerListener(check, mNonWakeUpProximity, 200_000, 0);
+
+        switchUser(10);
+
+        // THEN the sensor stops and the tap sensor keeps listening
+        verify(mTapProximitySensorManager).unregisterListener(check);
+        verify(mSensors, never()).cancelTriggerSensor(any(), eq(mTapSensor));
+    }
+
+    @Test
+    public void pocketCheckStoredAsFalse_isOff() throws Exception {
+        // BoolSetting reads "false" as off, so does the check
+        setupDozeTriggersWithRealTapProxCheck();
+        mSettings.putStringForUser(Settings.Secure.TALLY_POCKET_CHECK, "false",
+                UserHandle.USER_SYSTEM);
+
+        startDozing();
+
+        verify(mTapProximitySensorManager, never())
+                .registerListener(any(), any(Sensor.class), anyInt(), anyInt());
+    }
+
+    @Test
+    public void parsePocketCheck_readsLikeBoolSetting() {
+        assertTrue(DozeTriggers.parsePocketCheck(null));
+        assertTrue(DozeTriggers.parsePocketCheck("true"));
+        assertTrue(DozeTriggers.parsePocketCheck("1"));
+        assertFalse(DozeTriggers.parsePocketCheck("false"));
+        assertFalse(DozeTriggers.parsePocketCheck("0"));
+        // Anything else is the default, on.
+        assertTrue(DozeTriggers.parsePocketCheck(""));
+        assertTrue(DozeTriggers.parsePocketCheck("2"));
+        assertTrue(DozeTriggers.parsePocketCheck("off"));
+        assertTrue(DozeTriggers.parsePocketCheck("False"));
+    }
+
+    @Test
+    public void finish_stopsWatchingPocketCheck() throws Exception {
+        setupDozeTriggersWithRealTapProxCheck();
+        mTriggers.transitionTo(DozeMachine.State.UNINITIALIZED, DozeMachine.State.INITIALIZED);
+        assertTrue(hasPocketCheckObserver());
+
+        mTriggers.transitionTo(DozeMachine.State.DOZE, DozeMachine.State.FINISH);
+
+        assertFalse(hasPocketCheckObserver());
+    }
+
     private void waitForSensorManager() {
         mExecutor.runAllReady();
     }
@@ -500,6 +708,32 @@ public class DozeTriggersTapProximityTest extends SysuiTestCase {
                 mSelectedUserInteractor.getSelectedUserId());
         TestableLooper.get(this).processAllMessages();
         waitForSensorManager();
+    }
+
+    /** Switches the user's pocket check and lets the observers run. */
+    private void setPocketCheck(boolean on) {
+        setPocketCheck(on, UserHandle.USER_SYSTEM);
+    }
+
+    private void setPocketCheck(boolean on, int userId) {
+        mSettings.putIntForUser(Settings.Secure.TALLY_POCKET_CHECK, on ? 1 : 0, userId);
+        TestableLooper.get(this).processAllMessages();
+        waitForSensorManager();
+    }
+
+    /** The selected user changes, as the user tracker reports it. */
+    private void switchUser(int userId) {
+        when(mSelectedUserInteractor.getSelectedUserId()).thenReturn(userId);
+        verify(mUserTracker).addCallback(mUserCallbackCaptor.capture(), any());
+        mUserCallbackCaptor.getValue().onUserChanged(userId, mContext);
+        TestableLooper.get(this).processAllMessages();
+        waitForSensorManager();
+    }
+
+    private boolean hasPocketCheckObserver() {
+        return !mSettings.getContentObservers(
+                mSettings.getUriFor(Settings.Secure.TALLY_POCKET_CHECK),
+                UserHandle.USER_ALL).isEmpty();
     }
 
     private void startDozing() {

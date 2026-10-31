@@ -108,6 +108,9 @@ public class ExtSettings {
     public static final BoolSetting POWER_VOLUME_DOWN_SCREENSHOT = new BoolSetting(
             Setting.Scope.GLOBAL, Settings.Global.POWER_VOLUME_DOWN_SCREENSHOT, true);
 
+    public static final BoolSetting TALLY_POCKET_CHECK = new BoolSetting(
+            Setting.Scope.PER_USER, Settings.Secure.TALLY_POCKET_CHECK, true);
+
     private ExtSettings() {}
 
     public static Function<Context, Boolean> defaultBool(@BoolRes int res) {
