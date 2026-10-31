@@ -26,6 +26,7 @@ import android.provider.Settings
 import androidx.test.core.app.ApplicationProvider
 import com.android.internal.R
 import com.google.common.truth.Truth.assertThat
+import java.nio.file.Files
 import java.util.function.IntConsumer
 import org.junit.Test
 
@@ -37,7 +38,18 @@ import org.junit.Test
 class MomentsKernelFloorTests {
 
     private class FakePlatform : MomentsKernelFloor.Platform {
-        var enforced = 0
+        // What the kernel's policy arms. An armed sensor is enforced only with a client in the
+        // kernel for it.
+        var armed = 0
+        var clients = BOTH
+        // What the kernel enforces: armed and with a client. Setting it gives a kernel armed
+        // with exactly these sensors and a client for each.
+        var enforced: Int
+            get() = armed and clients
+            set(value) {
+                armed = value
+                clients = BOTH
+            }
         // What the kernel blocks now. The switch driver blocks only while the line is down.
         var blocked = 0
         var unreadable = false
@@ -45,6 +57,16 @@ class MomentsKernelFloorTests {
         var action = -1
         val properties = mutableMapOf<String, String>()
         var propertyWrites = 0
+        // Property and kernel writes in order.
+        val events = mutableListOf<String>()
+        // Masks written to the kernel's policy file.
+        val policyWrites = mutableListOf<Int>()
+        // As the kernel: a write that keeps what it enforces is accepted. False refuses all.
+        var kernelAccepts = true
+        // Reports success but changes nothing.
+        var kernelIgnores = false
+        // The switch line is down: the kernel blocks what it enforces.
+        var down = false
         val toggles = mutableListOf<Pair<Int, Boolean>>()
         val cameraToggles = mutableListOf<Pair<Int, Boolean>>()
         var onActionChanged: Runnable? = null
@@ -52,8 +74,8 @@ class MomentsKernelFloorTests {
 
         override fun readState(): String? =
             if (unreadable) null
-            else "sealed=1 policy=0x3 armed=0x3 enforced=${hex(enforced)} switch=present " +
-                "down=${if (blocked != 0) 1 else 0} blocked=${hex(blocked)}\n"
+            else "sealed=1 policy=${hex(armed)} armed=${hex(armed)} enforced=${hex(enforced)} " +
+                "switch=present down=${if (blocked != 0) 1 else 0} blocked=${hex(blocked)}\n"
 
         // The kernel prints %#x: "0" for zero, "0x1" otherwise.
         private fun hex(v: Int) = if (v == 0) "0" else "0x" + Integer.toHexString(v)
@@ -73,6 +95,18 @@ class MomentsKernelFloorTests {
         override fun setProperty(key: String, value: String) {
             properties[key] = value
             propertyWrites++
+            events += "property $key=$value"
+        }
+
+        override fun writeKernelPolicy(mask: Int): Boolean {
+            policyWrites += mask
+            events += "kernel $mask"
+            if (kernelIgnores) return true
+            // Never drops an armed sensor.
+            if (!kernelAccepts || (mask and armed) != armed) return false
+            armed = mask
+            if (down) blocked = armed
+            return true
         }
 
         override fun watch(onActionChanged: Runnable, onUserSwitched: IntConsumer) {
@@ -150,7 +184,333 @@ class MomentsKernelFloorTests {
 
         assertThat(platform.properties).isEmpty()
         assertThat(platform.toggles).isEmpty()
+        assertThat(platform.policyWrites).isEmpty()
         assertThat(platform.onActionChanged).isNull()
+    }
+
+    @Test
+    fun sensorsOffChosen_armsTheKernelAtOnce() {
+        // The switch is down and the kernel was sealed without the sensors.
+        platform.action = Settings.Secure.MOMENTS_ACTION_SILENT
+        platform.down = true
+        val floor = floor()
+        platform.blocked = 0
+        floor.onSwitchChanged(true)
+        assertThat(platform.toggles).isEmpty()
+        assertThat(enforced).isEqualTo("0")
+
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        platform.onActionChanged!!.run()
+
+        // The kernel took the mask, and the property, the toggles and the notice follow its state.
+        assertThat(platform.policyWrites).containsExactly(BOTH)
+        assertThat(platform.enforced).isEqualTo(BOTH)
+        assertThat(enforced).isEqualTo("3")
+        assertThat(policy).isEqualTo("3")
+        assertThat(platform.toggles).containsExactly(0 to true, 10 to true).inOrder()
+        assertThat(platform.cameraToggles).containsExactly(0 to true, 10 to true).inOrder()
+        assertThat(platform.noticesPosted).isEqualTo(0)
+    }
+
+    @Test
+    fun sensorsOffChosen_propertyIsSetBeforeTheKernelWrite() {
+        platform.action = Settings.Secure.MOMENTS_ACTION_SILENT
+        floor()
+        platform.events.clear()
+
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        platform.onActionChanged!!.run()
+
+        assertThat(platform.events.take(2)).containsExactly(
+            "property ${MomentsKernelFloor.POLICY_PROPERTY}=3", "kernel 3").inOrder()
+    }
+
+    @Test
+    fun sensorsOffChosen_switchUp_armsWithoutBlocking() {
+        platform.action = Settings.Secure.MOMENTS_ACTION_SILENT
+        val floor = floor()
+        floor.onSwitchChanged(false)
+
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        platform.onActionChanged!!.run()
+
+        assertThat(platform.enforced).isEqualTo(BOTH)
+        assertThat(enforced).isEqualTo("3")
+        assertThat(platform.toggles).isEmpty()
+        assertThat(platform.cameraToggles).isEmpty()
+
+        // The next move down blocks, with the kernel and Android and no notice.
+        platform.down = true
+        platform.blocked = BOTH
+        floor.onSwitchChanged(true)
+        assertThat(platform.toggles).containsExactly(0 to true, 10 to true).inOrder()
+        assertThat(platform.noticesPosted).isEqualTo(0)
+    }
+
+    @Test
+    fun sensorsOffChosen_kernelRefuses_keepsToday() {
+        platform.action = Settings.Secure.MOMENTS_ACTION_SILENT
+        platform.kernelAccepts = false
+        val floor = floor()
+
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        platform.onActionChanged!!.run()
+
+        // The property still arms the next boot and the kernel enforces nothing.
+        assertThat(platform.policyWrites).containsExactly(BOTH)
+        assertThat(policy).isEqualTo("3")
+        assertThat(enforced).isEqualTo("0")
+        assertThat(platform.toggles).isEmpty()
+
+        // The notice comes with the next move down, as before.
+        floor.onSwitchChanged(true)
+        assertThat(platform.notices).containsExactly(BOTH)
+    }
+
+    @Test
+    fun sensorsOffChosen_switchDown_kernelRefuses_postsTheNotice() {
+        platform.action = Settings.Secure.MOMENTS_ACTION_SILENT
+        platform.kernelAccepts = false
+        val floor = floor()
+        floor.onSwitchChanged(true)
+        assertThat(platform.noticesPosted).isEqualTo(0)
+
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        platform.onActionChanged!!.run()
+
+        // Only Android blocks, so the user is told without waiting for another move down.
+        assertThat(platform.notices).containsExactly(BOTH)
+        assertThat(policy).isEqualTo("3")
+    }
+
+    @Test
+    fun sensorsOffChosen_switchDown_kernelArmsWithoutAMicClient_namesTheMic() {
+        platform.action = Settings.Secure.MOMENTS_ACTION_SILENT
+        platform.clients = MomentsKernelFloor.KERNEL_CAMERA
+        val floor = floor()
+        floor.onSwitchChanged(true)
+
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        platform.onActionChanged!!.run()
+
+        // Armed but not enforced: the state file says the camera only.
+        assertThat(platform.armed).isEqualTo(BOTH)
+        assertThat(enforced).isEqualTo("2")
+        assertThat(platform.notices).containsExactly(MomentsKernelFloor.KERNEL_MIC)
+    }
+
+    @Test
+    fun sensorsOffChosen_switchDown_noClientAtAll_namesBoth() {
+        platform.action = Settings.Secure.MOMENTS_ACTION_SILENT
+        platform.clients = 0
+        val floor = floor()
+        floor.onSwitchChanged(true)
+
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        platform.onActionChanged!!.run()
+
+        assertThat(enforced).isEqualTo("0")
+        assertThat(platform.notices).containsExactly(BOTH)
+    }
+
+    @Test
+    fun sensorsOffChosen_switchDown_kernelRefuses_noticeWaitsForAndroidsBlock() {
+        platform.action = Settings.Secure.MOMENTS_ACTION_SILENT
+        platform.kernelAccepts = false
+        platform.androidBlocked = 0
+        val floor = floor()
+        floor.onSwitchChanged(true)
+
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        platform.onActionChanged!!.run()
+        assertThat(platform.noticesPosted).isEqualTo(0)
+
+        platform.androidNowBlocks(BOTH)
+        assertThat(platform.notices).containsExactly(BOTH)
+    }
+
+    @Test
+    fun sensorsOffChosen_switchUp_kernelRefuses_noticeComesWithTheMoveDown() {
+        platform.action = Settings.Secure.MOMENTS_ACTION_SILENT
+        platform.kernelAccepts = false
+        val floor = floor()
+        floor.onSwitchChanged(false)
+
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        platform.onActionChanged!!.run()
+        assertThat(platform.noticesPosted).isEqualTo(0)
+
+        floor.onSwitchChanged(true)
+        assertThat(platform.notices).containsExactly(BOTH)
+    }
+
+    @Test
+    fun sensorsOffChosen_writeReportsSuccessButKernelStaysOpen_stateFileCounts() {
+        platform.action = Settings.Secure.MOMENTS_ACTION_SILENT
+        platform.kernelIgnores = true
+        val floor = floor()
+
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        platform.onActionChanged!!.run()
+
+        assertThat(enforced).isEqualTo("0")
+        floor.onSwitchChanged(true)
+        assertThat(platform.notices).containsExactly(BOTH)
+    }
+
+    @Test
+    fun sensorsOffChosen_kernelEnforcesOnlyTheMic_addsTheCamera() {
+        platform.enforced = MomentsKernelFloor.KERNEL_MIC
+        platform.action = Settings.Secure.MOMENTS_ACTION_SILENT
+        floor()
+
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        platform.onActionChanged!!.run()
+
+        assertThat(platform.policyWrites).containsExactly(BOTH)
+        assertThat(enforced).isEqualTo("3")
+    }
+
+    @Test
+    fun sensorsOffChosen_kernelEnforcesBothAlready_noWrite() {
+        platform.enforced = BOTH
+        platform.action = Settings.Secure.MOMENTS_ACTION_SILENT
+        floor()
+
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        platform.onActionChanged!!.run()
+
+        assertThat(platform.policyWrites).isEmpty()
+        assertThat(policy).isEqualTo("3")
+    }
+
+    @Test
+    fun systemRunning_sensorsOffChosenButKernelOpen_armsIt() {
+        // The property did not reach init, or the kernel was sealed without the sensors.
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        floor()
+
+        assertThat(platform.policyWrites).containsExactly(BOTH)
+        assertThat(enforced).isEqualTo("3")
+    }
+
+    @Test
+    fun systemRunning_sensorsOffChosenAndArmed_noWrite() {
+        platform.enforced = BOTH
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        floor()
+
+        assertThat(platform.policyWrites).isEmpty()
+    }
+
+    @Test
+    fun leavingSensorsOff_neverWritesTheKernel_andAndroidKeepsTheKernelsBlock() {
+        platform.enforced = BOTH
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        val floor = floor()
+        platform.down = true
+        platform.blocked = BOTH
+        floor.onSwitchChanged(true)
+        platform.toggles.clear()
+        platform.cameraToggles.clear()
+
+        platform.action = Settings.Secure.MOMENTS_ACTION_SILENT
+        platform.onActionChanged!!.run()
+
+        // Only the property changes, for the next boot. The kernel still enforces and blocks.
+        assertThat(policy).isEqualTo("0")
+        assertThat(platform.policyWrites).isEmpty()
+        assertThat(enforced).isEqualTo("3")
+        assertThat(platform.toggles).isEmpty()
+        assertThat(platform.cameraToggles).isEmpty()
+
+        // Android's hardware toggles follow the kernel until it releases them.
+        floor.onSwitchChanged(true)
+        assertThat(platform.toggles).isEmpty()
+        platform.down = false
+        platform.blocked = 0
+        floor.onSwitchChanged(false)
+        assertThat(platform.cameraToggles).containsExactly(0 to false, 10 to false).inOrder()
+        platform.runDelayed()
+        assertThat(platform.toggles).containsExactly(0 to false, 10 to false).inOrder()
+    }
+
+    @Test
+    fun choosingSensorsOffAgainWhileTheKernelStillEnforces_noWrite() {
+        platform.enforced = BOTH
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        floor()
+        platform.action = Settings.Secure.MOMENTS_ACTION_SILENT
+        platform.onActionChanged!!.run()
+
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        platform.onActionChanged!!.run()
+
+        assertThat(platform.policyWrites).isEmpty()
+        assertThat(policy).isEqualTo("3")
+    }
+
+    @Test
+    fun otherActions_neverWriteTheKernel() {
+        floor()
+        for (action in listOf(
+            Settings.Secure.MOMENTS_ACTION_MOMENTS,
+            Settings.Secure.MOMENTS_ACTION_SILENT,
+            Settings.Secure.MOMENTS_ACTION_AIRPLANE,
+            Settings.Secure.MOMENTS_ACTION_NOTHING,
+            Settings.Secure.MOMENTS_ACTION_LOCKDOWN,
+            -1,
+        )) {
+            platform.action = action
+            platform.onActionChanged!!.run()
+        }
+
+        assertThat(platform.policyWrites).isEmpty()
+    }
+
+    @Test
+    fun refusedBootWrite_thenChosenAgain_armsAndTheNoticeStaysGone() {
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        platform.kernelAccepts = false
+        val floor = floor()
+        floor.onSwitchChanged(true)
+        assertThat(platform.notices).containsExactly(BOTH)
+
+        platform.action = Settings.Secure.MOMENTS_ACTION_SILENT
+        platform.onActionChanged!!.run()
+        assertThat(platform.noticesCancelled).isEqualTo(1)
+
+        platform.kernelAccepts = true
+        platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
+        platform.onActionChanged!!.run()
+        floor.onSwitchChanged(true)
+
+        assertThat(enforced).isEqualTo("3")
+        assertThat(platform.noticesPosted).isEqualTo(1)
+    }
+
+    @Test
+    fun policyPath_isTheStateFilesSibling() {
+        assertThat(MomentsKernelFloor.policyPath("/sys/kernel/privacy_switch/state").toString())
+            .isEqualTo("/sys/kernel/privacy_switch/policy")
+    }
+
+    @Test
+    fun writePolicyFile_writesTheMaskAndNeverCreatesTheFile() {
+        val dir = Files.createTempDirectory("privsw")
+        try {
+            val file = dir.resolve("policy")
+
+            // Opened for writing only: a missing file stays missing.
+            assertThat(MomentsKernelFloor.writePolicyFile(file, BOTH)).isFalse()
+            assertThat(Files.exists(file)).isFalse()
+
+            Files.writeString(file, "0")
+            assertThat(MomentsKernelFloor.writePolicyFile(file, BOTH)).isTrue()
+            assertThat(Files.readString(file)).isEqualTo("3")
+        } finally {
+            dir.toFile().deleteRecursively()
+        }
     }
 
     @Test
@@ -420,6 +780,7 @@ class MomentsKernelFloorTests {
 
     @Test
     fun notArmed_eachMoveDown_posts() {
+        platform.kernelAccepts = false
         platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
         // Sealed without the camera and microphone: the kernel enforces nothing.
         val floor = floor()
@@ -445,6 +806,7 @@ class MomentsKernelFloorTests {
 
     @Test
     fun notArmed_postsOnlyOnceAndroidBlocksBoth() {
+        platform.kernelAccepts = false
         platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
         platform.androidBlocked = 0
         val floor = floor()
@@ -465,6 +827,7 @@ class MomentsKernelFloorTests {
 
     @Test
     fun notArmed_androidDoesNotBlock_noNotice() {
+        platform.kernelAccepts = false
         platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
         // As during an emergency call: the microphone toggle cannot change.
         platform.androidBlocked = 0
@@ -483,6 +846,7 @@ class MomentsKernelFloorTests {
 
     @Test
     fun silentThenSensorsOff_downUpDown_postsOnEachMoveDown() {
+        platform.kernelAccepts = false
         platform.action = Settings.Secure.MOMENTS_ACTION_SILENT
         val floor = floor()
         floor.onSwitchChanged(false)
@@ -501,6 +865,7 @@ class MomentsKernelFloorTests {
 
     @Test
     fun cameraEnforced_namesOnlyTheMicrophone() {
+        platform.kernelAccepts = false
         platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
         platform.enforced = MomentsKernelFloor.KERNEL_CAMERA
         val floor = floor()
@@ -512,6 +877,7 @@ class MomentsKernelFloorTests {
 
     @Test
     fun micEnforced_namesOnlyTheCamera() {
+        platform.kernelAccepts = false
         platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
         platform.enforced = MomentsKernelFloor.KERNEL_MIC
         val floor = floor()
@@ -524,6 +890,7 @@ class MomentsKernelFloorTests {
 
     @Test
     fun firstReportAtBoot_switchAlreadyDown_posts() {
+        platform.kernelAccepts = false
         platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
         val floor = floor()
 
@@ -546,6 +913,7 @@ class MomentsKernelFloorTests {
 
     @Test
     fun kernelEnforcesBothLater_cancelsTheNotice() {
+        platform.kernelAccepts = false
         // A kernel client registered after boot: the next report sees both enforced.
         platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
         platform.enforced = MomentsKernelFloor.KERNEL_MIC
@@ -573,6 +941,7 @@ class MomentsKernelFloorTests {
 
     @Test
     fun actionChangedAway_cancelsTheNotice() {
+        platform.kernelAccepts = false
         platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
         val floor = floor()
         floor.onSwitchChanged(true)
@@ -585,17 +954,19 @@ class MomentsKernelFloorTests {
         platform.onActionChanged!!.run()
         assertThat(platform.noticesCancelled).isEqualTo(1)
 
-        // Choosing it again posts nothing by itself. The next move down does.
+        // Choosing it again with the switch down and a kernel that stays open tells the user at
+        // once. Each later move down does too.
         platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
         platform.onActionChanged!!.run()
-        assertThat(platform.noticesPosted).isEqualTo(1)
+        assertThat(platform.noticesPosted).isEqualTo(2)
         floor.onSwitchChanged(false)
         floor.onSwitchChanged(true)
-        assertThat(platform.noticesPosted).isEqualTo(2)
+        assertThat(platform.noticesPosted).isEqualTo(3)
     }
 
     @Test
     fun actionChangedAway_neverPosted_noCancel() {
+        platform.kernelAccepts = false
         platform.action = Settings.Secure.MOMENTS_ACTION_SENSORS_OFF
         floor()
 
