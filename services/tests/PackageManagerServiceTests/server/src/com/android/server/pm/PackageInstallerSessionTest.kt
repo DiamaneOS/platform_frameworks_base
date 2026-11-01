@@ -27,6 +27,7 @@ import android.content.pm.PackageInstaller.SessionParams.PERMISSION_STATE_GRANTE
 import android.content.pm.PackageManager
 import android.content.pm.verify.domain.DomainSet
 import android.os.Parcel
+import android.os.ParcelFileDescriptor
 import android.os.PersistableBundle
 import android.os.Process
 import android.os.UserHandle
@@ -37,6 +38,7 @@ import android.platform.test.flag.junit.DeviceFlagsValueProvider
 import android.util.AtomicFile
 import android.util.Slog
 import android.util.Xml
+import androidx.test.platform.app.InstrumentationRegistry
 import com.android.internal.os.BackgroundThread
 import com.android.internal.pm.parsing.pkg.AndroidPackageInternal
 import com.android.server.pm.pkg.PackageStateInternal
@@ -52,6 +54,7 @@ import libcore.io.IoUtils
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import org.junit.Assert.assertThrows
 import org.junit.rules.TemporaryFolder
 import org.mockito.ArgumentMatchers.any
 import org.mockito.ArgumentMatchers.anyInt
@@ -384,8 +387,61 @@ class PackageInstallerSessionTest {
             any(), anyInt(), any())
     }
 
+    @Test
+    fun openWrite_invalidNameReleasesSessionBlocker() {
+        val session = createSession()
+        repeat(32) {
+            assertThrows(IllegalArgumentException::class.java) {
+                session.openWrite("../outside.apk", 0, -1)
+            }
+        }
+        val blockers = PackageInstallerSession::class.java.getDeclaredField(
+            if (PackageInstaller.ENABLE_REVOCABLE_FD) "mFds" else "mBridges"
+        ).apply { isAccessible = true }.get(session) as List<*>
+        assertThat(blockers).isEmpty()
+    }
+
+    @Test
+    fun write_unpreparedSessionClosesIncomingDescriptor() {
+        val session = createSession()
+        PackageInstallerSession::class.java.getDeclaredField("mPrepared")
+            .apply { isAccessible = true }.setBoolean(session, false)
+        val incoming = ParcelFileDescriptor.open(
+            mTemporaryFolder.newFile("payload"), ParcelFileDescriptor.MODE_READ_ONLY
+        )
+        val descriptor = incoming.fileDescriptor
+        try {
+            assertThrows(IllegalStateException::class.java) {
+                session.write("base.apk", 0, 1, incoming)
+            }
+            assertThat(descriptor.valid()).isFalse()
+        } finally {
+            incoming.close()
+        }
+    }
+
+    @Test
+    fun openWrite_clientCanWriteSyncAndResumeAtOffset() {
+        val client = PackageInstaller.Session(createSession(
+            context = InstrumentationRegistry.getInstrumentation().targetContext
+        ))
+        val expected = ByteArray(65536) { (it % 251).toByte() }
+        client.openWrite("base.apk", 0, -1).use {
+            it.write(expected)
+            client.fsync(it)
+        }
+        val replacement = byteArrayOf(7, 8, 9)
+        client.openWrite("base.apk", 17, -1).use {
+            it.write(replacement)
+            client.fsync(it)
+        }
+        replacement.copyInto(expected, 17)
+        assertThat(File(mTmpDir, "base.apk").readBytes()).isEqualTo(expected)
+    }
+
     private fun createSession(
         staged: Boolean = false,
+        context: Context? = null,
         sessionId: Int = 123,
         multiPackage: Boolean = false,
         parentSessionId: Int = PackageInstaller.SessionInfo.INVALID_ID,
@@ -411,7 +467,7 @@ class PackageInstallerSessionTest {
 
         return PackageInstallerSession(
             /* callback */ null,
-            /* context */ null,
+            /* context */ context,
             /* pm */ mMockPackageManagerInternal,
             /* sessionProvider */ null,
             /* silentUpdatePolicy */ null,
