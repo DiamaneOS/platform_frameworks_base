@@ -2145,11 +2145,14 @@ public class PackageInstallerSession extends IPackageInstallerSession.Stub {
     @Override
     public void write(String name, long offsetBytes, long lengthBytes,
             ParcelFileDescriptor fd) {
-        assertCanWrite(fd != null);
         try {
+            assertCanWrite(fd != null);
             doWriteInternal(name, offsetBytes, lengthBytes, fd);
         } catch (IOException e) {
             throw ExceptionUtils.wrap(e);
+        } finally {
+            // The Binder call owns the incoming descriptor even if validation fails.
+            IoUtils.closeQuietly(fd);
         }
     }
 
@@ -2221,6 +2224,8 @@ public class PackageInstallerSession extends IPackageInstallerSession.Stub {
             }
         }
 
+        ParcelFileDescriptor targetPfd = null;
+        boolean handedOff = false;
         try {
             // Use installer provided name for now; we always rename later
             if (!FileUtils.isValidExtFilename(name)) {
@@ -2238,7 +2243,7 @@ public class PackageInstallerSession extends IPackageInstallerSession.Stub {
             // might contain sensitive information.
             int mode = name.equals(APP_METADATA_FILE_NAME)
                     ? APP_METADATA_FILE_ACCESS_MODE : DEFAULT_FILE_ACCESS_MODE;
-            ParcelFileDescriptor targetPfd = openTargetInternal(target.getAbsolutePath(),
+            targetPfd = openTargetInternal(target.getAbsolutePath(),
                     O_CREAT | O_WRONLY, mode);
             Os.chmod(target.getAbsolutePath(), mode);
 
@@ -2259,46 +2264,49 @@ public class PackageInstallerSession extends IPackageInstallerSession.Stub {
                 // incoming FD, which means we never have to hand out our
                 // sensitive internal FD. We still rely on a "bridge" being
                 // inserted above to hold the session active.
-                try {
-                    final Int64Ref last = new Int64Ref(0);
-                    FileUtils.copy(incomingFd.getFileDescriptor(), targetPfd.getFileDescriptor(),
-                            lengthBytes, null, Runnable::run,
-                            (long progress) -> {
-                                if (params.sizeBytes > 0) {
-                                    final long delta = progress - last.value;
-                                    last.value = progress;
-                                    synchronized (mProgressLock) {
-                                        setClientProgressLocked(mClientProgress
-                                                + (float) delta / (float) params.sizeBytes);
-                                    }
+                final Int64Ref last = new Int64Ref(0);
+                FileUtils.copy(incomingFd.getFileDescriptor(), targetPfd.getFileDescriptor(),
+                        lengthBytes, null, Runnable::run,
+                        (long progress) -> {
+                            if (params.sizeBytes > 0) {
+                                final long delta = progress - last.value;
+                                last.value = progress;
+                                synchronized (mProgressLock) {
+                                    setClientProgressLocked(mClientProgress
+                                            + (float) delta / (float) params.sizeBytes);
                                 }
-                            });
-                } finally {
-                    IoUtils.closeQuietly(targetPfd);
-                    IoUtils.closeQuietly(incomingFd);
-
-                    // We're done here, so remove the "bridge" that was holding
-                    // the session active.
-                    synchronized (mLock) {
-                        if (PackageInstaller.ENABLE_REVOCABLE_FD) {
-                            mFds.remove(fd);
-                        } else {
-                            bridge.forceClose();
-                            mBridges.remove(bridge);
-                        }
-                    }
-                }
+                            }
+                        });
                 return null;
             } else if (PackageInstaller.ENABLE_REVOCABLE_FD) {
-                return createRevocableFdInternal(fd, targetPfd);
+                ParcelFileDescriptor result = createRevocableFdInternal(fd, targetPfd);
+                handedOff = true;
+                return result;
             } else {
                 bridge.setTargetFile(targetPfd);
                 bridge.start();
+                handedOff = true;
                 return bridge.getClientSocket();
             }
 
         } catch (ErrnoException e) {
             throw e.rethrowAsIOException();
+        } finally {
+            if (!handedOff) {
+                IoUtils.closeQuietly(targetPfd);
+                // Reverse writes and failed setup never hand the client end
+                // to a caller. Close it too, and release the session blocker.
+                synchronized (mLock) {
+                    if (PackageInstaller.ENABLE_REVOCABLE_FD) {
+                        fd.revoke();
+                        mFds.remove(fd);
+                    } else {
+                        IoUtils.closeQuietly(bridge.getClientSocket());
+                        bridge.forceClose();
+                        mBridges.remove(bridge);
+                    }
+                }
+            }
         }
     }
 
