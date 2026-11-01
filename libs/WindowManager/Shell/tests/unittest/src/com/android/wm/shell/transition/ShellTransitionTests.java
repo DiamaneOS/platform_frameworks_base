@@ -1001,6 +1001,64 @@ public class ShellTransitionTests extends ShellTestCase {
     }
 
     @Test
+    @RequiresFlagsEnabled(
+            com.android.window.flags.Flags.FLAG_RELEASE_ALL_TRANSITION_SURFACES_ON_IDLE)
+    public void testChangeLeashReleasedAfterTransitionBecomesIdle() {
+        assertTrue(com.android.window.flags.Flags.releaseAllTransitionSurfacesOnIdle());
+        Transitions transitions = createTestTransitions();
+        transitions.replaceDefaultHandlerForTest(mDefaultHandler);
+        SurfaceControl leash = mock(SurfaceControl.class);
+        doReturn(true).when(leash).isValid();
+        TransitionInfo.Change change = new TransitionInfo.Change(
+                mock(WindowContainerToken.class), leash);
+        change.setMode(TRANSIT_OPEN);
+        TransitionInfo info = new TransitionInfoBuilder(TRANSIT_OPEN).addChange(change).build();
+        IBinder token = new Binder();
+        requestStartTransition(transitions, token);
+        transitions.onTransitionReady(token, info, new StubTransaction(), new StubTransaction());
+
+        verify(leash, never()).release();
+        mDefaultHandler.finishAll();
+        mMainExecutor.flushAll();
+
+        verify(leash).release();
+    }
+
+    @Test
+    @RequiresFlagsEnabled(
+            com.android.window.flags.Flags.FLAG_RELEASE_ALL_TRANSITION_SURFACES_ON_IDLE)
+    public void testFinishedTrackRetainsChangeLeashUntilOtherTrackIsIdle() {
+        assertTrue(com.android.window.flags.Flags.releaseAllTransitionSurfacesOnIdle());
+        Transitions transitions = createTestTransitions();
+        transitions.replaceDefaultHandlerForTest(mDefaultHandler);
+        TestTransitionHandler otherHandler = new TestTransitionHandler();
+        SurfaceControl leash = mock(SurfaceControl.class);
+        doReturn(true).when(leash).isValid();
+        TransitionInfo.Change change = new TransitionInfo.Change(
+                mock(WindowContainerToken.class), leash);
+        change.setMode(TRANSIT_OPEN);
+        TransitionInfo info = new TransitionInfoBuilder(TRANSIT_OPEN).addChange(change).build();
+        info.setTrack(0);
+        TransitionInfo other = new TransitionInfoBuilder(TRANSIT_OPEN)
+                .addChange(TRANSIT_OPEN).build();
+        other.setTrack(1);
+        IBinder first = transitions.startTransition(TRANSIT_OPEN,
+                new WindowContainerTransaction(), mDefaultHandler);
+        IBinder second = transitions.startTransition(TRANSIT_OPEN,
+                new WindowContainerTransaction(), otherHandler);
+        transitions.onTransitionReady(first, info, new StubTransaction(), new StubTransaction());
+        transitions.onTransitionReady(second, other, new StubTransaction(), new StubTransaction());
+
+        mDefaultHandler.finishAll();
+        mMainExecutor.flushAll();
+        verify(leash, never()).release();
+
+        otherHandler.finishAll();
+        mMainExecutor.flushAll();
+        verify(leash).release();
+    }
+
+    @Test
     public void testRunWhenIdle() {
         Transitions transitions = createTestTransitions();
         transitions.replaceDefaultHandlerForTest(mDefaultHandler);

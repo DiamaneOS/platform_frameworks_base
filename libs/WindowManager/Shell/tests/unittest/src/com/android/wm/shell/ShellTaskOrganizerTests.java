@@ -72,6 +72,7 @@ import com.android.wm.shell.compatui.impl.CompatUIEvents;
 import com.android.wm.shell.recents.RecentTasksController;
 import com.android.wm.shell.sysui.ShellCommandHandler;
 import com.android.wm.shell.sysui.ShellInit;
+import com.android.wm.shell.transition.Transitions;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -892,6 +893,34 @@ public class ShellTaskOrganizerTests extends ShellTestCase {
                 /* taskId= */ 1, ACTIVITY_TYPE_RECENTS, /* displayId= */ 3);
 
         assertFalse(isHomeTaskOnDefaultDisplay(taskInfo));
+    }
+
+    @Test
+    public void testVanishedTaskReleasesOrganizerLeash() {
+        RunningTaskInfo taskInfo = createTaskInfo(12, WINDOWING_MODE_FULLSCREEN);
+        SurfaceControl leash = mock(SurfaceControl.class);
+        mOrganizer.onTaskAppeared(taskInfo, leash);
+
+        mOrganizer.onTaskVanished(taskInfo);
+
+        verify(leash).release();
+    }
+
+    @Test
+    public void testVanishedTaskKeepsLeashUntilTransitionsIdle() {
+        Transitions transitions = mock(Transitions.class);
+        mOrganizer.initializeDependencies(transitions);
+        RunningTaskInfo taskInfo = createTaskInfo(12, WINDOWING_MODE_FULLSCREEN);
+        SurfaceControl leash = mock(SurfaceControl.class);
+        mOrganizer.onTaskAppeared(taskInfo, leash);
+
+        mOrganizer.onTaskVanished(taskInfo);
+
+        ArgumentCaptor<Runnable> cleanup = ArgumentCaptor.forClass(Runnable.class);
+        verify(transitions).runOnIdle(cleanup.capture());
+        verify(leash, never()).release();
+        cleanup.getValue().run();
+        verify(leash).release();
     }
 
     @Test
