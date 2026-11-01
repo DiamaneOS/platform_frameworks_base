@@ -1197,6 +1197,16 @@ public class ShellTaskOrganizer extends TaskOrganizer {
             for (TaskVanishedListener l : mTaskVanishedListeners) {
                 l.onTaskVanished(taskInfo);
             }
+            final SurfaceControl leash = appearedInfo.getLeash();
+            if (leash != null) {
+                // Listeners and in-flight transitions can still use this
+                // organizer-owned handle while the task is disappearing.
+                if (mTransitions != null) {
+                    mTransitions.runOnIdle(leash::release);
+                } else {
+                    leash.release();
+                }
+            }
         }
     }
 
