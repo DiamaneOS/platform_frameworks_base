@@ -179,6 +179,34 @@ public class WindowStateTests extends WindowTestsBase {
     }
 
     @Test
+    public void testInsetsControlChangeWithoutAppThreadDoesNotCopyLeashes() {
+        final WindowState window = newWindowBuilder("app", TYPE_APPLICATION).build();
+        spyOn(window);
+        final WindowProcessController process = mock(WindowProcessController.class);
+        doReturn(process).when(window).getProcess();
+        doReturn(false).when(process).hasThread();
+
+        window.notifyInsetsControlChanged(DEFAULT_DISPLAY);
+
+        verify(window, never()).fillInsetsSourceControls(any(), anyBoolean());
+        verify(process, never()).scheduleClientTransactionItem(any());
+    }
+
+    @Test
+    public void testInsetsControlChangeWithAppThreadStillDispatches() {
+        final WindowState window = newWindowBuilder("app", TYPE_APPLICATION).build();
+        spyOn(window);
+        final WindowProcessController process = mock(WindowProcessController.class);
+        doReturn(process).when(window).getProcess();
+        doReturn(true).when(process).hasThread();
+
+        window.notifyInsetsControlChanged(DEFAULT_DISPLAY);
+
+        verify(window).fillInsetsSourceControls(any(), eq(false));
+        verify(process).scheduleClientTransactionItem(any());
+    }
+
+    @Test
     public void testIsParentWindowHidden() {
         final WindowState parentWindow = newWindowBuilder("parentWindow", TYPE_APPLICATION).build();
         final WindowState child1 = newWindowBuilder("child1", FIRST_SUB_WINDOW).setParent(
