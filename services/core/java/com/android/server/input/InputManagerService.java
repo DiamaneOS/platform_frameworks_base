@@ -887,16 +887,22 @@ public class InputManagerService extends IInputManager.Stub
             SurfaceControl sc, int displayId, int pid, int uid) {
         final InputChannel channel = createInputChannel(name);
 
+        // Parceling the returned channel disposes this Java wrapper. The death
+        // recipient must retain the stable token instead of reading the wrapper later.
+        final IBinder channelToken = channel.getToken();
         try {
-            monitorToken.linkToDeath(() -> removeSpyWindowGestureMonitor(channel.getToken()), 0);
+            synchronized (mInputMonitors) {
+                mInputMonitors.put(channelToken,
+                        new GestureMonitorSpyWindow(monitorToken, name, displayId, pid, uid, sc,
+                                channelToken));
+                // Publish before linking so an immediate death cannot miss the monitor.
+                monitorToken.linkToDeath(() -> removeSpyWindowGestureMonitor(channelToken), 0);
+            }
         } catch (RemoteException e) {
-            Slog.i(TAG, "Client died before '" + name + "' could be created.");
-            return null;
-        }
-        synchronized (mInputMonitors) {
-            mInputMonitors.put(channel.getToken(),
-                    new GestureMonitorSpyWindow(monitorToken, name, displayId, pid, uid, sc,
-                            channel.getToken()));
+            removeSpyWindowGestureMonitor(channelToken);
+            channel.dispose();
+            sc.release();
+            throw new IllegalStateException("Gesture monitor client died before registration", e);
         }
         return channel;
     }
@@ -906,8 +912,8 @@ public class InputManagerService extends IInputManager.Stub
         synchronized (mInputMonitors) {
             monitor = mInputMonitors.remove(inputChannelToken);
         }
-        removeInputChannel(inputChannelToken);
         if (monitor == null) return;
+        removeInputChannel(inputChannelToken);
         monitor.remove();
     }
 
