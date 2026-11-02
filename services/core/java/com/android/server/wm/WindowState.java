@@ -4038,7 +4038,9 @@ class WindowState extends WindowContainer<WindowState> implements WindowManagerP
     @Override
     public void notifyInsetsControlChanged(int displayId) {
         ProtoLog.d(WM_DEBUG_WINDOW_INSETS, "notifyInsetsControlChanged for %s ", this);
-        if (mRemoved) {
+        // The WM lock also guards setThread(). Do not copy control leashes for
+        // a client which can no longer receive the transaction.
+        if (mRemoved || !getProcess().hasThread()) {
             return;
         }
         fillInsetsState(mLastReportedInsetsState, false /* copySources */);
