@@ -121,9 +121,14 @@ public class ShellTaskOrganizer extends TaskOrganizer {
     public interface ContainerHierarchyRootTaskListener {
         /**
          * Called when a root task is created via {@link #createTask(TaskCreationParams)}.
+         *
+         * @return whether the hierarchy owns the supplied SurfaceControl wrapper. Returning
+         *         false leaves disposal to the organizer, including when the task already exists.
          */
-        default void onRootTaskCreated(@NonNull TaskAppearedInfo appearedInfo,
-                @NonNull String name) {}
+        default boolean onRootTaskCreated(@NonNull TaskAppearedInfo appearedInfo,
+                @NonNull String name) {
+            return false;
+        }
 
         /**
          * Called when a root task is removed, this includes all root tasks, not only those created
@@ -516,34 +521,67 @@ public class ShellTaskOrganizer extends TaskOrganizer {
 
     /**
      * Creates a persistent task with the given {@link TaskCreationParams}.
+     *
+     * The synchronous surface belongs to the container hierarchy when one is registered;
+     * otherwise it is released here. Task listener callbacks use their separately owned surface.
+     *
      * @param params The creation params
      * @param listener The listener to get the created task callback.
-     * @return the TaskAppearedInfo of the newly created Task. This can be {@code null} if the
+     * @return the metadata of the newly created Task. This can be {@code null} if the
      * Task creation fails in the system server (e.g., due to invalid displayId).
      */
     @Nullable
-    public TaskAppearedInfo createTask(@NonNull TaskCreationParams params,
+    public RunningTaskInfo createTask(@NonNull TaskCreationParams params,
             TaskListener listener) {
         if (listener != null) {
             setPendingLaunchCookieListener(params.getLaunchCookie(), listener);
         }
-        final TaskAppearedInfo info = createTask(params);
+        final TaskAppearedInfo info = createTask(params, false /* retainLeash */);
         ProtoLog.v(WM_SHELL_TASK_ORG,
                 "createTask(): token=%s displayId=%d winMode=%d listener=%s",
                 info != null ? info.getTaskInfo().token : null, params.getDisplayId(),
                 params.getWindowingMode(), listener);
-        return info;
+        return info != null ? info.getTaskInfo() : null;
     }
 
     @Nullable
     @Override
     public TaskAppearedInfo createTask(@NonNull TaskCreationParams params) {
+        return createTask(params, true /* retainLeash */);
+    }
+
+    @Nullable
+    private TaskAppearedInfo createTask(@NonNull TaskCreationParams params, boolean retainLeash) {
         final TaskAppearedInfo info = super.createTask(params);
-        if (info != null && mRootTaskListener != null) {
-            final String name = params.getName() != null
-                    ? params.getName()
-                    : "unknown_root_task";
-            mRootTaskListener.onRootTaskCreated(info, name);
+        final ContainerHierarchyRootTaskListener rootTaskListener = mRootTaskListener;
+        if (info == null) {
+            return null;
+        }
+        TaskAppearedInfo hierarchyInfo = null;
+        boolean hierarchyOwnsLeash = false;
+        try {
+            if (rootTaskListener != null) {
+                // The full-return API and hierarchy must own independent wrappers. Metadata-only
+                // callers can transfer their wrapper directly, but only if the hierarchy adopts it.
+                hierarchyInfo = retainLeash
+                        ? new TaskAppearedInfo(info.getTaskInfo(), new SurfaceControl(
+                                info.getLeash(), "ShellTaskOrganizer.createTask"))
+                        : info;
+                final String name = params.getName() != null
+                        ? params.getName() : "unknown_root_task";
+                hierarchyOwnsLeash = rootTaskListener.onRootTaskCreated(hierarchyInfo, name);
+            }
+        } catch (RuntimeException | Error e) {
+            if (retainLeash) {
+                info.getLeash().release();
+            }
+            throw e;
+        } finally {
+            final TaskAppearedInfo unusedInfo = hierarchyInfo != null
+                    ? hierarchyInfo : (!retainLeash ? info : null);
+            if (!hierarchyOwnsLeash && unusedInfo != null) {
+                unusedInfo.getLeash().release();
+            }
         }
         return info;
     }

@@ -35,6 +35,7 @@ import static com.android.wm.shell.ShellTaskOrganizer.isHomeTaskOnDefaultDisplay
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
@@ -936,17 +937,19 @@ public class ShellTaskOrganizerTests extends ShellTestCase {
 
     @Test
     public void testTaskOrganizerCreateRootTaskListener() throws Exception {
-        final TaskAppearedInfo appearedInfo = mock(TaskAppearedInfo.class);
+        final TaskAppearedInfo appearedInfo = new TaskAppearedInfo(
+                createTaskInfo(12, WINDOWING_MODE_FULLSCREEN), mock(SurfaceControl.class));
         doReturn(appearedInfo).when(mTaskOrganizerController).createTask(any());
 
         final ShellTaskOrganizer.ContainerHierarchyRootTaskListener listener =
                 mock(ShellTaskOrganizer.ContainerHierarchyRootTaskListener.class);
+        doReturn(true).when(listener).onRootTaskCreated(appearedInfo, "test");
         mOrganizer.setContainerHierarchyCreateRootTaskListener(listener);
 
         final TaskCreationParams params = new TaskCreationParams.Builder()
                 .setName("test")
                 .build();
-        mOrganizer.createTask(params);
+        mOrganizer.createTask(params, null);
 
         verify(listener).onRootTaskCreated(appearedInfo, "test");
     }
@@ -961,6 +964,133 @@ public class ShellTaskOrganizerTests extends ShellTestCase {
         mOrganizer.deleteTask(token);
 
         verify(listener).onRootTaskRemoved(token);
+    }
+
+    @Test
+    public void testCreateTaskMetadataReleasesUnretainedLeash() throws Exception {
+        final RunningTaskInfo taskInfo = createTaskInfo(12, WINDOWING_MODE_FULLSCREEN);
+        final SurfaceControl leash = mock(SurfaceControl.class);
+        doReturn(new TaskAppearedInfo(taskInfo, leash)).when(mTaskOrganizerController)
+                .createTask(any());
+
+        final RunningTaskInfo result = mOrganizer.createTask(
+                new TaskCreationParams.Builder().setName("metadata").build(), null);
+
+        assertSame(taskInfo, result);
+        verify(leash).release();
+    }
+
+    @Test
+    public void testCreateTaskMetadataPreservesHierarchyOwnedLeash() throws Exception {
+        final RunningTaskInfo taskInfo = createTaskInfo(12, WINDOWING_MODE_FULLSCREEN);
+        final SurfaceControl leash = mock(SurfaceControl.class);
+        final TaskAppearedInfo appearedInfo = new TaskAppearedInfo(taskInfo, leash);
+        doReturn(appearedInfo).when(mTaskOrganizerController).createTask(any());
+        final ShellTaskOrganizer.ContainerHierarchyRootTaskListener listener =
+                mock(ShellTaskOrganizer.ContainerHierarchyRootTaskListener.class);
+        doReturn(true).when(listener).onRootTaskCreated(appearedInfo, "metadata");
+        mOrganizer.setContainerHierarchyCreateRootTaskListener(listener);
+
+        final RunningTaskInfo result = mOrganizer.createTask(
+                new TaskCreationParams.Builder().setName("metadata").build(), null);
+
+        assertSame(taskInfo, result);
+        verify(listener).onRootTaskCreated(appearedInfo, "metadata");
+        verify(leash, never()).release();
+    }
+
+    @Test
+    public void testCreateTaskMetadataReleasesLeashWhenHierarchyDeclines() throws Exception {
+        final RunningTaskInfo taskInfo = createTaskInfo(12, WINDOWING_MODE_FULLSCREEN);
+        final SurfaceControl leash = mock(SurfaceControl.class);
+        doReturn(new TaskAppearedInfo(taskInfo, leash)).when(mTaskOrganizerController)
+                .createTask(any());
+        final ShellTaskOrganizer.ContainerHierarchyRootTaskListener listener =
+                mock(ShellTaskOrganizer.ContainerHierarchyRootTaskListener.class);
+        mOrganizer.setContainerHierarchyCreateRootTaskListener(listener);
+
+        assertSame(taskInfo, mOrganizer.createTask(
+                new TaskCreationParams.Builder().setName("existing").build(), null));
+
+        verify(leash).release();
+    }
+
+    @Test
+    public void testCreateTaskMetadataReleasesLeashWhenHierarchyThrows() throws Exception {
+        final SurfaceControl leash = mock(SurfaceControl.class);
+        doReturn(new TaskAppearedInfo(createTaskInfo(12, WINDOWING_MODE_FULLSCREEN), leash))
+                .when(mTaskOrganizerController).createTask(any());
+        final ShellTaskOrganizer.ContainerHierarchyRootTaskListener listener =
+                mock(ShellTaskOrganizer.ContainerHierarchyRootTaskListener.class);
+        org.mockito.Mockito.doThrow(new IllegalStateException("test callback failure"))
+                .when(listener).onRootTaskCreated(any(), any());
+        mOrganizer.setContainerHierarchyCreateRootTaskListener(listener);
+
+        try {
+            mOrganizer.createTask(new TaskCreationParams.Builder().setName("throwing").build(), null);
+            fail("Expected the callback failure");
+        } catch (IllegalStateException expected) {
+            verify(leash).release();
+        }
+    }
+
+    @Test
+    public void testCreateTaskFullResultAndHierarchyOwnIndependentLeashes() throws Exception {
+        final SurfaceControl leash = new SurfaceControl.Builder()
+                .setName("ShellTaskOrganizerTests").setContainerLayer().build();
+        final TaskAppearedInfo appearedInfo = new TaskAppearedInfo(
+                createTaskInfo(12, WINDOWING_MODE_FULLSCREEN), leash);
+        doReturn(appearedInfo).when(mTaskOrganizerController).createTask(any());
+        final ShellTaskOrganizer.ContainerHierarchyRootTaskListener listener =
+                mock(ShellTaskOrganizer.ContainerHierarchyRootTaskListener.class);
+        doReturn(true).when(listener).onRootTaskCreated(any(), any());
+        mOrganizer.setContainerHierarchyCreateRootTaskListener(listener);
+        final ArgumentCaptor<TaskAppearedInfo> captured =
+                ArgumentCaptor.forClass(TaskAppearedInfo.class);
+        try {
+            assertSame(appearedInfo, mOrganizer.createTask(
+                    new TaskCreationParams.Builder().setName("full").build()));
+            verify(listener).onRootTaskCreated(captured.capture(), any());
+            assertTrue(captured.getValue().getLeash() != leash);
+            assertTrue(captured.getValue().getLeash().isValid());
+            leash.release();
+            assertTrue(captured.getValue().getLeash().isValid());
+        } finally {
+            leash.release();
+            if (!captured.getAllValues().isEmpty()) {
+                captured.getValue().getLeash().release();
+            }
+        }
+    }
+
+    @Test
+    public void testCreateTaskFullResultSurvivesHierarchyDecliningItsCopy() throws Exception {
+        final SurfaceControl leash = new SurfaceControl.Builder()
+                .setName("ShellTaskOrganizerTests").setContainerLayer().build();
+        doReturn(new TaskAppearedInfo(createTaskInfo(12, WINDOWING_MODE_FULLSCREEN), leash))
+                .when(mTaskOrganizerController).createTask(any());
+        final ShellTaskOrganizer.ContainerHierarchyRootTaskListener listener =
+                mock(ShellTaskOrganizer.ContainerHierarchyRootTaskListener.class);
+        mOrganizer.setContainerHierarchyCreateRootTaskListener(listener);
+        final ArgumentCaptor<TaskAppearedInfo> captured =
+                ArgumentCaptor.forClass(TaskAppearedInfo.class);
+        try {
+            assertSame(leash, mOrganizer.createTask(
+                    new TaskCreationParams.Builder().setName("existing").build()).getLeash());
+            verify(listener).onRootTaskCreated(captured.capture(), any());
+            assertTrue(leash.isValid());
+            assertFalse(captured.getValue().getLeash().isValid());
+        } finally {
+            leash.release();
+        }
+    }
+
+    @Test
+    public void testCreateTaskMetadataHandlesCreationFailure() throws Exception {
+        doReturn(null).when(mTaskOrganizerController).createTask(any());
+
+        assertNull(mOrganizer.createTask(
+                new TaskCreationParams.Builder().setName("metadata").build(), null));
     }
 
     private static ShellTaskOrganizer.TaskVanishedListener getSelfRemovingVanishedListener(

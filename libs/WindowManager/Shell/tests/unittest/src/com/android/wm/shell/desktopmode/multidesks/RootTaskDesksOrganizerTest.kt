@@ -171,7 +171,7 @@ class RootTaskDesksOrganizerTest : ShellTestCase() {
                 SurfaceControl(),
             )
         whenever(mockShellTaskOrganizer.createTask(any(), eq(organizer)))
-            .thenReturn(deskRoot)
+            .thenReturn(deskRoot.taskInfo)
         organizer.createDesk(displayId = DEFAULT_DISPLAY, userId = PRIMARY_USER_ID) {}
 
         warmUpDefaultDesk(userId = PRIMARY_USER_ID, displayId = DEFAULT_DISPLAY)
@@ -260,7 +260,7 @@ class RootTaskDesksOrganizerTest : ShellTestCase() {
                 SurfaceControl(),
             )
         whenever(mockShellTaskOrganizer.createTask(any(), eq(organizer)))
-            .thenReturn(deskRoot)
+            .thenReturn(deskRoot.taskInfo)
         organizer.warmUpDefaultDesk(userId = PRIMARY_USER_ID, displayId = displayId)
 
         organizer.createDesk(userId = PRIMARY_USER_ID, displayId = displayId) {}
@@ -282,7 +282,7 @@ class RootTaskDesksOrganizerTest : ShellTestCase() {
                 SurfaceControl(),
             )
         whenever(mockShellTaskOrganizer.createTask(any(), eq(organizer)))
-            .thenReturn(deskRoot, minimizationRoot)
+            .thenReturn(deskRoot.taskInfo, minimizationRoot.taskInfo)
         var callbackApplied = false
 
         organizer.warmUpDefaultDesk(userId = PRIMARY_USER_ID, displayId = DEFAULT_DISPLAY)
@@ -311,7 +311,7 @@ class RootTaskDesksOrganizerTest : ShellTestCase() {
                 SurfaceControl(),
             )
         whenever(mockShellTaskOrganizer.createTask(any(), eq(organizer)))
-            .thenReturn(root1, root2)
+            .thenReturn(root1.taskInfo, root2.taskInfo)
         organizer.warmUpDefaultDesk(userId = PRIMARY_USER_ID, displayId = displayId)
 
         organizer.createDesk(userId = PRIMARY_USER_ID, displayId = displayId) {}
@@ -1362,10 +1362,10 @@ class RootTaskDesksOrganizerTest : ShellTestCase() {
                 .thenReturn(
                     // In order of creation request, the same order that is used below to call
                     // onTaskAppeared.
-                    TaskAppearedInfo(desk1Task, mock()),
-                    TaskAppearedInfo(min1Task, mock()),
-                    TaskAppearedInfo(desk2Task, mock()),
-                    TaskAppearedInfo(min2Task, mock()),
+                    desk1Task,
+                    min1Task,
+                    desk2Task,
+                    min2Task,
                 )
 
             // Request Desk 1 and have its root appear, which should request a minimization root.
@@ -1427,7 +1427,7 @@ class RootTaskDesksOrganizerTest : ShellTestCase() {
                 this.launch {
                     listener.onTaskAppeared(taskAppearedInfo.taskInfo, taskAppearedInfo.leash)
                 }
-                taskAppearedInfo
+                taskAppearedInfo.taskInfo
             }
             .thenAnswer { invocation ->
                 val listener = (invocation.arguments[1] as TaskListener)
@@ -1435,7 +1435,7 @@ class RootTaskDesksOrganizerTest : ShellTestCase() {
                 this.launch {
                     listener.onTaskAppeared(taskAppearedInfo.taskInfo, taskAppearedInfo.leash)
                 }
-                taskAppearedInfo
+                taskAppearedInfo.taskInfo
             }
         val deskId = organizer.createDeskSuspending(displayId, userId)
         advanceUntilIdle()
@@ -1464,7 +1464,7 @@ class RootTaskDesksOrganizerTest : ShellTestCase() {
                 this.launch {
                     listener.onTaskAppeared(taskAppearedInfo.taskInfo, taskAppearedInfo.leash)
                 }
-                taskAppearedInfo
+                taskAppearedInfo.taskInfo
             }
             .thenAnswer { invocation ->
                 val listener = (invocation.arguments[1] as TaskListener)
@@ -1472,7 +1472,7 @@ class RootTaskDesksOrganizerTest : ShellTestCase() {
                 this.launch {
                     listener.onTaskAppeared(taskAppearedInfo.taskInfo, taskAppearedInfo.leash)
                 }
-                taskAppearedInfo
+                taskAppearedInfo.taskInfo
             }
         organizer.warmUpDefaultDesk(displayId, userId)
         advanceUntilIdle()
