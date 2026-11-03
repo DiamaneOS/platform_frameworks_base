@@ -169,6 +169,14 @@ public final class Icon implements Parcelable {
     private float mInsetScale = 0.0f;
 
     /**
+     * Whether this icon draws only the monochrome layer of an {@link AdaptiveIconDrawable}.
+     * @hide
+     */
+    public boolean isMonochrome() {
+        return mType == TYPE_RESOURCE && mUseMonochrome;
+    }
+
+    /**
      * Gets the type of the icon provided.
      * <p>
      * Note that new types may be added later, so callers should guard against other
