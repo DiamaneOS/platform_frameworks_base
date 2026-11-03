@@ -190,6 +190,10 @@ public class ContrastColorUtil {
                 case Icon.TYPE_ADAPTIVE_BITMAP:
                     return true;
                 case Icon.TYPE_RESOURCE:
+                    // The monochrome layer is one colour and is meant to be tinted.
+                    if (icon.isMonochrome()) {
+                        return false;
+                    }
                     final int resId = icon.getResId();
                     if (resId != 0) {
                         try {
