@@ -23,7 +23,6 @@ import android.platform.test.annotations.DisableFlags
 import android.platform.test.annotations.EnableFlags
 import android.view.SurfaceControl
 import android.view.WindowManager
-import android.window.TaskAppearedInfo
 import android.window.TransitionInfo
 import androidx.test.filters.SmallTest
 import com.android.testing.wm.util.MockToken
@@ -83,7 +82,7 @@ class BubbleHelperImplTest : ShellTestCase() {
                 token = taskToken
             }
         taskOrganizer.stub {
-            on { createTask(any(), any()) } doReturn TaskAppearedInfo(bubbleTask, leash)
+            on { createTask(any(), any()) } doReturn bubbleTask
         }
         bubbleRootTask.prepareRootTaskForTest(bubbleRootTaskId = 123)
 
