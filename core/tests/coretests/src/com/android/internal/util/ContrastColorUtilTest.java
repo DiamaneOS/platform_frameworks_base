@@ -23,6 +23,7 @@ import static com.google.common.truth.Truth.assertThat;
 import android.content.Context;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
+import android.graphics.drawable.Icon;
 import android.text.Spannable;
 import android.text.SpannableString;
 import android.text.SpannableStringBuilder;
@@ -42,6 +43,20 @@ import org.junit.runner.RunWith;
 
 @RunWith(AndroidJUnit4.class)
 public class ContrastColorUtilTest {
+
+    @Test
+    @SmallTest
+    public void testMonochromeLayerOfAdaptiveIconIsNotAnAdaptiveIcon() {
+        Context context = InstrumentationRegistry.getContext();
+        int adaptive = R.drawable.sym_def_app_icon;
+
+        assertThat(ContrastColorUtil.isAdaptiveIconDrawableIcon(context,
+                Icon.createWithResource("android", adaptive))).isTrue();
+        assertThat(ContrastColorUtil.isAdaptiveIconDrawableIcon(context,
+                Icon.createWithResourceAdaptiveDrawable("android", adaptive, false, 0f))).isTrue();
+        assertThat(ContrastColorUtil.isAdaptiveIconDrawableIcon(context,
+                Icon.createWithResourceAdaptiveDrawable("android", adaptive, true, 0f))).isFalse();
+    }
 
     @Test
     @SmallTest
