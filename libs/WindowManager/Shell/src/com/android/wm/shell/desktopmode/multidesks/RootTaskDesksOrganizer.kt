@@ -171,8 +171,8 @@ class RootTaskDesksOrganizer(
                 .setWindowingMode(WINDOWING_MODE_FREEFORM)
                 .setTaskPropertiesRequest(taskProperties)
                 .build()
-        val taskAppearedInfo = shellTaskOrganizer.createTask(params, this)
-        if (taskAppearedInfo == null) {
+        val createdTaskInfo = shellTaskOrganizer.createTask(params, this)
+        if (createdTaskInfo == null) {
             logE(
                 "createDeskRoot failed to create task for displayId=%d userId=%d",
                 displayId,
@@ -180,10 +180,10 @@ class RootTaskDesksOrganizer(
             )
             return
         }
-        val deskId = taskAppearedInfo.taskInfo.taskId
+        val deskId = createdTaskInfo.taskId
         logV("createDeskRoot created desk root using taskId=%d", deskId)
         createDeskRootRequests += CreateDeskRequest(deskId, displayId, userId, callback)
-        val token = taskAppearedInfo.taskInfo.token
+        val token = createdTaskInfo.token
         val wct = WindowContainerTransaction()
         if (Flags.enableBackNavigationDesktopAppNoMinimize()) {
             wct.setInterceptBackPressedOnTaskRoot(token, /* interceptBackPressed= */ true)
@@ -791,14 +791,14 @@ class RootTaskDesksOrganizer(
                 .setWindowingMode(WINDOWING_MODE_FREEFORM)
                 .setTaskPropertiesRequest(taskProperties)
                 .build()
-        val taskAppearedInfo = shellTaskOrganizer.createTask(params, this)
-        if (taskAppearedInfo == null) {
+        val createdTaskInfo = shellTaskOrganizer.createTask(params, this)
+        if (createdTaskInfo == null) {
             logE("Failed to create minimization root for desk #%d", deskId)
             return
         }
         createDeskMinimizationRootRequests +=
             CreateDeskMinimizationRootRequest(
-                rootId = taskAppearedInfo.taskInfo.taskId,
+                rootId = createdTaskInfo.taskId,
                 displayId = displayId,
                 deskId = deskId,
                 callback = callback,

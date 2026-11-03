@@ -134,7 +134,6 @@ import android.widget.Toast;
 import android.window.DesktopExperienceFlags;
 import android.window.DisplayAreaInfo;
 import android.window.RemoteTransition;
-import android.window.TaskAppearedInfo;
 import android.window.TaskCreationParams;
 import android.window.TaskPropertiesRequest;
 import android.window.TransitionInfo;
@@ -478,9 +477,9 @@ public class StageCoordinator extends StageCoordinatorAbstract {
                 .setWindowingMode(WINDOWING_MODE_FULLSCREEN)
                 .setTaskPropertiesRequest(taskProperties)
                 .build();
-        final TaskAppearedInfo taskAppearedInfo = taskOrganizer.createTask(params, this);
-        mRootTaskToken = taskAppearedInfo != null
-                ? taskAppearedInfo.getTaskInfo().getToken() : null;
+        final RunningTaskInfo createdRootTaskInfo = taskOrganizer.createTask(params, this);
+        mRootTaskToken = createdRootTaskInfo != null
+                ? createdRootTaskInfo.getToken() : null;
 
         ProtoLog.d(WM_SHELL_SPLIT_SCREEN, "Creating main/side root task");
         if (enableFlexibleSplit()) {

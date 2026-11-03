@@ -51,13 +51,21 @@ open class Container(
     // The actual SurfaceControl for this container. For containers that have corresponding WM
     // containers, then this leash is provided by WM via transitions. Otherwise the creator of
     // the shell-only container is responsible for managing this surface.
-    var leash = NULL_SURFACE
+    private var leashWrapper = NULL_SURFACE
+    var leash: SurfaceControl
         get() {
-            if (field === NULL_SURFACE) {
+            if (leashWrapper === NULL_SURFACE) {
                 throw UninitializedPropertyAccessException("Expected leash to be set on $token")
             }
-            return field
+            return leashWrapper
         }
+        set(value) {
+            leashWrapper = value
+        }
+
+    /** Whether this container retains this Java wrapper, including before a leash is assigned. */
+    fun ownsLeash(candidate: SurfaceControl): Boolean =
+        leashWrapper !== NULL_SURFACE && leashWrapper === candidate
 
     // Properties which affect the SurfaceControl (leash) for this container
     val surface: SurfaceProperties = SurfaceProperties(this)

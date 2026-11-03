@@ -238,16 +238,17 @@ class HierarchyUpdater(
         }
     }
 
+    /** Returns whether this hierarchy owns the supplied SurfaceControl wrapper. */
     fun handleCreateRootTask(
         appearedInfo: TaskAppearedInfo,
         name: String
-    ): Container {
+    ): Boolean {
         val token = appearedInfo.taskInfo.token
         val existingContainer = hierarchy.getContainer(token)
         if (existingContainer != null) {
             // Skip if we've already updated the hierarchy for this window container. This happens
             // if we've already updated the hierarchy when creating the root task.
-            return existingContainer
+            return existingContainer.ownsLeash(appearedInfo.leash)
         }
         ProtoLog.v(
             WM_SHELL_MODES,
@@ -260,17 +261,16 @@ class HierarchyUpdater(
         val displayId = appearedInfo.taskInfo.displayId
         val parentContainer = if (parentTaskId > 0) hierarchy.getTask(parentTaskId)
             else hierarchy.getTaskDisplayArea(displayId)
-        val createdTask =
-            Container(token, TaskContainerProperties(appearedInfo.taskInfo)).apply {
-                this.name += " ($name)"
-                parent = parentContainer
-                leash = appearedInfo.leash
-                props.config.setTo(appearedInfo.taskInfo.configuration)
-                if (mode != null) {
-                    this.mode = mode
-                }
+        Container(token, TaskContainerProperties(appearedInfo.taskInfo)).apply {
+            this.name += " ($name)"
+            parent = parentContainer
+            leash = appearedInfo.leash
+            props.config.setTo(appearedInfo.taskInfo.configuration)
+            if (mode != null) {
+                this.mode = mode
             }
-        return createdTask
+        }
+        return true
     }
 
     fun handleRemoveRootTask(token: WindowContainerToken) {
@@ -604,8 +604,10 @@ class HierarchyUpdater(
     /** Hooks into ShellTaskOrganizer to listen for changes to root tasks. */
     private inner class ContainerHierarchyRootTaskHook
         : ShellTaskOrganizer.ContainerHierarchyRootTaskListener {
-        override fun onRootTaskCreated(appearedInfo: TaskAppearedInfo, name: String) {
-            handleCreateRootTask(appearedInfo, name)
+        override fun onRootTaskCreated(appearedInfo: TaskAppearedInfo, name: String): Boolean {
+            // An existing container may already own this wrapper, or may reject a different one.
+            // The organizer disposes only wrappers which the hierarchy did not retain.
+            return handleCreateRootTask(appearedInfo, name)
         }
 
         override fun onRootTaskRemoved(token: WindowContainerToken) {
