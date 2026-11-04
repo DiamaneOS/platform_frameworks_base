@@ -727,6 +727,9 @@ public final class PowerManagerService extends SystemService
     // True if always on display is enabled
     private boolean mAlwaysOnEnabled;
 
+    // True if a tap gesture, which the doze dream listens for, is enabled
+    private boolean mTapGestureEnabled;
+
     // True if double tap to wake is enabled
     private boolean mDoubleTapWakeEnabled;
 
@@ -1588,6 +1591,12 @@ public final class PowerManagerService extends SystemService
                 Settings.Secure.DOZE_ALWAYS_ON),
                 false, mSettingsObserver, UserHandle.USER_ALL);
         resolver.registerContentObserver(Settings.Secure.getUriFor(
+                Settings.Secure.DOZE_TAP_SCREEN_GESTURE),
+                false, mSettingsObserver, UserHandle.USER_ALL);
+        resolver.registerContentObserver(Settings.Secure.getUriFor(
+                Settings.Secure.DOZE_DOUBLE_TAP_GESTURE),
+                false, mSettingsObserver, UserHandle.USER_ALL);
+        resolver.registerContentObserver(Settings.Secure.getUriFor(
                 Settings.Secure.DOUBLE_TAP_TO_WAKE),
                 false, mSettingsObserver, UserHandle.USER_ALL);
         resolver.registerContentObserver(Settings.Global.getUriFor(
@@ -1703,6 +1712,8 @@ public final class PowerManagerService extends SystemService
         mTheaterModeEnabled = Settings.Global.getInt(mContext.getContentResolver(),
                 Settings.Global.THEATER_MODE_ON, 0) == 1;
         mAlwaysOnEnabled = mAmbientDisplayConfiguration.alwaysOnEnabled(UserHandle.USER_CURRENT);
+        mTapGestureEnabled = mAmbientDisplayConfiguration.tapGestureEnabled(UserHandle.USER_CURRENT)
+                || mAmbientDisplayConfiguration.doubleTapGestureEnabled(UserHandle.USER_CURRENT);
 
         if (mSupportsDoubleTapWakeConfig) {
             boolean doubleTapWakeEnabled = Settings.Secure.getIntForUser(resolver,
@@ -1726,8 +1737,32 @@ public final class PowerManagerService extends SystemService
     @VisibleForTesting
     @GuardedBy("mLock")
     void handleSettingsChangedLocked() {
+        final boolean tapGestureWasEnabled = mTapGestureEnabled;
         updateSettingsLocked();
+        if (mTapGestureEnabled && !tapGestureWasEnabled) {
+            startDozeFromSleepLocked();
+        }
         updatePowerStateLocked();
+    }
+
+    /**
+     * Without a doze feature the device sleeps without the doze dream, so a tap gesture turned on
+     * now would wait for the next screen off. The screen stays off: without always on display the
+     * dream asks for that, and this config keeps it off until the dream has started.
+     */
+    @GuardedBy("mLock")
+    private void startDozeFromSleepLocked() {
+        final PowerGroup powerGroup = mPowerGroups.get(Display.DEFAULT_DISPLAY_GROUP);
+        if (!mSystemReady || !mBootCompleted || powerGroup == null || mAlwaysOnEnabled
+                || !mDozeAfterScreenOff
+                || getGlobalWakefulnessLocked() != WAKEFULNESS_ASLEEP
+                || hasWakeLockKeepingGroupAsleep(powerGroup.getWakeLockSummaryLocked())) {
+            return;
+        }
+        powerGroup.setSandmanSummonedLocked(/* isSandmanSummoned= */ true);
+        powerGroup.setWakefulnessLocked(WAKEFULNESS_DOZING, mClock.uptimeMillis(),
+                Process.SYSTEM_UID, mLastGlobalSleepReason, /* opUid= */ 0,
+                /* opPackageName= */ null, /* details= */ null);
     }
 
     @GuardedBy("mLock")
