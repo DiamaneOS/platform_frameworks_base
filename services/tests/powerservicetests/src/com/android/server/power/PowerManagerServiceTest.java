@@ -1508,6 +1508,43 @@ public class PowerManagerServiceTest {
                 .isEqualTo(WAKEFULNESS_AWAKE);
     }
 
+    private void setUpAsleepWithoutDoze() {
+        when(mResourcesSpy.getBoolean(
+                com.android.internal.R.bool.config_dozeAfterScreenOffByDefault)).thenReturn(true);
+        createService();
+        startSystem();
+        forceSleep();
+        advanceTime(1000);
+        assertThat(mService.getGlobalWakefulnessLocked()).isEqualTo(WAKEFULNESS_ASLEEP);
+        clearInvocations(mDreamManagerInternalMock);
+    }
+
+    private void turnOnDoubleTapGesture() {
+        when(mAmbientDisplayConfigurationMock.doubleTapGestureEnabled(anyInt())).thenReturn(true);
+        mService.handleSettingsChangedLocked();
+    }
+
+    @Test
+    public void testTapGestureTurnedOnWhileAsleep_startsDozeWithScreenOff() {
+        setUpAsleepWithoutDoze();
+        when(mDreamManagerInternalMock.isDreaming()).thenReturn(true);
+        turnOnDoubleTapGesture();
+        advanceTime(1000);
+        assertThat(mService.getGlobalWakefulnessLocked()).isEqualTo(WAKEFULNESS_DOZING);
+        verify(mDreamManagerInternalMock).startDream(eq(true), anyString());
+        assertThat(mService.getBinderServiceInstance().isInteractive()).isFalse();
+    }
+
+    @Test
+    public void testTapGestureTurnedOnWhileAsleep_withAlwaysOn_staysAsleep() {
+        setUpAsleepWithoutDoze();
+        when(mAmbientDisplayConfigurationMock.alwaysOnEnabled(anyInt())).thenReturn(true);
+        turnOnDoubleTapGesture();
+        advanceTime(1000);
+        assertThat(mService.getGlobalWakefulnessLocked()).isEqualTo(WAKEFULNESS_ASLEEP);
+        verify(mDreamManagerInternalMock, never()).startDream(anyBoolean(), anyString());
+    }
+
     @Test
     public void test_whenDreamFails_SleepsInsteadOfDoze_doesntTryToDozeAgain() {
         createService();
