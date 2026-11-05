@@ -40,6 +40,7 @@ import com.android.systemui.util.concurrency.DelayableExecutor
 import com.android.systemui.util.time.SystemClock
 import java.util.concurrent.Executor
 import javax.inject.Inject
+import kotlin.concurrent.thread
 
 /**
  * While the Moments switch blocks the camera or microphone, apps get black frames and silence
@@ -135,7 +136,11 @@ constructor(
         sensorPrivacyManager.addSensorPrivacyListener(bgExecutor, privacyListener)
         appOpsManager.startWatchingStarted(OPS, opStarted)
         appOpsManager.startWatchingNoted(OPS, opNoted)
-        cameraManager.registerAvailabilityCallback(bgExecutor, cameraCallback)
+        // Its own thread: this call waits on the camera service, and a hung service must not hold
+        // the main thread or the background one.
+        thread(name = "MomentsCameraWatch") {
+            cameraManager.registerAvailabilityCallback(bgExecutor, cameraCallback)
+        }
         bgExecutor.execute { refresh() }
     }
 
