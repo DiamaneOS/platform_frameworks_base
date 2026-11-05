@@ -48,6 +48,7 @@ import com.android.systemui.util.concurrency.DelayableExecutor
 import com.android.systemui.util.time.SystemClock
 import java.io.PrintWriter
 import javax.inject.Inject
+import kotlin.concurrent.thread
 import kotlinx.coroutines.CoroutineScope
 
 /**
@@ -100,6 +101,7 @@ constructor(
     private var frontClosedAt: Long? = null
     private var recheckCanceler: Runnable? = null
     private val frontFacing = mutableMapOf<String, Boolean>()
+    private val readingFacing = mutableSetOf<String>()
     private var locationInUse = false
     private var isAreaDark = true
 
@@ -143,15 +145,13 @@ constructor(
     private val cameraCallback =
         object : CameraManager.AvailabilityCallback() {
             override fun onCameraOpened(cameraId: String, packageId: String) {
-                if (facesFront(cameraId)) {
-                    openFrontCameras.add(cameraId)
-                    frontCameraLatched = true
-                } else {
-                    openOtherCameras.add(cameraId)
-                    // The app switched to another camera, unless the front one only just closed:
-                    // then the camera's privacy item may still be on its way, so wait.
-                    if (openFrontCameras.isEmpty()) {
-                        if (inFrontCloseWindow()) scheduleRecheck() else frontCameraLatched = false
+                when (frontFacing[cameraId]) {
+                    true -> frontCameraOpened(cameraId)
+                    false -> otherCameraOpened(cameraId)
+                    // Not read yet: it counts as front until it is, as an unreadable camera does.
+                    null -> {
+                        frontCameraOpened(cameraId)
+                        readFacing(cameraId)
                     }
                 }
                 update()
@@ -181,7 +181,23 @@ constructor(
         followsCameras =
             context.checkSelfPermission(Manifest.permission.CAMERA_OPEN_CLOSE_LISTENER) ==
                 PackageManager.PERMISSION_GRANTED
-        if (followsCameras) cameraManager.registerAvailabilityCallback(mainExecutor, cameraCallback)
+        // Its own thread: these calls wait on the camera service, and a hung service must not hold
+        // the main thread. The results and the reports arrive on the main thread.
+        if (followsCameras) {
+            thread(name = "TallyLensCameraWatch") {
+                val facing =
+                    try {
+                        cameraManager.cameraIdList.associateWith(::readFacesFront)
+                    } catch (e: CameraAccessException) {
+                        emptyMap()
+                    } catch (e: RuntimeException) {
+                        Log.w(TAG, "Unable to list the cameras", e)
+                        emptyMap()
+                    }
+                mainExecutor.execute { frontFacing.putAll(facing) }
+                cameraManager.registerAvailabilityCallback(mainExecutor, cameraCallback)
+            }
+        }
         privacyItemController.addCallback(privacyItemsCallback)
         displayTracker.addDisplayChangeCallback(displayCallback, mainExecutor)
         scope.launch {
@@ -232,23 +248,53 @@ constructor(
     internal val isRingLit: Boolean
         get() = frontCameraInUse
 
-    private fun facesFront(cameraId: String): Boolean =
-        frontFacing.getOrPut(cameraId) {
-            val facing =
-                try {
-                    cameraManager
-                        .getCameraCharacteristics(cameraId)
-                        .get(CameraCharacteristics.LENS_FACING)
-                } catch (e: CameraAccessException) {
-                    null
-                } catch (e: RuntimeException) {
-                    // An unknown id, or a camera this user may not read (SecurityException): on
-                    // the main thread, a failure here must never take SystemUI down.
-                    Log.w(TAG, "Unable to read camera $cameraId's facing", e)
-                    null
-                }
-            facing == null || facing == CameraCharacteristics.LENS_FACING_FRONT
+    private fun frontCameraOpened(cameraId: String) {
+        openFrontCameras.add(cameraId)
+        frontCameraLatched = true
+    }
+
+    private fun otherCameraOpened(cameraId: String) {
+        openOtherCameras.add(cameraId)
+        // The app switched to another camera, unless the front one only just closed:
+        // then the camera's privacy item may still be on its way, so wait.
+        if (openFrontCameras.isEmpty()) {
+            if (inFrontCloseWindow()) scheduleRecheck() else frontCameraLatched = false
         }
+    }
+
+    /** Reads a camera the list at start did not name, on its own thread. Main thread. */
+    private fun readFacing(cameraId: String) {
+        if (!readingFacing.add(cameraId)) return
+        thread(name = "TallyLensFacing") {
+            val front = readFacesFront(cameraId)
+            mainExecutor.execute {
+                readingFacing.remove(cameraId)
+                frontFacing[cameraId] = front
+                if (!front && openFrontCameras.remove(cameraId)) {
+                    otherCameraOpened(cameraId)
+                    update()
+                }
+            }
+        }
+    }
+
+    // Waits on the camera service: never on the main thread.
+    private fun readFacesFront(cameraId: String): Boolean {
+        val facing =
+            try {
+                cameraManager
+                    .getCameraCharacteristics(cameraId)
+                    .get(CameraCharacteristics.LENS_FACING)
+            } catch (e: CameraAccessException) {
+                null
+            } catch (e: RuntimeException) {
+                // An unknown id, or a camera this user may not read (SecurityException): a failure
+                // here must never take SystemUI down.
+                Log.w(TAG, "Unable to read camera $cameraId's facing", e)
+                null
+            }
+        return facing == null || facing == CameraCharacteristics.LENS_FACING_FRONT
+    }
 
     /** Shows what is in use now. The window is added when something lights up. */
     private fun update() {
