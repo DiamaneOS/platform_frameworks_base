@@ -52,6 +52,16 @@ public class SerialConsoleStateTest {
     }
 
     @Test
+    public void linux618LayoutIsRead() throws IOException {
+        // /proc/consoles of 2026110600 on the FP6, nbcon slot after boot.
+        assertFalse(enabled("ramoops-1 -W- (EC  p a)\n"
+                + "ttynull0 --- (E      ) 236:0\n"));
+        assertTrue(enabled("ttyMSM0 -W- (E   p a) 246:0\n"));
+        assertTrue(enabled("ttyMSM0 -W- (E  Np a) 246:0\n"));
+        assertFalse(enabled("ttyMSM0 -W- (    p a) 246:0\n"));
+    }
+
+    @Test
     public void disabledUartDoesNotWarn() throws IOException {
         assertFalse(enabled("ttyS0 -W- (   p a) 4:64\n"
                 + "ttynull0 --- (E     ) 235:0\n"));
