@@ -25,10 +25,12 @@ import java.util.regex.Pattern;
 /** Reads enabled kernel consoles without assuming a particular boot argument. */
 final class SerialConsoleState {
     // Kernel flags have ordered slots: enabled, preferred, boot, print-buffer,
-    // braille and anytime. Newer kernels add one for nbcon. Any other format is
-    // an error, so that the caller falls back to the boot arguments.
+    // braille and anytime. 6.18 adds an nbcon slot after boot, an older layout
+    // has it last. Any other format is an error, so that the caller falls back
+    // to the boot arguments.
     private static final Pattern ENTRY = Pattern.compile(
-            "(\\S+)\\s+[R-][W-][U-]\\s+\\(([E ][C ][B ][p ][b ][a ])[N ]?\\)"
+            "(\\S+)\\s+[R-][W-][U-]\\s+\\("
+                    + "([E ][C ][B ](?:[N ][p ][b ][a ]|[p ][b ][a ][N ]?))\\)"
                     + "(?:\\s+\\d+:\\d+)?");
     private static final Pattern LOCAL_SINK = Pattern.compile(
             "ramoops-?\\d+|ttynull-?\\d+|tty\\d+");
