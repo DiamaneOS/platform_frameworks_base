@@ -290,7 +290,17 @@ class ShadeHeaderControllerTest : SysuiTestCase() {
     }
 
     @Test
+    fun init_tintsCarrierGroup() {
+        // DiamaneOS: at once, for a mobile view added before the next theme change.
+        val fgColor = context.getColor(R.color.shade_header_text_color)
+        val bgColor = context.getColor(R.color.shade_header_text_color_bg)
+        verify(carrierGroup)
+            .updateTextAppearanceAndTint(R.style.TextAppearance_QS_Status, fgColor, bgColor)
+    }
+
+    @Test
     fun updateConfig_changesFontStyle() {
+        Mockito.clearInvocations(carrierGroup)
         configurationController.notifyDensityOrFontScaleChanged()
 
         verify(clock).setTextAppearance(R.style.TextAppearance_QS_Status)
