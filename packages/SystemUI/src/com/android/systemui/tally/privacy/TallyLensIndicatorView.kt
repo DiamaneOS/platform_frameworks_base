@@ -81,14 +81,19 @@ class TallyLensIndicatorView(context: Context, private val onIdle: () -> Unit) :
         invalidate()
     }
 
-    /** Sets the colours for the area under the ring and the lamp. */
+    /**
+     * Sets the colours for the area under the ring and the lamp. Their edge is black over a light
+     * area too: the ring sits on the black lens, where the white edge of the light variant shows as
+     * a white ring between the lens and the ring.
+     */
     fun setColors(colors: TallyIndicatorColors) {
-        if (this.colors == colors) return
-        this.colors = colors
-        // One colour lit, edged with the indicators' edge. Nothing is drawn once it is out.
+        val lensColors = colors.copy(edge = Color.BLACK)
+        if (this.colors == lensColors) return
+        this.colors = lensColors
+        // One colour lit, edged in black. Nothing is drawn once it is out.
         lamp.colors =
-            TallyLampColors.plain(colors.fill, sensor = true)
-                .copy(litEdge = colors.edge, off = Color.TRANSPARENT)
+            TallyLampColors.plain(lensColors.fill, sensor = true)
+                .copy(litEdge = lensColors.edge, off = Color.TRANSPARENT)
         invalidate()
     }
 
