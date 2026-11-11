@@ -50,7 +50,6 @@ import com.android.compose.theme.PlatformTheme
 import com.android.keyguard.AlphaOptimizedLinearLayout
 import com.android.systemui.Dumpable
 import com.android.systemui.Flags
-import com.android.systemui.Flags.notificationShadeBlur
 import com.android.systemui.animation.ShadeInterpolation
 import com.android.systemui.battery.BatteryMeterView.MODE_ESTIMATE
 import com.android.systemui.dagger.SysUISingleton
@@ -354,6 +353,13 @@ constructor(
 
         iconManager = tintedIconManagerFactory.create(iconContainer, StatusBarLocation.QS)
         iconManager.setTint(fgColor, bgColor)
+        // DiamaneOS: the carrier group too, so a mobile view added before the next theme change
+        // takes these colours, not the default white.
+        mShadeCarrierGroup.updateTextAppearanceAndTint(
+            R.style.TextAppearance_QS_Status,
+            fgColor,
+            bgColor,
+        )
 
         // Configure the correct margins for the system icon container
         val statusIcons = mView.requireViewById<AlphaOptimizedLinearLayout>(R.id.statusIcons)
@@ -376,19 +382,12 @@ constructor(
         privacyIconsController.onParentVisible()
     }
 
-    private fun getBgColor() =
-        if (notificationShadeBlur()) {
-            header.context.getColor(R.color.shade_header_text_color_bg)
-        } else {
-            android.graphics.Color.BLACK
-        }
+    // DiamaneOS: Tally's shade follows the theme, light in light mode, with or without the shade
+    // blur, so its header takes the theme's header colours (as the clock and the date do) instead
+    // of white on black.
+    private fun getBgColor() = header.context.getColor(R.color.shade_header_text_color_bg)
 
-    private fun getFgColor() =
-        if (notificationShadeBlur()) {
-            header.context.getColor(R.color.shade_header_text_color)
-        } else {
-            android.graphics.Color.WHITE
-        }
+    private fun getFgColor() = header.context.getColor(R.color.shade_header_text_color)
 
     private fun createBatteryComposeView(): ComposeView {
         return ComposeView(mView.context).apply {
@@ -401,10 +400,7 @@ constructor(
                         modifier = Modifier.wrapContentSize(),
                         viewModelFactory = unifiedBatteryViewModelFactory,
                         isDarkProvider = { IsAreaDark { dark } },
-                        textColor =
-                            if (notificationShadeBlur())
-                                Color(context.getColor(R.color.shade_header_text_color))
-                            else Color.White,
+                        textColor = Color(context.getColor(R.color.shade_header_text_color)),
                         showEstimate = showBatteryEstimate,
                     )
                 }

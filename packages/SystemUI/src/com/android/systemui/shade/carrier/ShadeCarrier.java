@@ -50,6 +50,11 @@ public class ShadeCarrier extends LinearLayout {
     private CellSignalState mLastSignalState;
     private boolean mMobileSignalInitialized = false;
     private boolean mIsSingleCarrier;
+    // DiamaneOS: the last text appearance and tint, for a mobile view added after they were set.
+    private boolean mHasStyleAndTint = false;
+    private @StyleRes int mStyleResId;
+    private int mFgColor;
+    private int mBgColor;
 
     public ShadeCarrier(Context context) {
         super(context);
@@ -93,6 +98,11 @@ public class ShadeCarrier extends LinearLayout {
         mSpacer.setVisibility(View.GONE);
         mCarrierText.setVisibility(View.GONE);
         addView(mobileView);
+        // DiamaneOS: the header sets its colours once and again on theme changes. A mobile view
+        // added in between would keep the default white tint, white on Tally's light shade.
+        if (mHasStyleAndTint) {
+            mobileView.setStyleAndTint(mStyleResId, mFgColor, mBgColor);
+        }
     }
 
     /**
@@ -162,6 +172,10 @@ public class ShadeCarrier extends LinearLayout {
 
     /** Update the text appearance of the text and the tint of the icon */
     public void updateTextAppearanceAndTint(@StyleRes int resId, int fgColor, int bgColor) {
+        mHasStyleAndTint = true;
+        mStyleResId = resId;
+        mFgColor = fgColor;
+        mBgColor = bgColor;
         mCarrierText.setTextAppearance(resId);
         if (mModernMobileView != null) {
             mModernMobileView.setStyleAndTint(resId, fgColor, bgColor);
