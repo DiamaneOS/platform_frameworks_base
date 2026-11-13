@@ -120,7 +120,7 @@ class HomeStatusBarInteractorTest(flags: FlagsParameterization) : SysuiTestCase(
         }
 
     @Test
-    fun shouldShowOperatorName_trueIfCarrierConfigSaysSoAndDeviceHasData() =
+    fun shouldShowOperatorName_falseEvenIfCarrierConfigSaysSoAndDeviceHasData() =
         kosmos.runTest {
             // GIVEN default data subId is 1
             fakeMobileIconsInteractor.defaultDataSubId.value = 1
@@ -142,8 +142,8 @@ class HomeStatusBarInteractorTest(flags: FlagsParameterization) : SysuiTestCase(
 
             val latest by collectLastValue(underTest.shouldShowOperatorName)
 
-            // THEN we should show the operator name
-            assertThat(latest).isTrue()
+            // THEN we still do not show the operator name (DiamaneOS: never in the status bar)
+            assertThat(latest).isFalse()
         }
 
     @Test

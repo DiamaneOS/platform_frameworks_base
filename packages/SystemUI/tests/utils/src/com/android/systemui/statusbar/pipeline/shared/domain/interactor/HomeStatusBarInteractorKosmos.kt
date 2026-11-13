@@ -24,12 +24,10 @@ import com.android.systemui.kosmos.Kosmos
 import com.android.systemui.kosmos.backgroundScope
 import com.android.systemui.log.table.tableLogBufferFactory
 import com.android.systemui.statusbar.disableflags.domain.interactor.disableFlagsInteractor
-import com.android.systemui.statusbar.pipeline.airplane.domain.interactor.airplaneModeInteractor
 import com.android.systemui.statusbar.pipeline.mobile.data.model.SystemUiCarrierConfig
 import com.android.systemui.statusbar.pipeline.mobile.data.repository.carrierConfigRepository
 import com.android.systemui.statusbar.pipeline.mobile.data.repository.configWithOverride
 import com.android.systemui.statusbar.pipeline.mobile.data.repository.fake
-import com.android.systemui.statusbar.pipeline.mobile.domain.interactor.carrierConfigInteractor
 import com.android.systemui.statusbar.pipeline.mobile.domain.interactor.fakeMobileIconsInteractor
 import com.android.systemui.statusbar.window.data.repository.fakeStatusBarWindowStatePerDisplayRepository
 
@@ -39,8 +37,6 @@ val Kosmos.homeStatusBarInteractor: HomeStatusBarInteractor by
             applicationContext.displayId,
             backgroundScope,
             fakeStatusBarWindowStatePerDisplayRepository,
-            airplaneModeInteractor,
-            carrierConfigInteractor,
             disableFlagsInteractor,
             keyguardInteractor,
             keyguardOcclusionInteractor,
