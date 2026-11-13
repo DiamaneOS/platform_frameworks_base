@@ -38,6 +38,18 @@
         android:singleLine="true"
         android:maxEms="7"/>
 
+    <!-- DiamaneOS: shown while this SIM is registered for calls over Wi-Fi. At this size the
+         glyph is about as tall as the signal icon. The tint follows the header's colours. -->
+    <ImageView
+        android:id="@+id/mobile_wifi_calling"
+        android:layout_width="wrap_content"
+        android:layout_height="@dimen/status_bar_mobile_signal_size"
+        android:adjustViewBounds="true"
+        android:src="@drawable/ic_wifi_call_strength_4"
+        android:tint="@color/shade_header_text_color"
+        android:contentDescription="@*android:string/notification_channel_wfc"
+        android:visibility="gone" />
+
     <include layout="@layout/status_bar_mobile_signal_group_new" />
 
 </com.android.systemui.statusbar.pipeline.mobile.ui.view.ModernShadeCarrierGroupMobileView>
