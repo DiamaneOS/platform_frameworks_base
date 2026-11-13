@@ -504,7 +504,7 @@ class HomeStatusBarViewModelImplTest(flags: FlagsParameterization) : SysuiTestCa
         }
 
     @Test
-    fun shouldShowOperatorNameView_allowedByInteractor_allowedByDisableFlags_visible() =
+    fun shouldShowOperatorNameView_askedByCarrierConfig_allowedByDisableFlags_notVisible() =
         kosmos.runTest {
             kosmos.setHomeStatusBarInteractorShowOperatorName(true)
 
@@ -514,7 +514,8 @@ class HomeStatusBarViewModelImplTest(flags: FlagsParameterization) : SysuiTestCa
             fakeDisableFlagsRepository.disableFlags.value =
                 DisableFlagsModel(DISABLE_NONE, DISABLE2_NONE)
 
-            assertThat(latest).isTrue()
+            // DiamaneOS: the status bar never shows the operator name.
+            assertThat(latest).isFalse()
         }
 
     @Test
@@ -547,7 +548,7 @@ class HomeStatusBarViewModelImplTest(flags: FlagsParameterization) : SysuiTestCa
         }
 
     @Test
-    fun shouldShowOperatorNameView_allowedByInteractor_hunPinned_true() =
+    fun shouldShowOperatorNameView_askedByCarrierConfig_hunPinned_false() =
         kosmos.runTest {
             kosmos.setHomeStatusBarInteractorShowOperatorName(true)
 
@@ -566,8 +567,8 @@ class HomeStatusBarViewModelImplTest(flags: FlagsParameterization) : SysuiTestCa
 
             val latest by collectLastValue(underTest.shouldShowOperatorNameView)
 
-            // THEN we still show the operator name view
-            assertThat(latest).isTrue()
+            // THEN we still do not show the operator name view
+            assertThat(latest).isFalse()
         }
 
     @Test

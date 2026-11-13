@@ -25,8 +25,6 @@ import com.android.systemui.log.table.EnumDiffable
 import com.android.systemui.log.table.TableLogBufferFactory
 import com.android.systemui.log.table.logDiffsForTable
 import com.android.systemui.statusbar.disableflags.domain.interactor.DisableFlagsInteractor
-import com.android.systemui.statusbar.pipeline.airplane.domain.interactor.AirplaneModeInteractor
-import com.android.systemui.statusbar.pipeline.mobile.domain.interactor.CarrierConfigInteractor
 import com.android.systemui.statusbar.pipeline.shared.domain.model.StatusBarDisableFlagsVisibilityModel
 import com.android.systemui.statusbar.window.data.repository.StatusBarWindowStatePerDisplayRepository
 import com.android.systemui.statusbar.window.shared.model.StatusBarWindowState
@@ -35,7 +33,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
@@ -52,8 +49,6 @@ constructor(
     @DisplayId thisDisplayId: Int,
     @DisplayAware backgroundScope: CoroutineScope,
     @DisplayAware statusBarWindowStateRepository: StatusBarWindowStatePerDisplayRepository,
-    airplaneModeInteractor: AirplaneModeInteractor,
-    carrierConfigInteractor: CarrierConfigInteractor,
     @DisplayAware disableFlagsInteractor: DisableFlagsInteractor,
     keyguardInteractor: KeyguardInteractor,
     keyguardOcclusionInteractor: KeyguardOcclusionInteractor,
@@ -76,22 +71,12 @@ constructor(
             )
         }
 
-    private val defaultDataSubConfigShowOperatorView =
-        carrierConfigInteractor.defaultDataSubscriptionCarrierConfig.flatMapLatest {
-            it?.showOperatorNameInStatusBar ?: flowOf(false)
-        }
-
     /**
-     * True if the carrier config for the default data subscription has
-     * [SystemUiCarrierConfig.showOperatorNameInStatusBar] set and the device is not in airplane
-     * mode
+     * DiamaneOS: always false. The status bar never shows the operator name, whatever the carrier
+     * config asks with [SystemUiCarrierConfig.showOperatorNameInStatusBar]. The name pushed the
+     * clock and the notification icons there, and the shade and the lock screen show it anyway.
      */
-    val shouldShowOperatorName: Flow<Boolean> =
-        combine(defaultDataSubConfigShowOperatorView, airplaneModeInteractor.isAirplaneMode) {
-            showOperatorName,
-            isAirplaneMode ->
-            showOperatorName && !isAirplaneMode
-        }
+    val shouldShowOperatorName: Flow<Boolean> = flowOf(false)
 
     private val windowState =
         statusBarWindowStateRepository.windowState
