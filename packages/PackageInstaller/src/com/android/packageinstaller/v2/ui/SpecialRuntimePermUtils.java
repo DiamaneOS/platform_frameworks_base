@@ -4,11 +4,14 @@ import android.Manifest;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageInstaller;
+import android.content.res.Resources;
 import android.util.ArraySet;
 import android.util.Log;
 import android.view.View;
 import android.widget.CheckBox;
 
+import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.util.ArrayUtils;
 import com.android.packageinstaller.R;
 
 import java.util.List;
@@ -44,12 +47,32 @@ public class SpecialRuntimePermUtils {
             }
 
             if (perms.contains(perm)) {
+                if (Manifest.permission.INTERNET.equals(perm)
+                        && isNetworkPermissionFixedOff(checkBox.getResources(),
+                                pkgInfo.packageName)) {
+                    // The system never grants it to this package. The box stays hidden, so
+                    // no grant is asked for either.
+                    continue;
+                }
                 checkBox.setVisibility(View.VISIBLE);
                 PermissionNameSupplier supplier = () -> perm;
                 // use a private interface to make sure that the tag is not rewritten by upstream code
                 checkBox.setTag(supplier);
             }
         }
+    }
+
+    /**
+     * Whether the device keeps the Network permission of this package fixed off
+     * (config_networkPermissionFixedOffPackages, the list the permission policy reads). The
+     * system never grants the permission to such a package, so the install dialog has no choice
+     * to offer.
+     */
+    @VisibleForTesting
+    public static boolean isNetworkPermissionFixedOff(Resources resources, String packageName) {
+        String[] fixedOffPackages = resources.getStringArray(
+                com.android.internal.R.array.config_networkPermissionFixedOffPackages);
+        return ArrayUtils.contains(fixedOffPackages, packageName);
     }
 
     public static void collectCheckboxState(CheckBox checkbox, List<SpecialPermissionState> dst) {
