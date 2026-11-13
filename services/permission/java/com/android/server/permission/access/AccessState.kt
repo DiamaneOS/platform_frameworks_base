@@ -150,6 +150,14 @@ sealed class ExternalState(
     var agentAllowlist: Set<SignedPackage>? = agentAllowlist
         protected set
 
+    /**
+     * Packages whose Network permission is fixed off, from the device configuration
+     * (config_networkPermissionFixedOffPackages). Not a constructor parameter, so the upstream
+     * parameter lists stay as they are.
+     */
+    var networkPermissionFixedOffPackages: Set<String> = emptySet()
+        protected set
+
     override fun toMutable(): MutableExternalState = MutableExternalState(this)
 }
 
@@ -213,7 +221,9 @@ private constructor(
         externalState.implicitToSourcePermissions,
         externalState.isSystemReady,
         externalState.agentAllowlist,
-    )
+    ) {
+        networkPermissionFixedOffPackages = externalState.networkPermissionFixedOffPackages
+    }
 
     fun mutateUserIds(): MutableIntSet = userIdsReference.mutate()
 
@@ -271,6 +281,11 @@ private constructor(
     @JvmName("setAgentAllowlistPublic")
     fun setAgentAllowlist(agentAllowlist: Set<SignedPackage>?) {
         this.agentAllowlist = agentAllowlist
+    }
+
+    @JvmName("setNetworkPermissionFixedOffPackagesPublic")
+    fun setNetworkPermissionFixedOffPackages(networkPermissionFixedOffPackages: Set<String>) {
+        this.networkPermissionFixedOffPackages = networkPermissionFixedOffPackages
     }
 }
 

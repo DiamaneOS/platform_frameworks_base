@@ -22,4 +22,13 @@
          choice to the HAL. Pixels use their own battery HAL instead. -->
     <bool name="config_healthHalChargeLimit">false</bool>
     <java-symbol type="bool" name="config_healthHalChargeLimit" />
+
+    <!-- Packages whose Network permission is fixed off: never granted and not changeable by
+         the user, adb or the app, so the permission page shows it as not allowed and fixed.
+         For apps the device keeps off the network by other means, such as an SELinux domain
+         without network sockets. Matched by package name. Permission state is per app ID, so
+         packages sharing a listed package's app ID are covered too. -->
+    <string-array name="config_networkPermissionFixedOffPackages" translatable="false">
+    </string-array>
+    <java-symbol type="array" name="config_networkPermissionFixedOffPackages" />
 </resources>
