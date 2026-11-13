@@ -59,6 +59,7 @@ import com.android.systemui.statusbar.connectivity.NetworkController;
 import com.android.systemui.statusbar.connectivity.SignalCallback;
 import com.android.systemui.statusbar.connectivity.ui.MobileContextProvider;
 import com.android.systemui.statusbar.pipeline.StatusBarPipelineFlags;
+import com.android.systemui.statusbar.pipeline.mobile.data.repository.WifiCallingRepository;
 import com.android.systemui.statusbar.pipeline.mobile.ui.MobileUiAdapter;
 import com.android.systemui.statusbar.pipeline.mobile.ui.MobileUiAdapterKairos;
 import com.android.systemui.statusbar.pipeline.mobile.ui.MobileViewLogger;
@@ -131,9 +132,13 @@ public class ShadeCarrierGroupControllerTest extends LeakCheckedTest {
     private MobileContextProvider mMobileContextProvider;
     @Mock
     private StatusBarPipelineFlags mStatusBarPipelineFlags;
+    @Mock
+    private WifiCallingRepository mWifiCallingRepository;
 
     private final MutableStateFlow<Boolean> mIsVisibleFlow =
             FlowProviderKt.getMutableStateFlow(true);
+    private final MutableStateFlow<Boolean> mIsWifiCallingFlow =
+            FlowProviderKt.getMutableStateFlow(false);
 
     private FakeSlotIndexResolver mSlotIndexResolver;
     private ClickListenerTextView mNoCarrierTextView;
@@ -201,7 +206,8 @@ public class ShadeCarrierGroupControllerTest extends LeakCheckedTest {
                     when(shadeCarrierGroupIconViewModel.isVisible())
                             .thenReturn(StateKt.stateOf(true));
                     return uiAdapter;
-                })
+                },
+                mWifiCallingRepository)
                 .setShadeCarrierGroup(mShadeCarrierGroup)
                 .build();
 
@@ -215,6 +221,7 @@ public class ShadeCarrierGroupControllerTest extends LeakCheckedTest {
         when(mShadeCarrierGroupMobileIconViewModel.isVisible()).thenReturn(mIsVisibleFlow);
         when(mMobileIconsViewModel.viewModelForSub(anyInt(), any()))
                 .thenReturn(mShadeCarrierGroupMobileIconViewModel);
+        when(mWifiCallingRepository.isRegistered(anyInt())).thenReturn(mIsWifiCallingFlow);
     }
 
     @Test
@@ -602,6 +609,23 @@ public class ShadeCarrierGroupControllerTest extends LeakCheckedTest {
         verify(mShadeCarrier1).addModernMobileView(any());
         verify(mShadeCarrier2, never()).addModernMobileView(any());
         verify(mShadeCarrier3).addModernMobileView(any());
+    }
+
+    @TestableLooper.RunWithLooper(setAsMainLooper = true)
+    @Test
+    public void testUpdateModernMobileIcons_wifiCallingOfEachSubscription() {
+        setupWithNewPipeline();
+
+        List<Integer> subIds = new ArrayList<>();
+        subIds.add(0);
+        subIds.add(1);
+        mShadeCarrierGroupController.updateModernMobileIcons(subIds);
+
+        // DiamaneOS: each SIM's entry is given the Wi-Fi calling state of its own subscription
+        verify(mShadeCarrier1).addModernMobileView(any());
+        verify(mWifiCallingRepository).isRegistered(0);
+        verify(mShadeCarrier2).addModernMobileView(any());
+        verify(mWifiCallingRepository).isRegistered(1);
     }
 
     @TestableLooper.RunWithLooper(setAsMainLooper = true)

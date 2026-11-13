@@ -18,11 +18,17 @@ package com.android.systemui.statusbar.pipeline.mobile.ui.view
 
 import android.annotation.StyleRes
 import android.content.Context
+import android.content.res.ColorStateList
 import android.util.AttributeSet
 import android.view.LayoutInflater
+import android.widget.ImageView
 import android.widget.LinearLayout
+import androidx.core.view.isVisible
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import com.android.systemui.kairos.KairosNetwork
 import com.android.systemui.kairos.buildSpec
+import com.android.systemui.lifecycle.repeatWhenAttached
 import com.android.systemui.res.R
 import com.android.systemui.statusbar.StatusBarIconView.STATE_ICON
 import com.android.systemui.statusbar.core.NewStatusBarIcons
@@ -38,6 +44,7 @@ import com.android.systemui.util.AutoMarqueeTextView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 
 interface ModernShadeCarrierGroupMobileViewBinding {
@@ -55,12 +62,28 @@ class ModernShadeCarrierGroupMobileView(context: Context, attrs: AttributeSet?) 
 
     private lateinit var binding: ModernShadeCarrierGroupMobileViewBinding
 
+    // DiamaneOS: the Wi-Fi calling icon between the carrier name and the signal icon.
+    private val wifiCallingIcon by lazy { requireViewById<ImageView>(R.id.mobile_wifi_calling) }
+
     /**
      * Update the appearance of the mobile carrier group. The text itself can use the text
      * appearance resId, but the mobile icon needs to know specifically about fg/bg colors.
      */
     fun setStyleAndTint(@StyleRes styleResId: Int, fgColor: Int, bgColor: Int) {
         binding.setStyleAndTint(style = styleResId, fgColor = fgColor, bgColor = bgColor)
+        wifiCallingIcon.imageTintList = ColorStateList.valueOf(fgColor)
+    }
+
+    /**
+     * DiamaneOS: shows the Wi-Fi calling icon while [isWifiCalling] is true, which is while this
+     * view's SIM is registered for calls over Wi-Fi.
+     */
+    fun bindWifiCalling(isWifiCalling: Flow<Boolean>) {
+        repeatWhenAttached {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                isWifiCalling.collect { wifiCallingIcon.isVisible = it }
+            }
+        }
     }
 
     override fun toString(): String {

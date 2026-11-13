@@ -55,6 +55,7 @@ import com.android.systemui.statusbar.connectivity.ui.MobileContextProvider;
 import com.android.systemui.statusbar.phone.StatusBarLocation;
 import com.android.systemui.statusbar.pipeline.StatusBarPipelineFlags;
 import com.android.systemui.statusbar.pipeline.mobile.StatusBarMobileIconKairos;
+import com.android.systemui.statusbar.pipeline.mobile.data.repository.WifiCallingRepository;
 import com.android.systemui.statusbar.pipeline.mobile.ui.MobileUiAdapter;
 import com.android.systemui.statusbar.pipeline.mobile.ui.MobileUiAdapterKairos;
 import com.android.systemui.statusbar.pipeline.mobile.ui.binder.MobileIconsBinder;
@@ -119,6 +120,7 @@ public class ShadeCarrierGroupController {
     private final Lazy<MobileUiAdapterKairos> mMobileUiAdapterKairos;
     private final CoroutineScope mAppScope;
     private final KairosNetwork mKairosNetwork;
+    private final WifiCallingRepository mWifiCallingRepository;
 
     private final SignalCallback mSignalCallback = new SignalCallback() {
         @Override
@@ -183,7 +185,8 @@ public class ShadeCarrierGroupController {
             StatusBarPipelineFlags statusBarPipelineFlags,
             Lazy<MobileUiAdapterKairos> mobileUiAdapterKairos,
             CoroutineScope appScope,
-            KairosNetwork kairosNetwork
+            KairosNetwork kairosNetwork,
+            WifiCallingRepository wifiCallingRepository
     ) {
         mContext = context;
         mActivityStarter = activityStarter;
@@ -201,6 +204,7 @@ public class ShadeCarrierGroupController {
         mMobileUiAdapterKairos = mobileUiAdapterKairos;
         mAppScope = appScope;
         mKairosNetwork = kairosNetwork;
+        mWifiCallingRepository = wifiCallingRepository;
         View.OnClickListener onClickListener = v -> {
             if (!v.isVisibleToUser()) {
                 return;
@@ -300,6 +304,7 @@ public class ShadeCarrierGroupController {
                         );
                 mBindingJobs.add(viewAndJob.getSecond());
                 carrier.addModernMobileView(viewAndJob.getFirst());
+                bindWifiCalling(viewAndJob.getFirst(), iconData.subId);
             }
         } else {
             for (IconData iconData : iconDataList) {
@@ -319,8 +324,17 @@ public class ShadeCarrierGroupController {
                                                         StatusBarLocation.SHADE_CARRIER_GROUP)
                                 );
                 carrier.addModernMobileView(modernMobileView);
+                bindWifiCalling(modernMobileView, iconData.subId);
             }
         }
+    }
+
+    /**
+     * DiamaneOS: a SIM's entry shows a Wi-Fi calling icon while its own subscription is registered
+     * for calls over Wi-Fi.
+     */
+    private void bindWifiCalling(ModernShadeCarrierGroupMobileView mobileView, int subId) {
+        mobileView.bindWifiCalling(mWifiCallingRepository.isRegistered(subId));
     }
 
     @VisibleForTesting
@@ -553,6 +567,7 @@ public class ShadeCarrierGroupController {
         private final CoroutineScope mAppScope;
         private final KairosNetwork mKairosNetwork;
         private final Lazy<MobileUiAdapterKairos> mMobileUiAdapterKairos;
+        private final WifiCallingRepository mWifiCallingRepository;
 
         @Inject
         public Builder(
@@ -570,7 +585,8 @@ public class ShadeCarrierGroupController {
                 StatusBarPipelineFlags statusBarPipelineFlags,
                 @Application CoroutineScope appScope,
                 KairosNetwork kairosNetwork,
-                Lazy<MobileUiAdapterKairos> mobileUiAdapterKairos
+                Lazy<MobileUiAdapterKairos> mobileUiAdapterKairos,
+                WifiCallingRepository wifiCallingRepository
         ) {
             mActivityStarter = activityStarter;
             mHandler = handler;
@@ -587,6 +603,7 @@ public class ShadeCarrierGroupController {
             mAppScope = appScope;
             mKairosNetwork = kairosNetwork;
             mMobileUiAdapterKairos = mobileUiAdapterKairos;
+            mWifiCallingRepository = wifiCallingRepository;
         }
 
         public Builder setShadeCarrierGroup(ShadeCarrierGroup view) {
@@ -611,7 +628,8 @@ public class ShadeCarrierGroupController {
                     mStatusBarPipelineFlags,
                     mMobileUiAdapterKairos,
                     mAppScope,
-                    mKairosNetwork);
+                    mKairosNetwork,
+                    mWifiCallingRepository);
         }
     }
 
