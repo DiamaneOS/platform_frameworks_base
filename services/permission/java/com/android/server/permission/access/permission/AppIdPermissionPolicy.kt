@@ -2111,7 +2111,14 @@ class AppIdPermissionPolicy : SchemePolicy() {
             newState.userStates[userId]!!
                 .appIdPermissionFlags[appId]
                 .getWithDefault(permissionName, 0)
-        val newFlags = (oldFlags andInv flagMask) or (flagValues and flagMask)
+        var newFlags = (oldFlags andInv flagMask) or (flagValues and flagMask)
+        if (isNetworkPermissionFixedOff(appId, permissionName)) {
+            // Every write of this state ends here, so no caller can grant or unfix it, and the
+            // evaluation at boot and at package changes corrects a state stored before.
+            newFlags =
+                (newFlags and NETWORK_PERMISSION_FIXED_OFF_KEPT_MASK) or
+                    PermissionFlags.SYSTEM_FIXED
+        }
         if (oldFlags == newFlags) {
             return false
         }
@@ -2125,6 +2132,34 @@ class AppIdPermissionPolicy : SchemePolicy() {
             it.onPermissionFlagsChanged(appId, userId, permissionName, oldFlags, newFlags)
         }
         return true
+    }
+
+    /**
+     * Whether the Network permission of this app ID is fixed off: the device configuration lists
+     * one of its packages (config_networkPermissionFixedOffPackages) and a package of the app ID
+     * requests the permission. Permission state is per app ID, so packages sharing the app ID are
+     * covered too. A permission no package requests any more is left alone, so it can be trimmed.
+     */
+    private fun MutateStateScope.isNetworkPermissionFixedOff(
+        appId: Int,
+        permissionName: String,
+    ): Boolean {
+        if (permissionName != Manifest.permission.INTERNET) {
+            return false
+        }
+        val externalState = newState.externalState
+        val fixedOffPackageNames = externalState.networkPermissionFixedOffPackages
+        if (fixedOffPackageNames.isEmpty()) {
+            return false
+        }
+        val packageNames = externalState.appIdPackageNames[appId] ?: return false
+        if (packageNames.noneIndexed { _, it -> it in fixedOffPackageNames }) {
+            return false
+        }
+        return packageNames.anyIndexed { _, it ->
+            val androidPackage = externalState.packageStates[it]?.androidPackage
+            androidPackage != null && permissionName in androidPackage.requestedPermissions
+        }
     }
 
     fun addOnPermissionFlagsChangedListener(listener: OnPermissionFlagsChangedListener) {
@@ -2225,6 +2260,16 @@ class AppIdPermissionPolicy : SchemePolicy() {
          */
         private const val SYSTEM_OR_POLICY_FIXED_MASK =
             PermissionFlags.SYSTEM_FIXED or PermissionFlags.POLICY_FIXED
+
+        /**
+         * Mask for the permission flags that stay when the Network permission is fixed off: the
+         * ones PermissionController keeps for its own display. Every flag that grants the
+         * permission and every user, role or policy decision about it is dropped, a flag added
+         * later included.
+         */
+        private const val NETWORK_PERMISSION_FIXED_OFF_KEPT_MASK =
+            PermissionFlags.USER_SENSITIVE_WHEN_GRANTED or
+                PermissionFlags.USER_SENSITIVE_WHEN_REVOKED
     }
 
     /** Listener for permission flags changes. */

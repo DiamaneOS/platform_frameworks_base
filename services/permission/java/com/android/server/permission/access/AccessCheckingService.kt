@@ -26,6 +26,7 @@ import android.content.pm.SignedPackage
 import android.os.SystemProperties
 import android.os.UserHandle
 import android.permission.flags.Flags
+import com.android.internal.R
 import com.android.internal.annotations.Keep
 import com.android.server.LocalManagerRegistry
 import com.android.server.LocalServices
@@ -114,6 +115,13 @@ class AccessCheckingService(context: Context) : SystemService(context) {
             permissionAllowlist,
             implicitToSourcePermissions,
         )
+        state
+            .mutateExternalState()
+            .setNetworkPermissionFixedOffPackages(
+                context.resources
+                    .getStringArray(R.array.config_networkPermissionFixedOffPackages)
+                    .toSet()
+            )
         persistence.initialize()
         persistence.read(state)
         this.state = state
