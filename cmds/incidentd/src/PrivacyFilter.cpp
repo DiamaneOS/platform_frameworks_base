@@ -32,49 +32,86 @@ namespace incidentd {
 
 // ================================================================================
 /**
- * Write the field to buf based on the wire type, iterator will point to next field.
- * If skip is set to true, no data will be written to buf. Return number of bytes written.
+ * The section data comes from a command or a file and can end inside a field, for example when
+ * the command was cut off. The buffer reader does not check: reading past the end is a null
+ * pointer dereference. So every read below is checked against what is left.
  */
-void write_field_or_skip(ProtoOutputStream* out, const sp<ProtoReader>& in,
+static size_t bytes_left(const sp<ProtoReader>& in) {
+    ssize_t size = in->size();
+    return size > 0 && (size_t)size > in->bytesRead() ? (size_t)size - in->bytesRead() : 0;
+}
+
+/**
+ * Read a varint. Returns false if the data ends inside it or it is longer than a varint can be.
+ */
+static bool read_varint(const sp<ProtoReader>& in, uint64_t* value) {
+    uint64_t val = 0;
+    for (int shift = 0; shift < 70; shift += 7) {
+        if (!in->hasNext()) {
+            return false;
+        }
+        uint8_t byte = in->next();
+        val |= (UINT64_C(0x7F) & byte) << shift;
+        if ((byte & 0x80) == 0) {
+            *value = val;
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Write the field to buf based on the wire type, iterator will point to next field.
+ * If skip is set to true, no data will be written to buf. Returns BAD_VALUE if the field does
+ * not fit in the data that is left or has an unknown wire type.
+ */
+status_t write_field_or_skip(ProtoOutputStream* out, const sp<ProtoReader>& in,
         uint32_t fieldTag, bool skip) {
     uint8_t wireType = read_wire_type(fieldTag);
-    size_t bytesToWrite = 0;
+    uint64_t bytesToWrite = 0;
     uint64_t varint = 0;
 
     switch (wireType) {
         case WIRE_TYPE_VARINT:
-            varint = in->readRawVarint();
+            if (!read_varint(in, &varint)) {
+                return BAD_VALUE;
+            }
             if (!skip) {
                 out->writeRawVarint(fieldTag);
                 out->writeRawVarint(varint);
             }
-            return;
+            return NO_ERROR;
         case WIRE_TYPE_FIXED64:
-            if (!skip) {
-                out->writeRawVarint(fieldTag);
-            }
             bytesToWrite = 8;
             break;
         case WIRE_TYPE_LENGTH_DELIMITED:
-            bytesToWrite = in->readRawVarint();
-            if (!skip) {
-                out->writeLengthDelimitedHeader(read_field_id(fieldTag), bytesToWrite);
+            if (!read_varint(in, &bytesToWrite)) {
+                return BAD_VALUE;
             }
             break;
         case WIRE_TYPE_FIXED32:
-            if (!skip) {
-                out->writeRawVarint(fieldTag);
-            }
             bytesToWrite = 4;
             break;
+        default:
+            return BAD_VALUE;
     }
     if (skip) {
+        // Moving past the end reads nothing. The caller sees that the data is used up.
         in->move(bytesToWrite);
-    } else {
-        for (size_t i = 0; i < bytesToWrite; i++) {
-            out->writeRawByte(in->next());
-        }
+        return NO_ERROR;
     }
+    if (bytesToWrite > bytes_left(in)) {
+        return BAD_VALUE;
+    }
+    if (wireType == WIRE_TYPE_LENGTH_DELIMITED) {
+        out->writeLengthDelimitedHeader(read_field_id(fieldTag), bytesToWrite);
+    } else {
+        out->writeRawVarint(fieldTag);
+    }
+    for (uint64_t i = 0; i < bytesToWrite; i++) {
+        out->writeRawByte(in->next());
+    }
+    return NO_ERROR;
 }
 
 /**
@@ -92,19 +129,25 @@ status_t strip_field(ProtoOutputStream* out, const sp<ProtoReader>& in,
     if (!in->hasNext() || parentPolicy == NULL) {
         return BAD_VALUE;
     }
-    uint32_t fieldTag = in->readRawVarint();
+    uint64_t rawTag = 0;
+    if (!read_varint(in, &rawTag)) {
+        return BAD_VALUE;
+    }
+    uint32_t fieldTag = rawTag;
     uint32_t fieldId = read_field_id(fieldTag);
     const Privacy* policy = lookup(parentPolicy, fieldId);
 
     if (policy == NULL || policy->children == NULL) {
         bool skip = !spec.CheckPremission(policy, parentPolicy->policy);
         // iterator will point to head of next field
-        size_t currentAt = in->bytesRead();
-        write_field_or_skip(out, in, fieldTag, skip);
-        return NO_ERROR;
+        return write_field_or_skip(out, in, fieldTag, skip);
     }
     // current field is message type and its sub-fields have extra privacy policies
-    uint32_t msgSize = in->readRawVarint();
+    uint64_t rawSize = 0;
+    if (!read_varint(in, &rawSize) || rawSize > bytes_left(in)) {
+        return BAD_VALUE;
+    }
+    uint32_t msgSize = rawSize;
     size_t start = in->bytesRead();
     uint64_t token = out->start(encode_field_id(policy));
     while (in->bytesRead() - start != msgSize) {
@@ -375,7 +418,11 @@ status_t filter_and_write_report(int to, int from, uint8_t bufferLevel,
         } else {
             // We don't need this field.  Incident does not have any direct children
             // other than sections.  So just skip them.
-            write_field_or_skip(NULL, reader, fieldTag, true);
+            err = write_field_or_skip(NULL, reader, fieldTag, true);
+            if (err != NO_ERROR) {
+                ALOGW("filter_and_write_report found a field it cannot skip: %s", strerror(-err));
+                return err;
+            }
         }
     }
     clear_buffer_pool();
