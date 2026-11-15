@@ -108,7 +108,6 @@ import android.app.ApplicationExitInfo;
 import android.app.ApplicationExitInfo.Reason;
 import android.app.ApplicationExitInfo.SubReason;
 import android.app.ApplicationStartInfo;
-import android.app.ApplicationThreadConstants;
 import android.app.IApplicationThread;
 import android.app.IProcessObserver;
 import android.app.UidObserver;
@@ -5600,29 +5599,6 @@ public final class ProcessList extends ProcessListInternal
             try {
                 AppGlobals.getPackageManager().notifyPackagesReplacedReceived(packages);
             } catch (RemoteException ignored) {
-            }
-        }
-    }
-
-    /**
-     * DiamaneOS: has every process drop its cached labels and icons of these packages
-     * (ApplicationPackageManager), after their resources changed in place, as by an overlay.
-     * Without it, a launcher that read them before an app's overlay was linked, as at the install
-     * of an app that a static overlay targets, kept the old ones. PACKAGE_REMOVED_DONT_KILL clears
-     * only those caches and leaves the packages' loaded code alone. Unlike
-     * {@link #sendPackageBroadcastLocked}, nothing is reported to the package manager.
-     */
-    @GuardedBy("mService")
-    void sendPackageCachesStaleLocked(String[] packages, @CanBeALL @UserIdInt int userId) {
-        for (int i = mLruProcesses.size() - 1; i >= 0; i--) {
-            final ProcessRecord r = mLruProcesses.get(i);
-            final IApplicationThread thread = r.getThread();
-            if (thread != null && (userId == UserHandle.USER_ALL || r.userId == userId)) {
-                try {
-                    thread.dispatchPackageBroadcast(
-                            ApplicationThreadConstants.PACKAGE_REMOVED_DONT_KILL, packages);
-                } catch (RemoteException ex) {
-                }
             }
         }
     }

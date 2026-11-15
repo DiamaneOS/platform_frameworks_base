@@ -1336,13 +1336,6 @@ class BroadcastController {
                                                     Intent.EXTRA_CHANGED_COMPONENT_NAME_LIST));
                                     mService.mServices.schedulePendingServiceStartLocked(
                                             ssp, userId);
-                                    // DiamaneOS: an overlay change changes the package's labels and
-                                    // icons in place, which every process caches per package.
-                                    if (Intent.ACTION_OVERLAY_CHANGED.equals(
-                                            intent.getStringExtra(Intent.EXTRA_REASON))) {
-                                        mService.mProcessList.sendPackageCachesStaleLocked(
-                                                new String[] {ssp}, userId);
-                                    }
                                 }
                             }
                             break;
