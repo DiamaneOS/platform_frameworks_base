@@ -1336,6 +1336,10 @@ class BroadcastController {
                                                     Intent.EXTRA_CHANGED_COMPONENT_NAME_LIST));
                                     mService.mServices.schedulePendingServiceStartLocked(
                                             ssp, userId);
+                                    if (Intent.ACTION_OVERLAY_CHANGED.equals(
+                                            intent.getStringExtra(Intent.EXTRA_REASON))) {
+                                        dropPackageCachesLocked(ssp, userId);
+                                    }
                                 }
                             }
                             break;
@@ -2040,6 +2044,29 @@ class BroadcastController {
     private String getWearRemoteIntentAction() {
         return mContext.getResources().getString(
                 com.android.internal.R.string.config_wearRemoteIntentAction);
+    }
+
+    /**
+     * DiamaneOS: has every process of the user drop its cached labels and icons of @packageName
+     * (ApplicationPackageManager), after an overlay changed them in place. Without it, a launcher
+     * that read them before an app's overlay was linked, as at the install of an app that a static
+     * overlay targets, kept the old ones. PACKAGE_REMOVED_DONT_KILL clears only those caches and
+     * leaves the package's loaded code alone. Unlike sendPackageBroadcastLocked, nothing is
+     * reported to the package manager.
+     */
+    @GuardedBy("mService")
+    private void dropPackageCachesLocked(String packageName, int userId) {
+        final String[] packages = new String[] {packageName};
+        mService.mProcessList.forEachLruProcessesLOSP(false, app -> {
+            final IApplicationThread thread = app.getThread();
+            if (thread != null && (userId == UserHandle.USER_ALL || app.userId == userId)) {
+                try {
+                    thread.dispatchPackageBroadcast(
+                            ApplicationThreadConstants.PACKAGE_REMOVED_DONT_KILL, packages);
+                } catch (RemoteException e) {
+                }
+            }
+        });
     }
 
     private void sendPackageBroadcastLocked(int cmd, String[] packages, int userId) {
