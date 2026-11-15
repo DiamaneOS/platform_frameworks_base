@@ -31,6 +31,7 @@ import com.android.app.tracing.coroutines.launchTraced as launch
 import com.android.internal.logging.UiEvent
 import com.android.internal.logging.UiEventLogger
 import com.android.systemui.Flags.doubleTapToSleep
+import com.android.systemui.accessibility.data.repository.AccessibilityRepository
 import com.android.systemui.broadcast.BroadcastDispatcher
 import com.android.systemui.dagger.SysUISingleton
 import com.android.systemui.dagger.qualifiers.Application
@@ -39,6 +40,7 @@ import com.android.systemui.deviceentry.domain.interactor.DeviceEntryInteractor
 import com.android.systemui.inputdevice.data.repository.PointerDeviceRepository
 import com.android.systemui.keyguard.data.repository.KeyguardRepository
 import com.android.systemui.keyguard.shared.model.KeyguardState
+import com.android.systemui.keyguard.shared.model.StatusBarState
 import com.android.systemui.power.domain.interactor.PowerInteractor
 import com.android.systemui.res.R
 import com.android.systemui.scene.shared.flag.SceneContainerFlag
@@ -91,6 +93,7 @@ constructor(
     private val pointerDeviceRepository: PointerDeviceRepository,
     private val wallpaperFocalAreaInteractor: WallpaperFocalAreaInteractor,
     secureLockDeviceInteractor: Lazy<SecureLockDeviceInteractor>,
+    accessibilityRepository: AccessibilityRepository,
 ) {
     private val _udfpsAccessibilityOverlayBounds: MutableStateFlow<Rect?> = MutableStateFlow(null)
 
@@ -134,15 +137,27 @@ constructor(
                     repository.isQuickSettingsVisible,
                     isDoubleTapSettingEnabled(),
                     secureLockDeviceInteractor.get().isSecureLockDeviceEnabled,
+                    // DiamaneOS: not while the shade is pulled down over the lock screen, and not
+                    // with touch exploration (TalkBack), whose double tap is a click.
+                    combine(
+                        repository.statusBarState,
+                        accessibilityRepository.isTouchExplorationEnabled,
+                    ) { statusBarState, isTouchExplorationEnabled ->
+                        (SceneContainerFlag.isEnabled ||
+                            statusBarState == StatusBarState.KEYGUARD) &&
+                            !isTouchExplorationEnabled
+                    },
                 ) {
                     isFullyTransitionedToLockScreen,
                     isQuickSettingsVisible,
                     isDoubleTapSettingEnabled,
-                    isSecureLockDeviceEnabled ->
+                    isSecureLockDeviceEnabled,
+                    isOnBareLockScreen ->
                     isFullyTransitionedToLockScreen == 1f &&
                         !isQuickSettingsVisible &&
                         isDoubleTapSettingEnabled &&
-                        !isSecureLockDeviceEnabled
+                        !isSecureLockDeviceEnabled &&
+                        isOnBareLockScreen
                 }
             } else {
                 flowOf(false)

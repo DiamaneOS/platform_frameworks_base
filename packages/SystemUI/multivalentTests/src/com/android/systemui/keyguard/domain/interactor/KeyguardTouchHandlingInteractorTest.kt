@@ -31,6 +31,7 @@ import com.android.internal.logging.testing.UiEventLoggerFake
 import com.android.internal.logging.uiEventLogger
 import com.android.systemui.Flags.FLAG_DOUBLE_TAP_TO_SLEEP
 import com.android.systemui.SysuiTestCase
+import com.android.systemui.accessibility.data.repository.fakeAccessibilityRepository
 import com.android.systemui.coroutines.collectLastValue
 import com.android.systemui.deviceentry.domain.interactor.deviceEntryFaceAuthInteractor
 import com.android.systemui.deviceentry.domain.interactor.deviceEntryInteractor
@@ -41,6 +42,7 @@ import com.android.systemui.keyguard.data.repository.KeyguardRepository
 import com.android.systemui.keyguard.data.repository.fakeKeyguardRepository
 import com.android.systemui.keyguard.data.repository.fakeKeyguardTransitionRepository
 import com.android.systemui.keyguard.shared.model.KeyguardState
+import com.android.systemui.keyguard.shared.model.StatusBarState
 import com.android.systemui.kosmos.collectLastValue
 import com.android.systemui.kosmos.runTest
 import com.android.systemui.kosmos.testScope
@@ -394,6 +396,35 @@ class KeyguardTouchHandlingInteractorTest : SysuiTestCase() {
 
     @Test
     @EnableFlags(FLAG_DOUBLE_TAP_TO_SLEEP)
+    fun isDoubleTapEnabled_shadeLocked_false() {
+        testScope.runTest {
+            secureSettingsRepository.setBoolean(Settings.Secure.DOUBLE_TAP_TO_SLEEP, true)
+
+            val isEnabled = collectLastValue(underTest.isDoubleTapHandlingEnabled)
+            setUpState(statusBarState = StatusBarState.SHADE_LOCKED)
+
+            assertThat(isEnabled()).isFalse()
+        }
+    }
+
+    @Test
+    @EnableFlags(FLAG_DOUBLE_TAP_TO_SLEEP)
+    fun isDoubleTapEnabled_touchExplorationEnabled_false() {
+        testScope.runTest {
+            secureSettingsRepository.setBoolean(Settings.Secure.DOUBLE_TAP_TO_SLEEP, true)
+
+            val isEnabled = collectLastValue(underTest.isDoubleTapHandlingEnabled)
+            setUpState()
+            assertThat(isEnabled()).isTrue()
+
+            kosmos.fakeAccessibilityRepository.isTouchExplorationEnabled.value = true
+            runCurrent()
+            assertThat(isEnabled()).isFalse()
+        }
+    }
+
+    @Test
+    @EnableFlags(FLAG_DOUBLE_TAP_TO_SLEEP)
     fun onDoubleClick_doubleTapEnabled() {
         testScope.runTest {
             secureSettingsRepository.setBoolean(Settings.Secure.DOUBLE_TAP_TO_SLEEP, true)
@@ -460,6 +491,7 @@ class KeyguardTouchHandlingInteractorTest : SysuiTestCase() {
                 pointerDeviceRepository = kosmos.pointerDeviceRepository,
                 secureLockDeviceInteractor = { kosmos.secureLockDeviceInteractor },
                 wallpaperFocalAreaInteractor = kosmos.wallpaperFocalAreaInteractor,
+                accessibilityRepository = kosmos.fakeAccessibilityRepository,
             )
         setUpState()
     }
@@ -467,6 +499,7 @@ class KeyguardTouchHandlingInteractorTest : SysuiTestCase() {
     private suspend fun setUpState(
         keyguardState: KeyguardState = KeyguardState.LOCKSCREEN,
         isQuickSettingsVisible: Boolean = false,
+        statusBarState: StatusBarState = StatusBarState.KEYGUARD,
     ) {
         keyguardTransitionRepository.sendTransitionSteps(
             from = KeyguardState.AOD,
@@ -474,5 +507,6 @@ class KeyguardTouchHandlingInteractorTest : SysuiTestCase() {
             testScope = testScope,
         )
         keyguardRepository.setQuickSettingsVisible(isVisible = isQuickSettingsVisible)
+        kosmos.fakeKeyguardRepository.setStatusBarState(statusBarState)
     }
 }

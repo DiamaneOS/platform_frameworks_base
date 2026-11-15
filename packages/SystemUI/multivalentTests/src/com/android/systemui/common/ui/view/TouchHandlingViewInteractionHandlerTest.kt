@@ -200,6 +200,31 @@ class TouchHandlingViewInteractionHandlerTest : SysuiTestCase() {
     }
 
     @Test
+    fun doubleTapWithoutLongPress_takesTheGesture() = runTest {
+        underTest.isLongPressHandlingEnabled = false
+
+        val secondTapTime = ViewConfiguration.getDoubleTapTimeout() - 1L
+        val firstDown = MotionEvent.obtain(0L, 0L, MotionEvent.ACTION_DOWN, 123f, 456f, 0)
+        assertThat(underTest.onTouchEvent(firstDown)).isTrue()
+        dispatchTouchEvents(
+            MotionEvent.obtain(0L, 0L, MotionEvent.ACTION_UP, 123f, 456f, 0),
+            MotionEvent.obtain(
+                secondTapTime,
+                secondTapTime,
+                MotionEvent.ACTION_DOWN,
+                123f,
+                456f,
+                0,
+            ),
+            MotionEvent.obtain(secondTapTime, secondTapTime, MotionEvent.ACTION_UP, 123f, 456f, 0),
+        )
+
+        verify(onDoubleTapDetected).invoke()
+        assertThat(delayedRunnable).isNull()
+        verify(onLongPressDetected, never()).invoke(anyInt(), anyInt())
+    }
+
+    @Test
     fun tapIntoLongPress() = runTest {
         val secondTapTime = ViewConfiguration.getDoubleTapTimeout() - 1L
         dispatchTouchEvents(

@@ -17,6 +17,8 @@
 
 package com.android.systemui.keyguard.ui.binder
 
+import android.annotation.SuppressLint
+import android.view.MotionEvent
 import android.view.View
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
@@ -44,6 +46,7 @@ object KeyguardTouchViewBinder {
      * @param falsingManager [FalsingManager] for making sure the long-press didn't just happen in
      *   the user's pocket.
      */
+    @SuppressLint("ClickableViewAccessibility")
     @JvmStatic
     fun bind(
         view: UdfpsAccessibilityOverlayOverlappingTouchHandlingView,
@@ -79,6 +82,17 @@ object KeyguardTouchViewBinder {
                         isLongPressHandlingEnabled.value = viewModel.isLongPressHandlingEnabled
                     }
 
+                    // DiamaneOS: where the last tap came down, for LockScreenDoubleTapArea.
+                    var lastDownRawX = 0f
+                    var lastDownRawY = 0f
+                    view.setOnTouchListener { _, event ->
+                        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                            lastDownRawX = event.rawX
+                            lastDownRawY = event.rawY
+                        }
+                        false
+                    }
+
                     view.listener =
                         object : TouchHandlingView.Listener {
                             override fun onLongPressDetected(
@@ -103,6 +117,15 @@ object KeyguardTouchViewBinder {
 
                             override fun onDoubleTapDetected(view: View) {
                                 if (falsingManager.isFalseDoubleTap()) {
+                                    return
+                                }
+                                if (
+                                    LockScreenDoubleTapArea.isOnLockScreenContent(
+                                        view,
+                                        lastDownRawX,
+                                        lastDownRawY,
+                                    )
+                                ) {
                                     return
                                 }
 

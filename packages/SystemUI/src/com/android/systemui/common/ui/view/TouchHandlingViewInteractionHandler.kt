@@ -112,12 +112,16 @@ class TouchHandlingViewInteractionHandler(
             }
         }
 
-        if (isLongPressHandlingEnabled) {
+        // DiamaneOS: a double tap alone also takes the gesture. Without the down event the view
+        // never sees the first tap's up, and the gesture detector finds no double tap.
+        if (isLongPressHandlingEnabled || isDoubleTapHandlingEnabled) {
             val motionEventModel = event.toModel()
 
             return when (motionEventModel) {
                 is MotionEventModel.Down -> {
-                    scheduleLongPress(motionEventModel.x, motionEventModel.y)
+                    if (isLongPressHandlingEnabled) {
+                        scheduleLongPress(motionEventModel.x, motionEventModel.y)
+                    }
                     lastEventDownCoordinate.x = motionEventModel.x
                     lastEventDownCoordinate.y = motionEventModel.y
                     true
