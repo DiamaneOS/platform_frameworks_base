@@ -51,6 +51,8 @@ import static android.content.pm.GosPackageStateFlag.USE_EXTENDED_VA_SPACE;
 import static android.content.pm.GosPackageStateFlag.USE_EXTENDED_VA_SPACE_NON_DEFAULT;
 import static android.content.pm.GosPackageStateFlag.USE_HARDENED_MALLOC;
 import static android.content.pm.GosPackageStateFlag.USE_HARDENED_MALLOC_NON_DEFAULT;
+import static android.content.pm.GosPackageStateFlag.USE_HARDWARE_VIDEO_DECODING;
+import static android.content.pm.GosPackageStateFlag.USE_HARDWARE_VIDEO_DECODING_NON_DEFAULT;
 import static com.android.server.pm.GosPackageStatePermission.ALLOW_CROSS_USER_PROFILE_READS;
 import static com.android.server.pm.GosPackageStatePermission.ALLOW_CROSS_USER_PROFILE_WRITES;
 import static com.android.server.pm.GosPackageStatePermission.FIELD_CONTACT_SCOPES;
@@ -151,6 +153,8 @@ class GosPackageStatePermissions {
                 ALLOW_CLIPBOARD_READ_NON_DEFAULT,
                 ALLOW_CLIPBOARD_READ,
                 SUPPRESS_CLIPBOARD_ACCESS_DENIAL_NOTIF,
+                USE_HARDWARE_VIDEO_DECODING_NON_DEFAULT,
+                USE_HARDWARE_VIDEO_DECODING,
         };
         builder()
                 .readWriteFlags(settingsReadWriteFlags)

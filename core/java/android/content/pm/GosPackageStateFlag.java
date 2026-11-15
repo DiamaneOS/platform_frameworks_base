@@ -41,6 +41,9 @@ public interface GosPackageStateFlag {
     /** @hide */ int ALLOW_CLIPBOARD_READ_NON_DEFAULT = 31;
     /** @hide */ int ALLOW_CLIPBOARD_READ = 32;
     /** @hide */ int SUPPRESS_CLIPBOARD_ACCESS_DENIAL_NOTIF = 33;
+    // DiamaneOS flags take the top bits, so GrapheneOS's next flags do not clash.
+    /** @hide */ int USE_HARDWARE_VIDEO_DECODING_NON_DEFAULT = 62;
+    /** @hide */ int USE_HARDWARE_VIDEO_DECODING = 63;
 
     /** @hide */
     @IntDef(value = {
@@ -74,6 +77,8 @@ public interface GosPackageStateFlag {
             ALLOW_CLIPBOARD_READ_NON_DEFAULT,
             ALLOW_CLIPBOARD_READ,
             SUPPRESS_CLIPBOARD_ACCESS_DENIAL_NOTIF,
+            USE_HARDWARE_VIDEO_DECODING_NON_DEFAULT,
+            USE_HARDWARE_VIDEO_DECODING,
     })
     @Retention(RetentionPolicy.SOURCE)
     @interface Enum {}

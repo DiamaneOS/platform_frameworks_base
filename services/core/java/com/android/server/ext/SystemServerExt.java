@@ -40,6 +40,9 @@ public final class SystemServerExt {
         sse.bgHandler.post(sse::initBgThread);
 
         AppCompatConf.init(systemContext);
+        // Here and not on the background thread: the selection must be in place before the
+        // first app asks for a video decoder.
+        HwVideoDecodeApps.init(sse);
     }
 
     void initBgThread() {
