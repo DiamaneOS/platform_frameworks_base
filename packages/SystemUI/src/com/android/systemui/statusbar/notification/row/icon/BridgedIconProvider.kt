@@ -28,6 +28,7 @@ import android.graphics.drawable.Drawable
 import android.graphics.drawable.LayerDrawable
 import com.android.internal.R
 import com.android.systemui.dagger.SysUISingleton
+import de.diamaneos.decode.client.VmIcons
 import javax.inject.Inject
 import kotlin.math.acos
 import kotlin.math.sqrt
@@ -47,7 +48,7 @@ class BridgedIconProviderImpl @Inject constructor() : BridgedIconProvider {
         bridgedMetadata: BridgedNotificationMetadata,
     ): Drawable? {
         val baseIcon = bridgedMetadata.appIcon
-        val baseDrawable = baseIcon.loadDrawable(context) ?: return null
+        val baseDrawable = VmIcons.loadDrawable(baseIcon, context, "", 512) ?: return null
         val layers = mutableListOf<Drawable>(baseDrawable, createPlateOverlayDrawable(context))
         layers.add(createPositionedPhoneIconDrawable(context))
         return LayerDrawable(layers.toTypedArray())

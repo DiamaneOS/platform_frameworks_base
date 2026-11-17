@@ -15,11 +15,14 @@
  */
 package com.android.systemui.qs.external;
 
+import de.diamaneos.decode.client.VmDecode;
+import de.diamaneos.decode.client.VmIcons;
 import static android.view.WindowManager.LayoutParams.TYPE_QS_DIALOG;
 
 import android.app.IUriGrantsManager;
 import android.app.PendingIntent;
 import android.content.ComponentName;
+import android.content.ContentProvider;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -448,6 +451,22 @@ public class CustomTile extends QSTileImpl<State> implements TileChangeListener,
         return getState().label;
     }
 
+    /**
+     * A tile icon from the tile's app: a URI, createWithData bytes or a bitmap file in the app's APK is decoded in the
+     * protected VM, never here. Null (the unavailable state) when that fails or on the main thread.
+     */
+    private Drawable loadTileIcon(android.graphics.drawable.Icon icon) {
+        if (icon == null) {
+            return null;
+        }
+        final android.graphics.drawable.Icon safe = VmIcons.toSafeIconWithResources(icon, mUserContext, mUserContext.getUserId(),
+                mComponent.getPackageName(), TILE_ICON_MAX_PX, TILE_ICON_MAX_PX,
+                VmDecode.deadlineIn(VmIcons.UI_DEADLINE_MS));
+        return safe == null ? null : safe.loadDrawable(mUserContext);
+    }
+
+    private static final int TILE_ICON_MAX_PX = 256;
+
     @Override
     protected void handleUpdateState(State state, Object arg) {
         int tileState = mTile.getState();
@@ -457,12 +476,18 @@ public class CustomTile extends QSTileImpl<State> implements TileChangeListener,
         state.state = tileState;
         Drawable drawable = null;
         try {
-            drawable = mTile.getIcon().loadDrawableCheckingUriGrant(
-                    mUserContext,
-                    mIUriGrantsManager,
-                    mServiceUid,
-                    mComponent.getPackageName()
-            );
+            final android.graphics.drawable.Icon tileIcon = mTile.getIcon();
+            if (tileIcon.getType() == android.graphics.drawable.Icon.TYPE_URI
+                    || tileIcon.getType() == android.graphics.drawable.Icon.TYPE_URI_ADAPTIVE_BITMAP) {
+                // The tile's app must be allowed to read the URI, as before.
+                mIUriGrantsManager.checkGrantUriPermission_ignoreNonSystem(
+                        mServiceUid,
+                        mComponent.getPackageName(),
+                        ContentProvider.getUriWithoutUserId(tileIcon.getUri()),
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                        ContentProvider.getUserIdFromUri(tileIcon.getUri()));
+            }
+            drawable = loadTileIcon(tileIcon);
         } catch (Exception e) {
             Log.w(TAG, "Invalid icon, forcing into unavailable state");
             state.state = Tile.STATE_UNAVAILABLE;
@@ -472,7 +497,7 @@ public class CustomTile extends QSTileImpl<State> implements TileChangeListener,
         if (drawable != null) {
             drawableF = drawable;
         } else if (mDefaultIcon != null) {
-            drawableF = mDefaultIcon.loadDrawable(mUserContext);
+            drawableF = loadTileIcon(mDefaultIcon);
         } else {
             drawableF = null;
         }

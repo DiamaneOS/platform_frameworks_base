@@ -16,6 +16,7 @@
 
 package com.android.systemui.statusbar.notification.icon
 
+import de.diamaneos.decode.client.VmIcons
 import android.app.Notification
 import android.app.Notification.MessagingStyle
 import android.app.Person
@@ -437,7 +438,7 @@ constructor(
         return StatusBarIcon(
             entry.sbn.user,
             entry.sbn.packageName,
-            /* icon = */ this,
+            /* icon = */ withoutVmIcon(this),
             n.iconLevel,
             n.number,
             iconBuilder.getIconContentDescription(n),
@@ -453,7 +454,7 @@ constructor(
         return StatusBarIcon(
             context.user,
             context.packageName,
-            /* icon = */ this,
+            /* icon = */ withoutVmIcon(this),
             0,
             0,
             context.getString(entry.bundleRepository.titleText),
@@ -583,3 +584,11 @@ interface ConversationIconManager {
      */
     fun setUnimportantConversations(keys: Collection<String>)
 }
+
+/**
+ * Status bar, shelf, always-on display and heads-up icons are drawn from these descriptors on the main thread, where
+ * nothing may be decoded in the VM. An icon made of another app's compressed image bytes (a URI or createWithData)
+ * becomes a neutral system icon. The notification row itself shows the image, decoded in the VM.
+ */
+private fun withoutVmIcon(icon: Icon): Icon =
+    VmIcons.withoutVmIcon(icon, Icon.createWithResource("android", android.R.drawable.ic_dialog_info))

@@ -15,6 +15,7 @@
  */
 package com.android.systemui.statusbar.notification.row
 
+import de.diamaneos.decode.client.NotificationImageGate
 import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.Notification.EXTRA_SUMMARIZED_CONTENT
@@ -420,7 +421,19 @@ constructor(
             val sbn: StatusBarNotification = entry.sbn
             // Ensure the ApplicationInfo is updated before a builder is recovered.
             updateApplicationInfo(sbn)
-            val recoveredBuilder = Notification.Builder.recoverBuilder(context, sbn.notification)
+            // Every app image in the notification is decoded in the protected VM first (or removed), so the
+            // framework's own image loading never sees another app's compressed bytes.
+            val metrics = context.resources.displayMetrics
+            val checkedNotification =
+                NotificationImageGate.sanitizedCopy(
+                    sbn.notification,
+                    context,
+                    sbn.packageName,
+                    (VM_ICON_DP * metrics.density).toInt().coerceAtLeast(1),
+                    minOf(metrics.widthPixels, metrics.heightPixels).coerceAtLeast(1),
+                    (VM_PICTURE_DP * metrics.density).toInt().coerceAtLeast(1),
+                )
+            val recoveredBuilder = Notification.Builder.recoverBuilder(context, checkedNotification)
             // In some tests, we want to replace the static badge logic with a fake.
             if (userProfileBadgeProvider != null) {
                 recoveredBuilder.setUserProfileBadgeProvider(userProfileBadgeProvider)
@@ -1740,3 +1753,9 @@ constructor(
         fun isAnyActive(): Boolean = remoteViews.isNotEmpty()
     }
 }
+
+/** Icons and people decoded in the VM for a notification's views are bounded to this size. */
+private const val VM_ICON_DP = 128
+
+/** The big picture is decoded at the height its template shows, not at screen size. */
+private const val VM_PICTURE_DP = 320

@@ -44,6 +44,7 @@ import com.android.systemui.graphics.ImageLoader.OversizedImageException
 import com.android.systemui.graphics.ImageLoader.Res
 import com.android.systemui.graphics.ImageLoader.Source
 import com.android.systemui.graphics.ImageLoader.Uri
+import de.diamaneos.decode.client.VmDecode
 import javax.inject.Inject
 import kotlin.math.min
 import kotlinx.coroutines.CoroutineDispatcher
@@ -73,6 +74,9 @@ constructor(
         @Px maxHeight: Int,
         allocator: Int,
     ): Bitmap? {
+        if (source is Uri) {
+            return loadVmBitmap(source.uri, source.context ?: defaultContext, maxWidth, maxHeight, allocator)
+        }
         return try {
             loadBitmapSync(
                 toImageDecoderSource(source, defaultContext),
@@ -139,6 +143,12 @@ constructor(
         allocator: Int,
     ): Drawable? =
         traceSection("ImageLoader#loadDrawable") {
+            if (source is Uri) {
+                val context = source.context ?: defaultContext
+                return loadVmBitmap(source.uri, context, maxWidth, maxHeight, allocator)?.let {
+                    BitmapDrawable(context.resources, it)
+                }
+            }
             return try {
                 try {
                     ImageDecoder.decodeDrawable(toImageDecoderSource(source, defaultContext)) {
@@ -202,8 +212,14 @@ constructor(
             return when (icon.type) {
                 Icon.TYPE_URI,
                 Icon.TYPE_URI_ADAPTIVE_BITMAP -> {
-                    val source = ImageDecoder.createSource(context.contentResolver, icon.uri)
-                    loadDrawableSync(source, maxWidth, maxHeight, allocator)
+                    loadVmBitmap(icon.uri, context, maxWidth, maxHeight, allocator)?.let {
+                        val bitmapDrawable = BitmapDrawable(context.resources, it)
+                        if (icon.type == Icon.TYPE_URI_ADAPTIVE_BITMAP) {
+                            AdaptiveIconDrawable(null, bitmapDrawable)
+                        } else {
+                            bitmapDrawable
+                        }
+                    }
                 }
                 Icon.TYPE_RESOURCE -> {
                     val resources = resolveResourcesForIcon(context, icon)
@@ -227,12 +243,29 @@ constructor(
                     AdaptiveIconDrawable(null, BitmapDrawable(context.resources, icon.bitmap))
                 }
                 Icon.TYPE_DATA -> {
-                    loadDrawableSync(
-                        ImageDecoder.createSource(icon.dataBytes, icon.dataOffset, icon.dataLength),
-                        maxWidth,
-                        maxHeight,
-                        allocator,
-                    )
+                    // Compressed bytes from another app: decoded in the protected VM.
+                    try {
+                        BitmapDrawable(
+                            context.resources,
+                            VmDecode.decodeBytes(
+                                context,
+                                icon.dataBytes,
+                                icon.dataOffset,
+                                icon.dataLength,
+                                "",
+                                VmDecode.PRIORITY_USER_WAITING,
+                                vmBox(maxWidth),
+                                vmBox(maxHeight),
+                                VmDecode.deadlineIn(VM_DEADLINE_MS),
+                            ),
+                        )
+                    } catch (e: VmDecode.UnavailableException) {
+                        Log.w(TAG, "Icon not decoded in the VM: ${e.message}")
+                        null
+                    } catch (e: VmDecode.RejectedException) {
+                        Log.w(TAG, "Icon not decoded in the VM: ${e.message}")
+                        null
+                    }
                 }
                 else -> {
                     // We don't recognize this icon, just fallback.
@@ -263,8 +296,23 @@ constructor(
         return when (icon.type) {
             Icon.TYPE_URI,
             Icon.TYPE_URI_ADAPTIVE_BITMAP -> {
-                val source = ImageDecoder.createSource(context.contentResolver, icon.uri)
-                loadSizeSync(source)
+                // The header is read in the protected VM, never here.
+                try {
+                    VmDecode.probeUri(
+                        context,
+                        context.contentResolver,
+                        icon.uri,
+                        "",
+                        VmDecode.PRIORITY_USER_WAITING,
+                        VmDecode.deadlineIn(VM_DEADLINE_MS),
+                    )
+                } catch (e: VmDecode.UnavailableException) {
+                    Log.w(TAG, "Size not read in the VM: ${e.message}")
+                    null
+                } catch (e: VmDecode.RejectedException) {
+                    Log.w(TAG, "Size not read in the VM: ${e.message}")
+                    null
+                }
             }
             else -> null
         }
@@ -281,8 +329,55 @@ constructor(
         }
     }
 
+    /**
+     * Images behind a URI come from other apps: they are decoded in the protected VM of the decode service, never
+     * in SystemUI. Null (a placeholder) when the VM cannot do it.
+     */
+    @WorkerThread
+    private fun loadVmBitmap(
+        uri: android.net.Uri,
+        context: Context,
+        @Px maxWidth: Int,
+        @Px maxHeight: Int,
+        allocator: Int,
+    ): Bitmap? {
+        return try {
+            val bitmap =
+                // Charged to the URI's provider: the loader does not know the posting app.
+                VmDecode.decodeUri(
+                    context,
+                    context.contentResolver,
+                    uri,
+                    "",
+                    VmDecode.PRIORITY_USER_WAITING,
+                    vmBox(maxWidth),
+                    vmBox(maxHeight),
+                    VmDecode.deadlineIn(VM_DEADLINE_MS),
+                )
+            if (allocator == ImageDecoder.ALLOCATOR_HARDWARE) {
+                bitmap.copy(Bitmap.Config.HARDWARE, false) ?: bitmap
+            } else {
+                bitmap
+            }
+        } catch (e: VmDecode.UnavailableException) {
+            Log.w(TAG, "Image not decoded in the VM: ${e.message}")
+            null
+        } catch (e: VmDecode.RejectedException) {
+            Log.w(TAG, "Image not decoded in the VM: ${e.message}")
+            null
+        }
+    }
+
     companion object {
         private const val TAG = "ImageLoader"
+
+        /** An image from another app may take this long in the VM before a placeholder shows. */
+        private const val VM_DEADLINE_MS = 2_000L
+
+        /** The box asked of the VM: the caller's, or the hard limit when the caller does not resize. */
+        private fun vmBox(@Px px: Int): Int =
+            if (px <= DO_NOT_RESIZE) DEFAULT_DECODE_HARD_LIMIT_PX
+            else min(px, DEFAULT_DECODE_HARD_LIMIT_PX)
 
         /**
          * If an image is larger than this, we won't even attempt to decode it, as we risk taking up

@@ -28,6 +28,7 @@ java_library {
     static_libs: [
         "com.android.systemui.graphics_api",
         "SystemUISharedLib",
+        "diamaneos-decode-client",
     ],
     visibility: [
         "//vendor:__subpackages__",

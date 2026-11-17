@@ -26,6 +26,7 @@ import com.android.systemui.statusbar.notification.row.shared.ImageModel
 import com.android.systemui.statusbar.notification.row.shared.ImageModelProvider
 import com.android.systemui.statusbar.notification.row.shared.ImageModelProvider.ImageSizeClass
 import com.android.systemui.statusbar.notification.row.shared.ImageModelProvider.ImageTransform
+import de.diamaneos.decode.client.VmIcons
 import java.util.Date
 
 /**
@@ -158,7 +159,9 @@ class RowImageInflaterImpl(private val previousIndex: ImageModelIndex?, val rein
             // TODO: use the sizeClass to load the drawable into a correctly sized bitmap,
             //  and be sure to respect [lazyImage.transform.requiresSoftwareBitmapInput]
             val iconDrawable =
-                icon.toIcon().loadDrawable(context).also { stats.numDrawablesLoaded++ }
+                // Icons with another app's compressed image bytes are decoded in the protected VM.
+                VmIcons.loadDrawable(icon.toIcon(), context, context.packageName, VM_ICON_MAX_PX)
+                    .also { stats.numDrawablesLoaded++ }
                     ?: return ImageResult.Empty("Icon.loadDrawable() returned null for $icon")
                         .also { stats.numDrawablesNull++ }
             return transform.transformDrawable(iconDrawable)?.let {
@@ -238,3 +241,6 @@ sealed interface ImageResult {
     /** Stores the drawable result of loading an image */
     data class Image(val drawable: Drawable) : ImageResult
 }
+
+/** Upper bound for icons decoded in the VM, scaled further by each transform. */
+private const val VM_ICON_MAX_PX = 1024

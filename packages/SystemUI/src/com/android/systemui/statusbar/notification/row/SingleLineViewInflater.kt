@@ -16,6 +16,7 @@
 
 package com.android.systemui.statusbar.notification.row
 
+import de.diamaneos.decode.client.VmIcons
 import android.app.Notification
 import android.app.Notification.MessagingStyle
 import android.app.Person
@@ -375,7 +376,7 @@ object SingleLineViewInflater {
 
         // If is one-to-one or the conversation has an icon, return a single icon
         if (!isGroupConversation || conversationIcon != null) {
-            return SingleIcon(conversationIcon?.loadDrawable(systemUiContext))
+            return SingleIcon(VmIcons.loadDrawable(conversationIcon, systemUiContext, "", VM_PERSON_MAX_PX))
         }
 
         // Otherwise, let's find the two last conversations to build a face pile:
@@ -420,8 +421,8 @@ object SingleLineViewInflater {
         }
 
         return FacePile(
-            topIconDrawable = secondLastIcon.loadDrawable(systemUiContext),
-            bottomIconDrawable = lastIcon.loadDrawable(systemUiContext),
+            topIconDrawable = VmIcons.loadDrawable(secondLastIcon, systemUiContext, "", VM_PERSON_MAX_PX),
+            bottomIconDrawable = VmIcons.loadDrawable(lastIcon, systemUiContext, "", VM_PERSON_MAX_PX),
             bottomBackgroundColor = builder.getBackgroundColor(/* isHeader= */ false),
         )
     }
@@ -501,3 +502,6 @@ object SingleLineViewInflater {
 
     private val peopleHelper = PeopleHelper()
 }
+
+/** Upper bound for conversation icons decoded in the VM. */
+private const val VM_PERSON_MAX_PX = 512

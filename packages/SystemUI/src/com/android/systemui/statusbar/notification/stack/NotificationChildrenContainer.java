@@ -16,6 +16,7 @@
 
 package com.android.systemui.statusbar.notification.stack;
 
+import de.diamaneos.decode.client.NotificationImageGate;
 import android.app.Notification;
 import android.content.Context;
 import android.content.res.Configuration;
@@ -565,8 +566,10 @@ public class NotificationChildrenContainer extends ViewGroup
         }
         if (mIsMinimized) {
             if (builder == null) {
+                // On the main thread nothing is decoded: app images are left out of the header.
                 builder = Notification.Builder.recoverBuilder(getContext(),
-                        notification.getNotification());
+                        NotificationImageGate.sanitizedCopy(notification.getNotification(),
+                                getContext(), notification.getPackageName(), 1, 1, 1));
             }
             header = builder.makeLowPriorityContentView(true /* useRegularSubtext */);
             if (mMinimizedGroupHeader == null) {

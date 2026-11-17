@@ -15,6 +15,7 @@
  */
 package com.android.systemui.clipboardoverlay
 
+import de.diamaneos.decode.client.VmDecode
 import android.content.ClipData
 import android.content.ClipDescription.EXTRA_IS_SENSITIVE
 import android.content.Context
@@ -54,9 +55,22 @@ data class ClipboardModel(
         if (_bitmap == null && type == Type.IMAGE && uri != null) {
             try {
                 val size = context.resources.getDimensionPixelSize(R.dimen.overlay_x_scale)
-                _bitmap = context.contentResolver.loadThumbnail(uri, Size(size, size * 4), null)
-            } catch (e: IOException) {
-                Log.e(TAG, "Thumbnail loading failed!", e)
+                // Decoded in the protected VM, never in SystemUI. Null (no preview) when that fails.
+                _bitmap =
+                    VmDecode.decodeUri(
+                        context,
+                        context.contentResolver,
+                        uri,
+                        source,
+                        VmDecode.PRIORITY_USER_WAITING,
+                        size,
+                        size * 4,
+                        VmDecode.deadlineIn(3_000),
+                    )
+            } catch (e: VmDecode.UnavailableException) {
+                Log.w(TAG, "Thumbnail not decoded in the VM: ${e.message}")
+            } catch (e: VmDecode.RejectedException) {
+                Log.w(TAG, "Thumbnail not decoded in the VM: ${e.message}")
             }
         }
         return _bitmap

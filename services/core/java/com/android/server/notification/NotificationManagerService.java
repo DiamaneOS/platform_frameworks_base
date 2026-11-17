@@ -9464,6 +9464,17 @@ public class NotificationManagerService extends SystemService {
             return false;
         }
 
+        // Images packed into the notification as bytes (bitmap files in the app's APK, createWithData icons) are
+        // re-made from pixels decoded in the protected VM before any listener sees them. Nothing here decodes them.
+        // An image that cannot be made in time is removed, never passed on as it was.
+        try {
+            NotificationVmIcons.convert(getContext(), notification, pkg,
+                    (userId == USER_ALL) ? USER_SYSTEM : userId);
+        } catch (RuntimeException e) {
+            Slog.e(TAG, "Cannot convert notification images, not posted", e);
+            return false;
+        }
+
         if (policy == ServiceNotificationPolicy.UPDATE_ONLY) {
             // Proceed if the notification is already showing/known, otherwise ignore
             // because the service lifecycle logic has retained responsibility for its

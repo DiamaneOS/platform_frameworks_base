@@ -19,6 +19,8 @@ package com.android.systemui.statusbar.notification.row;
 import android.app.ActivityManager;
 import android.app.Notification;
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Bundle;
@@ -29,8 +31,9 @@ import android.util.Log;
 import com.android.internal.R;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.widget.ImageResolver;
-import com.android.internal.widget.LocalImageResolver;
 import com.android.internal.widget.MessagingMessage;
+
+import de.diamaneos.decode.client.VmDecode;
 
 import java.util.HashSet;
 import java.util.List;
@@ -45,6 +48,8 @@ import java.util.Set;
  */
 public class NotificationInlineImageResolver implements ImageResolver {
     private static final String TAG = NotificationInlineImageResolver.class.getSimpleName();
+    // An image message may take this long in the VM before it is left out.
+    private static final long VM_DEADLINE_MS = 2_000;
 
     // Timeout for loading images from ImageCache when calling from UI thread
     private static final long MAX_UI_THREAD_TIMEOUT_MS = 100L;
@@ -120,8 +125,16 @@ public class NotificationInlineImageResolver implements ImageResolver {
      * @return Drawable of the image, or null if unable to load.
      */
     Drawable resolveImage(Uri uri) {
+        // Images from apps are decoded in the protected VM, never in SystemUI. A failure leaves the message without
+        // its image.
         try {
-            return LocalImageResolver.resolveImage(uri, mContext, mMaxImageWidth, mMaxImageHeight);
+            // The owner is the URI's provider: this resolver does not know the posting app.
+            final Bitmap bitmap = VmDecode.decodeUri(mContext, mContext.getContentResolver(), uri, "",
+                    VmDecode.PRIORITY_USER_WAITING, Math.max(1, mMaxImageWidth),
+                    Math.max(1, mMaxImageHeight), VmDecode.deadlineIn(VM_DEADLINE_MS));
+            return new BitmapDrawable(mContext.getResources(), bitmap);
+        } catch (VmDecode.UnavailableException | VmDecode.RejectedException ex) {
+            Log.d(TAG, "resolveImage: not decoded in the VM: " + ex.getMessage());
         } catch (Exception ex) {
             // Catch general Exception because ContentResolver can re-throw arbitrary Exception
             // from remote process as a RuntimeException. See: Parcel#readException
