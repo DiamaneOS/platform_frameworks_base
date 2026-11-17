@@ -282,7 +282,7 @@ public final class VmDecode {
         if (data == null || offset < 0 || length < 0 || offset > data.length - length) {
             throw new RejectedException("bad byte range");
         }
-        if (length > IDecodeService.MAX_INPUT_BYTES) {
+        if (length > IDecodeService.MAX_BUFFERED_BYTES) {
             throw new RejectedException("larger than the decode limit");
         }
         final Pumper pumper;
@@ -548,7 +548,7 @@ public final class VmDecode {
                     break;
                 }
                 lastData = SystemClock.uptimeMillis();
-                if (copied + n > IDecodeService.MAX_INPUT_BYTES) {
+                if (copied + n > IDecodeService.MAX_BUFFERED_BYTES) {
                     throw new IOException("larger than the decode limit");
                 }
                 writeAll(write, buffer, n, deadline);
