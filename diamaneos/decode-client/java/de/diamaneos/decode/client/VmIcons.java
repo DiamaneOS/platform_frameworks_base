@@ -139,6 +139,28 @@ public final class VmIcons {
         return needsVm(icon) ? placeholder : icon;
     }
 
+    /**
+     * For a notification whose images could not be converted: the icon when it holds no compressed bytes from an app
+     * (pixels, a content URI that the viewer decodes in the VM, or a framework resource), otherwise null. Never
+     * decodes and never reads another package.
+     */
+    public static Icon withoutAppImage(Icon icon) {
+        if (icon == null) {
+            return null;
+        }
+        switch (icon.getType()) {
+            case Icon.TYPE_BITMAP:
+            case Icon.TYPE_ADAPTIVE_BITMAP:
+            case Icon.TYPE_URI:
+            case Icon.TYPE_URI_ADAPTIVE_BITMAP:
+                return icon;
+            case Icon.TYPE_RESOURCE:
+                return "android".equals(icon.getResPackage()) ? icon : null;
+            default:
+                return null;
+        }
+    }
+
     /** The VM-decoded bitmap of a VM icon by {@code deadline}, or null. Failures are logged, not thrown. */
     public static Bitmap decode(Icon icon, Context context, String ownerPackage, int maxPx, long deadline) {
         return decode(icon, context, ownerPackage, maxPx, maxPx, deadline);

@@ -65,17 +65,27 @@ final class NotificationVmIcons {
     private final String mPkg;
     private final int mUserId;
     private final long mDeadline;
+    private final boolean mStripOnly;
 
-    private NotificationVmIcons(Context context, String pkg, int userId) {
+    private NotificationVmIcons(Context context, String pkg, int userId, boolean stripOnly) {
         mContext = context;
         mPkg = pkg;
         mUserId = userId;
         mDeadline = VmDecode.deadlineIn(BUDGET_MS);
+        mStripOnly = stripOnly;
     }
 
     /** Re-makes the app's packed images in {@code n} in place. Call without holding any lock: it waits for the VM. */
     static void convert(Context context, Notification n, String pkg, int userId) {
-        new NotificationVmIcons(context, pkg, userId).convert(n, 0);
+        new NotificationVmIcons(context, pkg, userId, false).convert(n, 0);
+    }
+
+    /**
+     * After {@link #convert} threw: removes every app image that would need the VM, decoding nothing and reading no
+     * package, so the notification still shows with its text. A small icon becomes the neutral system icon.
+     */
+    static void strip(Context context, Notification n, String pkg, int userId) {
+        new NotificationVmIcons(context, pkg, userId, true).convert(n, 0);
     }
 
     private void convert(Notification n, int depth) {
@@ -182,6 +192,9 @@ final class NotificationVmIcons {
     private Icon safe(Icon icon, int maxWidth, int maxHeight) {
         if (icon == null) {
             return null;
+        }
+        if (mStripOnly) {
+            return VmIcons.withoutAppImage(icon);
         }
         final int type = icon.getType();
         if (type == Icon.TYPE_URI || type == Icon.TYPE_URI_ADAPTIVE_BITMAP) {
