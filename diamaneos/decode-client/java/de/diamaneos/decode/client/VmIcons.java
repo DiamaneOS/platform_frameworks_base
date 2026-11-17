@@ -22,11 +22,14 @@ import android.content.pm.PackageManager;
 import android.content.res.Resources;
 import android.util.TypedValue;
 import android.graphics.Bitmap;
+import android.graphics.Canvas;
 import android.graphics.drawable.AdaptiveIconDrawable;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
 import android.os.Looper;
+import android.os.SystemClock;
+import android.os.UserHandle;
 import android.util.Log;
 import android.util.LruCache;
 
@@ -61,8 +64,14 @@ public final class VmIcons {
     }
 
     static void cachePut(String key, Bitmap bitmap) {
-        sCache.put(key, bitmap);
+        // One image may take at most a quarter of the cache, so it cannot flush the others.
+        if (bitmap.getAllocationByteCount() <= MAX_CACHE_ENTRY_BYTES) {
+            sCache.put(key, bitmap);
+        }
     }
+
+    private static final int MAX_CACHE_ENTRY_BYTES = 4 * 1024 * 1024;
+    private static final long URI_CACHE_MS = 30_000;
 
     /** {@code bitmap}, or an immutable copy: cached bitmaps are shared between views, nobody may draw into them. */
     static Bitmap immutable(Bitmap bitmap) {
@@ -229,7 +238,7 @@ public final class VmIcons {
             // Cached bitmaps are shared between views: an immutable copy, so nobody can draw into it.
             bitmap = immutable(bitmap);
             if (key != null) {
-                sCache.put(key, bitmap);
+                cachePut(key, bitmap);
             }
             return bitmap;
         } catch (VmDecode.UnavailableException | VmDecode.RejectedException e) {
@@ -245,6 +254,12 @@ public final class VmIcons {
      * image codec), and resources that cannot be read. The bytes are read as an opaque blob, never decoded here.
      */
     public static byte[] appBitmapResourceBytes(Icon icon, Context context, int userId) {
+        final byte[] bytes = readAppResource(icon, context, userId);
+        return bytes == XML ? null : bytes;
+    }
+
+    // Like appBitmapResourceBytes, but an XML drawable of an app (outside the system image) gives XML.
+    private static byte[] readAppResource(Icon icon, Context context, int userId) {
         if (icon == null || icon.getType() != Icon.TYPE_RESOURCE) {
             return null;
         }
@@ -265,7 +280,10 @@ public final class VmIcons {
                 return null;
             }
             final String path = value.string.toString();
-            if (!path.startsWith("res/") || path.endsWith(".xml")) {
+            if (path.endsWith(".xml")) {
+                return XML;
+            }
+            if (!path.startsWith("res/")) {
                 return null;
             }
             try (InputStream in = res.getAssets().openNonAsset(value.assetCookie, path)) {
@@ -288,6 +306,7 @@ public final class VmIcons {
     }
 
     private static final byte[] EMPTY = new byte[0];
+    private static final byte[] XML = new byte[0];
     private static final int MAX_RESOURCE_BYTES = 8 * 1024 * 1024;
 
     /** True for a package in the system image that no update replaced. */
@@ -306,9 +325,12 @@ public final class VmIcons {
         if (needsVm(icon)) {
             return toSafeIcon(icon, context, ownerPackage, maxWidth, maxHeight, deadline);
         }
-        final byte[] bytes = appBitmapResourceBytes(icon, context, userId);
+        final byte[] bytes = readAppResource(icon, context, userId);
         if (bytes == null) {
             return icon;
+        }
+        if (bytes == XML) {
+            return appXmlResourceIcon(icon, context, userId, ownerPackage, maxWidth, maxHeight, deadline);
         }
         if (bytes.length == 0 || Looper.myLooper() == Looper.getMainLooper()) {
             return null;
@@ -325,13 +347,91 @@ public final class VmIcons {
             }
             bitmap = immutable(bitmap);
             if (key != null) {
-                sCache.put(key, bitmap);
+                cachePut(key, bitmap);
             }
         }
         final Icon safe = Icon.createWithBitmap(bitmap);
         if (icon.hasTint()) {
             safe.setTintList(icon.getTintList());
             safe.setTintBlendMode(icon.getTintBlendMode());
+        }
+        return safe;
+    }
+
+    // XML resource icons of apps known to name no bitmap file: kept as they are without loading them again.
+    private static final LruCache<String, Boolean> sXmlWithoutImages = new LruCache<>(256);
+
+    /**
+     * An app's XML resource icon (a vector, a {@code <bitmap>}, a layer list and so on), loaded through resources
+     * behind an image gate, so the bitmap files it names are decoded in the VM and XML is parsed as usual. One that
+     * names no bitmap file of the app comes back as it is (nothing to decode, and drawn sharp by whoever shows it).
+     * Otherwise it is drawn into a bitmap icon within {@code maxWidth} x {@code maxHeight}, with the same tint. Null
+     * when it cannot be made. For the system server at post time, so every listener and the status bar get pixels.
+     */
+    static Icon appXmlResourceIcon(Icon icon, Context context, int userId, String ownerPackage, int maxWidth,
+            int maxHeight, long deadline) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            return null;
+        }
+        final String box = maxWidth + "x" + maxHeight;
+        final String key = resourceKey(icon, context, userId, box);
+        if (key != null && sXmlWithoutImages.get(key) != null) {
+            return icon;
+        }
+        final Bitmap cachedBitmap = key == null ? null : sCache.get(key + ":xml");
+        if (cachedBitmap != null) {
+            return tinted(Icon.createWithBitmap(cachedBitmap), icon);
+        }
+        final ImageBudget budget = new ImageBudget(Math.max(0, deadline - SystemClock.uptimeMillis()),
+                ImageBudget.MAX_IMAGES, ImageBudget.MAX_PIXELS);
+        final AppResourceImages images =
+                new AppResourceImages(context, ownerPackage, budget, maxWidth, maxHeight, true);
+        final Drawable drawable;
+        try {
+            final Context app = VmImageContext.wrap(context.createPackageContextAsUser(icon.getResPackage(),
+                    Context.CONTEXT_RESTRICTED, UserHandle.of(userId)), images);
+            drawable = app.getDrawable(icon.getResId());
+        } catch (PackageManager.NameNotFoundException | RuntimeException e) {
+            Log.w(TAG, "app XML icon not loaded: " + e);
+            return null;
+        }
+        if (drawable == null) {
+            return null;
+        }
+        if (images.files().isEmpty()) {
+            if (key != null) {
+                sXmlWithoutImages.put(key, Boolean.TRUE);
+            }
+            return icon;
+        }
+        final Bitmap bitmap = draw(drawable, maxWidth, maxHeight);
+        if (key != null) {
+            cachePut(key + ":xml", bitmap);
+        }
+        return tinted(Icon.createWithBitmap(bitmap), icon);
+    }
+
+    /** {@code drawable} drawn into a new bitmap at its own size within the box (a square of the box without one). */
+    static Bitmap draw(Drawable drawable, int maxWidth, int maxHeight) {
+        int width = drawable.getIntrinsicWidth();
+        int height = drawable.getIntrinsicHeight();
+        if (width <= 0 || height <= 0) {
+            width = Math.min(maxWidth, maxHeight);
+            height = width;
+        }
+        final float scale = Math.min(1f, Math.min((float) maxWidth / width, (float) maxHeight / height));
+        width = Math.max(1, Math.round(width * scale));
+        height = Math.max(1, Math.round(height * scale));
+        final Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        drawable.setBounds(0, 0, width, height);
+        drawable.draw(new Canvas(bitmap));
+        return immutable(bitmap);
+    }
+
+    private static Icon tinted(Icon safe, Icon original) {
+        if (original.hasTint()) {
+            safe.setTintList(original.getTintList());
+            safe.setTintBlendMode(original.getTintBlendMode());
         }
         return safe;
     }
@@ -363,6 +463,8 @@ public final class VmIcons {
                 return null;
             }
         }
-        return "uri:" + context.getUserId() + ':' + ownerPackage + ':' + icon.getUri() + ':' + box;
+        // The content behind a URI can change: a decode is reused for at most URI_CACHE_MS.
+        return "uri:" + context.getUserId() + ':' + ownerPackage + ':' + icon.getUri() + ':' + box + ":t"
+                + SystemClock.uptimeMillis() / URI_CACHE_MS;
     }
 }

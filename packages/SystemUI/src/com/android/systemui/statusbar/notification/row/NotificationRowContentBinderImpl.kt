@@ -15,6 +15,8 @@
  */
 package com.android.systemui.statusbar.notification.row
 
+import de.diamaneos.decode.client.AppResourceImages
+import de.diamaneos.decode.client.ImageThreads
 import de.diamaneos.decode.client.NotificationImageGate
 import android.annotation.SuppressLint
 import android.app.Notification
@@ -81,6 +83,8 @@ import com.android.systemui.statusbar.policy.InflatedSmartReplyState
 import com.android.systemui.statusbar.policy.InflatedSmartReplyViewHolder
 import com.android.systemui.statusbar.policy.SmartReplyStateInflater
 import com.android.systemui.util.Assert
+import java.util.Collections
+import java.util.WeakHashMap
 import java.util.concurrent.Executor
 import javax.inject.Inject
 
@@ -152,9 +156,17 @@ constructor(
                 logger,
             )
         if (inflateSynchronously) {
+            task.prepareImages()
             task.onPostExecute(task.doInBackground())
         } else {
-            task.executeOnExecutor(inflationExecutor)
+            // The app's images wait for the protected VM on an image thread (one per app at a time, apps take
+            // turns), never on the inflation thread that every notification shares.
+            ImageThreads.execute(sbn.packageName) {
+                if (!task.isCancelled) {
+                    task.prepareImages()
+                    task.executeOnExecutor(inflationExecutor)
+                }
+            }
         }
     }
 
@@ -417,31 +429,72 @@ constructor(
             }
         }
 
-        private fun doInBackgroundInternal(): InflationProgress {
+        // Made by prepareImages before the task runs: the checked copy and the context to apply it with.
+        @Volatile private var checkedNotification: Notification? = null
+        @Volatile private var gatedPackageContext: Context? = null
+
+        /**
+         * Every app image in the notification is decoded in the protected VM first (or removed), so the framework's
+         * own image loading never sees another app's compressed bytes. The app's own layouts are applied with
+         * resources that decode its bitmap files in the VM too, and their images are made here ahead of the
+         * inflation. Runs on an image thread (elsewhere nothing is decoded). If converting fails, every app image
+         * is removed and the notification still shows.
+         */
+        fun prepareImages() {
             val sbn: StatusBarNotification = entry.sbn
             // Ensure the ApplicationInfo is updated before a builder is recovered.
             updateApplicationInfo(sbn)
-            // Every app image in the notification is decoded in the protected VM first (or removed), so the
-            // framework's own image loading never sees another app's compressed bytes. The app's own layouts are
-            // applied with resources that decode its bitmap files in the VM too.
-            val metrics = context.resources.displayMetrics
-            val imageGate =
-                NotificationImageGate.forNotification(
-                    context,
-                    sbn.packageName,
-                    sbn.normalizedUserId,
-                    (VM_ICON_DP * metrics.density).toInt().coerceAtLeast(1),
-                    minOf(metrics.widthPixels, metrics.heightPixels).coerceAtLeast(1),
-                    (VM_PICTURE_DP * metrics.density).toInt().coerceAtLeast(1),
-                )
-            val gatedPackageContext = imageGate.packageContext(sbn.getPackageContext(context))
-            val checkedNotification = imageGate.sanitizedCopy(sbn.notification)
-            val recoveredBuilder = Notification.Builder.recoverBuilder(context, checkedNotification)
+            val packageContext = sbn.getPackageContext(context)
+            try {
+                val metrics = context.resources.displayMetrics
+                val imageGate =
+                    NotificationImageGate.forNotification(
+                        context,
+                        sbn.packageName,
+                        sbn.normalizedUserId,
+                        (VM_ICON_DP * metrics.density).toInt().coerceAtLeast(1),
+                        minOf(metrics.widthPixels, metrics.heightPixels).coerceAtLeast(1),
+                        (VM_PICTURE_DP * metrics.density).toInt().coerceAtLeast(1),
+                        rowImages[row],
+                    )
+                // The row's views keep its gate: each inflation starts a new round of it with a fresh budget.
+                rowImages[row] = imageGate.resourceImages()
+                val gated = imageGate.packageContext(packageContext)
+                val copy = imageGate.sanitizedCopy(sbn.notification)
+                imageGate.prewarm(copy, gated)
+                gatedPackageContext = gated
+                checkedNotification = copy
+            } catch (e: RuntimeException) {
+                strip(e, packageContext)
+            } catch (e: OutOfMemoryError) {
+                strip(e, packageContext)
+            }
+        }
+
+        private fun strip(e: Throwable, packageContext: Context) {
+            Log.e(TAG, "cannot convert notification images, showing it without them", e)
+            try {
+                checkedNotification = NotificationImageGate.strippedCopy(context, entry.sbn.notification)
+                gatedPackageContext = packageContext
+            } catch (e2: RuntimeException) {
+                // Only if that fails too is the notification not shown.
+                Log.e(TAG, "cannot remove notification images", e2)
+                checkedNotification = null
+            }
+        }
+
+        private fun doInBackgroundInternal(): InflationProgress {
+            if (checkedNotification == null) {
+                prepareImages()
+            }
+            val checked =
+                checkedNotification ?: throw InflationException("notification images could not be removed")
+            val recoveredBuilder = Notification.Builder.recoverBuilder(context, checked)
             // In some tests, we want to replace the static badge logic with a fake.
             if (userProfileBadgeProvider != null) {
                 recoveredBuilder.setUserProfileBadgeProvider(userProfileBadgeProvider)
             }
-            var packageContext: Context = gatedPackageContext
+            var packageContext: Context = gatedPackageContext!!
             if (recoveredBuilder.usesTemplate()) {
                 // For all of our templates, we want it to be RTL
                 packageContext = RtlEnabledContext(packageContext)
@@ -460,6 +513,7 @@ constructor(
                     conversationProcessor = conversationProcessor,
                     promotedNotificationContentExtractor = promotedNotificationContentExtractor,
                     logger = logger,
+                    sourceNotification = checked,
                 )
             logger.logAsyncTaskProgress(
                 row.loggingKey,
@@ -596,6 +650,10 @@ constructor(
 
         companion object {
             private const val IMG_PRELOAD_TIMEOUT_MS = 1000L
+
+            // The image gate of each row, kept with its views (they hold the resources it is set on).
+            private val rowImages: MutableMap<ExpandableNotificationRow, AppResourceImages> =
+                Collections.synchronizedMap(WeakHashMap())
         }
     }
 
@@ -694,6 +752,8 @@ constructor(
             conversationProcessor: ConversationNotificationProcessor,
             promotedNotificationContentExtractor: PromotedNotificationContentExtractor,
             logger: NotificationRowContentBinderLogger,
+            // The notification the views are made from: the checked copy (see prepareImages).
+            sourceNotification: Notification = entry.sbn.notification,
         ): InflationProgress {
             val rowImageInflater =
                 RowImageInflater.newInstance(
@@ -740,6 +800,7 @@ constructor(
                     notifLayoutInflaterFactoryProvider = notifLayoutInflaterFactoryProvider,
                     headsUpStyleProvider = headsUpStyleProvider,
                     logger = logger,
+                    sourceNotification = sourceNotification,
                 )
 
             val singleLineViewModel =
@@ -852,6 +913,7 @@ constructor(
             notifLayoutInflaterFactoryProvider: NotifLayoutInflaterFactory.Provider,
             headsUpStyleProvider: HeadsUpStyleProvider,
             logger: NotificationRowContentBinderLogger,
+            sourceNotification: Notification,
         ): NewRemoteViews {
             return TraceUtils.trace("NotificationContentInflater.createRemoteViews") {
                 val contracted =
@@ -882,8 +944,9 @@ constructor(
                     if (reInflateFlags and FLAG_CONTENT_VIEW_PUBLIC != 0) {
                         logger.logAsyncTaskProgress(row.loggingKey, "creating public remote view")
                         if (bindParams.redactionType == REDACTION_TYPE_OTP) {
+                            // From the checked copy: its icons hold no app image to decode.
                             createSensitiveContentMessageNotification(
-                                    entry.sbn.notification,
+                                    sourceNotification,
                                     builder.style,
                                     systemUiContext,
                                     packageContext,

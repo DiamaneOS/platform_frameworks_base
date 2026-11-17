@@ -235,7 +235,7 @@ public final class VmDecode {
             throws UnavailableException, RejectedException {
         checkNotMainThread();
         final String owner = owner(context, uri, ownerPackage);
-        try (AssetFileDescriptor afd = openImage(resolver, uri, maxWidth, maxHeight)) {
+        try (AssetFileDescriptor afd = openImageWithin(resolver, uri, maxWidth, maxHeight, owner, deadline)) {
             if (afd == null) {
                 throw new RejectedException("no image behind the URI");
             }
@@ -257,7 +257,7 @@ public final class VmDecode {
             int priority, long deadline) throws UnavailableException, RejectedException {
         checkNotMainThread();
         final String owner = owner(context, uri, ownerPackage);
-        try (AssetFileDescriptor afd = openImage(resolver, uri, 0, 0)) {
+        try (AssetFileDescriptor afd = openImageWithin(resolver, uri, 0, 0, owner, deadline)) {
             if (afd == null) {
                 throw new RejectedException("no image behind the URI");
             }
@@ -329,6 +329,118 @@ public final class VmDecode {
             return uri.getAuthority();
         }
         return "";
+    }
+
+    /**
+     * Opens the image behind {@code uri} on a thread of its own and waits for it until {@code deadline} (the pump's
+     * total time when the caller has none). Opening is a call into the provider's app, which can take any time and
+     * cannot be interrupted: an open that misses the deadline is left behind and counted against {@code owner} like a
+     * read that never returned, its file is closed when it comes back, and an owner with too many of them gets no new
+     * opens until they return.
+     */
+    private static AssetFileDescriptor openImageWithin(ContentResolver resolver, Uri uri, int maxWidth,
+            int maxHeight, String owner, long deadline) throws FileNotFoundException, UnavailableException {
+        final long end = deadline > 0 ? deadline : SystemClock.uptimeMillis() + PUMP_TOTAL_MS;
+        final String lane = owner == null ? "" : owner;
+        synchronized (sStuckLock) {
+            if (sStuck.getOrDefault(lane, 0) >= MAX_STUCK_PER_OWNER || sStuckTotal >= MAX_STUCK) {
+                throw new UnavailableException("too many opens or reads that never returned for " + lane);
+            }
+        }
+        final Opener opener = new Opener(resolver, uri, maxWidth, maxHeight, lane);
+        opener.start();
+        return opener.await(end);
+    }
+
+    /** One open of a URI on its own thread. */
+    private static final class Opener extends Thread {
+        private final ContentResolver mResolver;
+        private final Uri mUri;
+        private final int mMaxWidth;
+        private final int mMaxHeight;
+        private final String mOwner;
+        private AssetFileDescriptor mResult; // guarded by sStuckLock
+        private Throwable mError; // guarded by sStuckLock
+        private boolean mDone; // guarded by sStuckLock
+        private boolean mAbandoned; // guarded by sStuckLock
+
+        Opener(ContentResolver resolver, Uri uri, int maxWidth, int maxHeight, String owner) {
+            super("VmDecodeOpen");
+            setDaemon(true);
+            mResolver = resolver;
+            mUri = uri;
+            mMaxWidth = maxWidth;
+            mMaxHeight = maxHeight;
+            mOwner = owner;
+        }
+
+        @Override
+        public void run() {
+            AssetFileDescriptor result = null;
+            Throwable error = null;
+            try {
+                result = openImage(mResolver, mUri, mMaxWidth, mMaxHeight);
+            } catch (Throwable t) {
+                error = t;
+            }
+            synchronized (sStuckLock) {
+                mDone = true;
+                if (mAbandoned) {
+                    closeQuietly(result);
+                    uncountStuckLocked(mOwner);
+                } else {
+                    mResult = result;
+                    mError = error;
+                }
+                sStuckLock.notifyAll();
+            }
+        }
+
+        AssetFileDescriptor await(long end) throws FileNotFoundException, UnavailableException {
+            synchronized (sStuckLock) {
+                while (!mDone) {
+                    final long left = end - SystemClock.uptimeMillis();
+                    if (left <= 0) {
+                        break;
+                    }
+                    try {
+                        sStuckLock.wait(left);
+                    } catch (InterruptedException e) {
+                        break;
+                    }
+                }
+                if (!mDone) {
+                    mAbandoned = true;
+                    countStuckLocked(mOwner);
+                    throw new UnavailableException("the provider did not open the image in time");
+                }
+            }
+            if (mError instanceof FileNotFoundException) {
+                throw (FileNotFoundException) mError;
+            }
+            if (mError instanceof RuntimeException) {
+                throw (RuntimeException) mError;
+            }
+            if (mError != null) {
+                throw new UnavailableException("could not open the URI", mError);
+            }
+            return mResult;
+        }
+    }
+
+    private static void countStuckLocked(String owner) {
+        sStuck.put(owner, sStuck.getOrDefault(owner, 0) + 1);
+        sStuckTotal++;
+    }
+
+    private static void uncountStuckLocked(String owner) {
+        final int n = sStuck.getOrDefault(owner, 1) - 1;
+        if (n <= 0) {
+            sStuck.remove(owner);
+        } else {
+            sStuck.put(owner, n);
+        }
+        sStuckTotal--;
     }
 
     private static AssetFileDescriptor openImage(ContentResolver resolver, Uri uri, int maxWidth, int maxHeight)
@@ -432,13 +544,7 @@ public final class VmDecode {
                 synchronized (sStuckLock) {
                     mDone = true;
                     if (mCounted) {
-                        final int n = sStuck.getOrDefault(mOwner, 1) - 1;
-                        if (n <= 0) {
-                            sStuck.remove(mOwner);
-                        } else {
-                            sStuck.put(mOwner, n);
-                        }
-                        sStuckTotal--;
+                        uncountStuckLocked(mOwner);
                     }
                 }
             }
@@ -449,8 +555,7 @@ public final class VmDecode {
             synchronized (sStuckLock) {
                 if (!mDone && !mCounted) {
                     mCounted = true;
-                    sStuck.put(mOwner, sStuck.getOrDefault(mOwner, 0) + 1);
-                    sStuckTotal++;
+                    countStuckLocked(mOwner);
                 }
             }
         }

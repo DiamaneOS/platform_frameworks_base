@@ -13,7 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
 package de.diamaneos.decode.client;
 
 import android.content.Context;
@@ -41,48 +40,91 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
- * The image file gate of the resources one notification's layouts are inflated with (see {@link ImageFileGate}):
+ * The image file gate of the resources an app's notification layouts are inflated with (see {@link ImageFileGate}):
  * every bitmap file (PNG, JPEG, WebP, GIF and so on) from an APK outside the system image is decoded in the VM and
  * charged to the posting app. That covers {@code setImageViewResource}, background and other drawable resource
  * actions, drawables named in the app's layout XML, and bitmap files inside the app's XML drawables ({@code <bitmap>},
  * {@code <nine-patch>}, layer lists and so on). Files of the system image load as before.
  *
- * <p>Fail closed: an image that cannot be made in the notification's budget, over its caps, or on the main thread
- * becomes an empty drawable, and the rest of the layout still shows. Nine-patches keep their stretching (the chunk is
- * read and checked in Java). Decoded files are cached by APK (path, time and size), file and density.
+ * <p>One gate serves a notification row for its whole life (its views keep the resources it is set on). Each
+ * inflation starts a round ({@link #startRound}) with a fresh budget. The images a round makes are kept for it, so
+ * the views applied later in the round (and reapplied ones) get them from here.
+ *
+ * <p>The VM is asked only on {@link ImageThreads} (in SystemUI) or, for a gate made for any worker, on any thread but
+ * the main thread. Elsewhere an image comes from this round or the cache, or is empty. Before a decode the file's
+ * header sets the box and the most pixels it can have, which are charged first: no file makes the VM return more than
+ * the box (a nine-patch bigger than the box is shown plain). Nine-patches keep their stretching and optical insets:
+ * the chunks are read and checked in Java. Fail closed: an image that cannot be made becomes empty, and the rest of
+ * the layout still shows. Decoded files are cached by APK (path, time and size), file, density and box.
  */
 public final class AppResourceImages implements ImageFileGate {
     private static final String TAG = "VmDecode";
     private static final int MAX_FILE_BYTES = 8 * 1024 * 1024;
 
-    // The nine-patch chunk (or NO_CHUNK) of a cached file, by the same key as its bitmap in VmIcons' cache.
+    // The nine-patch data (or NO_CHUNK) of a cached file, by the same key as its bitmap in VmIcons' cache.
     private static final Object NO_CHUNK = new Object();
     private static final LruCache<String, Object> sChunks = new LruCache<>(512);
     private static volatile byte[] sEmptyPng;
 
     private final Context mContext;
     private final String mOwner;
-    private final ImageBudget mBudget;
-    private final int mMaxWidth;
-    private final int mMaxHeight;
-    private final Set<String> mFiles = new LinkedHashSet<>(); // guarded by itself
+    private final boolean mAnyWorker;
+    private final Object mLock = new Object();
+    private ImageBudget mBudget; // guarded by mLock
+    private int mMaxWidth; // guarded by mLock
+    private int mMaxHeight; // guarded by mLock
+    private Map<String, Made> mRound = new HashMap<>(); // guarded by mLock
+    private final Set<String> mFiles = new LinkedHashSet<>(); // guarded by mLock
 
     /**
-     * {@code context} is SystemUI's own (it binds the decode service), {@code ownerPackage} the posting app, which
-     * every decode is charged to. Images are decoded to fit {@code maxWidth} x {@code maxHeight}.
+     * A gate for SystemUI: {@code context} is SystemUI's own (it binds the decode service), {@code ownerPackage} the
+     * posting app, which every decode is charged to. The VM is asked only on {@link ImageThreads}.
      */
     public AppResourceImages(Context context, String ownerPackage, ImageBudget budget, int maxWidth,
             int maxHeight) {
+        this(context, ownerPackage, budget, maxWidth, maxHeight, false);
+    }
+
+    /** {@code anyWorker}: the VM may be asked on any thread but the main thread (the system server). */
+    public AppResourceImages(Context context, String ownerPackage, ImageBudget budget, int maxWidth,
+            int maxHeight, boolean anyWorker) {
         mContext = context;
         mOwner = ownerPackage == null ? "" : ownerPackage;
-        mBudget = budget;
-        mMaxWidth = Math.max(1, maxWidth);
-        mMaxHeight = Math.max(1, maxHeight);
+        mAnyWorker = anyWorker;
+        startRound(budget, maxWidth, maxHeight);
+    }
+
+    /** The posting app this gate charges. */
+    public String owner() {
+        return mOwner;
+    }
+
+    /**
+     * Starts a new inflation: a fresh budget and box. The images of the previous round stay with the views that
+     * have them, and are found again in the cache.
+     */
+    public void startRound(ImageBudget budget, int maxWidth, int maxHeight) {
+        synchronized (mLock) {
+            mBudget = budget;
+            mMaxWidth = Math.max(1, maxWidth);
+            mMaxHeight = Math.max(1, maxHeight);
+            mRound = new HashMap<>();
+            mFiles.clear();
+        }
+    }
+
+    /** The budget of the current round. */
+    public ImageBudget budget() {
+        synchronized (mLock) {
+            return mBudget;
+        }
     }
 
     @Override
@@ -98,21 +140,23 @@ public final class AppResourceImages implements ImageFileGate {
         }
         if (made.chunk != null) {
             final NinePatchChunk c = made.chunk;
-            return new NinePatchDrawable(res, made.bitmap, c.toDeviceFormat(ByteOrder.nativeOrder()),
-                    new Rect(c.paddingLeft, c.paddingTop, c.paddingRight, c.paddingBottom), null);
+            final int[] insets = c.opticalInsets();
+            final Rect padding = new Rect(c.paddingLeft, c.paddingTop, c.paddingRight, c.paddingBottom);
+            final byte[] chunk = c.toDeviceFormat(ByteOrder.nativeOrder());
+            if (insets != null) {
+                return new NinePatchDrawable(res, made.bitmap, chunk, padding,
+                        new Rect(insets[0], insets[1], insets[2], insets[3]), null);
+            }
+            return new NinePatchDrawable(res, made.bitmap, chunk, padding, null);
         }
         return new BitmapDrawable(res, made.bitmap);
     }
 
     @Override
     public InputStream openImage(Resources res, TypedValue value, String apkPath, InputStream original) {
-        byte[] bytes = null;
+        Made made;
         try {
-            if (!onMainThread()) {
-                bytes = readAll(original);
-            }
-        } catch (IOException e) {
-            Log.w(TAG, "app image file not read: " + e.getMessage());
+            made = make(res, value, apkPath, original);
         } finally {
             try {
                 original.close();
@@ -120,13 +164,16 @@ public final class AppResourceImages implements ImageFileGate {
                 // Nothing to do.
             }
         }
-        final Made made = bytes == null ? null : make(res, value, apkPath, bytes);
         if (made == null) {
             return new ByteArrayInputStream(emptyPng());
         }
         byte[] png = encode(made.bitmap);
         if (png != null && made.chunk != null) {
             png = NinePatchChunk.insertChunk(png, "npTc", made.chunk.toFileFormat());
+            final byte[] insets = made.chunk.insetsFileFormat();
+            if (png != null && insets != null) {
+                png = NinePatchChunk.insertChunk(png, "npLb", insets);
+            }
         }
         return new ByteArrayInputStream(png != null ? png : emptyPng());
     }
@@ -137,9 +184,9 @@ public final class AppResourceImages implements ImageFileGate {
         return empty();
     }
 
-    /** The bitmap files of APKs outside the system image this gate was asked for, for tests and logs. */
+    /** The bitmap files of APKs outside the system image asked for in this round, for tests and logs. */
     public List<String> files() {
-        synchronized (mFiles) {
+        synchronized (mLock) {
             return new ArrayList<>(mFiles);
         }
     }
@@ -159,55 +206,107 @@ public final class AppResourceImages implements ImageFileGate {
         }
     }
 
-    // The pixels of one file, from the cache or the VM, or null. bytes: the file when the caller read it already.
-    private Made make(Resources res, TypedValue value, String apkPath, byte[] bytes) {
+    /** True on a thread where this gate may wait for the VM. */
+    boolean vmAllowedHere() {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            return false;
+        }
+        return mAnyWorker || ImageThreads.isImageThread();
+    }
+
+    // The pixels of one file: from this round, the cache or the VM, or null. original: the file's stream when the
+    // caller opened it already (read only when the VM is asked).
+    private Made make(Resources res, TypedValue value, String apkPath, InputStream original) {
         final String file = value.string == null ? null : value.string.toString();
         if (file == null) {
             return null;
         }
-        synchronized (mFiles) {
+        final ImageBudget budget;
+        final int maxWidth;
+        final int maxHeight;
+        synchronized (mLock) {
             mFiles.add(file);
+            budget = mBudget;
+            maxWidth = mMaxWidth;
+            maxHeight = mMaxHeight;
         }
         final int density = bitmapDensity(value);
-        final String key = key(apkPath, file, density);
-        final String admitKey = key != null ? key : "nocache:" + apkPath + ':' + file + ':' + density;
-        final ImageBudget.Admission admission = mBudget.admit(admitKey);
+        final String key = key(apkPath, file, density, maxWidth, maxHeight);
+        final String roundKey = key != null ? key : "nocache:" + apkPath + ':' + file + ':' + density;
+        synchronized (mLock) {
+            final Made kept = mRound.get(roundKey);
+            if (kept != null) {
+                return kept;
+            }
+        }
+        if (!vmAllowedHere()) {
+            // Not a thread that may wait for the VM: what is cached, else empty (never charged here).
+            return key == null ? null : cached(key);
+        }
+        final ImageBudget.Admission admission = budget.admit(roundKey);
         if (admission == ImageBudget.Admission.REFUSED) {
             Log.w(TAG, "too many images in one notification layout, empty: " + file);
             return null;
         }
-        Made made = key == null ? null : cached(key);
-        if (made == null) {
-            if (onMainThread()) {
-                // Never decoded on the main thread: an empty image now, the real one on the next inflation.
-                return null;
-            }
-            try {
-                if (bytes == null) {
-                    bytes = readFile(res.getAssets(), value.assetCookie, file);
-                }
-            } catch (IOException | RuntimeException e) {
-                Log.w(TAG, "app image file not read, empty: " + file + ": " + e.getMessage());
-                return null;
-            }
-            made = decode(bytes, density, file);
-            if (made == null) {
-                return null;
-            }
-            if (key != null) {
-                VmIcons.cachePut(key, made.bitmap);
-                sChunks.put(key, made.chunk != null ? made.chunk : NO_CHUNK);
-            }
+        if (budget.hasFailed(roundKey)) {
+            return null;
         }
-        if (admission == ImageBudget.Admission.NEW
-                && !mBudget.charge(admitKey, (long) made.bitmap.getWidth() * made.bitmap.getHeight())) {
+        Made made = key == null ? null : cached(key);
+        if (made != null) {
+            if (admission == ImageBudget.Admission.NEW && !budget.charge(roundKey, pixels(made.bitmap))) {
+                return null;
+            }
+            return keep(roundKey, made);
+        }
+        byte[] bytes;
+        try {
+            bytes = original != null ? readAll(original) : readFile(res.getAssets(), value.assetCookie, file);
+        } catch (IOException | RuntimeException e) {
+            Log.w(TAG, "app image file not read, empty: " + file + ": " + e.getMessage());
+            budget.failed(roundKey);
+            return null;
+        }
+        final ImagePlan plan = ImagePlan.of(bytes, bytes.length, maxWidth, maxHeight);
+        if (admission == ImageBudget.Admission.NEW && !budget.charge(roundKey, plan.pixels)) {
             Log.w(TAG, "notification layout images over their pixel cap, empty: " + file);
             return null;
+        }
+        made = decode(budget, bytes, plan, density, file);
+        if (made == null) {
+            if (admission == ImageBudget.Admission.NEW) {
+                budget.refund(plan.pixels);
+            }
+            budget.failed(roundKey);
+            return null;
+        }
+        final long pixels = pixels(made.bitmap);
+        if (admission == ImageBudget.Admission.NEW) {
+            if (pixels < plan.pixels) {
+                budget.refund(plan.pixels - pixels);
+            } else if (pixels > plan.pixels && !budget.charge(roundKey, pixels - plan.pixels)) {
+                return null;
+            }
+        }
+        // Charged before it is cached: a refused image is never kept.
+        if (key != null) {
+            VmIcons.cachePut(key, made.bitmap);
+            sChunks.put(key, made.chunk != null ? made.chunk : NO_CHUNK);
+        }
+        return keep(roundKey, made);
+    }
+
+    private Made keep(String roundKey, Made made) {
+        synchronized (mLock) {
+            mRound.put(roundKey, made);
         }
         return made;
     }
 
-    private Made cached(String key) {
+    private static long pixels(Bitmap bitmap) {
+        return (long) bitmap.getWidth() * bitmap.getHeight();
+    }
+
+    private static Made cached(String key) {
         final Bitmap bitmap = VmIcons.cacheGet(key);
         final Object chunk = sChunks.get(key);
         if (bitmap == null || chunk == null) {
@@ -216,43 +315,43 @@ public final class AppResourceImages implements ImageFileGate {
         return new Made(bitmap, chunk instanceof NinePatchChunk ? (NinePatchChunk) chunk : null);
     }
 
-    private Made decode(byte[] bytes, int density, String file) {
-        final long left = mBudget.remainingMs();
+    private Made decode(ImageBudget budget, byte[] bytes, ImagePlan plan, int density, String file) {
+        final long left = budget.remainingMs();
         if (left <= 0) {
             Log.w(TAG, "notification image budget spent, empty: " + file);
             return null;
         }
-        // A nine-patch is decoded at its own size, so its stretch lines still match.
-        final NinePatchChunk chunk = NinePatchChunk.fromPng(bytes, bytes.length);
-        final int maxWidth = chunk != null ? Math.min(chunk.width, VmDecode.MAX_BOX) : mMaxWidth;
-        final int maxHeight = chunk != null ? Math.min(chunk.height, VmDecode.MAX_BOX) : mMaxHeight;
         final long start = SystemClock.uptimeMillis();
         Bitmap bitmap;
         try {
-            mBudget.countVmCall();
+            budget.countVmCall();
             bitmap = VmDecode.decodeBytes(mContext, bytes, 0, bytes.length, mOwner,
-                    VmDecode.PRIORITY_USER_WAITING, maxWidth, maxHeight, VmDecode.deadlineIn(left));
+                    VmDecode.PRIORITY_USER_WAITING, plan.boxWidth, plan.boxHeight, VmDecode.deadlineIn(left));
         } catch (VmDecode.UnavailableException | VmDecode.RejectedException e) {
             Log.w(TAG, "app image file not decoded, empty: " + file + ": " + e.getMessage());
             return null;
         } finally {
-            mBudget.spent(SystemClock.uptimeMillis() - start);
+            budget.spent(SystemClock.uptimeMillis() - start);
         }
         bitmap = VmIcons.immutable(bitmap);
+        // Scaled down to fit the box: its density goes down with it, so it keeps the size the app designed.
+        if (density != Bitmap.DENSITY_NONE && plan.storedWidth > bitmap.getWidth()) {
+            density = Math.max(1, (int) ((long) density * bitmap.getWidth() / plan.storedWidth));
+        }
         bitmap.setDensity(density);
-        final boolean keepsChunk = chunk != null && chunk.fits(bitmap.getWidth(), bitmap.getHeight());
-        return new Made(bitmap, keepsChunk ? chunk : null);
+        final boolean keepsChunk = plan.chunk != null && plan.chunk.fits(bitmap.getWidth(), bitmap.getHeight());
+        return new Made(bitmap, keepsChunk ? plan.chunk : null);
     }
 
     // By APK (path, time and size, so an update decodes again), file in it, density and box. Null when the APK is
     // not known: such a file is never cached, so two packages can never share an entry.
-    private String key(String apkPath, String file, int density) {
+    private static String key(String apkPath, String file, int density, int maxWidth, int maxHeight) {
         if (apkPath == null) {
             return null;
         }
         final File apk = new File(apkPath);
         return "rfile:" + apkPath + ':' + apk.lastModified() + ':' + apk.length() + ':' + file + ':' + density
-                + ':' + mMaxWidth + 'x' + mMaxHeight;
+                + ':' + maxWidth + 'x' + maxHeight;
     }
 
     private static int bitmapDensity(TypedValue value) {
@@ -300,9 +399,5 @@ public final class AppResourceImages implements ImageFileGate {
             sEmptyPng = png;
         }
         return png;
-    }
-
-    private static boolean onMainThread() {
-        return Looper.myLooper() == Looper.getMainLooper();
     }
 }

@@ -24,6 +24,8 @@ import android.content.pm.PackageManager;
 import android.content.res.Configuration;
 import android.content.res.ImageFileGate;
 import android.content.res.Resources;
+import android.os.Bundle;
+import android.os.IBinder;
 import android.os.UserHandle;
 import android.view.Display;
 
@@ -43,7 +45,10 @@ final class VmImageContext extends ContextWrapper {
 
     /** {@code context} with resources of its own behind {@code gate}. Throws when that cannot be made. */
     static Context wrap(Context context, ImageFileGate gate) {
-        // A configuration context always gets a new Resources object from ResourcesManager.
+        // A configuration context always gets a new Resources object from ResourcesManager
+        // (ResourcesManager.createResourcesLocked). If that ever changed, the check below would refuse a shared one
+        // only when it is the source context's: a gate set on a Resources object shared with other code would make
+        // that code load app image files through the VM too, never natively, so it fails closed either way.
         final Context own = context.createConfigurationContext(context.getResources().getConfiguration());
         return gated(context, own, gate);
     }
@@ -118,5 +123,20 @@ final class VmImageContext extends ContextWrapper {
     @Override
     public Context createCredentialProtectedStorageContext() {
         return wrap(super.createCredentialProtectedStorageContext(), mGate);
+    }
+
+    @Override
+    public Context createWindowContext(int type, Bundle options) {
+        return wrap(super.createWindowContext(type, options), mGate);
+    }
+
+    @Override
+    public Context createWindowContext(Display display, int type, Bundle options) {
+        return wrap(super.createWindowContext(display, type, options), mGate);
+    }
+
+    @Override
+    public Context createTokenContext(IBinder token, Display display) {
+        return wrap(super.createTokenContext(token, display), mGate);
     }
 }

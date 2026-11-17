@@ -17,7 +17,10 @@
 package de.diamaneos.decode.client;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.LongConsumer;
 
 /**
  * What one notification may spend on its images: time waiting for the VM, and for the images of its layouts a number
@@ -34,7 +37,7 @@ public final class ImageBudget {
 
     /** The answer to {@link #admit}. */
     public enum Admission {
-        /** A new image within the cap: make it, then {@link #charge} its pixels. */
+        /** A new image within the cap: {@link #charge} the pixels it can have, then make it. */
         NEW,
         /** This image was admitted before: already charged. */
         SEEN,
@@ -50,15 +53,24 @@ public final class ImageBudget {
     private int mVmCalls; // guarded by this
     // Images by key: true when admitted and charged or waiting for its charge, false when refused.
     private final Map<String, Boolean> mImages = new HashMap<>(); // guarded by this
+    // Images that could not be made in this budget: not asked for again.
+    private final Set<String> mFailed = new HashSet<>(); // guarded by this
+    private final LongConsumer mOnSpent;
 
     public ImageBudget() {
         this(TIME_MS, MAX_IMAGES, MAX_PIXELS);
     }
 
     public ImageBudget(long timeMs, int maxImages, long maxPixels) {
+        this(timeMs, maxImages, maxPixels, null);
+    }
+
+    /** {@code onSpent} is told every wait taken off this budget (the posting app's {@link OwnerQuota}). */
+    public ImageBudget(long timeMs, int maxImages, long maxPixels, LongConsumer onSpent) {
         mRemainingMs = Math.max(0, timeMs);
         mMaxImages = Math.max(0, maxImages);
         mMaxPixels = Math.max(0, maxPixels);
+        mOnSpent = onSpent;
     }
 
     /** Time left for waiting on the VM, 0 when spent. */
@@ -66,9 +78,14 @@ public final class ImageBudget {
         return mRemainingMs;
     }
 
-    /** Takes {@code ms} of waiting off the time left. */
-    public synchronized void spent(long ms) {
-        mRemainingMs = Math.max(0, mRemainingMs - Math.max(0, ms));
+    /** Takes {@code ms} of waiting off the time left (and off the app's quota). */
+    public void spent(long ms) {
+        synchronized (this) {
+            mRemainingMs = Math.max(0, mRemainingMs - Math.max(0, ms));
+        }
+        if (mOnSpent != null && ms > 0) {
+            mOnSpent.accept(ms);
+        }
     }
 
     /** Counts one call to the VM, for logs and tests. */
@@ -91,8 +108,8 @@ public final class ImageBudget {
     }
 
     /**
-     * Charges the pixels of a NEW image. False when they do not fit any more: the image is then refused, also when
-     * it comes again.
+     * Charges pixels of a NEW image, before it is decoded (the most it can have) and again if it came back bigger.
+     * False when they do not fit any more: the image is then refused, also when it comes again, and is not kept.
      */
     public synchronized boolean charge(String key, long pixels) {
         if (pixels < 0 || mPixels + pixels > mMaxPixels) {
@@ -102,6 +119,21 @@ public final class ImageBudget {
         }
         mPixels += pixels;
         return true;
+    }
+
+    /** Gives back pixels charged for an image that came back smaller, or not at all. */
+    public synchronized void refund(long pixels) {
+        mPixels = Math.max(0, mPixels - Math.max(0, pixels));
+    }
+
+    /** Marks an image that could not be made: it is not asked for again in this budget. */
+    public synchronized void failed(String key) {
+        mFailed.add(key);
+    }
+
+    /** True for an image that could not be made earlier in this budget. */
+    public synchronized boolean hasFailed(String key) {
+        return mFailed.contains(key);
     }
 
     /** Images admitted so far (including those later refused for their pixels). */

@@ -162,10 +162,14 @@ public class VmIconsDeviceTest {
     public void gate_onAWorker_withoutTheService_failsClosedWithinTheBudget() throws Exception {
         final Notification original = notificationWithEveryVmIcon();
         final AtomicReference<Notification> copy = new AtomicReference<>();
-        final Thread worker = new Thread(() -> copy.set(gate().sanitizedCopy(original)));
+        final java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
         final long start = SystemClock.uptimeMillis();
-        worker.start();
-        worker.join(10_000);
+        // On an image thread, where the VM is asked.
+        ImageThreads.execute("pkg", () -> {
+            copy.set(gate().sanitizedCopy(original));
+            done.countDown();
+        });
+        done.await(10, java.util.concurrent.TimeUnit.SECONDS);
         final long took = SystemClock.uptimeMillis() - start;
         assertNotNull(copy.get());
         // No decode service holds an image for this URI or these bytes: every VM icon is gone, nothing hangs.

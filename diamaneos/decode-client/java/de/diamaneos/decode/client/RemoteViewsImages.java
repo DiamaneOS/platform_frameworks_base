@@ -16,19 +16,36 @@
 
 package de.diamaneos.decode.client;
 
+import android.app.PendingIntent;
+import android.app.Person;
+import android.app.RemoteInput;
+import android.content.Intent;
+import android.content.pm.ApplicationInfo;
+import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
 import android.graphics.drawable.Icon;
 import android.net.Uri;
+import android.os.Bundle;
+import android.util.IntArray;
 import android.util.Log;
+import android.util.LongArray;
+import android.util.Pair;
+import android.util.SizeF;
 import android.util.SparseArray;
+import android.util.SparseBooleanArray;
+import android.util.SparseIntArray;
 import android.widget.RemoteViews;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -40,8 +57,12 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>RemoteViews has no API for this and its source is pinned by platform_patches, so its actions are read by
  * reflection, generically: every field of every RemoteViews class is searched, so an action type added upstream is
- * covered too. Fail closed: when anything cannot be read or converted (an unknown kind of link, draw instructions,
- * a reflection failure after an upstream change), the caller drops the layout and the standard one shows.
+ * covered too. Values given to a view as a Bundle ({@code setBundle}, for example {@code MessagingLayout.setData}
+ * with its senders) are searched too: their Person and Icon values are re-made like the others.
+ *
+ * <p>Deny by default: only known containers are opened and only known value types that hold no image are passed.
+ * Anything else (an unknown object, a link outside {@code setImageURI}, draw instructions, a Bundle that cannot be
+ * read, a reflection failure after an upstream change) makes the caller drop the layout, and the standard one shows.
  */
 final class RemoteViewsImages {
     private static final String TAG = "VmDecode";
@@ -106,6 +127,19 @@ final class RemoteViewsImages {
     }
 
     private static final Map<Class<?>, Field[]> sFields = new ConcurrentHashMap<>();
+
+    // Fields that hold no image a view is given: the parcel's class cookies (opaque to RemoteViews, never applied).
+    private static final Set<String> SKIPPED_FIELDS = Set.of("mClassCookies");
+
+    // Values that hold no image: plain values, pixels, colours, intents (sent on a click, never drawn) and remote
+    // inputs (a label and choices, given to the reply field).
+    private static final Class<?>[] LEAVES = {
+            CharSequence.class, Number.class, Boolean.class, Character.class, Enum.class, Class.class,
+            Bitmap.class, ColorStateList.class, PendingIntent.class, Intent.class, ApplicationInfo.class,
+            RemoteInput.class,
+            SizeF.class, SparseIntArray.class, SparseBooleanArray.class, IntArray.class, LongArray.class,
+            Instant.class, Duration.class,
+    };
 
     private final Images mImages;
     private final boolean mConvert;
@@ -206,8 +240,7 @@ final class RemoteViewsImages {
             mUnsafe = "a link outside an image action";
             return;
         }
-        if (o instanceof CharSequence || o instanceof Number || o instanceof Boolean || o instanceof Character
-                || o instanceof Bitmap || o instanceof Class) {
+        if (isLeaf(o)) {
             return;
         }
         if (depth > MAX_DEPTH || mSeen.size() > MAX_OBJECTS) {
@@ -221,8 +254,8 @@ final class RemoteViewsImages {
             for (Object element : (Object[]) o) {
                 visit(element, depth + 1);
             }
-        } else if (o instanceof Iterable) {
-            for (Object element : (Iterable<?>) o) {
+        } else if (o instanceof Collection) {
+            for (Object element : (Collection<?>) o) {
                 visit(element, depth + 1);
             }
         } else if (o instanceof Map) {
@@ -235,10 +268,49 @@ final class RemoteViewsImages {
             for (int i = 0; i < array.size(); i++) {
                 visit(array.valueAt(i), depth + 1);
             }
-        } else if (o.getClass().getName().startsWith(REMOTE_VIEWS)) {
+        } else if (o instanceof Pair) {
+            visit(((Pair<?, ?>) o).first, depth + 1);
+            visit(((Pair<?, ?>) o).second, depth + 1);
+        } else if (o instanceof Bundle) {
+            visitBundle((Bundle) o, depth);
+        } else if (o instanceof Person) {
+            // A sender or face pile Person: its avatar is decoded by the view that gets the Bundle.
+            visit(((Person) o).getIcon(), depth + 1);
+        } else if (o instanceof RemoteViews || o.getClass().getName().startsWith(REMOTE_VIEWS + "$")) {
             visitRemoteViewsObject(o, depth);
+        } else {
+            // Deny by default: an object of a type not known to hold no image.
+            mUnsafe = "an unknown value " + o.getClass().getName();
         }
-        // Anything else (intents, bundles, application info, strings) holds no image a view decodes.
+    }
+
+    private static boolean isLeaf(Object o) {
+        final Class<?> cls = o.getClass();
+        if (cls.isArray() && cls.getComponentType().isPrimitive()) {
+            return true;
+        }
+        for (Class<?> leaf : LEAVES) {
+            if (leaf.isInstance(o)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Every value of the Bundle, read (unparcelled) here. A Bundle that cannot be read drops the layout.
+    private void visitBundle(Bundle bundle, int depth) throws ReflectiveOperationException {
+        final List<Object> values = new ArrayList<>();
+        try {
+            for (String key : bundle.keySet()) {
+                values.add(bundle.get(key));
+            }
+        } catch (RuntimeException e) {
+            mUnsafe = "a Bundle that cannot be read: " + e.getClass().getSimpleName();
+            return;
+        }
+        for (Object value : values) {
+            visit(value, depth + 1);
+        }
     }
 
     private void visitRemoteViewsObject(Object o, int depth) throws ReflectiveOperationException {
@@ -299,16 +371,17 @@ final class RemoteViewsImages {
         sMethodName.set(action, SET_IMAGE_ICON);
     }
 
-    // The instance fields of a RemoteViews class and of its RemoteViews superclasses.
+    // The instance fields of a RemoteViews class (a subclass of RemoteViews included) up to Object.
     private static Field[] fields(Class<?> cls) {
         Field[] fields = sFields.get(cls);
         if (fields != null) {
             return fields;
         }
         final List<Field> list = new ArrayList<>();
-        for (Class<?> c = cls; c != null && c.getName().startsWith(REMOTE_VIEWS); c = c.getSuperclass()) {
+        for (Class<?> c = cls; c != null && c != Object.class; c = c.getSuperclass()) {
             for (Field f : c.getDeclaredFields()) {
-                if (Modifier.isStatic(f.getModifiers()) || f.getType().isPrimitive()) {
+                if (Modifier.isStatic(f.getModifiers()) || f.getType().isPrimitive()
+                        || SKIPPED_FIELDS.contains(f.getName())) {
                     continue;
                 }
                 f.setAccessible(true);

@@ -37,7 +37,9 @@ import java.util.ArrayList;
  * <p>That is the smallest decode surface for these icons. Every listener (SystemUI, the shell, other notification
  * listeners) then gets bitmaps, and SystemUI's status bar, which draws small icons on the main thread, never meets an
  * app's compressed image. Icons given as URIs are left to SystemUI, which decodes them in the VM with the poster's URI
- * grants. Resources of the system image and XML drawables are kept as they are.
+ * grants. Resources of the system image are kept as they are. An app's XML resource icon is loaded through resources
+ * behind an image gate: one that names a bitmap file of the app (a {@code <bitmap>}, a layer list) is drawn into a
+ * bitmap from pixels decoded in the VM, a vector-only one is kept as it is.
  *
  * <p>All images of one notification share {@link #BUDGET_MS}. An image that cannot be decoded in time is removed, a
  * small icon becomes a neutral system icon. Decoded resources are cached per package version.

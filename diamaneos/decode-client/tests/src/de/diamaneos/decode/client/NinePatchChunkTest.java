@@ -172,6 +172,50 @@ public class NinePatchChunkTest {
         assertEquals(4, device.getInt(44));
     }
 
+    private static byte[] npLb(int left, int top, int right, int bottom) {
+        return ByteBuffer.allocate(16).putInt(left).putInt(top).putInt(right).putInt(bottom).array();
+    }
+
+    private static byte[] pngWithInsets(byte[] insets) {
+        final ByteArrayOutputStream out = new ByteArrayOutputStream();
+        out.write(SIGNATURE, 0, SIGNATURE.length);
+        chunk(out, "IHDR", ihdr(8, 6));
+        chunk(out, "npTc", npTc(new int[] {2, 5}, new int[] {1, 4}, new int[] {0, 0, 0, 0}, 0));
+        chunk(out, "npLb", insets);
+        chunk(out, "IDAT", new byte[] {1, 2, 3});
+        chunk(out, "IEND", new byte[0]);
+        return out.toByteArray();
+    }
+
+    @Test
+    public void opticalInsets_readCheckedAndWritten() {
+        byte[] f = pngWithInsets(npLb(1, 2, 3, 1));
+        NinePatchChunk chunk = NinePatchChunk.fromPng(f, f.length);
+        assertArrayEquals(new int[] {1, 2, 3, 1}, chunk.opticalInsets());
+        assertArrayEquals(npLb(1, 2, 3, 1), chunk.insetsFileFormat());
+        // Insets that do not fit: the nine-patch stays, without them.
+        f = pngWithInsets(npLb(5, 0, 4, 0));
+        chunk = NinePatchChunk.fromPng(f, f.length);
+        assertNotNull(chunk);
+        assertNull(chunk.opticalInsets());
+        f = pngWithInsets(npLb(-1, 0, 0, 0));
+        assertNull(NinePatchChunk.fromPng(f, f.length).opticalInsets());
+        f = pngWithInsets(new byte[12]);
+        assertNull(NinePatchChunk.fromPng(f, f.length).opticalInsets());
+        // None in the file: none.
+        final byte[] plain = png(8, 6, npTc(new int[] {2, 5}, new int[] {1, 4}, new int[] {0, 0, 0, 0}, 0), false);
+        assertNull(NinePatchChunk.fromPng(plain, plain.length).opticalInsets());
+        assertNull(NinePatchChunk.fromPng(plain, plain.length).insetsFileFormat());
+    }
+
+    @Test
+    public void pngSize_fromTheHeaderOnly() {
+        final byte[] f = png(8, 6, null, false);
+        assertArrayEquals(new int[] {8, 6}, NinePatchChunk.pngSize(f, f.length));
+        assertNull(NinePatchChunk.pngSize(new byte[40], 40));
+        assertNull(NinePatchChunk.pngSize(f, 20));
+    }
+
     @Test
     public void insertsAChunkAfterTheHeader() {
         final byte[] plain = png(8, 6, null, false);

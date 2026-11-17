@@ -61,6 +61,38 @@ public class ImageBudgetTest {
     }
 
     @Test
+    public void chargedBeforeAndRefundedAfter() {
+        final ImageBudget budget = new ImageBudget(1_000, 10, 100);
+        assertEquals(Admission.NEW, budget.admit("a"));
+        assertTrue(budget.charge("a", 80));
+        // Came back smaller: the rest is given back.
+        budget.refund(50);
+        assertEquals(30, budget.pixels());
+        budget.refund(1_000);
+        assertEquals(0, budget.pixels());
+    }
+
+    @Test
+    public void failedImagesAreNotAskedForAgain() {
+        final ImageBudget budget = new ImageBudget();
+        assertFalse(budget.hasFailed("a"));
+        budget.failed("a");
+        assertTrue(budget.hasFailed("a"));
+        assertFalse(budget.hasFailed("b"));
+    }
+
+    @Test
+    public void spentTimeReachesTheQuota() {
+        final long[] told = {0};
+        final ImageBudget budget = new ImageBudget(2_000, 10, 100, ms -> told[0] += ms);
+        budget.spent(300);
+        budget.spent(0);
+        budget.spent(-5);
+        assertEquals(300, told[0]);
+        assertEquals(1_700, budget.remainingMs());
+    }
+
+    @Test
     public void time() {
         final ImageBudget budget = new ImageBudget(2_000, 10, 100);
         assertEquals(2_000, budget.remainingMs());
