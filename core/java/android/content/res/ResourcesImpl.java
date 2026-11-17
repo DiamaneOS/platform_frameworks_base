@@ -426,6 +426,36 @@ public class ResourcesImpl {
         }
     }
 
+    /**
+     * The path of the APK that holds the files of {@code cookie}, or null when it is not known.
+     */
+    @Nullable
+    String apkPathForCookie(int cookie) {
+        final ApkAssets[] apkAssets = mAssets.getApkAssets();
+        if (cookie < 1 || cookie > apkAssets.length) {
+            return null;
+        }
+        try {
+            final String path = apkAssets[cookie - 1].getAssetPath();
+            return path.isEmpty() ? null : path;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /**
+     * DiamaneOS: the image file gate of {@code wrapper} when the files of {@code value}'s APK must not be decoded in
+     * this process, else null. Always null for resources without a gate, which load exactly as before.
+     */
+    @Nullable
+    private ImageFileGate gateFor(@NonNull Resources wrapper, @NonNull TypedValue value) {
+        final ImageFileGate gate = wrapper.getImageFileGate();
+        if (gate == null || gate.decodesHere(apkPathForCookie(value.assetCookie))) {
+            return null;
+        }
+        return gate;
+    }
+
     @NonNull
     InputStream openRawResource(@RawRes int id, TypedValue value) throws NotFoundException {
         getValue(id, value, true);
@@ -830,11 +860,15 @@ public class ResourcesImpl {
                 key = cacheKeyForCookieAsset(value.assetCookie, value.data, isCapped);
             }
 
+            // DiamaneOS: drawables of an APK behind an image file gate are made for that Resources object only. They
+            // are neither taken from nor put into the caches this implementation shares with other Resources objects.
+            final boolean gated = !isColorDrawable && gateFor(wrapper, value) != null;
+
             int cacheGeneration = caches.getGeneration();
             // First, check whether we have a cached version of this drawable
             // that was inflated against the specified theme. Skip the cache if
             // we're currently preloading or we're not using the cache.
-            if (!mPreloading && useCache) {
+            if (!mPreloading && useCache && !gated) {
                 Drawable cachedDrawable = caches.getInstance(key, wrapper, theme);
                 if (cachedDrawable != null) {
                     cachedDrawable.setChangingConfigurations(value.changingConfigurations);
@@ -845,7 +879,9 @@ public class ResourcesImpl {
             // Next, check preloaded drawables. Preloaded drawables may contain
             // unresolved theme attributes.
             final Drawable.ConstantState cs;
-            if (isColorDrawable) {
+            if (gated) {
+                cs = null;
+            } else if (isColorDrawable) {
                 cs = sPreloadedColorDrawables.get(key);
             } else {
                 cs = sPreloadedDrawables[mConfiguration.getLayoutDirection()].get(key);
@@ -882,7 +918,7 @@ public class ResourcesImpl {
             // pollute the cache with drawables loaded from a foreign density.
             if (dr != null) {
                 dr.setChangingConfigurations(value.changingConfigurations);
-                if (useCache) {
+                if (useCache && !gated) {
                     cacheDrawable(value, isColorDrawable, caches, theme, canApplyTheme, key, dr,
                             cacheGeneration);
                     if (needsNewDrawableAfterCache) {
@@ -1088,6 +1124,7 @@ public class ResourcesImpl {
 
 
         final Drawable dr;
+        final ImageFileGate gate = gateFor(wrapper, value);
 
         Trace.traceBegin(Trace.TRACE_TAG_RESOURCES, file);
         LookupStack stack = mLookupStack.get();
@@ -1100,11 +1137,24 @@ public class ResourcesImpl {
             try {
                 if (file.endsWith(".xml")) {
                     final String typeName = getResourceTypeName(id);
-                    if (typeName != null && typeName.equals("color")) {
-                        dr = loadColorOrXmlDrawable(wrapper, value, id, density, file);
-                    } else {
-                        dr = loadXmlDrawable(wrapper, value, id, density, file);
+                    Drawable xml;
+                    try {
+                        if (typeName != null && typeName.equals("color")) {
+                            xml = loadColorOrXmlDrawable(wrapper, value, id, density, file);
+                        } else {
+                            xml = loadXmlDrawable(wrapper, value, id, density, file);
+                        }
+                    } catch (Exception e) {
+                        if (gate == null) {
+                            throw e;
+                        }
+                        // An image inside it could not be made: an empty drawable, not a failed layout.
+                        xml = gate.onXmlDrawableFailed(wrapper, value, e);
                     }
+                    dr = xml;
+                } else if (gate != null) {
+                    // A bitmap file of an APK outside the system image: never decoded in this process.
+                    dr = gate.loadImage(wrapper, value, apkPathForCookie(value.assetCookie));
                 } else if (file.startsWith("frro:/")) {
                     Uri uri = Uri.parse(file);
                     long offset = Long.parseLong(uri.getQueryParameter("offset"));

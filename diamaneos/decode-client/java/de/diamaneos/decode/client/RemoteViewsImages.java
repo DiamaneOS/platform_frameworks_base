@@ -1,0 +1,322 @@
+/*
+ * Copyright (C) 2026 DiamaneOS
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package de.diamaneos.decode.client;
+
+import android.graphics.Bitmap;
+import android.graphics.drawable.Icon;
+import android.net.Uri;
+import android.util.Log;
+import android.util.SparseArray;
+import android.widget.RemoteViews;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.util.ArrayList;
+import java.util.IdentityHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * Finds every image in an app's notification layout (RemoteViews) and, on SystemUI's own copy of it, turns each into
+ * a bitmap made in the VM, in place: Icons of every action ({@code setImageViewIcon}, {@code setIcon} with day and
+ * night icons, compound drawables), nested layouts ({@code addView} children, landscape and portrait, sized layouts,
+ * collection items), and {@code setImageViewUri} actions, which become {@code setImageIcon} with the decoded bitmap.
+ * Order and targets of the actions stay as the app made them.
+ *
+ * <p>RemoteViews has no API for this and its source is pinned by platform_patches, so its actions are read by
+ * reflection, generically: every field of every RemoteViews class is searched, so an action type added upstream is
+ * covered too. Fail closed: when anything cannot be read or converted (an unknown kind of link, draw instructions,
+ * a reflection failure after an upstream change), the caller drops the layout and the standard one shows.
+ */
+final class RemoteViewsImages {
+    private static final String TAG = "VmDecode";
+    private static final String REMOTE_VIEWS = "android.widget.RemoteViews";
+    private static final String SET_IMAGE_URI = "setImageURI";
+    private static final String SET_IMAGE_ICON = "setImageIcon";
+    private static final int MAX_DEPTH = 64;
+    private static final int MAX_OBJECTS = 20_000;
+
+    /** What to do with the images found. */
+    interface Images {
+        /** True when {@code icon} must be re-made (not a bitmap, not a resource of the system image). */
+        boolean needsWork(Icon icon);
+
+        /** The bitmap icon to replace {@code icon} with: never null, an empty bitmap when it cannot be made. */
+        Icon convert(Icon icon);
+
+        /** The bitmap icon for the image behind {@code uri}: never null, an empty bitmap when it cannot be made. */
+        Icon convert(Uri uri);
+    }
+
+    // RemoteViews.ReflectionAction and the fields of a setImageViewUri action.
+    private static final Class<?> sReflectionAction;
+    private static final Field sMethodName;
+    private static final Field sType;
+    private static final Field sValue;
+    private static final int sUriType;
+    private static final int sIconType;
+
+    static {
+        Class<?> action = null;
+        Field methodName = null;
+        Field type = null;
+        Field value = null;
+        int uriType = -1;
+        int iconType = -1;
+        try {
+            action = Class.forName(REMOTE_VIEWS + "$ReflectionAction");
+            final Class<?> base = action.getSuperclass();
+            methodName = base.getDeclaredField("mMethodName");
+            type = base.getDeclaredField("mType");
+            value = action.getDeclaredField("mValue");
+            methodName.setAccessible(true);
+            type.setAccessible(true);
+            value.setAccessible(true);
+            final Field uri = base.getDeclaredField("URI");
+            final Field icon = base.getDeclaredField("ICON");
+            uri.setAccessible(true);
+            icon.setAccessible(true);
+            uriType = uri.getInt(null);
+            iconType = icon.getInt(null);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            Log.e(TAG, "RemoteViews actions cannot be read: custom layouts with images are dropped", e);
+            action = null;
+        }
+        sReflectionAction = action;
+        sMethodName = methodName;
+        sType = type;
+        sValue = value;
+        sUriType = uriType;
+        sIconType = iconType;
+    }
+
+    private static final Map<Class<?>, Field[]> sFields = new ConcurrentHashMap<>();
+
+    private final Images mImages;
+    private final boolean mConvert;
+    private final IdentityHashMap<Object, Boolean> mSeen = new IdentityHashMap<>();
+    private boolean mNeedsWork;
+    private String mUnsafe;
+
+    private RemoteViewsImages(Images images, boolean convert) {
+        mImages = images;
+        mConvert = convert;
+    }
+
+    /** True when {@code views} holds an image to re-make, or anything that would make it unsafe. Changes nothing. */
+    static boolean needsWork(RemoteViews views, Images images) {
+        if (views == null) {
+            return false;
+        }
+        final RemoteViewsImages scan = new RemoteViewsImages(images, false);
+        scan.run(views);
+        return scan.mNeedsWork || scan.mUnsafe != null;
+    }
+
+    /**
+     * Re-makes every image of {@code views} in place. Returns false when the layout must be dropped instead: it holds
+     * something that cannot be converted, or a check afterwards still finds an image that was not.
+     */
+    static boolean convert(RemoteViews views, Images images) {
+        if (views == null) {
+            return true;
+        }
+        final RemoteViewsImages walk = new RemoteViewsImages(images, true);
+        walk.run(views);
+        if (walk.mUnsafe != null) {
+            Log.w(TAG, "custom notification layout dropped: " + walk.mUnsafe);
+            return false;
+        }
+        // Checked again with fresh eyes: nothing left to re-make, and no link left (RemoteViews' own list).
+        final RemoteViewsImages check = new RemoteViewsImages(images, false);
+        check.run(views);
+        final boolean[] link = {false};
+        try {
+            views.visitUris(uri -> link[0] = true);
+        } catch (RuntimeException e) {
+            link[0] = true;
+        }
+        if (check.mNeedsWork || check.mUnsafe != null || link[0]) {
+            Log.w(TAG, "custom notification layout dropped: images left after converting");
+            return false;
+        }
+        return true;
+    }
+
+    /** Every Icon in {@code views}, for tests. Empty when they cannot be read. */
+    static List<Icon> icons(RemoteViews views) {
+        final List<Icon> icons = new ArrayList<>();
+        final RemoteViewsImages walk = new RemoteViewsImages(new Images() {
+            @Override
+            public boolean needsWork(Icon icon) {
+                icons.add(icon);
+                return false;
+            }
+
+            @Override
+            public Icon convert(Icon icon) {
+                return icon;
+            }
+
+            @Override
+            public Icon convert(Uri uri) {
+                return null;
+            }
+        }, false);
+        walk.run(views);
+        return icons;
+    }
+
+    private void run(RemoteViews views) {
+        if (sReflectionAction == null) {
+            mUnsafe = "RemoteViews actions cannot be read";
+            return;
+        }
+        try {
+            visit(views, 0);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            mUnsafe = "RemoteViews actions cannot be read: " + e;
+        }
+    }
+
+    private void visit(Object o, int depth) throws ReflectiveOperationException {
+        if (o == null || mUnsafe != null) {
+            return;
+        }
+        if (o instanceof Icon) {
+            visitIcon((Icon) o);
+            return;
+        }
+        if (o instanceof Uri) {
+            mUnsafe = "a link outside an image action";
+            return;
+        }
+        if (o instanceof CharSequence || o instanceof Number || o instanceof Boolean || o instanceof Character
+                || o instanceof Bitmap || o instanceof Class) {
+            return;
+        }
+        if (depth > MAX_DEPTH || mSeen.size() > MAX_OBJECTS) {
+            mUnsafe = "layout too deep";
+            return;
+        }
+        if (mSeen.put(o, Boolean.TRUE) != null) {
+            return;
+        }
+        if (o instanceof Object[]) {
+            for (Object element : (Object[]) o) {
+                visit(element, depth + 1);
+            }
+        } else if (o instanceof Iterable) {
+            for (Object element : (Iterable<?>) o) {
+                visit(element, depth + 1);
+            }
+        } else if (o instanceof Map) {
+            for (Map.Entry<?, ?> entry : ((Map<?, ?>) o).entrySet()) {
+                visit(entry.getKey(), depth + 1);
+                visit(entry.getValue(), depth + 1);
+            }
+        } else if (o instanceof SparseArray) {
+            final SparseArray<?> array = (SparseArray<?>) o;
+            for (int i = 0; i < array.size(); i++) {
+                visit(array.valueAt(i), depth + 1);
+            }
+        } else if (o.getClass().getName().startsWith(REMOTE_VIEWS)) {
+            visitRemoteViewsObject(o, depth);
+        }
+        // Anything else (intents, bundles, application info, strings) holds no image a view decodes.
+    }
+
+    private void visitRemoteViewsObject(Object o, int depth) throws ReflectiveOperationException {
+        if (o instanceof RemoteViews && ((RemoteViews) o).getLayoutId() == 0) {
+            // Draw instructions (remote compose) carry images the player decodes itself.
+            mUnsafe = "draw instructions";
+            return;
+        }
+        if (o.getClass().getName().endsWith("$SetDrawInstructionAction")) {
+            mUnsafe = "draw instructions";
+            return;
+        }
+        if (sReflectionAction.isInstance(o) && sType.getInt(o) == sUriType) {
+            visitUriAction(o);
+            return;
+        }
+        for (Field field : fields(o.getClass())) {
+            visit(field.get(o), depth + 1);
+            if (mUnsafe != null) {
+                return;
+            }
+        }
+    }
+
+    private void visitIcon(Icon icon) {
+        if (!mImages.needsWork(icon)) {
+            return;
+        }
+        mNeedsWork = true;
+        if (mConvert) {
+            final Icon safe = mImages.convert(icon);
+            if (safe == null || mImages.needsWork(safe)) {
+                mUnsafe = "an image that could not be replaced";
+                return;
+            }
+            icon.setTo(safe);
+        }
+    }
+
+    private void visitUriAction(Object action) throws ReflectiveOperationException {
+        mNeedsWork = true;
+        if (!SET_IMAGE_URI.equals(sMethodName.get(action))) {
+            mUnsafe = "a link given to " + sMethodName.get(action);
+            return;
+        }
+        if (!mConvert) {
+            return;
+        }
+        final Uri uri = (Uri) sValue.get(action);
+        final Icon icon = uri == null ? null : mImages.convert(uri);
+        if (uri != null && (icon == null || mImages.needsWork(icon))) {
+            mUnsafe = "an image link that could not be replaced";
+            return;
+        }
+        // setImageURI(uri) becomes setImageIcon(bitmap) on the same view, at the same place among the actions.
+        sValue.set(action, icon);
+        sType.setInt(action, sIconType);
+        sMethodName.set(action, SET_IMAGE_ICON);
+    }
+
+    // The instance fields of a RemoteViews class and of its RemoteViews superclasses.
+    private static Field[] fields(Class<?> cls) {
+        Field[] fields = sFields.get(cls);
+        if (fields != null) {
+            return fields;
+        }
+        final List<Field> list = new ArrayList<>();
+        for (Class<?> c = cls; c != null && c.getName().startsWith(REMOTE_VIEWS); c = c.getSuperclass()) {
+            for (Field f : c.getDeclaredFields()) {
+                if (Modifier.isStatic(f.getModifiers()) || f.getType().isPrimitive()) {
+                    continue;
+                }
+                f.setAccessible(true);
+                list.add(f);
+            }
+        }
+        fields = list.toArray(new Field[0]);
+        sFields.put(cls, fields);
+        return fields;
+    }
+}

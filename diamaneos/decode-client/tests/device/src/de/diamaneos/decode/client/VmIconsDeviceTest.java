@@ -31,7 +31,6 @@ import android.graphics.Bitmap;
 import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.SystemClock;
-import android.widget.RemoteViews;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -51,6 +50,14 @@ public class VmIconsDeviceTest {
 
     private static Bitmap bitmap() {
         return Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888);
+    }
+
+    // A gate for one inflation, with the test app's context as the posting app's.
+    private NotificationImageGate gate() {
+        final NotificationImageGate gate =
+                NotificationImageGate.forNotification(mContext, "pkg", mContext.getUserId(), 64, 64, 64);
+        gate.packageContext(mContext);
+        return gate;
     }
 
     @Test
@@ -128,7 +135,7 @@ public class VmIconsDeviceTest {
         final Notification original = notificationWithEveryVmIcon();
         final AtomicReference<Notification> copy = new AtomicReference<>();
         InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> copy.set(
-                NotificationImageGate.sanitizedCopy(original, mContext, "pkg", 64, 64, 64)));
+                gate().sanitizedCopy(original)));
         final Notification n = copy.get();
         assertNotNull(n);
         assertEquals(Icon.TYPE_RESOURCE, n.getSmallIcon().getType());
@@ -148,46 +155,14 @@ public class VmIconsDeviceTest {
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setLargeIcon(Icon.createWithBitmap(bitmap()))
                 .build();
-        assertSame(clean, NotificationImageGate.sanitizedCopy(clean, mContext, "pkg", 64, 64, 64));
-    }
-
-    @Test
-    public void gate_customLayouts_onlyBitmapImagesKept() {
-        final RemoteViews withData = new RemoteViews(mContext.getPackageName(), android.R.layout.simple_list_item_1);
-        withData.setImageViewIcon(android.R.id.icon, Icon.createWithData(DATA, 0, DATA.length));
-        final RemoteViews withUri = new RemoteViews(mContext.getPackageName(), android.R.layout.simple_list_item_1);
-        withUri.setImageViewUri(android.R.id.icon, URI);
-        final RemoteViews withResourceIcon =
-                new RemoteViews(mContext.getPackageName(), android.R.layout.simple_list_item_1);
-        withResourceIcon.setImageViewIcon(android.R.id.icon,
-                Icon.createWithResource("android", android.R.drawable.ic_menu_add));
-        final RemoteViews withBitmap = new RemoteViews(mContext.getPackageName(), android.R.layout.simple_list_item_1);
-        withBitmap.setImageViewBitmap(android.R.id.icon, bitmap());
-
-        final Notification n = new Notification.Builder(mContext, "test")
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
-                .setCustomContentView(withData)
-                .setCustomBigContentView(withUri)
-                .setCustomHeadsUpContentView(withBitmap)
-                .build();
-        final Notification copy = NotificationImageGate.sanitizedCopy(n, mContext, "pkg", 64, 64, 64);
-        assertNull(copy.contentView);
-        assertNull(copy.bigContentView);
-        assertNotNull(copy.headsUpContentView);
-
-        final Notification resource = new Notification.Builder(mContext, "test")
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
-                .setCustomContentView(withResourceIcon)
-                .build();
-        assertNull(NotificationImageGate.sanitizedCopy(resource, mContext, "pkg", 64, 64, 64).contentView);
+        assertSame(clean, gate().sanitizedCopy(clean));
     }
 
     @Test
     public void gate_onAWorker_withoutTheService_failsClosedWithinTheBudget() throws Exception {
         final Notification original = notificationWithEveryVmIcon();
         final AtomicReference<Notification> copy = new AtomicReference<>();
-        final Thread worker = new Thread(() -> copy.set(
-                NotificationImageGate.sanitizedCopy(original, mContext, "pkg", 64, 64, 64)));
+        final Thread worker = new Thread(() -> copy.set(gate().sanitizedCopy(original)));
         final long start = SystemClock.uptimeMillis();
         worker.start();
         worker.join(10_000);

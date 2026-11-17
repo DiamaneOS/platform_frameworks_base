@@ -37,12 +37,16 @@ java_library {
     ],
 }
 
-// The reply checks are plain Java, tested on the host.
+// The reply checks, the nine-patch chunk reader, the system image paths and the image caps are plain Java, tested on
+// the host.
 java_test_host {
     name: "diamaneos-decode-client-tests",
     srcs: [
         "tests/src/**/*.java",
+        "java/de/diamaneos/decode/client/ImageBudget.java",
+        "java/de/diamaneos/decode/client/NinePatchChunk.java",
         "java/de/diamaneos/decode/client/StripeValidator.java",
+        "java/de/diamaneos/decode/client/SystemImagePaths.java",
     ],
     static_libs: ["junit"],
     test_options: {
@@ -50,11 +54,13 @@ java_test_host {
     },
 }
 
-// On the phone: every Icon type through VmIcons and the notification gate, the main-thread refusal, and custom
-// layouts. Runs without the decode service too (VM icons are then removed within the budget).
+// On the phone: every Icon type through VmIcons and the notification gate, the main-thread refusal, and the app's
+// own layouts (every image action, nested layouts, images named in layout XML through a test layout of this APK, the
+// image cap, the VM down). Runs without the decode service too (images are then empty within the budget).
 android_test {
     name: "DiamaneOSDecodeClientTests",
     srcs: ["tests/device/src/**/*.java"],
+    resource_dirs: ["tests/device/res"],
     manifest: "tests/device/AndroidManifest.xml",
     static_libs: [
         "diamaneos-decode-client",

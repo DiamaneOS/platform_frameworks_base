@@ -422,23 +422,26 @@ constructor(
             // Ensure the ApplicationInfo is updated before a builder is recovered.
             updateApplicationInfo(sbn)
             // Every app image in the notification is decoded in the protected VM first (or removed), so the
-            // framework's own image loading never sees another app's compressed bytes.
+            // framework's own image loading never sees another app's compressed bytes. The app's own layouts are
+            // applied with resources that decode its bitmap files in the VM too.
             val metrics = context.resources.displayMetrics
-            val checkedNotification =
-                NotificationImageGate.sanitizedCopy(
-                    sbn.notification,
+            val imageGate =
+                NotificationImageGate.forNotification(
                     context,
                     sbn.packageName,
+                    sbn.normalizedUserId,
                     (VM_ICON_DP * metrics.density).toInt().coerceAtLeast(1),
                     minOf(metrics.widthPixels, metrics.heightPixels).coerceAtLeast(1),
                     (VM_PICTURE_DP * metrics.density).toInt().coerceAtLeast(1),
                 )
+            val gatedPackageContext = imageGate.packageContext(sbn.getPackageContext(context))
+            val checkedNotification = imageGate.sanitizedCopy(sbn.notification)
             val recoveredBuilder = Notification.Builder.recoverBuilder(context, checkedNotification)
             // In some tests, we want to replace the static badge logic with a fake.
             if (userProfileBadgeProvider != null) {
                 recoveredBuilder.setUserProfileBadgeProvider(userProfileBadgeProvider)
             }
-            var packageContext: Context = sbn.getPackageContext(context)
+            var packageContext: Context = gatedPackageContext
             if (recoveredBuilder.usesTemplate()) {
                 // For all of our templates, we want it to be RTL
                 packageContext = RtlEnabledContext(packageContext)
@@ -1757,5 +1760,5 @@ constructor(
 /** Icons and people decoded in the VM for a notification's views are bounded to this size. */
 private const val VM_ICON_DP = 128
 
-/** The big picture is decoded at the height its template shows, not at screen size. */
+/** The big picture, and the images of an app's own layouts, are decoded at most this high, not at screen size. */
 private const val VM_PICTURE_DP = 320

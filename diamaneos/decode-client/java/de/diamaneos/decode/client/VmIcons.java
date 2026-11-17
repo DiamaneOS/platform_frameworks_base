@@ -56,6 +56,39 @@ public final class VmIcons {
     private VmIcons() {
     }
 
+    static Bitmap cacheGet(String key) {
+        return sCache.get(key);
+    }
+
+    static void cachePut(String key, Bitmap bitmap) {
+        sCache.put(key, bitmap);
+    }
+
+    /** {@code bitmap}, or an immutable copy: cached bitmaps are shared between views, nobody may draw into them. */
+    static Bitmap immutable(Bitmap bitmap) {
+        if (!bitmap.isMutable()) {
+            return bitmap;
+        }
+        final Bitmap copy = bitmap.copy(bitmap.getConfig(), false);
+        if (copy == null) {
+            return bitmap;
+        }
+        bitmap.recycle();
+        return copy;
+    }
+
+    private static volatile Bitmap sEmpty;
+
+    /** A new empty (one transparent pixel) bitmap icon: what an image that could not be made is replaced by. */
+    public static Icon emptyIcon() {
+        Bitmap empty = sEmpty;
+        if (empty == null) {
+            empty = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888).copy(Bitmap.Config.ARGB_8888, false);
+            sEmpty = empty;
+        }
+        return Icon.createWithBitmap(empty);
+    }
+
     /** True for icons whose image bytes come from another app in compressed form. */
     public static boolean needsVm(Icon icon) {
         if (icon == null) {
@@ -194,13 +227,7 @@ public final class VmIcons {
                         VmDecode.PRIORITY_USER_WAITING, maxWidth, maxHeight, deadline);
             }
             // Cached bitmaps are shared between views: an immutable copy, so nobody can draw into it.
-            if (bitmap.isMutable()) {
-                final Bitmap immutable = bitmap.copy(bitmap.getConfig(), false);
-                if (immutable != null) {
-                    bitmap.recycle();
-                    bitmap = immutable;
-                }
-            }
+            bitmap = immutable(bitmap);
             if (key != null) {
                 sCache.put(key, bitmap);
             }
@@ -264,7 +291,7 @@ public final class VmIcons {
     private static final int MAX_RESOURCE_BYTES = 8 * 1024 * 1024;
 
     /** True for a package in the system image that no update replaced. */
-    private static boolean isSystemImage(ApplicationInfo ai) {
+    static boolean isSystemImage(ApplicationInfo ai) {
         return (ai.flags & ApplicationInfo.FLAG_SYSTEM) != 0
                 && (ai.flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) == 0;
     }
@@ -296,13 +323,7 @@ public final class VmIcons {
                 Log.w(TAG, "app resource icon not decoded, placeholder shown: " + e.getMessage());
                 return null;
             }
-            if (bitmap.isMutable()) {
-                final Bitmap immutable = bitmap.copy(bitmap.getConfig(), false);
-                if (immutable != null) {
-                    bitmap.recycle();
-                    bitmap = immutable;
-                }
-            }
+            bitmap = immutable(bitmap);
             if (key != null) {
                 sCache.put(key, bitmap);
             }
@@ -316,7 +337,7 @@ public final class VmIcons {
     }
 
     // A resource by user, package, its APK (path and time, so an update decodes again) and resource ID.
-    private static String resourceKey(Icon icon, Context context, int userId, String box) {
+    static String resourceKey(Icon icon, Context context, int userId, String box) {
         try {
             final ApplicationInfo ai = context.getPackageManager().getApplicationInfoAsUser(
                     icon.getResPackage(), 0, userId);
@@ -328,7 +349,7 @@ public final class VmIcons {
     }
 
     // URI icons by user, owner and URI (as SystemUI's own image caches do), data icons by a hash of their bytes.
-    private static String cacheKey(Icon icon, Context context, String ownerPackage, String box) {
+    static String cacheKey(Icon icon, Context context, String ownerPackage, String box) {
         if (icon.getType() == Icon.TYPE_DATA) {
             try {
                 final MessageDigest digest = MessageDigest.getInstance("SHA-256");

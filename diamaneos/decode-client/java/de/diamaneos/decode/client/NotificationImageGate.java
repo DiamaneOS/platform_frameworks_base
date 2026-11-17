@@ -20,30 +20,47 @@ import android.app.Notification;
 import android.app.Person;
 import android.app.RemoteInput;
 import android.content.Context;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.Canvas;
+import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Looper;
 import android.os.Parcelable;
+import android.os.SystemClock;
+import android.util.Log;
 import android.widget.RemoteViews;
 
 import java.util.ArrayList;
 
 /**
- * Makes a copy of a notification in which no image needs decoding from another app's compressed bytes: every icon
- * given as a URI or as createWithData bytes is replaced by a bitmap icon decoded in the VM, or removed when that
- * fails. The copy is what SystemUI inflates its views from, so the framework's own image loading (Icon.loadDrawable,
- * LocalImageResolver) never sees such an icon.
+ * The images of one notification in SystemUI, for one inflation of its views. Two parts:
  *
- * <p>Covered: the small and large icons, the big picture and big large icon, the conversation, verification and
- * progress icons, every Person (messaging user, senders, call person, people list), action icons, and the public
- * version. A custom layout (RemoteViews) is kept only when it references no URI and every Icon in it is a bitmap:
- * otherwise it is dropped and the standard layout is shown. Image messages (MessagingStyle data URIs and remote input
- * history) are resolved by SystemUI's resolver, which uses the VM too.
+ * <ul>
+ * <li>{@link #sanitizedCopy}: a copy of the notification in which no image needs decoding from another app's
+ * compressed bytes. Every icon given as a URI or as createWithData bytes becomes a bitmap icon decoded in the VM, or is
+ * removed when that fails: the small and large icons, the big picture and big large icon, the conversation,
+ * verification and progress icons, every Person, action icons and the public version. The app's own layouts
+ * (RemoteViews: content, big, heads-up and public) are kept and their images re-made in place: URI, data and app
+ * resource Icons and {@code setImageViewUri} become bitmaps decoded in the VM, nested layouts included. An image that
+ * cannot be made becomes an empty bitmap. Only a layout that cannot be read or converted is dropped.
+ * <li>{@link #packageContext}: the context the layouts are applied with. Its resources decode every bitmap file of
+ * an APK outside the system image in the VM ({@link AppResourceImages}): resource IDs in actions, drawables named in
+ * the app's layout XML and bitmap files inside its XML drawables.
+ * </ul>
  *
- * <p>All decoding for one notification shares one budget ({@link #BUDGET_MS}): a VM that hangs costs placeholders,
- * not a stuck notification. On the main thread nothing is decoded: VM icons are removed straight away.
+ * <p>All images of one notification share {@link #BUDGET_MS} of waiting for the VM: a VM that hangs costs images,
+ * not a stuck or missing notification. The images of its layouts are capped ({@link ImageBudget#MAX_IMAGES} and
+ * {@link ImageBudget#MAX_PIXELS}), so one app cannot starve others: anything over the caps is empty. Every decode is
+ * charged to the posting app. On the main thread nothing is decoded: app images are empty or removed.
  */
 public final class NotificationImageGate {
+    private static final String TAG = "VmDecode";
+
     // Message bundle key of the sender (Notification.MessagingStyle.Message.KEY_SENDER_PERSON).
     private static final String KEY_SENDER_PERSON = "sender_person";
 
@@ -58,46 +75,97 @@ public final class NotificationImageGate {
             Notification.EXTRA_PROGRESS_END_ICON,
     };
 
-    /** The time all images of one notification may take in the VM together. */
-    public static final long BUDGET_MS = 2_000;
+    /** The time all images of one notification may wait for the VM together. */
+    public static final long BUDGET_MS = ImageBudget.TIME_MS;
 
     private final Context mContext;
     private final String mOwner;
+    private final int mUserId;
     private final int mIconPx;
     private final int mPictureWidth;
     private final int mPictureHeight;
-    private final boolean mDecode;
-    private final long mDeadline;
+    private final ImageBudget mBudget;
+    private final AppResourceImages mResources;
+    private final RemoteViewsImages.Images mLayoutImages = new LayoutImages();
+    private Context mAppContext; // the gated context of the posting app, once made
+    private boolean mLayoutsAllowed;
 
-    private NotificationImageGate(Context context, String ownerPackage, int iconPx, int pictureWidth,
-            int pictureHeight) {
+    private NotificationImageGate(Context context, String ownerPackage, int userId, int iconPx, int pictureWidth,
+            int pictureHeight, ImageBudget budget) {
         mContext = context;
-        mOwner = ownerPackage;
-        mIconPx = iconPx;
-        mPictureWidth = pictureWidth;
-        mPictureHeight = pictureHeight;
-        mDecode = Looper.myLooper() != Looper.getMainLooper();
-        mDeadline = VmDecode.deadlineIn(BUDGET_MS);
+        mOwner = ownerPackage == null ? "" : ownerPackage;
+        mUserId = userId;
+        mIconPx = Math.max(1, iconPx);
+        mPictureWidth = Math.max(1, pictureWidth);
+        mPictureHeight = Math.max(1, pictureHeight);
+        mBudget = budget;
+        mResources = new AppResourceImages(context, mOwner, budget, mPictureWidth, mPictureHeight);
     }
 
     /**
-     * The checked copy of {@code notification}, or {@code notification} itself when it holds nothing to check.
-     * {@code iconPx} bounds icons and people, {@code pictureWidth} x {@code pictureHeight} the big picture (the size
-     * the template shows it at, not the screen). {@code ownerPackage} is the app that posted it. The original is not
-     * changed.
+     * The gate for one inflation of a notification posted by {@code ownerPackage} for {@code userId}.
+     * {@code context} is SystemUI's own. {@code iconPx} bounds icons and people, {@code pictureWidth} x
+     * {@code pictureHeight} the big picture and the images of the app's layouts.
      */
-    public static Notification sanitizedCopy(Notification notification, Context context, String ownerPackage,
+    public static NotificationImageGate forNotification(Context context, String ownerPackage, int userId,
             int iconPx, int pictureWidth, int pictureHeight) {
+        return forNotification(context, ownerPackage, userId, iconPx, pictureWidth, pictureHeight,
+                new ImageBudget());
+    }
+
+    /** {@link #forNotification(Context, String, int, int, int, int)} with a budget of the caller's (tests). */
+    public static NotificationImageGate forNotification(Context context, String ownerPackage, int userId,
+            int iconPx, int pictureWidth, int pictureHeight, ImageBudget budget) {
+        return new NotificationImageGate(context, ownerPackage, userId, iconPx, pictureWidth, pictureHeight, budget);
+    }
+
+    /**
+     * The context to apply the notification's views with: {@code packageContext} (the posting app's) with resources
+     * of its own whose image files go through the VM. Call it before {@link #sanitizedCopy}. When it cannot be made,
+     * {@code packageContext} comes back and the copy holds no custom layout.
+     */
+    public Context packageContext(Context packageContext) {
+        try {
+            mAppContext = VmImageContext.wrap(packageContext, mResources);
+            mLayoutsAllowed = true;
+            return mAppContext;
+        } catch (RuntimeException e) {
+            Log.e(TAG, "no image gate for the app's resources: custom layouts are dropped", e);
+            mAppContext = null;
+            mLayoutsAllowed = false;
+            return packageContext;
+        }
+    }
+
+    /** What this notification spent, for tests and logs. */
+    public ImageBudget budget() {
+        return mBudget;
+    }
+
+    /** The image file gate of the app's resources, for tests. */
+    public AppResourceImages resourceImages() {
+        return mResources;
+    }
+
+    /**
+     * The checked copy of {@code notification}, or {@code notification} itself when it holds nothing to check. The
+     * original is not changed.
+     */
+    public Notification sanitizedCopy(Notification notification) {
         if (!needsWork(notification, 0)) {
             return notification;
         }
         final Notification copy = notification.clone();
-        new NotificationImageGate(context, ownerPackage, iconPx, pictureWidth, pictureHeight).sanitize(copy, 0);
+        sanitize(copy, 0);
         return copy;
     }
 
-    /** True when {@code n} holds an app image to decode or a custom layout with a URI. */
-    private static boolean needsWork(Notification n, int depth) {
+    private boolean decodes() {
+        return Looper.myLooper() != Looper.getMainLooper();
+    }
+
+    /** True when {@code n} holds an app image to decode, or a custom layout to convert or drop. */
+    private boolean needsWork(Notification n, int depth) {
         if (VmIcons.needsVm(n.getSmallIcon()) || VmIcons.needsVm(n.getLargeIcon())) {
             return true;
         }
@@ -133,11 +201,18 @@ public final class NotificationImageGate {
                 }
             }
         }
-        if (!isSafe(n.contentView) || !isSafe(n.bigContentView) || !isSafe(n.headsUpContentView)
-                || !isSafe(n.tickerView)) {
+        if (layoutNeedsWork(n.contentView) || layoutNeedsWork(n.bigContentView)
+                || layoutNeedsWork(n.headsUpContentView) || layoutNeedsWork(n.tickerView)) {
             return true;
         }
         return n.publicVersion != null && depth == 0 && needsWork(n.publicVersion, depth + 1);
+    }
+
+    private boolean layoutNeedsWork(RemoteViews views) {
+        if (views == null) {
+            return false;
+        }
+        return !mLayoutsAllowed || RemoteViewsImages.needsWork(views, mLayoutImages);
     }
 
     private static boolean needsVm(Person person) {
@@ -156,25 +231,6 @@ public final class NotificationImageGate {
             }
         }
         return false;
-    }
-
-    /**
-     * True for no layout, or a layout that references no URI and holds only bitmap Icons. Any other Icon (a URI,
-     * createWithData bytes, an app resource) would be decoded by SystemUI when the layout is applied.
-     */
-    private static boolean isSafe(RemoteViews views) {
-        if (views == null) {
-            return true;
-        }
-        final boolean[] unsafe = {false};
-        views.visitUris(uri -> unsafe[0] = true);
-        views.visitIcons(icon -> {
-            if (icon != null && icon.getType() != Icon.TYPE_BITMAP
-                    && icon.getType() != Icon.TYPE_ADAPTIVE_BITMAP) {
-                unsafe[0] = true;
-            }
-        });
-        return !unsafe[0];
     }
 
     private void sanitize(Notification n, int depth) {
@@ -198,10 +254,10 @@ public final class NotificationImageGate {
                 }
             }
         }
-        n.contentView = withoutUris(n.contentView);
-        n.bigContentView = withoutUris(n.bigContentView);
-        n.headsUpContentView = withoutUris(n.headsUpContentView);
-        n.tickerView = withoutUris(n.tickerView);
+        n.contentView = layout(n.contentView);
+        n.bigContentView = layout(n.bigContentView);
+        n.headsUpContentView = layout(n.headsUpContentView);
+        n.tickerView = layout(n.tickerView);
         if (n.publicVersion != null && depth == 0) {
             sanitize(n.publicVersion, depth + 1);
         }
@@ -275,11 +331,24 @@ public final class NotificationImageGate {
         return safe(icon, px, px);
     }
 
+    // A URI or data icon of the standard fields: decoded in the VM within the notification's time, or null.
     private Icon safe(Icon icon, int maxWidth, int maxHeight) {
         if (!VmIcons.needsVm(icon)) {
             return icon;
         }
-        return mDecode ? VmIcons.toSafeIcon(icon, mContext, mOwner, maxWidth, maxHeight, mDeadline) : null;
+        if (!decodes()) {
+            return null;
+        }
+        final long left = mBudget.remainingMs();
+        if (left <= 0) {
+            return null;
+        }
+        final long start = SystemClock.uptimeMillis();
+        try {
+            return VmIcons.toSafeIcon(icon, mContext, mOwner, maxWidth, maxHeight, VmDecode.deadlineIn(left));
+        } finally {
+            mBudget.spent(SystemClock.uptimeMillis() - start);
+        }
     }
 
     private static Notification.Action withIcon(Notification.Action action, Icon icon) {
@@ -305,7 +374,188 @@ public final class NotificationImageGate {
         }
     }
 
-    private static RemoteViews withoutUris(RemoteViews views) {
-        return isSafe(views) ? views : null;
+    // The app's own layout, its images re-made in place, or null when it has to be dropped.
+    private RemoteViews layout(RemoteViews views) {
+        if (views == null) {
+            return null;
+        }
+        if (!mLayoutsAllowed) {
+            return null;
+        }
+        return RemoteViewsImages.convert(views, mLayoutImages) ? views : null;
+    }
+
+    /** The images inside the app's layouts: every one counted against the layout caps. */
+    private final class LayoutImages implements RemoteViewsImages.Images {
+        @Override
+        public boolean needsWork(Icon icon) {
+            if (icon == null) {
+                return false;
+            }
+            switch (icon.getType()) {
+                case Icon.TYPE_BITMAP:
+                case Icon.TYPE_ADAPTIVE_BITMAP:
+                    return false;
+                case Icon.TYPE_RESOURCE:
+                    return !isSystemResource(icon);
+                default:
+                    return true;
+            }
+        }
+
+        @Override
+        public Icon convert(Icon icon) {
+            Icon safe = null;
+            try {
+                safe = icon.getType() == Icon.TYPE_RESOURCE ? resourceIcon(icon) : vmIcon(icon);
+            } catch (RuntimeException e) {
+                Log.w(TAG, "layout image not made, empty: " + e);
+            }
+            return safe != null ? safe : VmIcons.emptyIcon();
+        }
+
+        @Override
+        public Icon convert(Uri uri) {
+            return convert(Icon.createWithContentUri(uri));
+        }
+    }
+
+    // A resource of the framework or of a package in the system image loads as before.
+    private boolean isSystemResource(Icon icon) {
+        final String pkg = resourcePackage(icon);
+        if ("android".equals(pkg)) {
+            return true;
+        }
+        try {
+            return VmIcons.isSystemImage(
+                    mContext.getPackageManager().getApplicationInfoAsUser(pkg, 0, mUserId));
+        } catch (PackageManager.NameNotFoundException | RuntimeException e) {
+            return false;
+        }
+    }
+
+    private String resourcePackage(Icon icon) {
+        final String pkg = icon.getResPackage();
+        return pkg == null || pkg.isEmpty() ? mOwner : pkg;
+    }
+
+    // A URI or data icon of a layout, decoded in the VM, or null.
+    private Icon vmIcon(Icon icon) {
+        final String box = mPictureWidth + "x" + mPictureHeight;
+        final String key = VmIcons.cacheKey(icon, mContext, mOwner, box);
+        final ImageBudget.Admission admission =
+                mBudget.admit(key != null ? key : "icon:" + System.identityHashCode(icon));
+        if (admission == ImageBudget.Admission.REFUSED || !decodes()) {
+            return null;
+        }
+        final long left = mBudget.remainingMs();
+        if (left <= 0) {
+            return null;
+        }
+        final long start = SystemClock.uptimeMillis();
+        final Icon safe;
+        try {
+            mBudget.countVmCall();
+            safe = VmIcons.toSafeIcon(icon, mContext, mOwner, mPictureWidth, mPictureHeight,
+                    VmDecode.deadlineIn(left));
+        } finally {
+            mBudget.spent(SystemClock.uptimeMillis() - start);
+        }
+        return charged(admission, key, safe);
+    }
+
+    // An app resource icon of a layout: drawn from the app's resources behind the image gate (bitmap files in the
+    // VM, XML parsed as usual), as a bitmap.
+    private Icon resourceIcon(Icon icon) {
+        if (!decodes()) {
+            return null;
+        }
+        final String pkg = resourcePackage(icon);
+        final String box = mPictureWidth + "x" + mPictureHeight;
+        final String key = "ricon:" + mUserId + ':' + pkg + ':' + icon.getResId() + ':' + box;
+        final ImageBudget.Admission admission = mBudget.admit(key);
+        if (admission == ImageBudget.Admission.REFUSED) {
+            return null;
+        }
+        final Context appContext = contextFor(pkg);
+        if (appContext == null) {
+            return null;
+        }
+        final Drawable drawable;
+        try {
+            drawable = appContext.getDrawable(icon.getResId());
+        } catch (RuntimeException e) {
+            Log.w(TAG, "layout resource icon not loaded: " + e);
+            return null;
+        }
+        // A bitmap file comes back as the bitmap the image gate made in the VM, already charged. Anything else (XML)
+        // is drawn here, and its pixels are charged.
+        final Bitmap made = madeBitmap(drawable);
+        final Bitmap bitmap = made != null ? made : draw(drawable);
+        if (bitmap == null) {
+            return null;
+        }
+        final Icon safe = Icon.createWithBitmap(bitmap);
+        if (icon.hasTint()) {
+            safe.setTintList(icon.getTintList());
+            safe.setTintBlendMode(icon.getTintBlendMode());
+        }
+        return made != null ? safe : charged(admission, key, safe);
+    }
+
+    private Icon charged(ImageBudget.Admission admission, String key, Icon safe) {
+        if (safe == null || admission != ImageBudget.Admission.NEW || key == null) {
+            return safe;
+        }
+        final Bitmap bitmap = safe.getBitmap();
+        final long pixels = bitmap == null ? 0 : (long) bitmap.getWidth() * bitmap.getHeight();
+        return mBudget.charge(key, pixels) ? safe : null;
+    }
+
+    // The gated context of the posting app, or of another app whose resource an icon names.
+    private Context contextFor(String pkg) {
+        if (mAppContext != null && pkg.equals(mAppContext.getPackageName())) {
+            return mAppContext;
+        }
+        try {
+            final ApplicationInfo ai =
+                    mContext.getPackageManager().getApplicationInfoAsUser(pkg, 0, mUserId);
+            return VmImageContext.wrap(mContext.createApplicationContext(ai, Context.CONTEXT_RESTRICTED),
+                    mResources);
+        } catch (PackageManager.NameNotFoundException | RuntimeException e) {
+            Log.w(TAG, "no resources for " + pkg + ": " + e);
+            return null;
+        }
+    }
+
+    // The bitmap of a drawable the image gate made from a bitmap file (decoded in the VM), else null.
+    private Bitmap madeBitmap(Drawable drawable) {
+        if (drawable instanceof BitmapDrawable) {
+            final Bitmap bitmap = ((BitmapDrawable) drawable).getBitmap();
+            if (bitmap != null && bitmap.getWidth() <= mPictureWidth && bitmap.getHeight() <= mPictureHeight) {
+                return bitmap;
+            }
+        }
+        return null;
+    }
+
+    // The drawable drawn into a bitmap within the layout box.
+    private Bitmap draw(Drawable drawable) {
+        if (drawable == null) {
+            return null;
+        }
+        int width = drawable.getIntrinsicWidth();
+        int height = drawable.getIntrinsicHeight();
+        if (width <= 0 || height <= 0) {
+            width = mIconPx;
+            height = mIconPx;
+        }
+        final float scale = Math.min(1f, Math.min((float) mPictureWidth / width, (float) mPictureHeight / height));
+        width = Math.max(1, Math.round(width * scale));
+        height = Math.max(1, Math.round(height * scale));
+        final Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        drawable.setBounds(0, 0, width, height);
+        drawable.draw(new Canvas(bitmap));
+        return VmIcons.immutable(bitmap);
     }
 }

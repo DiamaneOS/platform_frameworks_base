@@ -133,7 +133,7 @@ public final class Icon implements Parcelable {
     private static final int VERSION_STREAM_SERIALIZER = 1;
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
-    private final int mType;
+    private int mType; // Not final only for setTo(Icon).
 
     private ColorStateList mTintList;
     static final BlendMode DEFAULT_BLEND_MODE = Drawable.DEFAULT_BLEND_MODE; // SRC_IN
@@ -167,6 +167,26 @@ public final class Icon implements Parcelable {
 
     // TYPE_RESOURCE: wrap the monochrome drawable in an InsetDrawable with the specified inset
     private float mInsetScale = 0.0f;
+
+    /**
+     * Makes this icon a copy of {@code other}: its type, image and tint. For SystemUI, which re-makes the images of
+     * another app's notification layout in place, on its own copy of that layout, so that whatever holds this icon
+     * gets the new image. Never call it on an icon that other code may be using.
+     *
+     * @hide
+     */
+    public void setTo(@NonNull Icon other) {
+        mType = other.mType;
+        mObj1 = other.mObj1;
+        mCachedAshmem = other.mCachedAshmem;
+        mString1 = other.mString1;
+        mInt1 = other.mInt1;
+        mInt2 = other.mInt2;
+        mUseMonochrome = other.mUseMonochrome;
+        mInsetScale = other.mInsetScale;
+        mTintList = other.mTintList;
+        mBlendMode = other.mBlendMode;
+    }
 
     /**
      * Whether this icon draws only the monochrome layer of an {@link AdaptiveIconDrawable}.

@@ -566,10 +566,12 @@ public class NotificationChildrenContainer extends ViewGroup
         }
         if (mIsMinimized) {
             if (builder == null) {
-                // On the main thread nothing is decoded: app images are left out of the header.
+                // On the main thread nothing is decoded: app images are left out of the header. The header is
+                // a template, so the copy needs none of the app layouts (they are left out of it).
                 builder = Notification.Builder.recoverBuilder(getContext(),
-                        NotificationImageGate.sanitizedCopy(notification.getNotification(),
-                                getContext(), notification.getPackageName(), 1, 1, 1));
+                        NotificationImageGate.forNotification(getContext(), notification.getPackageName(),
+                                notification.getNormalizedUserId(), 1, 1, 1)
+                                .sanitizedCopy(notification.getNotification()));
             }
             header = builder.makeLowPriorityContentView(true /* useRegularSubtext */);
             if (mMinimizedGroupHeader == null) {
