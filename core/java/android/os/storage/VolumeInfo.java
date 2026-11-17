@@ -99,6 +99,8 @@ public class VolumeInfo implements Parcelable {
     public static final int STATE_UNMOUNTABLE = IVold.VOLUME_STATE_UNMOUNTABLE;
     public static final int STATE_REMOVED = IVold.VOLUME_STATE_REMOVED;
     public static final int STATE_BAD_REMOVAL = IVold.VOLUME_STATE_BAD_REMOVAL;
+    /** DiamaneOS: the filesystem VM could not open the volume. Nothing says it is corrupted. */
+    public static final int STATE_UNOPENABLE = IVold.VOLUME_STATE_UNOPENABLE;
 
     public static final int MOUNT_FLAG_PRIMARY = IVold.MOUNT_FLAG_PRIMARY;
     public static final int MOUNT_FLAG_VISIBLE_FOR_READ = IVold.MOUNT_FLAG_VISIBLE_FOR_READ;
@@ -134,6 +136,8 @@ public class VolumeInfo implements Parcelable {
         sStateToEnvironment.put(VolumeInfo.STATE_UNMOUNTABLE, Environment.MEDIA_UNMOUNTABLE);
         sStateToEnvironment.put(VolumeInfo.STATE_REMOVED, Environment.MEDIA_REMOVED);
         sStateToEnvironment.put(VolumeInfo.STATE_BAD_REMOVAL, Environment.MEDIA_BAD_REMOVAL);
+        // Apps see a volume the VM could not open as unmounted, not as corrupted.
+        sStateToEnvironment.put(VolumeInfo.STATE_UNOPENABLE, Environment.MEDIA_UNMOUNTED);
 
         sEnvironmentToBroadcast.put(Environment.MEDIA_UNMOUNTED, Intent.ACTION_MEDIA_UNMOUNTED);
         sEnvironmentToBroadcast.put(Environment.MEDIA_CHECKING, Intent.ACTION_MEDIA_CHECKING);
@@ -153,6 +157,7 @@ public class VolumeInfo implements Parcelable {
         sStateToDescrip.put(VolumeInfo.STATE_UNMOUNTABLE, R.string.ext_media_status_unmountable);
         sStateToDescrip.put(VolumeInfo.STATE_REMOVED, R.string.ext_media_status_removed);
         sStateToDescrip.put(VolumeInfo.STATE_BAD_REMOVAL, R.string.ext_media_status_bad_removal);
+        sStateToDescrip.put(VolumeInfo.STATE_UNOPENABLE, R.string.ext_media_status_unopenable);
     }
 
     /** vold state */

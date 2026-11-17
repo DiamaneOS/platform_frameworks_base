@@ -355,6 +355,9 @@ public class StorageNotification implements CoreStartable {
             case VolumeInfo.STATE_UNMOUNTABLE:
                 notif = onVolumeUnmountable(vol);
                 break;
+            case VolumeInfo.STATE_UNOPENABLE:
+                notif = onVolumeUnopenable(vol);
+                break;
             case VolumeInfo.STATE_REMOVED:
                 notif = onVolumeRemoved(vol);
                 break;
@@ -489,6 +492,25 @@ public class StorageNotification implements CoreStartable {
 
         return buildNotificationBuilder(vol, title, text)
                 .setContentIntent(action)
+                .setCategory(Notification.CATEGORY_ERROR)
+                .build();
+    }
+
+    /**
+     * DiamaneOS: the filesystem VM could not open the volume. A plain notice: no format button, no way to mount it
+     * anyway, no other app. Nothing says the card is corrupted, because nothing showed that it is.
+     */
+    private Notification onVolumeUnopenable(VolumeInfo vol) {
+        final DiskInfo disk = vol.getDisk();
+        final int title;
+        if (disk != null && disk.isSd()) {
+            title = R.string.ext_media_unopenable_notification_title_sd;
+        } else if (disk != null && disk.isUsb()) {
+            title = R.string.ext_media_unopenable_notification_title_usb;
+        } else {
+            title = R.string.ext_media_unopenable_notification_title;
+        }
+        return buildNotificationBuilder(vol, mContext.getString(title), null)
                 .setCategory(Notification.CATEGORY_ERROR)
                 .build();
     }

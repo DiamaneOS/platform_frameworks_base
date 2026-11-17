@@ -4292,6 +4292,13 @@
     <!-- Automotive specific notification body when external media is unmountable (corrupt) [CHAR LIMIT=NONE] -->
     <string name="ext_media_unmountable_notification_message" product="automotive">You may need to reformat the device. Tap to eject.</string>
 
+    <!-- DiamaneOS: notification title when the filesystem VM could not open an SD card. No format offer. [CHAR LIMIT=NONE] -->
+    <string name="ext_media_unopenable_notification_title_sd">This SD card could not be opened</string>
+    <!-- DiamaneOS: notification title when the filesystem VM could not open a USB drive. No format offer. [CHAR LIMIT=NONE] -->
+    <string name="ext_media_unopenable_notification_title_usb">This USB drive could not be opened</string>
+    <!-- DiamaneOS: notification title when the filesystem VM could not open other external storage. [CHAR LIMIT=NONE] -->
+    <string name="ext_media_unopenable_notification_title">This storage device could not be opened</string>
+
     <!-- Notification title when external media is unsupported [CHAR LIMIT=30] -->
     <string name="ext_media_unsupported_notification_title"><xliff:g id="name" example="SD card">%s</xliff:g> detected </string>
     <!-- Automotive specific notification title when external media is unsupported [CHAR LIMIT=30] -->
@@ -4362,6 +4369,8 @@
     <string name="ext_media_status_bad_removal">Removed unsafely</string>
     <!-- Short summary of storage media status when unmountable [CHAR LIMIT=32] -->
     <string name="ext_media_status_unmountable">Corrupted</string>
+    <!-- DiamaneOS: short summary of storage media status when the filesystem VM could not open it [CHAR LIMIT=32] -->
+    <string name="ext_media_status_unopenable">Could not be opened</string>
     <!-- Short summary of storage media status when unsupported [CHAR LIMIT=32] -->
     <string name="ext_media_status_unsupported">Unsupported</string>
     <!-- Short summary of storage media status when ejecting [CHAR LIMIT=32] -->
