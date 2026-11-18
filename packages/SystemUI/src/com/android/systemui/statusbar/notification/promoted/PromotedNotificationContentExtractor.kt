@@ -61,6 +61,10 @@ import com.android.systemui.util.time.SystemClock
 import javax.inject.Inject
 
 interface PromotedNotificationContentExtractor {
+    /**
+     * [sourceNotification]: the notification the row's views are made from (the copy whose app images were checked
+     * on an image thread), read instead of the entry's own. Null reads the entry's.
+     */
     @WorkerThread
     fun extractContent(
         entry: NotificationEntry,
@@ -69,6 +73,7 @@ interface PromotedNotificationContentExtractor {
         imageModelProvider: ImageModelProvider,
         packageContext: Context,
         systemUiContext: Context,
+        sourceNotification: Notification? = null,
     ): PromotedNotificationContentModels?
 }
 
@@ -90,8 +95,10 @@ constructor(
         imageModelProvider: ImageModelProvider,
         packageContext: Context,
         systemUiContext: Context,
+        sourceNotification: Notification?,
     ): PromotedNotificationContentModels? {
-        val notification = entry.sbn.notification
+        // The checked copy: its icons are pixels or go through the image gate, never another app's bytes.
+        val notification = sourceNotification ?: entry.sbn.notification
         if (notification == null) {
             if (LOG_NOT_EXTRACTED) {
                 logger.logExtractionFailed(entry, "entry.sbn.notification is null")
@@ -108,6 +115,7 @@ constructor(
             extractPrivateContent(
                 key = entry.key,
                 sbn = entry.sbn,
+                notification = notification,
                 recoveredBuilder = recoveredBuilder,
                 lastAudiblyAlertedMs = entry.lastAudiblyAlertedMs,
                 imageModelProvider = imageModelProvider,
@@ -206,13 +214,13 @@ constructor(
     private fun extractPrivateContent(
         key: String,
         sbn: StatusBarNotification,
+        notification: Notification,
         recoveredBuilder: Notification.Builder,
         lastAudiblyAlertedMs: Long,
         imageModelProvider: ImageModelProvider,
         packageContext: Context,
         systemUiContext: Context,
     ): PromotedNotificationContentModel {
-        val notification = sbn.notification
         val contentBuilder = PromotedNotificationContentModel.Builder(key)
         // TODO: Pitch a fit if style is unsupported or mandatory fields are missing once
         // FLAG_PROMOTED_ONGOING is set reliably and we're not testing status bar chips.

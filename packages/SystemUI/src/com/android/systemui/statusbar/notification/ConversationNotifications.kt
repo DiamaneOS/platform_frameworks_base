@@ -45,6 +45,7 @@ import com.android.systemui.statusbar.notification.row.NotificationContentView
 import com.android.systemui.statusbar.notification.row.NotificationRowContentBinderLogger
 import com.android.systemui.statusbar.notification.stack.StackStateAnimator
 import com.android.systemui.util.children
+import de.diamaneos.decode.client.ForeignIcons
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 
@@ -71,7 +72,15 @@ constructor(
             else Notification.MessagingStyle.CONVERSATION_TYPE_LEGACY
         entry.ranking.conversationShortcutInfo?.let { shortcutInfo ->
             logger.logAsyncTaskProgress(entry.logKey, "getting shortcut icon")
-            messagingStyle.shortcutIcon = launcherApps.getShortcutIcon(shortcutInfo)
+            // Decoded in the protected VM on an image thread before this inflation. Here only what was made then.
+            messagingStyle.shortcutIcon =
+                ForeignIcons.shortcutIcon(
+                    context,
+                    launcherApps,
+                    shortcutInfo,
+                    ForeignIcons.shortcutPx(context),
+                    /* mayWait= */ false,
+                )
             shortcutInfo.label?.let { label -> messagingStyle.conversationTitle = label }
         }
         if (

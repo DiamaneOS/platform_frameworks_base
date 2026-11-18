@@ -534,6 +534,22 @@ public final class Icon implements Parcelable {
         return res != null && res.getImageFileGate() != null;
     }
 
+    // DiamaneOS: true when a load of this resource icon through context must take the context's gated resources: the
+    // context has an image file gate, the icon is an app's (not the framework's) and does not hold gated resources of
+    // its own already.
+    private boolean mustLoadGated(Context context) {
+        if (!isGated(context) || "android".equals(resPackageFor(context))) {
+            return false;
+        }
+        final Resources cached = getResources();
+        return cached == null || cached.getImageFileGate() == null;
+    }
+
+    private String resPackageFor(Context context) {
+        final String resPackage = getResPackage();
+        return TextUtils.isEmpty(resPackage) ? context.getPackageName() : resPackage;
+    }
+
     private Resources getResourcesForPackage$ravenwood(Context context, String resPackage) {
         if (!resPackage.equals(context.getPackageName())) {
             throw new IllegalArgumentException(
@@ -554,6 +570,25 @@ public final class Icon implements Parcelable {
                     new BitmapDrawable(context.getResources(), fixMaxBitmapSize(getBitmap())));
             case TYPE_RESOURCE:
                 invalidateResourcesCacheIfNeeded(context);
+                if (mustLoadGated(context)) {
+                    // DiamaneOS: a load through a gated context uses gated resources, for this load only. Plain
+                    // resources cached in this (shared) icon are never used for it, and the gated ones are never
+                    // kept in it. No gated resources for the package: nothing is shown.
+                    final Resources gatedForLoad = gatedResourcesForPackage(context, resPackageFor(context));
+                    if (gatedForLoad == null) {
+                        break;
+                    }
+                    try {
+                        return fixMaxBitmapSize(gatedForLoad,
+                                gatedForLoad.getDrawable(getResId(), context.getTheme()));
+                    } catch (RuntimeException e) {
+                        Log.e(TAG, String.format("Unable to load resource 0x%08x from pkg=%s",
+                                        getResId(),
+                                        getResPackage()),
+                                e);
+                    }
+                    break;
+                }
                 if (getResources() == null) {
                     // figure out where to load resources from
                     String resPackage = getResPackage();
@@ -665,12 +700,10 @@ public final class Icon implements Parcelable {
                 resPackage = context.getPackageName();
             }
             invalidateResourcesCacheIfNeeded(context);
-            if (getResources() == null && !(getResPackage().equals("android")) && isGated(context)) {
-                // DiamaneOS: through the context's image file gate, never plain resources.
-                mObj1 = gatedResourcesForPackage(context, resPackage);
-                if (mObj1 == null) {
-                    return null;
-                }
+            if (!"android".equals(resPackage) && isGated(context)) {
+                // DiamaneOS: through the context's image file gate (see loadDrawableInner), never plain resources,
+                // and nothing is kept in this icon.
+                return loadDrawable(context);
             }
             if (getResources() == null && !(getResPackage().equals("android"))) {
                 // TODO(b/173307037): Move CONTEXT_INCLUDE_CODE to ContextImpl.createContextAsUser

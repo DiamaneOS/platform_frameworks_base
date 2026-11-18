@@ -48,7 +48,8 @@ class BridgedIconProviderImpl @Inject constructor() : BridgedIconProvider {
         bridgedMetadata: BridgedNotificationMetadata,
     ): Drawable? {
         val baseIcon = bridgedMetadata.appIcon
-        val baseDrawable = VmIcons.loadDrawable(baseIcon, context, "", 512) ?: return null
+        // Never waits for the VM on the caller's thread (the inflation thread): only what was decoded before.
+        val baseDrawable = VmIcons.loadDrawableNoWait(baseIcon, context, "", 512) ?: return null
         val layers = mutableListOf<Drawable>(baseDrawable, createPlateOverlayDrawable(context))
         layers.add(createPositionedPhoneIconDrawable(context))
         return LayerDrawable(layers.toTypedArray())

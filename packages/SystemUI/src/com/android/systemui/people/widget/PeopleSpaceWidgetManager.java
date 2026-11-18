@@ -130,6 +130,8 @@ import java.util.stream.Stream;
 
 import javax.inject.Inject;
 
+import de.diamaneos.decode.client.ForeignIcons;
+
 /** Manager for People Space widget. */
 @SysUISingleton
 public class PeopleSpaceWidgetManager implements Dumpable {
@@ -754,8 +756,9 @@ public class PeopleSpaceWidgetManager implements Dumpable {
         if (label != null) {
             updatedTile.setUserName(label);
         }
-        Icon icon = PeopleSpaceTile.convertDrawableToIcon(mLauncherApps.getShortcutIconDrawable(
-                info, 0));
+        // The shortcut's icon file, URI or resource is decoded in the protected VM, never here.
+        Icon icon = PeopleSpaceTile.convertDrawableToIcon(ForeignIcons.shortcutDrawable(mContext,
+                mLauncherApps, info, ForeignIcons.shortcutPx(mContext)));
         if (icon != null) {
             updatedTile.setUserIcon(icon);
         }

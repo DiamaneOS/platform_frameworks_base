@@ -27,40 +27,52 @@ import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.util.Log;
 
-import java.util.HashMap;
-import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Set;
+import java.util.Objects;
 
 /**
  * An app's resource icon where SystemUI loads it on the main thread (the status bar, the shelf, always on display):
  * through resources behind an image gate, so whatever configuration the icon is shown in (night, landscape, another
  * density, an updated app) a bitmap file of the app is decoded in the VM, never here. The main thread only finds images
  * already made. When the icon's image is not made yet, the neutral icon shows, the image is made on an image thread,
- * and the caller is told to load the icon again. The gated resources follow SystemUI's configuration: after a change
- * they are made anew, and the caller refreshes its icons.
+ * and the caller is told to load the icon again. An image that could not be made (the VM not up yet, the app's quota
+ * spent) is tried again later, waiting longer after each failure ({@link Backoff}). The gated resources follow the
+ * parts of SystemUI's configuration that can pick another resource ({@link #configKey}): after such a change they are
+ * made anew, and the caller refreshes its icons. Window-only changes keep them.
  */
 public final class AppIcons {
     private static final String TAG = "VmDecode";
     private static final int PICTURE_DP = 320;
+    private static final int MAX_GATED = 128;
 
     private static final Object sLock = new Object();
-    // Gated resources and their gate per user and package, for one configuration.
-    private static final Map<String, Gated> sGated = new HashMap<>(); // guarded by sLock
+    // Gated resources and their gate per posting app, user and package, for one configuration and one APK. Least
+    // recently used first.
+    private static final LinkedHashMap<String, Gated> sGated = new LinkedHashMap<String, Gated>(16, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, Gated> eldest) {
+            return size() > MAX_GATED;
+        }
+    }; // guarded by sLock
+    // Images asked for and not made yet, or failed and waiting for their next try.
+    private static final Backoff sRetry = new Backoff();
     private static final Handler sMain = new Handler(Looper.getMainLooper());
 
     private AppIcons() {
     }
 
     private static final class Gated {
-        final Configuration config;
+        final String key;
+        final String configKey;
+        final String sourceDir;
         final AppResourceImages gate;
         final Resources res;
-        // Icons whose image was asked for in this configuration: asked once, the neutral icon after a failure.
-        final Set<Integer> asked = new HashSet<>();
 
-        Gated(Configuration config, AppResourceImages gate, Resources res) {
-            this.config = config;
+        Gated(String key, String configKey, String sourceDir, AppResourceImages gate, Resources res) {
+            this.key = key;
+            this.configKey = configKey;
+            this.sourceDir = sourceDir;
             this.gate = gate;
             this.res = res;
         }
@@ -69,6 +81,30 @@ public final class AppIcons {
     /** The neutral icon shown in place of an app image that cannot be shown. */
     public static Icon neutral() {
         return Icon.createWithResource("android", android.R.drawable.ic_dialog_info);
+    }
+
+    /**
+     * The parts of {@code config} that can make an app's resources pick another file: night mode and UI type,
+     * orientation, density, locales, layout direction and screen layout, screen sizes, mobile network codes, input
+     * qualifiers, color mode, grammatical gender and overlays. Not the window bounds or the font scale.
+     */
+    public static String configKey(Configuration config) {
+        return config.uiMode + "/" + config.orientation + "/" + config.densityDpi + "/"
+                + config.getLocales().toLanguageTags() + "/" + config.screenLayout + "/"
+                + config.smallestScreenWidthDp + "/" + config.screenWidthDp + "x" + config.screenHeightDp + "/"
+                + config.mcc + "-" + config.mnc + "/" + config.touchscreen + "/" + config.keyboard + "/"
+                + config.navigation + "/" + config.colorMode + "/" + config.getGrammaticalGender() + "/"
+                + config.assetsSeq;
+    }
+
+    /** True when going from {@code before} to {@code after} can change which resource files apps' icons use. */
+    public static boolean resourceConfigChanged(Configuration before, Configuration after) {
+        return before == null || after == null || !configKey(before).equals(configKey(after));
+    }
+
+    /** True for a resource icon of any package but the framework: such an icon is loaded through an image gate. */
+    public static boolean isAppResource(Icon icon) {
+        return icon != null && icon.getType() == Icon.TYPE_RESOURCE && !"android".equals(icon.getResPackage());
     }
 
     /**
@@ -81,30 +117,32 @@ public final class AppIcons {
         if (icon == null) {
             return null;
         }
-        if (VmIcons.needsVm(icon)) {
-            return neutral();
+        final Icon shown = forViewOrNull(context, icon, userId, ownerPackage, onMade);
+        return shown != null ? shown : neutral();
+    }
+
+    /** {@link #forView}, with null where it would give the neutral icon (the caller has a better fallback). */
+    public static Icon forViewOrNull(Context context, Icon icon, int userId, String ownerPackage, Runnable onMade) {
+        if (icon == null || VmIcons.needsVm(icon)) {
+            return null;
         }
-        if (icon.getType() != Icon.TYPE_RESOURCE || "android".equals(icon.getResPackage())) {
+        if (!isAppResource(icon)) {
             return icon;
         }
-        final String pkg = icon.getResPackage() == null || icon.getResPackage().isEmpty()
-                ? ownerPackage : icon.getResPackage();
+        final String pkg = packageOf(icon, ownerPackage);
         final Gated gated = gated(context, userId, pkg, ownerPackage);
         if (gated == null) {
-            return neutral();
+            return null;
         }
         final Icon copy = icon.copyWithResources(gated.res);
         if (loads(context, copy)) {
             return copy;
         }
-        final boolean ask;
-        synchronized (sLock) {
-            ask = gated.asked.add(icon.getResId());
+        final String retryKey = gated.key + ':' + gated.configKey + ':' + icon.getResId();
+        if (sRetry.start(retryKey, SystemClock.uptimeMillis())) {
+            make(context, gated, copy, ownerPackage, retryKey, onMade);
         }
-        if (ask) {
-            make(context, gated, copy, ownerPackage, onMade);
-        }
-        return neutral();
+        return null;
     }
 
     // True when the icon loads with every app image it names already made (no VM here).
@@ -119,45 +157,89 @@ public final class AppIcons {
         }
     }
 
-    // Makes the icon's images on an image thread, charged to the app, then tells the caller.
-    private static void make(Context context, Gated gated, Icon copy, String ownerPackage, Runnable onMade) {
+    // Makes the icon's images on an image thread, charged to the app, then tells the caller. A failure is tried again
+    // later, after a growing wait.
+    private static void make(Context context, Gated gated, Icon copy, String ownerPackage, String retryKey,
+            Runnable onMade) {
         ImageThreads.execute(ownerPackage, () -> {
-            final long start = SystemClock.uptimeMillis();
-            final DisplayMetrics metrics = context.getResources().getDisplayMetrics();
-            gated.gate.startRound(NotificationImageGate.budgetFor(ownerPackage),
-                    Math.max(1, Math.min(metrics.widthPixels, metrics.heightPixels)),
-                    Math.max(1, (int) (PICTURE_DP * metrics.density)));
-            final boolean made = loads(context, copy);
-            NotificationImageGate.chargeTime(ownerPackage, SystemClock.uptimeMillis() - start);
-            if (made && onMade != null) {
-                sMain.post(onMade);
+            final ImageBudget budget = NotificationImageGate.budgetFor(ownerPackage);
+            boolean made = false;
+            try {
+                startRound(context, gated, budget);
+                made = loads(context, copy);
+            } catch (Throwable e) {
+                Log.w(TAG, "app resource icon not made: " + e);
+            } finally {
+                NotificationImageGate.settle(ownerPackage, budget, false);
+            }
+            if (made) {
+                sRetry.succeeded(retryKey);
+                if (onMade != null) {
+                    sMain.post(onMade);
+                }
+            } else {
+                sRetry.failed(retryKey, SystemClock.uptimeMillis());
             }
         });
     }
 
-    // The gated resources of a package for a user, in SystemUI's current configuration.
-    private static Gated gated(Context context, int userId, String pkg, String ownerPackage) {
-        final Configuration config = context.getResources().getConfiguration();
-        final String key = userId + ":" + pkg;
-        synchronized (sLock) {
-            final Gated known = sGated.get(key);
-            if (known != null && known.config.diff(config) == 0) {
-                return known;
-            }
+    private static void startRound(Context context, Gated gated, ImageBudget budget) {
+        final DisplayMetrics metrics = context.getResources().getDisplayMetrics();
+        gated.gate.startRound(budget, Math.max(1, Math.min(metrics.widthPixels, metrics.heightPixels)),
+                Math.max(1, (int) (PICTURE_DP * metrics.density)));
+    }
+
+    /**
+     * On an image thread: {@code icon}, an app resource icon, loaded through the gated resources of its package
+     * within {@code budget}, its bitmap files decoded in the VM. Null when it cannot be made whole.
+     */
+    static Drawable loadOnImageThread(Context context, Icon icon, int userId, String ownerPackage,
+            ImageBudget budget) {
+        final Gated gated = gated(context, userId, packageOf(icon, ownerPackage), ownerPackage);
+        if (gated == null) {
+            return null;
         }
+        final Icon copy = icon.copyWithResources(gated.res);
+        startRound(context, gated, budget);
+        AppResourceImages.beginTracking();
+        try {
+            final Drawable drawable = copy.loadDrawable(context);
+            return drawable == null || AppResourceImages.missed() ? null : drawable;
+        } catch (RuntimeException e) {
+            Log.w(TAG, "app resource icon not loaded: " + e);
+            return null;
+        }
+    }
+
+    private static String packageOf(Icon icon, String ownerPackage) {
+        final String pkg = icon.getResPackage();
+        return pkg == null || pkg.isEmpty() ? ownerPackage : pkg;
+    }
+
+    // The gated resources of a package for a user, for the posting app, in SystemUI's current configuration.
+    private static Gated gated(Context context, int userId, String pkg, String ownerPackage) {
+        final String configKey = configKey(context.getResources().getConfiguration());
+        final String owner = ownerPackage == null ? "" : ownerPackage;
+        // The posting app is part of the key: its gate charges that app, never another one.
+        final String key = owner + '|' + userId + ':' + pkg;
         try {
             final ApplicationInfo ai = context.getPackageManager().getApplicationInfoAsUser(pkg, 0, userId);
+            synchronized (sLock) {
+                final Gated known = sGated.get(key);
+                // An updated app has another APK: its gate is made anew, the old one is let go.
+                if (known != null && known.configKey.equals(configKey)
+                        && Objects.equals(known.sourceDir, ai.sourceDir)) {
+                    return known;
+                }
+            }
             final DisplayMetrics metrics = context.getResources().getDisplayMetrics();
-            final AppResourceImages gate = new AppResourceImages(context, ownerPackage, userId,
+            final AppResourceImages gate = new AppResourceImages(context, owner, userId,
                     new ImageBudget(0, 0, 0), Math.max(1, Math.min(metrics.widthPixels, metrics.heightPixels)),
                     Math.max(1, (int) (PICTURE_DP * metrics.density)), false);
             final Context app = VmImageContext.wrap(
                     context.createApplicationContext(ai, Context.CONTEXT_RESTRICTED), gate);
-            final Gated made = new Gated(new Configuration(config), gate, app.getResources());
+            final Gated made = new Gated(key, configKey, ai.sourceDir, gate, app.getResources());
             synchronized (sLock) {
-                if (sGated.size() > 256) {
-                    sGated.clear();
-                }
                 sGated.put(key, made);
             }
             return made;

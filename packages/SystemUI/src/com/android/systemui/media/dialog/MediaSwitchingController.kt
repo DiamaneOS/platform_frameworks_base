@@ -23,6 +23,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.Icon
 import android.media.AudioManager
 import android.media.INearbyMediaDevicesUpdateCallback
 import android.media.MediaMetadata
@@ -49,6 +50,7 @@ import androidx.annotation.StringRes
 import androidx.annotation.VisibleForTesting
 import androidx.core.content.getSystemService
 import androidx.core.graphics.drawable.IconCompat
+import androidx.core.graphics.drawable.toBitmap
 import com.android.media.flags.Flags
 import com.android.media.flags.Flags.fixOutputSwitcherMultiuserSupport
 import com.android.settingslib.RestrictedLockUtilsInternal
@@ -90,6 +92,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executor
 import kotlinx.coroutines.Job
+import de.diamaneos.decode.client.AppIcons
 
 /**
  * Controller for a dialog that allows users to switch media output and input devices, control
@@ -546,7 +549,16 @@ constructor(
                 if (icon == null) {
                     break
                 }
-                return icon.loadDrawable(mContext)
+                // As the status bar shows it: an app resource icon through the image gate (an image already made),
+                // never the original with plain resources. Not made yet: the app's own icon instead.
+                return AppIcons.forViewOrNull(
+                        mContext,
+                        icon,
+                        entry.sbn.normalizedUserId,
+                        entry.sbn.packageName,
+                        null,
+                    )
+                    ?.loadDrawable(mContext)
             }
         }
         return null
@@ -563,7 +575,22 @@ constructor(
                 if (icon == null) {
                     break
                 }
-                return IconCompat.createFromIcon(icon)
+                // Pixels as they are, an app resource icon through the image gate (made already), anything else
+                // (a URI an app named) is not decoded here: no large icon.
+                val shown =
+                    AppIcons.forViewOrNull(
+                        mContext,
+                        icon,
+                        entry.sbn.normalizedUserId,
+                        entry.sbn.packageName,
+                        null,
+                    ) ?: return null
+                if (shown.type == Icon.TYPE_RESOURCE) {
+                    // IconCompat would load the resource again with plain resources: hand it the drawn image.
+                    val drawable = shown.loadDrawable(mContext) ?: return null
+                    return IconCompat.createWithBitmap(drawable.toBitmap())
+                }
+                return IconCompat.createFromIcon(shown)
             }
         }
         return null

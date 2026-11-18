@@ -23,6 +23,7 @@ import android.content.ServiceConnection;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.os.Binder;
 import android.os.IBinder;
 import android.os.RemoteException;
 import android.os.SystemClock;
@@ -85,6 +86,7 @@ final class DecodeClient {
         public void onServiceConnected(ComponentName name, IBinder binder) {
             synchronized (mLock) {
                 mService = IDecodeService.Stub.asInterface(binder);
+                mDownUntil = 0;
                 mLock.notifyAll();
             }
         }
@@ -220,31 +222,66 @@ final class DecodeClient {
         }
     }
 
+    // After a bind or connect that failed, calls fail at once until this time (uptime), so a VM that is down costs
+    // nothing per image instead of the whole wait every time. A connection that comes up clears it.
+    private static final long DOWN_RETRY_MS = 10_000;
+    private long mDownUntil; // guarded by mLock
+
     private IDecodeService connect(long timeoutMs) throws VmDecode.UnavailableException {
+        boolean bind = false;
         synchronized (mLock) {
             if (mService != null && mService.asBinder().isBinderAlive()) {
                 return mService;
             }
             mService = null;
+            if (SystemClock.uptimeMillis() < mDownUntil) {
+                throw new VmDecode.UnavailableException("decode service is down, not asked again yet");
+            }
             if (!mBinding) {
+                mBinding = true;
+                bind = true;
+            }
+        }
+        if (bind) {
+            // Bound outside the lock: the package manager and the binder call never hold up the other callers.
+            // Always as this process, for its own user: in the system server the caller may be on an app's binder
+            // call (a notification post), whose identity must not be the one that binds. The app stays the owner
+            // the decode is charged to, as data in the request.
+            boolean bound = false;
+            String why = "decode service did not bind";
+            final long token = Binder.clearCallingIdentity();
+            try {
                 final Intent intent = serviceIntent();
                 if (intent == null) {
-                    throw new VmDecode.UnavailableException("no decode service in the system image");
+                    why = "no decode service in the system image";
+                } else {
+                    bound = mContext.bindServiceAsUser(intent, mConnection,
+                            Context.BIND_AUTO_CREATE | Context.BIND_IMPORTANT, mContext.getUser());
                 }
-                try {
-                    mBinding = mContext.bindService(intent, mConnection,
-                            Context.BIND_AUTO_CREATE | Context.BIND_IMPORTANT);
-                } catch (SecurityException e) {
-                    throw new VmDecode.UnavailableException("not allowed to bind the decode service", e);
+            } catch (SecurityException e) {
+                Log.w(TAG, "not allowed to bind the decode service", e);
+                why = "not allowed to bind the decode service";
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+            if (!bound) {
+                synchronized (mLock) {
+                    mBinding = false;
+                    mDownUntil = SystemClock.uptimeMillis() + DOWN_RETRY_MS;
+                    mLock.notifyAll();
                 }
+                throw new VmDecode.UnavailableException(why);
+            }
+        }
+        synchronized (mLock) {
+            final long end = SystemClock.uptimeMillis() + timeoutMs;
+            while (mService == null) {
                 if (!mBinding) {
                     throw new VmDecode.UnavailableException("decode service did not bind");
                 }
-            }
-            final long end = System.currentTimeMillis() + timeoutMs;
-            while (mService == null) {
-                final long left = end - System.currentTimeMillis();
+                final long left = end - SystemClock.uptimeMillis();
                 if (left <= 0) {
+                    mDownUntil = SystemClock.uptimeMillis() + DOWN_RETRY_MS;
                     throw new VmDecode.UnavailableException("decode service did not connect in time");
                 }
                 try {
@@ -285,6 +322,7 @@ final class DecodeClient {
             }
             mBinding = false;
             mService = null;
+            mLock.notifyAll();
         }
     }
 }

@@ -21,15 +21,17 @@ import android.app.Person;
 import android.app.RemoteInput;
 import android.content.Context;
 import android.graphics.drawable.Icon;
+import android.os.Binder;
 import android.os.Bundle;
-import android.os.Parcelable;
 import android.os.SystemClock;
+import android.util.Slog;
 
 import de.diamaneos.decode.client.OwnerQuota;
 import de.diamaneos.decode.client.VmDecode;
 import de.diamaneos.decode.client.VmIcons;
 
 import java.util.ArrayList;
+import java.util.concurrent.Semaphore;
 
 /**
  * At post time, before any listener sees the notification, the images an app packs into it as bytes are re-made from
@@ -39,23 +41,31 @@ import java.util.ArrayList;
  * <p>That is the smallest decode surface for these icons. Every listener (SystemUI, the shell, other notification
  * listeners) then gets bitmaps, and SystemUI's status bar, which draws small icons on the main thread, never meets an
  * app's compressed image. Icons given as URIs are left to SystemUI, which decodes them in the VM with the poster's URI
- * grants. Resources of the system image are kept as they are. An app's XML resource icon is loaded through resources
- * behind an image gate: one that names a bitmap file of the app (a {@code <bitmap>}, a layer list) is drawn into a
- * bitmap from pixels decoded in the VM, a vector-only one is kept as it is.
+ * grants. Resources of the system image are kept as they are.
  *
  * <p>Nothing of the app is parsed or drawn here either: an XML resource icon (a vector, or XML that names a bitmap
  * file) is kept as it is, and SystemUI loads it through its image gate in whatever configuration it shows it.
  *
- * <p>All images of one notification share {@link #BUDGET_MS}, and each app shares a quota across its notifications
- * ({@link OwnerQuota}, charged with the whole time spent here), so one app cannot hold the posting threads. An image
- * that cannot be decoded in time is removed, a small icon becomes a neutral system icon. Decoded resources are cached
- * per package version.
+ * <p>All images of one notification share {@link #BUDGET_MS}, one posted on a thread of the system server itself (a
+ * foreground service notification from the activity manager's thread) only {@link #SYSTEM_THREAD_MS}. Each app has a quota across its notifications
+ * and everyone shares one more ({@link OwnerQuota}): the time is reserved before the work and settled after it, so an
+ * app that overran waits its debt out. At most {@link #MAX_CONCURRENT} notifications wait for the VM at once: any
+ * others use only images decoded before. An image that cannot be made in time is removed, a small icon becomes a
+ * neutral system icon. Decoded resources are cached per package version.
  */
 final class NotificationVmIcons {
+    private static final String TAG = "NotificationVmIcons";
     static final long BUDGET_MS = 2_000;
+    /** The most a notification posted on a system server thread waits (the activity manager's, for services). */
+    static final long SYSTEM_THREAD_MS = 250;
+    /** Notifications that may wait for the VM at the same time. */
+    static final int MAX_CONCURRENT = 2;
 
-    // Time each app may make the posting threads wait for the VM, across its notifications.
+    // Time each app may make the posting threads wait for the VM, across its notifications, and all apps together.
     private static final OwnerQuota sQuota = new OwnerQuota();
+    private static final OwnerQuota sAll = new OwnerQuota(8_000, 1_000);
+    private static final String ALL = "*";
+    private static final Semaphore sWaiting = new Semaphore(MAX_CONCURRENT);
 
     // Icons and people are shown at most this big. The big picture at most this wide and high.
     private static final int ICON_PX = 512;
@@ -79,31 +89,70 @@ final class NotificationVmIcons {
     private final long mDeadline;
     private final boolean mStripOnly;
 
-    private NotificationVmIcons(Context context, String pkg, int userId, boolean stripOnly) {
+    // deadline: an uptime by which waiting for the VM ends, or one already passed for images decoded before only.
+    private NotificationVmIcons(Context context, String pkg, int userId, boolean stripOnly, long deadline) {
         mContext = context;
         mPkg = pkg;
         mUserId = userId;
-        mDeadline = VmDecode.deadlineIn(Math.min(BUDGET_MS,
-                stripOnly ? BUDGET_MS : sQuota.available(pkg, SystemClock.uptimeMillis())));
+        mDeadline = deadline;
         mStripOnly = stripOnly;
     }
 
-    /** Re-makes the app's packed images in {@code n} in place. Call without holding any lock: it waits for the VM. */
-    static void convert(Context context, Notification n, String pkg, int userId) {
+    /**
+     * Re-makes the app's packed images in {@code n} in place. Call without holding any lock: it may wait for the VM.
+     * {@code systemThread}: posted on a thread of the system server itself, which waits {@link #SYSTEM_THREAD_MS} at
+     * most.
+     */
+    static void convert(Context context, Notification n, String pkg, int userId, boolean systemThread) {
+        // As the system server, not as the posting app whose binder call this may be: the decode client binds the
+        // service and reads packages with the system's identity. The app is the owner charged, as data.
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            convertAsSystem(context, n, pkg, userId, systemThread);
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+        }
+    }
+
+    private static void convertAsSystem(Context context, Notification n, String pkg, int userId,
+            boolean systemThread) {
+        final long now = SystemClock.uptimeMillis();
+        final long want = systemThread ? SYSTEM_THREAD_MS : BUDGET_MS;
+        final boolean slot = sWaiting.tryAcquire();
+        // Reserved before the work, from the app's quota and from everyone's. Without a slot nothing waits.
+        final long mine = slot ? sQuota.reserve(pkg, want, now) : 0;
+        final long all = mine > 0 ? sAll.reserve(ALL, mine, now) : 0;
+        final long time = Math.min(mine, all);
         final long start = SystemClock.uptimeMillis();
         try {
-            new NotificationVmIcons(context, pkg, userId, false).convert(n, 0);
+            // No time: images decoded before only (a deadline already passed never reaches the VM).
+            final long deadline = time > 0 ? VmDecode.deadlineIn(time) : 1;
+            new NotificationVmIcons(context, pkg, userId, false, deadline).convert(n, 0);
         } finally {
-            sQuota.spend(pkg, SystemClock.uptimeMillis() - start, SystemClock.uptimeMillis());
+            final long used = SystemClock.uptimeMillis() - start;
+            final long end = SystemClock.uptimeMillis();
+            if (slot) {
+                sQuota.settle(pkg, mine, used, end);
+                sWaiting.release();
+            }
+            if (all > 0) {
+                sAll.settle(ALL, all, used, end);
+            }
         }
     }
 
     /**
      * After {@link #convert} threw: removes every app image that would need the VM, decoding nothing and reading no
-     * package, so the notification still shows with its text. A small icon becomes the neutral system icon.
+     * package, so the notification still shows with its text. A small icon becomes the neutral system icon. A value
+     * that cannot be read is removed too.
      */
     static void strip(Context context, Notification n, String pkg, int userId) {
-        new NotificationVmIcons(context, pkg, userId, true).convert(n, 0);
+        final long identity = Binder.clearCallingIdentity();
+        try {
+            new NotificationVmIcons(context, pkg, userId, true, 1).convert(n, 0);
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+        }
     }
 
     private void convert(Notification n, int depth) {
@@ -114,28 +163,43 @@ final class NotificationVmIcons {
                     : Icon.createWithResource("android", android.R.drawable.ic_dialog_info));
         }
         if (n.extras != null) {
+            // Typed reads, each on its own: a value of another class is never made, one that cannot be read is
+            // removed and the others are still converted.
             for (String key : ICON_EXTRAS) {
-                final Parcelable value = n.extras.getParcelable(key, Parcelable.class);
-                if (value instanceof Icon) {
-                    final int px = Notification.EXTRA_PICTURE_ICON.equals(key) ? PICTURE_PX : ICON_PX;
-                    final Icon safe = safe((Icon) value, px, px);
-                    if (safe == null) {
-                        n.extras.remove(key);
-                    } else if (safe != value) {
-                        n.extras.putParcelable(key, safe);
+                if (!n.extras.containsKey(key)) {
+                    continue;
+                }
+                try {
+                    final Icon value = n.extras.getParcelable(key, Icon.class);
+                    if (value != null) {
+                        final int px = Notification.EXTRA_PICTURE_ICON.equals(key) ? PICTURE_PX : ICON_PX;
+                        final Icon safe = safe(value, px, px);
+                        if (safe == null) {
+                            n.extras.remove(key);
+                        } else if (safe != value) {
+                            n.extras.putParcelable(key, safe);
+                        }
                     }
+                } catch (RuntimeException e) {
+                    Slog.w(TAG, "notification extra not readable, removed: " + key);
+                    n.extras.remove(key);
                 }
             }
             convertPerson(n.extras, Notification.EXTRA_MESSAGING_PERSON);
             convertPerson(n.extras, Notification.EXTRA_CALL_PERSON);
-            final ArrayList<Person> people = n.extras.getParcelableArrayList(Notification.EXTRA_PEOPLE_LIST,
-                    Person.class);
-            if (people != null) {
-                final ArrayList<Person> safePeople = new ArrayList<>(people.size());
-                for (Person p : people) {
-                    safePeople.add(safe(p));
+            try {
+                final ArrayList<Person> people = n.extras.getParcelableArrayList(Notification.EXTRA_PEOPLE_LIST,
+                        Person.class);
+                if (people != null) {
+                    final ArrayList<Person> safePeople = new ArrayList<>(people.size());
+                    for (Person p : people) {
+                        safePeople.add(safe(p));
+                    }
+                    n.extras.putParcelableArrayList(Notification.EXTRA_PEOPLE_LIST, safePeople);
                 }
-                n.extras.putParcelableArrayList(Notification.EXTRA_PEOPLE_LIST, safePeople);
+            } catch (RuntimeException e) {
+                Slog.w(TAG, "notification people not readable, removed");
+                n.extras.remove(Notification.EXTRA_PEOPLE_LIST);
             }
             convertMessages(n.extras, Notification.EXTRA_MESSAGES);
             convertMessages(n.extras, Notification.EXTRA_HISTORIC_MESSAGES);
@@ -176,29 +240,46 @@ final class NotificationVmIcons {
     }
 
     private void convertPerson(Bundle extras, String key) {
-        final Person person = extras.getParcelable(key, Person.class);
-        final Person safe = safe(person);
-        if (safe != person) {
-            extras.putParcelable(key, safe);
+        try {
+            final Person person = extras.getParcelable(key, Person.class);
+            final Person safe = safe(person);
+            if (safe != person) {
+                extras.putParcelable(key, safe);
+            }
+        } catch (RuntimeException e) {
+            Slog.w(TAG, "notification person not readable, removed: " + key);
+            extras.remove(key);
         }
     }
 
     private void convertMessages(Bundle extras, String key) {
-        final Parcelable[] messages = extras.getParcelableArray(key, Parcelable.class);
+        final Bundle[] messages;
+        try {
+            messages = extras.getParcelableArray(key, Bundle.class);
+        } catch (RuntimeException e) {
+            Slog.w(TAG, "notification messages not readable, removed: " + key);
+            extras.remove(key);
+            return;
+        }
         if (messages == null) {
             return;
         }
         boolean changed = false;
         final Bundle[] copies = new Bundle[messages.length];
         for (int i = 0; i < messages.length; i++) {
-            if (!(messages[i] instanceof Bundle)) {
+            if (messages[i] == null) {
                 continue;
             }
-            final Bundle copy = new Bundle((Bundle) messages[i]);
-            final Person sender = copy.getParcelable(KEY_SENDER_PERSON, Person.class);
-            final Person safe = safe(sender);
-            if (safe != sender) {
-                copy.putParcelable(KEY_SENDER_PERSON, safe);
+            final Bundle copy = new Bundle(messages[i]);
+            try {
+                final Person sender = copy.getParcelable(KEY_SENDER_PERSON, Person.class);
+                final Person safe = safe(sender);
+                if (safe != sender) {
+                    copy.putParcelable(KEY_SENDER_PERSON, safe);
+                    changed = true;
+                }
+            } catch (RuntimeException e) {
+                copy.remove(KEY_SENDER_PERSON);
                 changed = true;
             }
             copies[i] = copy;

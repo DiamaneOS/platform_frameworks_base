@@ -82,26 +82,43 @@ public class ImageBudgetTest {
     }
 
     @Test
-    public void spentTimeReachesTheQuota() {
-        final long[] told = {0};
-        final ImageBudget budget = new ImageBudget(2_000, 10, 100, ms -> told[0] += ms);
-        budget.spent(300);
-        budget.spent(0);
-        budget.spent(-5);
-        assertEquals(300, told[0]);
-        assertEquals(1_700, budget.remainingMs());
+    public void timeIsWallClock() {
+        final long[] now = {1_000};
+        final ImageBudget budget = new ImageBudget(2_000, 10, 100, () -> now[0], null, "a");
+        assertEquals(2_000, budget.remainingMs());
+        assertEquals(2_000, budget.grantedMs());
+        // Time runs whatever the work does: no wait for the VM needed.
+        now[0] += 1_500;
+        assertEquals(500, budget.remainingMs());
+        assertEquals(1_500, budget.elapsedMs());
+        assertFalse(budget.expired());
+        now[0] += 900;
+        assertEquals(0, budget.remainingMs());
+        assertTrue(budget.expired());
+        assertEquals(0, new ImageBudget(-1, 1, 1).remainingMs());
     }
 
     @Test
-    public void time() {
-        final ImageBudget budget = new ImageBudget(2_000, 10, 100);
-        assertEquals(2_000, budget.remainingMs());
-        budget.spent(1_500);
-        budget.spent(-5);
-        assertEquals(500, budget.remainingMs());
-        budget.spent(900);
-        assertEquals(0, budget.remainingMs());
-        assertEquals(0, new ImageBudget(-1, 1, 1).remainingMs());
+    public void appPoolCapsPixelsAcrossBudgets() {
+        final OwnerPixels pool = new OwnerPixels(150);
+        final ImageBudget first = new ImageBudget(1_000, 10, 100, () -> 0, pool, "app");
+        final ImageBudget second = new ImageBudget(1_000, 10, 100, () -> 0, pool, "app");
+        final ImageBudget other = new ImageBudget(1_000, 10, 100, () -> 0, pool, "other");
+        assertTrue(first.charge("a", 100));
+        // Within its own cap, over the app's: refused.
+        assertFalse(second.charge("b", 60));
+        assertTrue(second.charge("c", 50));
+        assertTrue(other.charge("d", 100));
+        assertEquals(150, pool.held("app"));
+        // A smaller image gives back to the pool too.
+        first.refund(40);
+        assertEquals(110, pool.held("app"));
+        // A replaced round gives everything back and takes nothing more.
+        first.release();
+        assertEquals(50, pool.held("app"));
+        assertFalse(first.charge("e", 1));
+        assertTrue(second.charge("f", 50));
+        assertEquals(100, pool.held("app"));
     }
 
     @Test

@@ -28,7 +28,6 @@ import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.NinePatchDrawable;
 import android.os.Looper;
-import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.LruCache;
@@ -76,8 +75,8 @@ public final class AppResourceImages implements ImageFileGate {
     private static volatile byte[] sEmptyPng;
 
     // Per thread: how many app images a load could not make (missing off the image threads, refused, failed, or an
-    // XML drawable that failed). See beginTracking.
-    private static final ThreadLocal<int[]> sMisses = ThreadLocal.withInitial(() -> new int[1]);
+    // XML drawable that failed), and how many bitmap files of an app it asked for at all. See beginTracking.
+    private static final ThreadLocal<int[]> sMisses = ThreadLocal.withInitial(() -> new int[2]);
 
     private final Context mContext;
     private final String mOwner;
@@ -114,9 +113,19 @@ public final class AppResourceImages implements ImageFileGate {
         startRound(budget, maxWidth, maxHeight);
     }
 
-    /** Starts counting, on this thread, the app images that loads could not make. */
+    /** Starts counting, on this thread, the app images that loads could not make, and the app files they asked for. */
     public static void beginTracking() {
-        sMisses.get()[0] = 0;
+        final int[] counts = sMisses.get();
+        counts[0] = 0;
+        counts[1] = 0;
+    }
+
+    /**
+     * True when a load on this thread since {@link #beginTracking} asked for a bitmap file of an APK outside the system
+     * image. A load that did not (a vector, the system image's files) needs no image thread when it comes again.
+     */
+    public static boolean touchedAppFile() {
+        return sMisses.get()[1] > 0;
     }
 
     /** True when a load on this thread since {@link #beginTracking} could not make an app image. */
@@ -169,12 +178,18 @@ public final class AppResourceImages implements ImageFileGate {
      * have them, and are found again in the cache.
      */
     public void startRound(ImageBudget budget, int maxWidth, int maxHeight) {
+        final ImageBudget previous;
         synchronized (mLock) {
+            previous = mBudget;
             mBudget = budget;
             mMaxWidth = Math.max(1, maxWidth);
             mMaxHeight = Math.max(1, maxHeight);
             mRound = new HashMap<>();
             mFiles.clear();
+        }
+        if (previous != null && previous != budget) {
+            // The images of the last round are replaced: they no longer count against the app's pixels.
+            previous.release();
         }
     }
 
@@ -282,6 +297,7 @@ public final class AppResourceImages implements ImageFileGate {
     // caller opened it already (read only when the VM is asked).
     private Made make(Resources res, TypedValue value, String apkPath, InputStream original) {
         final String file = value.string == null ? null : value.string.toString();
+        sMisses.get()[1]++;
         if (file == null) {
             return missing();
         }
@@ -322,6 +338,10 @@ public final class AppResourceImages implements ImageFileGate {
                 return missing();
             }
             return keep(roundKey, made);
+        }
+        if (budget.expired()) {
+            // The time is up: not even the file is read.
+            return missing();
         }
         byte[] bytes;
         try {
@@ -386,7 +406,6 @@ public final class AppResourceImages implements ImageFileGate {
             Log.w(TAG, "notification image budget spent, empty: " + file);
             return null;
         }
-        final long start = SystemClock.uptimeMillis();
         Bitmap bitmap;
         try {
             budget.countVmCall();
@@ -395,8 +414,6 @@ public final class AppResourceImages implements ImageFileGate {
         } catch (VmDecode.UnavailableException | VmDecode.RejectedException e) {
             Log.w(TAG, "app image file not decoded, empty: " + file + ": " + e.getMessage());
             return null;
-        } finally {
-            budget.spent(SystemClock.uptimeMillis() - start);
         }
         bitmap = VmIcons.immutable(bitmap);
         // Scaled down to fit the box: its density goes down with it, so it keeps the size the app designed.

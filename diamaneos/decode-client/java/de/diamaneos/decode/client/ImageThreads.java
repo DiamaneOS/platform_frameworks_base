@@ -30,8 +30,10 @@ import java.util.Set;
  * does. Two lanes: the normal one (three threads) and an urgent one (two threads) for calls, alarms and other urgent
  * notifications, which never queue behind normal image work. In each lane work runs per app in order and at most one
  * task per app at a time, and apps take turns: one app's slow provider or many images hold one thread of its lane,
- * never the others. Each task is bounded by its notification's budget and the app's {@link OwnerQuota}, and a task
- * that is cancelled before it runs is dropped ({@link Task#cancel}).
+ * never the others. Each task is bounded by its budget (wall-clock time, checked in every loop of the work) and the
+ * app's {@link OwnerQuota}, reserved before the task and settled after it: an app whose tasks overrun waits its debt
+ * out. The urgent lane is only for what an app cannot claim for itself (see {@link NotificationImageGate#lane}). A
+ * task that is cancelled before it runs is dropped ({@link Task#cancel}), a running one stops at its next check.
  *
  * <p>Images of the app's own layouts are decoded only on these threads. Elsewhere (the inflation thread, the main
  * thread) they come from what these threads made, or are empty.

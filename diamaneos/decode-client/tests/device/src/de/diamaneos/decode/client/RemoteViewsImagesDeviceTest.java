@@ -735,10 +735,63 @@ public class RemoteViewsImagesDeviceTest {
         final Context gated = gate.packageContext(night);
         final Icon variant = Icon.createWithResource(mPackage, R.drawable.vm_test_variant);
         final Drawable drawable = onImageThread(() -> variant.loadDrawable(gated));
-        assertNotNull(variant.getResources());
-        assertNotNull(variant.getResources().getImageFileGate());
+        // The gated resources are used for that load only: nothing is kept in the (shared) icon.
+        assertNull(variant.getResources());
         assertTrue(gate.resourceImages().files().toString(), gate.resourceImages().files().size() == 1);
         assertMadeOrEmpty("night variant", drawable);
+    }
+
+    @Test
+    public void resourceIcon_withPlainResourcesCached_stillLoadsThroughTheGate() throws Exception {
+        // A shared icon that some other code loaded with plain resources first (they are cached in it). A load
+        // through a gated context must not take them.
+        final Icon red = Icon.createWithResource(mPackage, R.drawable.vm_test_red);
+        assertNotNull(red.loadDrawable(mContext));
+        assertNotNull(red.getResources());
+        assertNull(red.getResources().getImageFileGate());
+        final NotificationImageGate gate = gate(new ImageBudget());
+        final Context gated = gate.packageContext(mContext);
+        // On a worker nothing is decoded: the PNG is missing, so it went to the gate, not to the cached resources.
+        final boolean missed = onWorker(() -> {
+            AppResourceImages.beginTracking();
+            red.loadDrawable(gated);
+            return AppResourceImages.missed();
+        });
+        assertTrue(missed);
+        assertTrue(gate.resourceImages().files().contains(file(R.drawable.vm_test_red)));
+        // The plain resources stay where they were, the gated ones were not kept.
+        assertNull(red.getResources().getImageFileGate());
+    }
+
+    @Test
+    public void rowGate_keepsNoTask_rowIsCollectable() throws Exception {
+        // As in SystemUI: the gate of each row in a weak map keyed by the row, and a task that holds the row and
+        // cancels the gate's work. The gate must keep only the task's flag, or the row could never be collected.
+        final Map<Object, AppResourceImages> rows =
+                java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
+        final Object[] task = {new Object[] {new Object(), new java.util.concurrent.atomic.AtomicBoolean()}};
+        {
+            final Object row = ((Object[]) task[0])[0];
+            final java.util.concurrent.atomic.AtomicBoolean cancelled =
+                    (java.util.concurrent.atomic.AtomicBoolean) ((Object[]) task[0])[1];
+            final NotificationImageGate gate = NotificationImageGate.forNotification(mContext, mPackage,
+                    mContext.getUserId(), 64, 512, 512, rows.get(row));
+            rows.put(row, gate.resourceImages());
+            gate.setCancelled(cancelled);
+            gate.packageContext(mContext);
+            onImageThread(() -> gate.sanitizedCopy(everyLayout(7100)));
+            gate.finish(false);
+            // The task is cancelled and the notification removed: nothing holds the row any more.
+            cancelled.set(true);
+        }
+        task[0] = null;
+        final long end = SystemClock.uptimeMillis() + 10_000;
+        while (!rows.isEmpty() && SystemClock.uptimeMillis() < end) {
+            Runtime.getRuntime().gc();
+            Runtime.getRuntime().runFinalization();
+            Thread.sleep(50);
+        }
+        assertTrue("row still reachable", rows.isEmpty());
     }
 
     @Test
@@ -810,19 +863,145 @@ public class RemoteViewsImagesDeviceTest {
         assertEquals(2, got.keySet().size());
     }
 
+    private NotificationImageGate.Lane lane(Notification n, int uid) {
+        return NotificationImageGate.lane(mContext, n, mPackage, uid, mContext.getUserId());
+    }
+
     @Test
-    public void lanes_urgentAndNoImageNotifications() {
+    public void lanes_urgentOnlyForWhatAnAppCannotClaim() {
+        final int appUid = android.os.Process.FIRST_APPLICATION_UID + 1234;
         final Notification plain = new Notification.Builder(mContext, "test").setSmallIcon(FRAMEWORK_ICON).build();
-        assertEquals(NotificationImageGate.Lane.NONE, NotificationImageGate.lane(plain, mPackage));
-        final Notification call = new Notification.Builder(mContext, "test")
+        assertEquals(NotificationImageGate.Lane.NONE, lane(plain, appUid));
+        // A category or a call person any app can set: the normal lane.
+        final Notification claimed = new Notification.Builder(mContext, "test")
                 .setSmallIcon(Icon.createWithResource(mPackage, R.drawable.vm_test_red))
                 .setCategory(Notification.CATEGORY_CALL)
                 .build();
-        assertEquals(NotificationImageGate.Lane.URGENT, NotificationImageGate.lane(call, mPackage));
-        final Notification app = new Notification.Builder(mContext, "test")
+        claimed.extras.putParcelable(Notification.EXTRA_CALL_PERSON, new Person.Builder().setName("a").build());
+        assertEquals(NotificationImageGate.Lane.NORMAL, lane(claimed, appUid));
+        // A call style of a foreground service, a full-screen intent, a system process: urgent.
+        final Notification call = new Notification.Builder(mContext, "test")
+                .setSmallIcon(Icon.createWithResource(mPackage, R.drawable.vm_test_red))
+                .setStyle(Notification.CallStyle.forOngoingCall(new Person.Builder().setName("a").build(),
+                        android.app.PendingIntent.getActivity(mContext, 0,
+                                new android.content.Intent("x").setPackage(mPackage),
+                                android.app.PendingIntent.FLAG_IMMUTABLE)))
+                .build();
+        call.flags |= Notification.FLAG_FOREGROUND_SERVICE;
+        assertEquals(NotificationImageGate.Lane.URGENT, lane(call, appUid));
+        call.flags &= ~Notification.FLAG_FOREGROUND_SERVICE;
+        assertEquals(NotificationImageGate.Lane.NORMAL, lane(call, appUid));
+        final Notification alarm = new Notification.Builder(mContext, "test")
+                .setSmallIcon(Icon.createWithResource(mPackage, R.drawable.vm_test_red))
+                .setFullScreenIntent(android.app.PendingIntent.getActivity(mContext, 0,
+                        new android.content.Intent("x").setPackage(mPackage),
+                        android.app.PendingIntent.FLAG_IMMUTABLE), true)
+                .build();
+        assertEquals(NotificationImageGate.Lane.URGENT, lane(alarm, appUid));
+        assertEquals(NotificationImageGate.Lane.URGENT, lane(claimed, android.os.Process.PHONE_UID));
+    }
+
+    @Test
+    public void lanes_knownCleanIconsNeedNoImageThread() throws Exception {
+        // A vector of the app: the normal lane until a load has shown that it names no bitmap file of the app.
+        final Notification n = new Notification.Builder(mContext, "test")
+                .setSmallIcon(Icon.createWithResource(mPackage, R.drawable.vm_test_vector))
+                .build();
+        final int appUid = android.os.Process.FIRST_APPLICATION_UID + 1234;
+        n.extras.putParcelable(Notification.EXTRA_BUILDER_APPLICATION_INFO, mContext.getApplicationInfo());
+        final NotificationImageGate gate = gate(new ImageBudget());
+        gate.packageContext(mContext);
+        onImageThread(() -> gate.sanitizedCopy(n));
+        assertEquals(NotificationImageGate.Lane.NONE, lane(n, appUid));
+        // A PNG of the app never becomes clean.
+        final Notification png = new Notification.Builder(mContext, "test")
                 .setSmallIcon(Icon.createWithResource(mPackage, R.drawable.vm_test_red))
                 .build();
-        assertEquals(NotificationImageGate.Lane.NORMAL, NotificationImageGate.lane(app, mPackage));
+        png.extras.putParcelable(Notification.EXTRA_BUILDER_APPLICATION_INFO, mContext.getApplicationInfo());
+        final NotificationImageGate pngGate = gate(new ImageBudget());
+        pngGate.packageContext(mContext);
+        onImageThread(() -> pngGate.sanitizedCopy(png));
+        assertEquals(NotificationImageGate.Lane.NORMAL, lane(png, appUid));
+        // Another APK (an update) or no APK known: not clean.
+        final Notification other = new Notification.Builder(mContext, "test")
+                .setSmallIcon(Icon.createWithResource(mPackage, R.drawable.vm_test_vector))
+                .build();
+        final android.content.pm.ApplicationInfo updated =
+                new android.content.pm.ApplicationInfo(mContext.getApplicationInfo());
+        updated.sourceDir = updated.sourceDir + ".new";
+        other.extras.putParcelable(Notification.EXTRA_BUILDER_APPLICATION_INFO, updated);
+        assertEquals(NotificationImageGate.Lane.NORMAL, lane(other, appUid));
+        other.extras.remove(Notification.EXTRA_BUILDER_APPLICATION_INFO);
+        assertEquals(NotificationImageGate.Lane.NORMAL, lane(other, appUid));
+    }
+
+    @Test
+    public void headerCopy_loadsOnlyTheSmallIcon_andSurvivesBadExtras() {
+        final Notification n = new Notification.Builder(mContext, "test")
+                .setSmallIcon(Icon.createWithResource(mPackage, R.drawable.vm_test_vector))
+                .setLargeIcon(Icon.createWithResource(mPackage, R.drawable.vm_test_red))
+                .build();
+        // A value of the wrong class under an icon key: read as nothing, never made.
+        n.extras.putParcelable(Notification.EXTRA_PICTURE_ICON, new Bundle());
+        final Notification copy = onMain(() -> NotificationImageGate.headerCopy(mContext, n, mPackage,
+                mContext.getUserId()));
+        assertNotNull(copy);
+        // The small icon as the status bar shows it: through the gate (a vector loads at once).
+        assertNotNull(copy.getSmallIcon().getResources());
+        assertNotNull(copy.getSmallIcon().getResources().getImageFileGate());
+        // Every other app image is left out without being loaded.
+        assertNull(copy.getLargeIcon());
+    }
+
+    @Test
+    public void layoutResourceIcons_cappedBeforeInflation_andTimed() throws Exception {
+        final RemoteViews views = new RemoteViews(mPackage, R.layout.vm_test_probe);
+        for (int i = 0; i < 200; i++) {
+            views.setImageViewIcon(R.id.vm_probe, Icon.createWithResource(mPackage, R.drawable.vm_test_vector));
+        }
+        final Notification original = new Notification.Builder(mContext, "test")
+                .setSmallIcon(FRAMEWORK_ICON)
+                .setCustomContentView(views)
+                .build();
+        final NotificationImageGate gate = gate(new ImageBudget());
+        final Context context = gate.packageContext(mContext);
+        final Notification copy = onImageThread(() -> gate.sanitizedCopy(original));
+        assertNotNull(copy.contentView);
+        final View root = onImageThread(() -> inflate(context, copy.contentView));
+        int drawn = 0;
+        for (Icon icon : ((ProbeView) root.findViewById(R.id.vm_probe)).icons) {
+            if (icon.getType() == Icon.TYPE_BITMAP && icon.getBitmap().getWidth() > 1) {
+                drawn++;
+            }
+        }
+        assertTrue("drawn " + drawn, drawn <= ImageBudget.MAX_IMAGES);
+        // No time at all: nothing is inflated, every image is empty, and it ends at once.
+        final NotificationImageGate spent = gate(new ImageBudget(0, ImageBudget.MAX_IMAGES, ImageBudget.MAX_PIXELS));
+        final Context spentContext = spent.packageContext(mContext);
+        final long start = SystemClock.uptimeMillis();
+        final Notification empty = onImageThread(() -> spent.sanitizedCopy(original));
+        assertTrue(SystemClock.uptimeMillis() - start < 5_000);
+        final View emptyRoot = onImageThread(() -> inflate(spentContext, empty.contentView));
+        for (Icon icon : ((ProbeView) emptyRoot.findViewById(R.id.vm_probe)).icons) {
+            assertTrue(icon.getType() == Icon.TYPE_BITMAP && icon.getBitmap().getWidth() == 1);
+        }
+    }
+
+    @Test
+    public void fileUris_areRefused() throws Exception {
+        final java.io.File file = new java.io.File(mContext.getCacheDir(), "vm_test.png");
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(file)) {
+            Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888).compress(Bitmap.CompressFormat.PNG, 100, out);
+        }
+        try {
+            onWorker(() -> VmDecode.decodeUri(mContext, mContext.getContentResolver(), Uri.fromFile(file),
+                    mPackage, VmDecode.PRIORITY_USER_WAITING, 64, 64));
+            throw new AssertionError("a file URI was opened");
+        } catch (java.util.concurrent.ExecutionException e) {
+            assertTrue(String.valueOf(e.getCause()), e.getCause() instanceof VmDecode.RejectedException);
+        } finally {
+            file.delete();
+        }
     }
 
     @Test
@@ -849,7 +1028,7 @@ public class RemoteViewsImagesDeviceTest {
         final Notification original = everyLayout(7000);
         final NotificationImageGate gate = gate(new ImageBudget());
         gate.packageContext(mContext);
-        gate.setCancelled(() -> true);
+        gate.setCancelled(new java.util.concurrent.atomic.AtomicBoolean(true));
         final Notification copy = onImageThread(() -> gate.sanitizedCopy(original));
         assertNotNull(copy);
         assertEquals(0, gate.budget().vmCalls());

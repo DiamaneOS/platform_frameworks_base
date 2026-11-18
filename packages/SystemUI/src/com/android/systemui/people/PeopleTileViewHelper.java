@@ -46,7 +46,7 @@ import android.app.people.PeopleSpaceTile;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
-import android.graphics.ImageDecoder;
+import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
 import android.graphics.text.LineBreaker;
@@ -95,6 +95,9 @@ import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+
+import de.diamaneos.decode.client.VmDecode;
+import de.diamaneos.decode.client.VmIcons;
 
 /** Variables and functions that is related to Emoji. */
 class EmojiHelper {
@@ -764,37 +767,22 @@ public class PeopleTileViewHelper {
     }
 
      Drawable resolveImage(Uri uri, Context context) throws IOException {
-        final ImageDecoder.Source source =
-                ImageDecoder.createSource(context.getContentResolver(), uri);
-        final Drawable drawable =
-                ImageDecoder.decodeDrawable(source, (decoder, info, s) -> {
-                    onHeaderDecoded(decoder, info, s);
-                });
-        return drawable;
-    }
-
-    private static int getPowerOfTwoForSampleRatio(double ratio) {
-        final int k = Integer.highestOneBit((int) Math.floor(ratio));
-        return Math.max(1, k);
-    }
-
-    private void onHeaderDecoded(ImageDecoder decoder, ImageDecoder.ImageInfo info,
-            ImageDecoder.Source source) {
-        int widthInPx = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, mWidth,
+        // DiamaneOS: the image the conversation's app named is decoded in the protected VM, never in this process,
+        // at most as big as the tile shows it.
+        final int widthInPx = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, mWidth,
                 mContext.getResources().getDisplayMetrics());
-        int heightInPx = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, mHeight,
+        final int heightInPx = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, mHeight,
                 mContext.getResources().getDisplayMetrics());
-        int maxIconSizeInPx = Math.max(widthInPx, heightInPx);
-        int minDimen = (int) (1.5 * Math.min(widthInPx, heightInPx));
-        if (minDimen < maxIconSizeInPx) {
-            maxIconSizeInPx = minDimen;
+        final int maxPx = Math.max(1, Math.min(Math.max(widthInPx, heightInPx),
+                (int) (1.5 * Math.min(widthInPx, heightInPx))));
+        try {
+            final Bitmap bitmap = VmDecode.decodeUri(context, context.getContentResolver(), uri,
+                    mTile.getPackageName(), VmDecode.PRIORITY_USER_WAITING, maxPx, maxPx,
+                    VmDecode.deadlineIn(VmIcons.UI_DEADLINE_MS));
+            return new BitmapDrawable(context.getResources(), bitmap);
+        } catch (VmDecode.UnavailableException | VmDecode.RejectedException e) {
+            throw new IOException("image not decoded: " + e.getMessage());
         }
-        final Size size = info.getSize();
-        final int originalSize = Math.max(size.getHeight(), size.getWidth());
-        final double ratio = (originalSize > maxIconSizeInPx)
-                ? originalSize * 1f / maxIconSizeInPx
-                : 1.0;
-        decoder.setTargetSampleSize(getPowerOfTwoForSampleRatio(ratio));
     }
 
     private void setContentDescriptionForNotificationTextContent(RemoteViews views,

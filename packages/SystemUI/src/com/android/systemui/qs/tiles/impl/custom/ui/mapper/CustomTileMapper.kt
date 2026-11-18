@@ -31,6 +31,7 @@ import com.android.systemui.qs.tiles.base.shared.model.QSTileState
 import com.android.systemui.qs.tiles.base.ui.model.QSTileDataToStateMapper
 import com.android.systemui.qs.tiles.impl.custom.domain.model.CustomTileDataModel
 import com.android.systemui.shade.ShadeDisplayAware
+import de.diamaneos.decode.client.ForeignIcons
 import javax.inject.Inject
 
 @SysUISingleton
@@ -111,18 +112,37 @@ constructor(
         defaultIcon: android.graphics.drawable.Icon?,
     ): IconResult {
         var failedToLoad = false
+        // The tile's icon and its default icon (from the tile app's manifest) are made without decoding the app's
+        // bytes here: URI and data icons in the protected VM, the app's resources through an image gate. A URI the
+        // app may not read is refused as before.
         val drawable: Drawable? =
             try {
-                icon?.loadDrawableCheckingUriGrant(
-                    userContext,
-                    uriGrantsManager,
-                    callingAppUid,
-                    packageName,
-                )
+                icon
+                    ?.takeIf {
+                        ForeignIcons.uriGranted(it, uriGrantsManager, callingAppUid, packageName)
+                    }
+                    ?.let {
+                        ForeignIcons.load(
+                            userContext,
+                            it,
+                            userContext.userId,
+                            packageName,
+                            TILE_ICON_MAX_PX,
+                        )
+                    }
             } catch (e: Exception) {
                 failedToLoad = true
                 null
-            } ?: defaultIcon?.loadDrawable(userContext)
+            }
+                ?: defaultIcon?.let {
+                    ForeignIcons.load(
+                        userContext,
+                        it,
+                        userContext.userId,
+                        packageName,
+                        TILE_ICON_MAX_PX,
+                    )
+                }
         return IconResult(
             drawable?.constantState?.newDrawable()?.let {
                 Icon.Loaded(it, contentDescription = null)
@@ -132,4 +152,8 @@ constructor(
     }
 
     class IconResult(val icon: Icon?, val failedToLoad: Boolean)
+
+    private companion object {
+        const val TILE_ICON_MAX_PX = 256
+    }
 }

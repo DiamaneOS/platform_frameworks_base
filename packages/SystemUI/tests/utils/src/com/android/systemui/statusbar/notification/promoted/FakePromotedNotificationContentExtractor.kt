@@ -36,6 +36,7 @@ class FakePromotedNotificationContentExtractor : PromotedNotificationContentExtr
         imageModelProvider: ImageModelProvider,
         packageContext: Context,
         systemUiContext: Context,
+        sourceNotification: Notification?,
     ): PromotedNotificationContentModels? {
         extractCalls.add(entry to recoveredBuilder)
 

@@ -28,13 +28,15 @@ import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.Parcelable;
+import android.os.Process;
 import android.os.SystemClock;
 import android.os.UserHandle;
 import android.util.Log;
+import android.util.LruCache;
 import android.widget.RemoteViews;
 
 import java.util.ArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 
 /**
@@ -53,15 +55,19 @@ import java.util.function.BooleanSupplier;
  * the app's layout XML and bitmap files inside its XML drawables.
  * </ul>
  *
- * <p>All images of one notification share {@link #BUDGET_MS} of waiting for the VM, and each app shares an
- * {@link OwnerQuota} across its notifications: a VM or provider that hangs costs images, not a stuck or missing
+ * <p>The image work of one notification has {@link #BUDGET_MS} of wall-clock time, checked in every loop, and each
+ * app has an {@link OwnerQuota} across its notifications: the time is reserved before the work and settled after it,
+ * so an app whose work overran waits its debt out. A VM or provider that hangs costs images, not a stuck or missing
  * notification. The images of its layouts are capped ({@link ImageBudget#MAX_IMAGES} and
- * {@link ImageBudget#MAX_PIXELS}): anything over the caps is empty. Every decode is charged to the posting app, and
- * URIs are opened as the notification's user.
+ * {@link ImageBudget#MAX_PIXELS}) and so are the pixels each app holds across its notifications ({@link OwnerPixels}):
+ * anything over the caps is empty. Every decode is charged to the posting app, and URIs are opened as the
+ * notification's user.
  *
  * <p>The VM is asked only on {@link ImageThreads}: the caller makes the copy and {@link #prewarm}s the layouts there,
  * before it inflates on its own thread. Anywhere else (the inflation thread, the main thread) nothing is decoded:
- * images come from what the image threads made, or are empty or removed.
+ * images come from what the image threads made, or are empty or removed. A notification whose only app images are
+ * resource icons known to name no bitmap file of the app (vectors, files of the system image) needs no image thread
+ * at all ({@link #lane}).
  */
 public final class NotificationImageGate {
     private static final String TAG = "VmDecode";
@@ -80,11 +86,21 @@ public final class NotificationImageGate {
             Notification.EXTRA_PROGRESS_END_ICON,
     };
 
-    /** The time all images of one notification may wait for the VM together. */
+    /** The wall-clock time the image work of one notification may take. */
     public static final long BUDGET_MS = ImageBudget.TIME_MS;
 
-    // Waiting for the VM per app across its notifications.
+    // Resource icons loaded per notification for its standard fields (small, large, actions, people), and drawables
+    // and layouts read ahead for its custom layouts: anything past them is removed or left to the inflation.
+    private static final int MAX_RESOURCE_LOADS = 32;
+    private static final int MAX_PREWARM_DRAWABLES = 32;
+    private static final int MAX_PREWARM_LAYOUTS = 8;
+
+    // Time each app may keep the image threads busy across its notifications, and the pixels it holds.
     private static final OwnerQuota sQuota = new OwnerQuota();
+    private static final OwnerPixels sPixels = new OwnerPixels();
+    // App resource icons known to load without any bitmap file of an app (a vector, the system image's own files),
+    // by user, package, resource, APK and configuration: such an icon needs no image thread.
+    private static final LruCache<String, Boolean> sClean = new LruCache<>(1024);
 
     private final Context mContext;
     private Context mUserContext; // made when first needed
@@ -102,10 +118,18 @@ public final class NotificationImageGate {
     private boolean mStrip; // remove every app image, decode nothing
     private boolean mTemplateOnly; // the caller shows no custom layout
     private BooleanSupplier mCancelled; // the work is no longer wanted
+    private final boolean mReserved; // the budget's time was taken off the app's quota
+    private boolean mFinished;
+    private String mSourceDir; // the posting app's APK, for the known clean icons
+    private int mResourceLoads;
+    private int mLayoutResourceIcons;
+    private int mPrewarmDrawables;
+    private int mPrewarmLayouts;
 
     private NotificationImageGate(Context context, String ownerPackage, int userId, int iconPx, int pictureWidth,
-            int pictureHeight, ImageBudget budget, AppResourceImages previous) {
+            int pictureHeight, ImageBudget budget, boolean reserved, AppResourceImages previous) {
         mContext = context;
+        mReserved = reserved;
         mOwner = ownerPackage == null ? "" : ownerPackage;
         mUserId = userId;
         mIconPx = Math.max(1, iconPx);
@@ -141,17 +165,42 @@ public final class NotificationImageGate {
         return mUserContext;
     }
 
-    // A fresh budget, bounded by what the posting app has left of its quota. The quota is charged with the whole
-    // time of the image work (chargeTime), not only the waits for the VM.
+    // A fresh budget for image work on an image thread: its time is reserved off the posting app's quota now, before
+    // the work, and settled after it (settle). An app in debt gets no time: only images already made.
     static ImageBudget budgetFor(String owner) {
         final String key = owner == null ? "" : owner;
-        final long time = Math.min(ImageBudget.TIME_MS, sQuota.available(key, SystemClock.uptimeMillis()));
-        return new ImageBudget(time, ImageBudget.MAX_IMAGES, ImageBudget.MAX_PIXELS);
+        final long time = sQuota.reserve(key, ImageBudget.TIME_MS, SystemClock.uptimeMillis());
+        return new ImageBudget(time, ImageBudget.MAX_IMAGES, ImageBudget.MAX_PIXELS, ImageBudget.CLOCK, sPixels, key);
     }
 
-    /** Charges {@code ms} of image work (on an image thread) to {@code ownerPackage}'s quota. */
-    public static void chargeTime(String ownerPackage, long ms) {
-        sQuota.spend(ownerPackage == null ? "" : ownerPackage, ms, SystemClock.uptimeMillis());
+    // A budget for work off the image threads, where nothing is decoded: the same caps and wall-clock time, not taken
+    // off the app's quota.
+    private static ImageBudget budgetOffImageThreads(String owner) {
+        final String key = owner == null ? "" : owner;
+        return new ImageBudget(ImageBudget.TIME_MS, ImageBudget.MAX_IMAGES, ImageBudget.MAX_PIXELS,
+                ImageBudget.CLOCK, sPixels, key);
+    }
+
+    /**
+     * Image work done with {@code budget} (from {@link #budgetFor}) is over: the time it really took is settled with
+     * {@code ownerPackage}'s quota, the part it did not use is given back, an overrun becomes debt. Work in the urgent
+     * lane counts twice.
+     */
+    static void settle(String ownerPackage, ImageBudget budget, boolean urgent) {
+        final long used = budget.elapsedMs() * (urgent ? 2 : 1);
+        sQuota.settle(ownerPackage == null ? "" : ownerPackage, budget.grantedMs(), used,
+                SystemClock.uptimeMillis());
+    }
+
+    /**
+     * The image work of this gate is over (call it once, also after a failure): the time it took is settled with the
+     * app's quota when it was taken from it. {@code urgent}: it ran in the urgent lane, which counts twice.
+     */
+    public void finish(boolean urgent) {
+        if (mReserved && !mFinished) {
+            mFinished = true;
+            settle(mOwner, mBudget, urgent);
+        }
     }
 
     /** Where the image work of a notification runs. */
@@ -164,45 +213,104 @@ public final class NotificationImageGate {
         NORMAL,
     }
 
-    /** The lane for {@code n} posted by {@code ownerPackage}. Cheap: reads the notification only. */
-    public static Lane lane(Notification n, String ownerPackage) {
-        if (!hasAppImages(n, 0)) {
-            return Lane.NONE;
+    /**
+     * The lane for {@code n} posted by {@code ownerPackage} ({@code uid}) for {@code userId}. Cheap: reads the
+     * notification and what is known about its icons, loads nothing. NONE when no app image needs an image thread:
+     * pixels, framework icons and app resource icons known to name no bitmap file of the app. URGENT only for what
+     * the app cannot claim for itself: a full-screen intent (kept by the notification service only for apps allowed
+     * one), a call style of a foreground service or user-initiated job, or a system process. {@code context} is
+     * SystemUI's (its configuration picks the resources).
+     */
+    public static Lane lane(Context context, Notification n, String ownerPackage, int uid, int userId) {
+        try {
+            final Clean clean = new Clean(context, ownerPackage, userId, sourceDir(n));
+            if (!hasAppImages(n, 0, clean)) {
+                return Lane.NONE;
+            }
+        } catch (RuntimeException e) {
+            // Extras that cannot be read: the image work removes them, on an image thread.
+            Log.w(TAG, "notification images not looked at here: " + e);
         }
-        final String category = n.category;
-        if (n.fullScreenIntent != null || Notification.CATEGORY_CALL.equals(category)
-                || Notification.CATEGORY_ALARM.equals(category) || Notification.CATEGORY_REMINDER.equals(category)
-                || Notification.CATEGORY_STOPWATCH.equals(category)
-                || Notification.CATEGORY_NAVIGATION.equals(category)
-                || (n.extras != null && n.extras.containsKey(Notification.EXTRA_CALL_PERSON))) {
-            return Lane.URGENT;
-        }
-        return Lane.NORMAL;
+        return isUrgent(n, uid) ? Lane.URGENT : Lane.NORMAL;
     }
 
-    // Any icon that is not pixels or the framework's, or a custom layout.
-    private static boolean hasAppImages(Notification n, int depth) {
+    private static boolean isUrgent(Notification n, int uid) {
+        if (UserHandle.getAppId(uid) < Process.FIRST_APPLICATION_UID || n.fullScreenIntent != null) {
+            return true;
+        }
+        return n.isStyle(Notification.CallStyle.class)
+                && (n.flags & (Notification.FLAG_FOREGROUND_SERVICE
+                        | Notification.FLAG_USER_INITIATED_JOB)) != 0;
+    }
+
+    // The APK of the posting app, as the notification service and SystemUI recorded it in the notification.
+    private static String sourceDir(Notification n) {
+        if (n.extras == null) {
+            return null;
+        }
+        try {
+            final ApplicationInfo ai = n.extras.getParcelable(Notification.EXTRA_BUILDER_APPLICATION_INFO,
+                    ApplicationInfo.class);
+            return ai == null ? null : ai.sourceDir;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    // What is needed to look up and record icons known to name no app bitmap file.
+    private static final class Clean {
+        final String owner;
+        final int userId;
+        final String sourceDir;
+        final String configKey;
+
+        Clean(Context context, String owner, int userId, String sourceDir) {
+            this.owner = owner == null ? "" : owner;
+            this.userId = userId;
+            this.sourceDir = sourceDir;
+            this.configKey = AppIcons.configKey(context.getResources().getConfiguration());
+        }
+
+        // Only the posting app's own resources: its APK is known.
+        String key(Icon icon) {
+            final String pkg = icon.getResPackage();
+            if (sourceDir == null || (pkg != null && !pkg.isEmpty() && !pkg.equals(owner))) {
+                return null;
+            }
+            return userId + ":" + owner + ":" + icon.getResId() + ":" + sourceDir + ":" + configKey;
+        }
+
+        boolean known(Icon icon) {
+            final String key = key(icon);
+            return key != null && sClean.get(key) != null;
+        }
+    }
+
+    // Any image that needs an image thread: an icon that is not pixels, the framework's or known clean, a custom
+    // layout, people and messages.
+    private static boolean hasAppImages(Notification n, int depth, Clean clean) {
         if (n.contentView != null || n.bigContentView != null || n.headsUpContentView != null
                 || n.tickerView != null) {
             return true;
         }
-        if (isAppImage(n.getSmallIcon()) || isAppImage(n.getLargeIcon())) {
+        if (needsImageThread(n.getSmallIcon(), clean) || needsImageThread(n.getLargeIcon(), clean)) {
             return true;
         }
         if (n.actions != null) {
             for (Notification.Action action : n.actions) {
-                if (action != null && isAppImage(action.getIcon())) {
+                if (action != null && needsImageThread(action.getIcon(), clean)) {
                     return true;
                 }
             }
         }
         if (n.extras != null && !n.extras.isEmpty()) {
-            // Extras may hold icons and people: looked at by the image work, not here.
             for (String key : ICON_EXTRAS) {
-                if (n.extras.containsKey(key)) {
+                if (n.extras.containsKey(key)
+                        && needsImageThread(n.extras.getParcelable(key, Icon.class), clean)) {
                     return true;
                 }
             }
+            // People and messages: looked at by the image work, not here.
             if (n.extras.containsKey(Notification.EXTRA_MESSAGES)
                     || n.extras.containsKey(Notification.EXTRA_HISTORIC_MESSAGES)
                     || n.extras.containsKey(Notification.EXTRA_MESSAGING_PERSON)
@@ -211,18 +319,32 @@ public final class NotificationImageGate {
                 return true;
             }
         }
-        return n.publicVersion != null && depth == 0 && hasAppImages(n.publicVersion, depth + 1);
+        return n.publicVersion != null && depth == 0 && hasAppImages(n.publicVersion, depth + 1, clean);
     }
 
-    private static boolean isAppImage(Icon icon) {
-        return icon != null && icon.getType() != Icon.TYPE_BITMAP && icon.getType() != Icon.TYPE_ADAPTIVE_BITMAP
-                && !(icon.getType() == Icon.TYPE_RESOURCE && "android".equals(icon.getResPackage()));
+    private static boolean needsImageThread(Icon icon, Clean clean) {
+        if (icon == null || icon.getType() == Icon.TYPE_BITMAP || icon.getType() == Icon.TYPE_ADAPTIVE_BITMAP) {
+            return false;
+        }
+        if (icon.getType() != Icon.TYPE_RESOURCE) {
+            return true;
+        }
+        return !"android".equals(icon.getResPackage()) && !clean.known(icon);
     }
 
-    /** While {@code cancelled} answers true, nothing more is decoded: the notification is gone or replaced. */
-    public void setCancelled(BooleanSupplier cancelled) {
-        mCancelled = cancelled;
-        mResources.setCancelled(cancelled);
+    /**
+     * While {@code cancelled} is true, nothing more is decoded: the notification is gone or replaced. Only the flag is
+     * kept, never whoever sets it: the gate lives as long as the row's views, and must not keep the row or its task.
+     */
+    public void setCancelled(AtomicBoolean cancelled) {
+        final BooleanSupplier check = cancelled == null ? null : cancelled::get;
+        mCancelled = check;
+        mResources.setCancelled(check);
+    }
+
+    // True when the work should stop: cancelled, or its time is up.
+    private boolean stopped() {
+        return (mCancelled != null && mCancelled.getAsBoolean()) || mBudget.expired();
     }
 
     /**
@@ -242,15 +364,18 @@ public final class NotificationImageGate {
      */
     public static NotificationImageGate forNotification(Context context, String ownerPackage, int userId,
             int iconPx, int pictureWidth, int pictureHeight, AppResourceImages previous) {
+        // On an image thread the time is reserved off the app's quota (call finish). Elsewhere nothing is decoded and
+        // the quota is left alone, the wall-clock limit applies all the same.
+        final boolean imageThread = ImageThreads.isImageThread();
         return new NotificationImageGate(context, ownerPackage, userId, iconPx, pictureWidth, pictureHeight,
-                budgetFor(ownerPackage), previous);
+                imageThread ? budgetFor(ownerPackage) : budgetOffImageThreads(ownerPackage), imageThread, previous);
     }
 
     /** {@link #forNotification(Context, String, int, int, int, int)} with a budget of the caller's (tests). */
     public static NotificationImageGate forNotification(Context context, String ownerPackage, int userId,
             int iconPx, int pictureWidth, int pictureHeight, ImageBudget budget) {
         return new NotificationImageGate(context, ownerPackage, userId, iconPx, pictureWidth, pictureHeight, budget,
-                null);
+                false, null);
     }
 
     /**
@@ -259,7 +384,7 @@ public final class NotificationImageGate {
      */
     public static Notification strippedCopy(Context context, Notification notification) {
         final NotificationImageGate gate = new NotificationImageGate(context, "", -1, 1, 1, 1,
-                new ImageBudget(0, 0, 0), null);
+                new ImageBudget(0, 0, 0), false, null);
         gate.mStrip = true;
         final Notification copy = notification.clone();
         gate.sanitize(copy, 0);
@@ -267,8 +392,32 @@ public final class NotificationImageGate {
     }
 
     /**
+     * The copy a group header is made from, on the main thread: the small icon as {@link AppIcons#forView} gives it
+     * (its image already made, else the neutral icon), every other app image removed without being loaded, and no
+     * custom layout. Nothing is decoded or inflated for the other fields. If that fails, {@link #strippedCopy}.
+     */
+    public static Notification headerCopy(Context context, Notification notification, String ownerPackage,
+            int userId) {
+        try {
+            return new NotificationImageGate(context, ownerPackage, userId, 1, 1, 1, new ImageBudget(0, 0, 0),
+                    false, null).templateOnly().sanitizedCopy(notification);
+        } catch (Throwable e) {
+            Log.w(TAG, "group header images not checked, removing them: " + e);
+        }
+        try {
+            return strippedCopy(context, notification);
+        } catch (Throwable e) {
+            Log.e(TAG, "group header images not removed, plain header", e);
+            return new Notification.Builder(context, notification.getChannelId())
+                    .setSmallIcon(AppIcons.neutral())
+                    .build();
+        }
+    }
+
+    /**
      * This gate's copies are only used for templates (a group header): custom layouts are not looked at and not
-     * kept, so a notification with one is not copied for it.
+     * kept, so a notification with one is not copied for it. The small icon comes from {@link AppIcons} and every
+     * other app image is removed without being loaded.
      */
     public NotificationImageGate templateOnly() {
         mTemplateOnly = true;
@@ -311,6 +460,7 @@ public final class NotificationImageGate {
      * original is not changed.
      */
     public Notification sanitizedCopy(Notification notification) {
+        mSourceDir = sourceDir(notification);
         if (!needsWork(notification, 0)) {
             return notification;
         }
@@ -349,7 +499,11 @@ public final class NotificationImageGate {
      * removed (a small icon becomes the neutral icon).
      */
     private Icon gatedResource(Icon icon) {
-        if (mStrip) {
+        if (mStrip || mTemplateOnly) {
+            return null;
+        }
+        // The first (the small icon) is always tried. The others stop at the cap or when the work has to stop.
+        if (mResourceLoads++ > 0 && (mResourceLoads > MAX_RESOURCE_LOADS || stopped())) {
             return null;
         }
         final String pkg = resourcePackage(icon);
@@ -367,7 +521,18 @@ public final class NotificationImageGate {
             Log.w(TAG, "app resource icon not loaded: " + e);
             return null;
         }
-        return drawable == null || AppResourceImages.missed() ? null : gated;
+        final boolean missed = AppResourceImages.missed();
+        final String cleanKey = new Clean(mContext, mOwner, mUserId, mSourceDir).key(icon);
+        if (cleanKey != null) {
+            if (missed || AppResourceImages.touchedAppFile()) {
+                sClean.remove(cleanKey);
+            } else if (drawable != null) {
+                // Loaded whole without any bitmap file of the app: the next notification with it needs no image
+                // thread.
+                sClean.put(cleanKey, Boolean.TRUE);
+            }
+        }
+        return drawable == null || missed ? null : gated;
     }
 
     /**
@@ -396,7 +561,7 @@ public final class NotificationImageGate {
     private static final int MAX_PREWARM_NODES = 2_000;
 
     private void prewarm(RemoteViews views, Context packageContext, java.util.Set<Integer> done) {
-        if (views == null) {
+        if (views == null || stopped()) {
             return;
         }
         final RemoteViewsImages.Targets targets = RemoteViewsImages.resources(views);
@@ -411,9 +576,11 @@ public final class NotificationImageGate {
 
     // The drawables a layout XML names, read with the resource parser only (no view is made).
     private void prewarmLayout(Context context, int layout, int depth, int[] nodes, java.util.Set<Integer> done) {
-        if (layout == 0 || depth > MAX_PREWARM_DEPTH || !done.add(layout) || !decodes()) {
+        if (layout == 0 || depth > MAX_PREWARM_DEPTH || mPrewarmLayouts >= MAX_PREWARM_LAYOUTS || !done.add(layout)
+                || !decodes()) {
             return;
         }
+        mPrewarmLayouts++;
         final android.content.res.Resources res = context.getResources();
         try (android.content.res.XmlResourceParser parser = res.getLayout(layout)) {
             int event;
@@ -421,7 +588,7 @@ public final class NotificationImageGate {
                 if (event != org.xmlpull.v1.XmlPullParser.START_TAG) {
                     continue;
                 }
-                if (++nodes[0] > MAX_PREWARM_NODES || mBudget.remainingMs() <= 0) {
+                if (++nodes[0] > MAX_PREWARM_NODES || stopped()) {
                     return;
                 }
                 for (int i = 0; i < parser.getAttributeCount(); i++) {
@@ -460,9 +627,10 @@ public final class NotificationImageGate {
     }
 
     private void prewarmDrawable(Context context, int id, java.util.Set<Integer> done) {
-        if (id == 0 || !done.add(id) || mBudget.remainingMs() <= 0) {
+        if (id == 0 || mPrewarmDrawables >= MAX_PREWARM_DRAWABLES || stopped() || !done.add(id)) {
             return;
         }
+        mPrewarmDrawables++;
         try {
             context.getDrawable(id);
         } catch (RuntimeException e) {
@@ -476,27 +644,32 @@ public final class NotificationImageGate {
             return true;
         }
         if (n.extras != null) {
-            for (String key : ICON_EXTRAS) {
-                final Parcelable value = n.extras.getParcelable(key, Parcelable.class);
-                if (value instanceof Icon && needsGate((Icon) value)) {
-                    return true;
-                }
-            }
-            if (needsVm(n.extras.getParcelable(Notification.EXTRA_MESSAGING_PERSON, Person.class))
-                    || needsVm(n.extras.getParcelable(Notification.EXTRA_CALL_PERSON, Person.class))) {
-                return true;
-            }
-            final ArrayList<Person> people = n.extras.getParcelableArrayList(Notification.EXTRA_PEOPLE_LIST,
-                    Person.class);
-            if (people != null) {
-                for (Person p : people) {
-                    if (needsVm(p)) {
+            try {
+                // Typed reads: a value of another class is never made, it reads as null.
+                for (String key : ICON_EXTRAS) {
+                    if (needsGate(n.extras.getParcelable(key, Icon.class))) {
                         return true;
                     }
                 }
-            }
-            if (sendersNeedVm(n.extras, Notification.EXTRA_MESSAGES)
-                    || sendersNeedVm(n.extras, Notification.EXTRA_HISTORIC_MESSAGES)) {
+                if (needsVm(n.extras.getParcelable(Notification.EXTRA_MESSAGING_PERSON, Person.class))
+                        || needsVm(n.extras.getParcelable(Notification.EXTRA_CALL_PERSON, Person.class))) {
+                    return true;
+                }
+                final ArrayList<Person> people = n.extras.getParcelableArrayList(Notification.EXTRA_PEOPLE_LIST,
+                        Person.class);
+                if (people != null) {
+                    for (Person p : people) {
+                        if (needsVm(p)) {
+                            return true;
+                        }
+                    }
+                }
+                if (sendersNeedVm(n.extras, Notification.EXTRA_MESSAGES)
+                        || sendersNeedVm(n.extras, Notification.EXTRA_HISTORIC_MESSAGES)) {
+                    return true;
+                }
+            } catch (RuntimeException e) {
+                // A value that cannot be read: the copy removes it.
                 return true;
             }
         }
@@ -526,13 +699,12 @@ public final class NotificationImageGate {
     }
 
     private static boolean sendersNeedVm(Bundle extras, String key) {
-        final Parcelable[] messages = extras.getParcelableArray(key, Parcelable.class);
+        final Bundle[] messages = extras.getParcelableArray(key, Bundle.class);
         if (messages == null) {
             return false;
         }
-        for (Parcelable message : messages) {
-            if (message instanceof Bundle
-                    && needsVm(((Bundle) message).getParcelable(KEY_SENDER_PERSON, Person.class))) {
+        for (Bundle message : messages) {
+            if (message != null && needsVm(message.getParcelable(KEY_SENDER_PERSON, Person.class))) {
                 return true;
             }
         }
@@ -541,9 +713,13 @@ public final class NotificationImageGate {
 
     private void sanitize(Notification n, int depth) {
         if (needsGate(n.getSmallIcon())) {
-            final Icon safe = safe(n.getSmallIcon(), mIconPx);
-            n.setSmallIcon(safe != null ? safe
-                    : Icon.createWithResource("android", android.R.drawable.ic_dialog_info));
+            if (mTemplateOnly) {
+                // As the status bar shows it: an image already made, else the neutral icon. Nothing waits here.
+                n.setSmallIcon(AppIcons.forView(mContext, n.getSmallIcon(), mUserId, mOwner, null));
+            } else {
+                final Icon safe = safe(n.getSmallIcon(), mIconPx);
+                n.setSmallIcon(safe != null ? safe : AppIcons.neutral());
+            }
         }
         if (n.extras != null) {
             sanitizeExtras(n.extras);
@@ -569,57 +745,87 @@ public final class NotificationImageGate {
         }
     }
 
+    // Every value is read typed and on its own: one that cannot be read is removed, the others are still checked.
     private void sanitizeExtras(Bundle extras) {
         for (String key : ICON_EXTRAS) {
-            final Parcelable value = extras.getParcelable(key, Parcelable.class);
-            if (value instanceof Icon && needsGate((Icon) value)) {
-                final Icon safe = Notification.EXTRA_PICTURE_ICON.equals(key)
-                        ? safe((Icon) value, mPictureWidth, mPictureHeight)
-                        : safe((Icon) value, mIconPx);
-                if (safe != null) {
-                    extras.putParcelable(key, safe);
-                } else {
-                    extras.remove(key);
+            if (!extras.containsKey(key)) {
+                continue;
+            }
+            try {
+                final Icon value = extras.getParcelable(key, Icon.class);
+                if (needsGate(value)) {
+                    final Icon safe = Notification.EXTRA_PICTURE_ICON.equals(key)
+                            ? safe(value, mPictureWidth, mPictureHeight)
+                            : safe(value, mIconPx);
+                    if (safe != null) {
+                        extras.putParcelable(key, safe);
+                    } else {
+                        extras.remove(key);
+                    }
                 }
+            } catch (RuntimeException e) {
+                Log.w(TAG, "notification extra not readable, removed: " + key);
+                extras.remove(key);
             }
         }
         sanitizePerson(extras, Notification.EXTRA_MESSAGING_PERSON);
         sanitizePerson(extras, Notification.EXTRA_CALL_PERSON);
-        final ArrayList<Person> people = extras.getParcelableArrayList(Notification.EXTRA_PEOPLE_LIST,
-                Person.class);
-        if (people != null) {
-            final ArrayList<Person> safePeople = new ArrayList<>(people.size());
-            for (Person p : people) {
-                safePeople.add(safe(p));
+        try {
+            final ArrayList<Person> people = extras.getParcelableArrayList(Notification.EXTRA_PEOPLE_LIST,
+                    Person.class);
+            if (people != null) {
+                final ArrayList<Person> safePeople = new ArrayList<>(people.size());
+                for (Person p : people) {
+                    safePeople.add(safe(p));
+                }
+                extras.putParcelableArrayList(Notification.EXTRA_PEOPLE_LIST, safePeople);
             }
-            extras.putParcelableArrayList(Notification.EXTRA_PEOPLE_LIST, safePeople);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "notification people not readable, removed");
+            extras.remove(Notification.EXTRA_PEOPLE_LIST);
         }
         sanitizeMessages(extras, Notification.EXTRA_MESSAGES);
         sanitizeMessages(extras, Notification.EXTRA_HISTORIC_MESSAGES);
     }
 
     private void sanitizePerson(Bundle extras, String key) {
-        final Person person = extras.getParcelable(key, Person.class);
-        if (person != null && needsGate(person.getIcon())) {
-            extras.putParcelable(key, safe(person));
+        try {
+            final Person person = extras.getParcelable(key, Person.class);
+            if (person != null && needsGate(person.getIcon())) {
+                extras.putParcelable(key, safe(person));
+            }
+        } catch (RuntimeException e) {
+            Log.w(TAG, "notification person not readable, removed: " + key);
+            extras.remove(key);
         }
     }
 
     // The message bundles are shared with the original after Notification.clone, so they are copied, not changed.
     private void sanitizeMessages(Bundle extras, String key) {
-        final Parcelable[] messages = extras.getParcelableArray(key, Parcelable.class);
+        final Bundle[] messages;
+        try {
+            messages = extras.getParcelableArray(key, Bundle.class);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "notification messages not readable, removed: " + key);
+            extras.remove(key);
+            return;
+        }
         if (messages == null) {
             return;
         }
         final Bundle[] copies = new Bundle[messages.length];
         for (int i = 0; i < messages.length; i++) {
-            if (!(messages[i] instanceof Bundle)) {
+            if (messages[i] == null) {
                 continue;
             }
-            final Bundle copy = new Bundle((Bundle) messages[i]);
-            final Person sender = copy.getParcelable(KEY_SENDER_PERSON, Person.class);
-            if (sender != null && needsGate(sender.getIcon())) {
-                copy.putParcelable(KEY_SENDER_PERSON, safe(sender));
+            final Bundle copy = new Bundle(messages[i]);
+            try {
+                final Person sender = copy.getParcelable(KEY_SENDER_PERSON, Person.class);
+                if (sender != null && needsGate(sender.getIcon())) {
+                    copy.putParcelable(KEY_SENDER_PERSON, safe(sender));
+                }
+            } catch (RuntimeException e) {
+                copy.remove(KEY_SENDER_PERSON);
             }
             copies[i] = copy;
         }
@@ -643,7 +849,7 @@ public final class NotificationImageGate {
         if (!needsGate(icon)) {
             return icon;
         }
-        if (mStrip) {
+        if (mStrip || mTemplateOnly) {
             return null;
         }
         if (icon.getType() == Icon.TYPE_RESOURCE) {
@@ -658,15 +864,10 @@ public final class NotificationImageGate {
             return null;
         }
         final long left = mBudget.remainingMs();
-        if (left <= 0) {
+        if (left <= 0 || stopped()) {
             return null;
         }
-        final long start = SystemClock.uptimeMillis();
-        try {
-            return VmIcons.toSafeIcon(icon, user, mOwner, maxWidth, maxHeight, VmDecode.deadlineIn(left));
-        } finally {
-            mBudget.spent(SystemClock.uptimeMillis() - start);
-        }
+        return VmIcons.toSafeIcon(icon, user, mOwner, maxWidth, maxHeight, VmDecode.deadlineIn(left));
     }
 
     private static Notification.Action withIcon(Notification.Action action, Icon icon) {
@@ -783,14 +984,8 @@ public final class NotificationImageGate {
         final long left = mBudget.remainingMs();
         Icon safe = null;
         if (left > 0) {
-            final long start = SystemClock.uptimeMillis();
-            try {
-                mBudget.countVmCall();
-                safe = VmIcons.toSafeIcon(icon, user, mOwner, mPictureWidth, mPictureHeight,
-                        VmDecode.deadlineIn(left));
-            } finally {
-                mBudget.spent(SystemClock.uptimeMillis() - start);
-            }
+            mBudget.countVmCall();
+            safe = VmIcons.toSafeIcon(icon, user, mOwner, mPictureWidth, mPictureHeight, VmDecode.deadlineIn(left));
         }
         if (safe == null) {
             mBudget.failed(key);
@@ -805,7 +1000,9 @@ public final class NotificationImageGate {
     // An app resource icon of a layout: drawn from the app's resources behind the image gate (bitmap files in the
     // VM, XML parsed as usual), as a bitmap.
     private Icon resourceIcon(Icon icon) {
-        if (!decodes()) {
+        // Capped and timed before anything is inflated: a layout of thousands of resource icons inflates at most
+        // MAX_IMAGES of them, within the notification's time.
+        if (!decodes() || stopped() || ++mLayoutResourceIcons > ImageBudget.MAX_IMAGES) {
             return null;
         }
         final String pkg = resourcePackage(icon);

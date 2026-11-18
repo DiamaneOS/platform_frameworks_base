@@ -16,8 +16,10 @@
 package com.android.systemui.statusbar.notification.row
 
 import de.diamaneos.decode.client.AppResourceImages
+import de.diamaneos.decode.client.ForeignIcons
 import de.diamaneos.decode.client.ImageThreads
 import de.diamaneos.decode.client.NotificationImageGate
+import java.util.concurrent.atomic.AtomicBoolean
 import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.Notification.EXTRA_SUMMARIZED_CONTENT
@@ -25,6 +27,7 @@ import android.app.Notification.MessagingStyle
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ApplicationInfo
+import android.content.pm.LauncherApps
 import android.content.pm.PackageManager
 import android.content.res.Resources
 import android.os.AsyncTask
@@ -33,7 +36,6 @@ import android.os.CancellationSignal
 import android.os.Trace
 import android.os.UserHandle
 import android.service.notification.StatusBarNotification
-import android.os.SystemClock
 import android.util.Log
 import android.view.NotificationHeaderView
 import android.view.View
@@ -429,6 +431,10 @@ constructor(
         @Volatile private var checkedNotification: Notification? = null
         @Volatile private var gatedPackageContext: Context? = null
         @Volatile private var imageTask: ImageThreads.Task? = null
+        @Volatile private var urgentImages = false
+        // Set by abort. The row's image gate keeps only this flag, never the task: the task holds the row, and the
+        // gate lives in a map keyed by the row, which must be able to forget it.
+        private val imagesCancelled = AtomicBoolean()
 
         /**
          * Starts the task. The app's images wait for the protected VM on an image thread (one task per app at a
@@ -442,10 +448,8 @@ constructor(
                 if (isCancelled) {
                     return@Runnable
                 }
-                val start = SystemClock.uptimeMillis()
+                // The whole time of the image work is charged to the app (reserved before, settled after).
                 prepareImages()
-                // The whole time of the image work is charged to the app, not only the waits for the VM.
-                NotificationImageGate.chargeTime(sbn.packageName, SystemClock.uptimeMillis() - start)
                 if (!isCancelled) {
                     try {
                         executeOnExecutor(inflationExecutor)
@@ -454,10 +458,24 @@ constructor(
                     }
                 }
             }
-            when (NotificationImageGate.lane(sbn.notification, sbn.packageName)) {
+            var lane =
+                NotificationImageGate.lane(
+                    context,
+                    sbn.notification,
+                    sbn.packageName,
+                    sbn.uid,
+                    sbn.normalizedUserId,
+                )
+            if (lane == NotificationImageGate.Lane.NONE && entry.ranking.conversationShortcutInfo != null) {
+                // The conversation's shortcut icon is made on an image thread too.
+                lane = NotificationImageGate.Lane.NORMAL
+            }
+            when (lane) {
                 NotificationImageGate.Lane.NONE -> executeOnExecutor(inflationExecutor)
-                NotificationImageGate.Lane.URGENT ->
+                NotificationImageGate.Lane.URGENT -> {
+                    urgentImages = true
                     imageTask = ImageThreads.executeUrgent(sbn.packageName, run)
+                }
                 else -> imageTask = ImageThreads.execute(sbn.packageName, run)
             }
         }
@@ -474,9 +492,10 @@ constructor(
             // Ensure the ApplicationInfo is updated before a builder is recovered.
             updateApplicationInfo(sbn)
             val packageContext = sbn.getPackageContext(context)
+            var imageGate: NotificationImageGate? = null
             try {
                 val metrics = context.resources.displayMetrics
-                val imageGate =
+                val gate =
                     NotificationImageGate.forNotification(
                         context,
                         sbn.packageName,
@@ -486,18 +505,34 @@ constructor(
                         (VM_PICTURE_DP * metrics.density).toInt().coerceAtLeast(1),
                         rowImages[row],
                     )
+                imageGate = gate
                 // The row's views keep its gate: each inflation starts a new round of it with a fresh budget.
-                rowImages[row] = imageGate.resourceImages()
-                // A cancelled task (a newer update, a removed notification) stops asking the VM.
-                imageGate.setCancelled { isCancelled }
-                val gated = imageGate.packageContext(packageContext)
-                val copy = imageGate.sanitizedCopy(sbn.notification)
-                imageGate.prewarm(copy, gated)
+                rowImages[row] = gate.resourceImages()
+                // A cancelled task (a newer update, a removed notification) stops its image work.
+                gate.setCancelled(imagesCancelled)
+                val gated = gate.packageContext(packageContext)
+                val copy = gate.sanitizedCopy(sbn.notification)
+                gate.prewarm(copy, gated)
+                if (ImageThreads.isImageThread()) {
+                    // The conversation's shortcut icon is decoded here, the inflation finds it made.
+                    entry.ranking.conversationShortcutInfo?.let {
+                        ForeignIcons.shortcutIcon(
+                            context,
+                            context.getSystemService(LauncherApps::class.java),
+                            it,
+                            ForeignIcons.shortcutPx(context),
+                            /* mayWait= */ true,
+                        )
+                    }
+                }
                 gatedPackageContext = gated
                 checkedNotification = copy
             } catch (e: Throwable) {
                 // Any Error too (a stack overflow, out of memory): it costs the images, not the notification.
                 strip(e, packageContext)
+            } finally {
+                // What the image work took is settled with the app's quota.
+                imageGate?.finish(urgentImages)
             }
         }
 
@@ -645,7 +680,8 @@ constructor(
 
         override fun abort() {
             logger.logAsyncTaskProgress(entry.logKey, "cancelling inflate")
-            // Image work not started yet is dropped. Running image work stops asking the VM (see setCancelled).
+            // Image work not started yet is dropped. Running image work stops at its next check (see setCancelled).
+            imagesCancelled.set(true)
             imageTask?.cancel()
             cancel(/* mayInterruptIfRunning= */ true)
             if (cancellationSignal != null) {
@@ -805,6 +841,7 @@ constructor(
                         imageModelProvider,
                         packageContext,
                         systemUiContext,
+                        sourceNotification,
                     )
                     .also {
                         logger.logAsyncTaskProgress(

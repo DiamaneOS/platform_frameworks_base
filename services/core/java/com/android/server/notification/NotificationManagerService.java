@@ -9471,8 +9471,12 @@ public class NotificationManagerService extends SystemService {
         // not posted.
         final int iconUserId = (userId == USER_ALL) ? USER_SYSTEM : userId;
         // Throwable: an Error here (a stack overflow, out of memory) must cost the images, not the system server.
+        // Posted on a thread of the system server itself (the activity manager's handler for foreground services,
+        // other system services) rather than on the app's binder call: it waits much less, so that thread is never
+        // held up for long.
+        final boolean systemThread = byForegroundService || Binder.getCallingPid() == Process.myPid();
         try {
-            NotificationVmIcons.convert(getContext(), notification, pkg, iconUserId);
+            NotificationVmIcons.convert(getContext(), notification, pkg, iconUserId, systemThread);
         } catch (Throwable e) {
             Slog.e(TAG, "Cannot convert notification images, posting it without them", e);
             try {

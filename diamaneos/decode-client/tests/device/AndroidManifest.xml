@@ -16,6 +16,8 @@
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="de.diamaneos.decode.client.tests">
+    <!-- PostTimeDeviceTest posts a notification as an app. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application />
     <instrumentation
         android:name="androidx.test.runner.AndroidJUnitRunner"

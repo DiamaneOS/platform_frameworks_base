@@ -449,7 +449,14 @@ public final class VmDecode {
 
     private static AssetFileDescriptor openImage(ContentResolver resolver, Uri uri, int maxWidth, int maxHeight)
             throws FileNotFoundException {
-        if (ContentResolver.SCHEME_CONTENT.equals(uri.getScheme())) {
+        final String scheme = uri.getScheme();
+        if (!ContentResolver.SCHEME_CONTENT.equals(scheme)
+                && !ContentResolver.SCHEME_ANDROID_RESOURCE.equals(scheme)) {
+            // A file: URI (or any other scheme) would be opened with this process's own file access, for whoever
+            // named it. Only content URIs (opened through the provider, with grants) and resources are taken.
+            throw new FileNotFoundException("only content and resource URIs are opened");
+        }
+        if (ContentResolver.SCHEME_CONTENT.equals(scheme)) {
             Bundle opts = null;
             if (maxWidth > 0 && maxHeight > 0) {
                 opts = new Bundle();

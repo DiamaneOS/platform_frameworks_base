@@ -17,6 +17,7 @@
 package com.android.systemui.statusbar.notification.icon
 
 import de.diamaneos.decode.client.AppIcons
+import de.diamaneos.decode.client.ForeignIcons
 import de.diamaneos.decode.client.VmIcons
 import android.app.Notification
 import android.app.Notification.MessagingStyle
@@ -103,20 +104,43 @@ constructor(
         onIconUpdateRequiredListeners -= listener
     }
 
+    // The configuration the app resource icons were last built for.
+    private var iconConfiguration: Configuration? = null
+
     fun attach() {
         notifCollection.addCollectionListener(entryListener)
         // An app's resource icons are loaded through resources behind an image gate in the current configuration.
-        // After a change (dark mode, rotation, density) they may name other files: the icons are built again, and
-        // an image not made yet shows the neutral icon until an image thread has made it.
+        // After a change that can pick other resource files (dark mode, rotation, density, locale) the icons that
+        // are app resources are built again, and an image not made yet shows the neutral icon until an image thread
+        // has made it. Window-only changes (bounds, a fold, split screen) rebuild nothing.
+        iconConfiguration = Configuration(shadeContext.resources.configuration)
         shadeContext.registerComponentCallbacks(
             object : ComponentCallbacks {
                 override fun onConfigurationChanged(newConfig: Configuration) {
-                    notifCollection.allNotifs.forEach { updateIconsSafe(it) }
+                    if (!AppIcons.resourceConfigChanged(iconConfiguration, newConfig)) {
+                        return
+                    }
+                    iconConfiguration = Configuration(newConfig)
+                    notifCollection.allNotifs.forEach {
+                        if (usesAppResourceIcon(it)) {
+                            updateIconsSafe(it)
+                        }
+                    }
                 }
 
                 @Deprecated("Deprecated in Java") override fun onLowMemory() {}
             }
         )
+    }
+
+    // An entry whose icons may be app resources: its small or large icon is one, or it shows a conversation (the
+    // avatar can be a sender's or the shortcut's icon).
+    private fun usesAppResourceIcon(entry: NotificationEntry): Boolean {
+        val n = entry.sbn.notification
+        return AppIcons.isAppResource(n.smallIcon) ||
+            AppIcons.isAppResource(n.getLargeIcon()) ||
+            entry.ranking.conversationShortcutInfo != null ||
+            n.extras.containsKey(Notification.EXTRA_MESSAGES)
     }
 
     private val entryListener =
@@ -495,7 +519,15 @@ constructor(
             val shortcut = entry.ranking.conversationShortcutInfo
             if (shortcut != null) {
                 try {
-                    icon = launcherApps.getShortcutIcon(shortcut)
+                    // A file or URI icon is decoded in the protected VM, a resource icon goes through appIcon.
+                    icon =
+                        ForeignIcons.shortcutIcon(
+                            shadeContext,
+                            launcherApps,
+                            shortcut,
+                            ForeignIcons.shortcutPx(shadeContext),
+                            /* mayWait= */ true,
+                        )
                 } catch (e: Exception) {
                     Log.e(
                         TAG,

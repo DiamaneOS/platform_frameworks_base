@@ -15,8 +15,7 @@
  */
 package com.android.systemui.qs.external;
 
-import de.diamaneos.decode.client.VmDecode;
-import de.diamaneos.decode.client.VmIcons;
+import de.diamaneos.decode.client.ForeignIcons;
 import static android.view.WindowManager.LayoutParams.TYPE_QS_DIALOG;
 
 import android.app.IUriGrantsManager;
@@ -459,10 +458,10 @@ public class CustomTile extends QSTileImpl<State> implements TileChangeListener,
         if (icon == null) {
             return null;
         }
-        final android.graphics.drawable.Icon safe = VmIcons.toSafeIconWithResources(icon, mUserContext, mUserContext.getUserId(),
-                mComponent.getPackageName(), TILE_ICON_MAX_PX, TILE_ICON_MAX_PX,
-                VmDecode.deadlineIn(VmIcons.UI_DEADLINE_MS));
-        return safe == null ? null : safe.loadDrawable(mUserContext);
+        // An app resource icon loads through an image gate (its bitmap files, also inside its XML, decoded in the
+        // VM), URI and data icons are decoded in the VM. Made on an image thread for the tile's app.
+        return ForeignIcons.load(mUserContext, icon, mUserContext.getUserId(), mComponent.getPackageName(),
+                TILE_ICON_MAX_PX);
     }
 
     private static final int TILE_ICON_MAX_PX = 256;

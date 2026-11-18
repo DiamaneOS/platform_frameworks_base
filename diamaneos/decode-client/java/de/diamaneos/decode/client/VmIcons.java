@@ -141,6 +141,21 @@ public final class VmIcons {
         return result;
     }
 
+    /**
+     * Like {@link #loadDrawable(Icon, Context, String, int, long)}, but never waits for the VM: a VM icon comes from
+     * what was decoded before, or is null. For shared threads that must not wait (the notification inflation thread).
+     */
+    public static Drawable loadDrawableNoWait(Icon icon, Context context, String ownerPackage, int maxPx) {
+        if (icon == null) {
+            return null;
+        }
+        if (!needsVm(icon)) {
+            return icon.loadDrawable(context);
+        }
+        final Icon cached = cachedSafeIcon(icon, context, ownerPackage, maxPx, maxPx);
+        return cached == null ? null : cached.loadDrawable(context);
+    }
+
     /** {@link #loadDrawable(Icon, Context, String, int, long)} within {@link #UI_DEADLINE_MS} from now. */
     public static Drawable loadDrawable(Icon icon, Context context, String ownerPackage, int maxPx) {
         return loadDrawable(icon, context, ownerPackage, maxPx, VmDecode.deadlineIn(UI_DEADLINE_MS));
@@ -224,6 +239,10 @@ public final class VmIcons {
             if (cached != null) {
                 return cached;
             }
+        }
+        if (deadline != VmDecode.NO_DEADLINE && deadline <= SystemClock.uptimeMillis()) {
+            // No time left: what is cached only. Nothing is opened or handed to the VM.
+            return null;
         }
         try {
             Bitmap bitmap;
@@ -360,6 +379,9 @@ public final class VmIcons {
         final String key = resourceKey(icon, context, userId, maxWidth + "x" + maxHeight);
         Bitmap bitmap = key == null ? null : sCache.get(key);
         if (bitmap == null) {
+            if (deadline != VmDecode.NO_DEADLINE && deadline <= SystemClock.uptimeMillis()) {
+                return null;
+            }
             try {
                 bitmap = VmDecode.decodeBytes(context, bytes, 0, bytes.length, ownerPackage,
                         VmDecode.PRIORITY_USER_WAITING, maxWidth, maxHeight, deadline);

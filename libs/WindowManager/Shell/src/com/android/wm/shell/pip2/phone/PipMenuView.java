@@ -75,10 +75,15 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
+import de.diamaneos.decode.client.ForeignIcons;
+
 /**
  * Translucent window that gets started on top of a task in PIP to allow the user to control it.
  */
 public class PipMenuView extends FrameLayout {
+
+    // DiamaneOS: the most an action icon is decoded to.
+    private static final int ACTION_ICON_MAX_PX = 256;
 
     private static final String TAG = "PipMenuView";
 
@@ -471,12 +476,18 @@ public class PipMenuView extends FrameLayout {
                         actionView.setImageDrawable(null);
                     } else {
                         // TODO: Check if the action drawable has changed before we reload it
-                        action.getIcon().loadDrawableAsync(mContextForUser, d -> {
-                            if (d != null) {
-                                d.setTint(Color.WHITE);
-                                actionView.setImageDrawable(d);
-                            }
-                        }, mMainHandler);
+                        // DiamaneOS: the app's icon is never decoded here. Pixels and framework icons load as they
+                        // are, data icons in the protected VM, the app's resources through an image gate (their
+                        // bitmap files decoded in the VM), made on an image thread for the app.
+                        final Icon actionIcon = action.getIcon();
+                        ForeignIcons.loadAsync(mContextForUser, actionIcon, mContextForUser.getUserId(),
+                                actionIcon.getType() == Icon.TYPE_RESOURCE ? actionIcon.getResPackage() : "",
+                                ACTION_ICON_MAX_PX, mMainHandler::post, d -> {
+                                    if (d != null) {
+                                        d.setTint(Color.WHITE);
+                                        actionView.setImageDrawable(d);
+                                    }
+                                });
                     }
                     actionView.setCustomCloseBackgroundVisibility(
                             isCloseAction ? View.VISIBLE : View.GONE);

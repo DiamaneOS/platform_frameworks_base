@@ -18,6 +18,7 @@ package com.android.systemui.qs.external.ui.viewmodel
 
 import android.app.IUriGrantsManager
 import android.content.Context
+import android.os.UserHandle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +35,7 @@ import com.android.systemui.res.R
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
+import de.diamaneos.decode.client.ForeignIcons
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 
@@ -62,14 +64,28 @@ constructor(
 
     override suspend fun onActivated() {
         withContext(backgroundDispatcher) {
-            tileData.icon
-                ?.loadDrawableCheckingUriGrant(
-                    dialogContext,
-                    iUriGrantsManager,
-                    tileData.callingUid,
-                    tileData.packageName,
-                )
-                ?.run { _icon = DrawableIcon(this) }
+            // The icon the requesting app passed, of any type: its URI grant is checked as before, then it is made
+            // without decoding the app's bytes here (URI and data icons in the protected VM, the app's resources
+            // through an image gate).
+            val icon = tileData.icon
+            if (
+                icon != null &&
+                    ForeignIcons.uriGranted(
+                        icon,
+                        iUriGrantsManager,
+                        tileData.callingUid,
+                        tileData.packageName,
+                    )
+            ) {
+                ForeignIcons.load(
+                        dialogContext,
+                        icon,
+                        UserHandle.getUserId(tileData.callingUid),
+                        tileData.packageName,
+                        TILE_ICON_MAX_PX,
+                    )
+                    ?.run { _icon = DrawableIcon(this) }
+            }
         }
     }
 
@@ -80,5 +96,6 @@ constructor(
 
     companion object {
         private val defaultIcon: QSTile.Icon = ResourceIcon.get(R.drawable.android)
+        private const val TILE_ICON_MAX_PX = 256
     }
 }

@@ -159,8 +159,10 @@ class RowImageInflaterImpl(private val previousIndex: ImageModelIndex?, val rein
             // TODO: use the sizeClass to load the drawable into a correctly sized bitmap,
             //  and be sure to respect [lazyImage.transform.requiresSoftwareBitmapInput]
             val iconDrawable =
-                // Icons with another app's compressed image bytes are decoded in the protected VM.
-                VmIcons.loadDrawable(icon.toIcon(), context, context.packageName, VM_ICON_MAX_PX)
+                // The icons come from the checked copy (made on an image thread). An icon with another app's
+                // compressed bytes is never decoded here, and nothing waits for the VM on this shared thread: only
+                // what was decoded before.
+                VmIcons.loadDrawableNoWait(icon.toIcon(), context, context.packageName, VM_ICON_MAX_PX)
                     .also { stats.numDrawablesLoaded++ }
                     ?: return ImageResult.Empty("Icon.loadDrawable() returned null for $icon")
                         .also { stats.numDrawablesNull++ }
