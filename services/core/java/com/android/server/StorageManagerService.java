@@ -654,6 +654,8 @@ class StorageManagerService extends IStorageManager.Stub
             this.rawPath = rawPath;
             this.canonicalPath = canonicalPath;
             this.ownerGid = UserHandle.getSharedAppGid(callingUid);
+            // DiamaneOS: the shared app gid is the same in every user. vold needs the caller's user as well.
+            this.userId = UserHandle.getUserId(callingUid);
             this.token = token;
             this.nonce = nonce;
             this.volId = volId;
@@ -663,6 +665,7 @@ class StorageManagerService extends IStorageManager.Stub
         final String canonicalPath;
 
         final int ownerGid;
+        final int userId;
 
         // Token of remote Binder caller
         final IObbActionListener token;
@@ -4469,7 +4472,8 @@ class StorageManagerService extends IStorageManager.Stub
             }
 
             try {
-                mObbState.volId = mVold.createObb(mObbState.canonicalPath, mObbState.ownerGid);
+                mObbState.volId = mVold.createObb(mObbState.canonicalPath, mObbState.ownerGid,
+                        mObbState.userId);
                 mVold.mount(mObbState.volId, 0, -1, null);
 
                 if (DEBUG_OBB)

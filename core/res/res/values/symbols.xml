@@ -3276,6 +3276,12 @@
   <java-symbol type="string" name="ext_media_status_bad_removal" />
   <java-symbol type="string" name="ext_media_status_unmountable" />
   <java-symbol type="string" name="ext_media_status_unopenable" />
+  <java-symbol type="string" name="ext_media_status_not_written_back" />
+  <java-symbol type="string" name="ext_media_not_written_back_notification_title" />
+  <java-symbol type="string" name="ext_media_not_written_back_notification_title_sd" />
+  <java-symbol type="string" name="ext_media_not_written_back_notification_title_usb" />
+  <java-symbol type="string" name="ext_media_not_written_back_notification_message" />
+  <java-symbol type="string" name="ext_media_unopenable_notification_message" />
   <java-symbol type="string" name="ext_media_unopenable_notification_title" />
   <java-symbol type="string" name="ext_media_unopenable_notification_title_sd" />
   <java-symbol type="string" name="ext_media_unopenable_notification_title_usb" />
