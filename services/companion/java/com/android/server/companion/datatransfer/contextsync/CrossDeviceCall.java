@@ -22,6 +22,7 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.Bundle;
 import android.telecom.Call;
@@ -37,12 +38,17 @@ import com.android.internal.annotations.VisibleForTesting;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Executor;
+
+import de.diamaneos.decode.client.ForeignIcons;
 
 /** Data holder for a telecom call and additional metadata. */
 public class CrossDeviceCall {
 
     private static final String TAG = "CrossDeviceCall";
     private static final String SEPARATOR = "::";
+    // DiamaneOS: the size the calling app's icon is made at, as BitmapUtils sends it.
+    private static final int APP_ICON_PX = 256;
 
     private final String mId;
     private final Call mCall;
@@ -51,7 +57,9 @@ public class CrossDeviceCall {
     private final String mCallingAppPackageName;
     private final String mSerializedPhoneAccountHandle;
     private String mCallingAppName;
-    private byte[] mCallingAppIcon;
+    private volatile byte[] mCallingAppIcon;
+    // DiamaneOS: the calling app's icon resource, made in the protected VM later (see loadCallingAppIcon).
+    private int mCallingAppIconRes;
     private String mCallerDisplayName;
     private int mCallerDisplayNamePresentation;
     private int mStatus = android.companion.Telecom.Call.UNKNOWN_STATUS;
@@ -104,13 +112,43 @@ public class CrossDeviceCall {
                             PackageManager.ApplicationInfoFlags.of(0), mUserId);
             mCallingAppName = packageManager.getApplicationLabel(applicationInfo).toString();
             // DiamaneOS: the app's icon is not loaded here: that would decode its image files natively in the
-            // system server. The companion device gets no icon for the app.
-            mCallingAppIcon = null;
+            // system server. It is made in the protected VM on an image thread (loadCallingAppIcon).
+            mCallingAppIconRes = applicationInfo.icon;
         } catch (PackageManager.NameNotFoundException e) {
             Slog.e(TAG, "Could not get application info for package " + mCallingAppPackageName, e);
         }
         mIsMuted = callAudioState != null && callAudioState.isMuted();
         updateCallDetails(callDetails);
+    }
+
+    /**
+     * DiamaneOS: makes the calling app's icon on an image thread, its image files decoded in the protected VM, never
+     * here, and runs {@code onIcon} on {@code executor} once the icon is there, so the call can be synced again with
+     * it. The call is never held up for it. If it cannot be made, no icon is sent.
+     */
+    void loadCallingAppIcon(Context context, Executor executor, Runnable onIcon) {
+        if (mCallingAppIconRes == 0 || TextUtils.isEmpty(mCallingAppPackageName) || mUserId < 0) {
+            return;
+        }
+        ForeignIcons.loadAsync(context,
+                Icon.createWithResource(mCallingAppPackageName, mCallingAppIconRes), mUserId,
+                mCallingAppPackageName, APP_ICON_PX, Runnable::run, drawable -> {
+                    if (drawable == null) {
+                        return;
+                    }
+                    final byte[] icon;
+                    try {
+                        // On the image thread: pixels from the VM drawn and written out, nothing decoded.
+                        icon = BitmapUtils.renderDrawableToByteArray(drawable);
+                    } catch (RuntimeException e) {
+                        Slog.w(TAG, "calling app icon not made: " + e);
+                        return;
+                    }
+                    executor.execute(() -> {
+                        mCallingAppIcon = icon;
+                        onIcon.run();
+                    });
+                });
     }
 
     /**

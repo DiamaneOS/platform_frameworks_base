@@ -391,15 +391,16 @@ constructor(
         // TODO(b/360196209): check customAction.icon field to use platform icons
         if (customAction.iconResId != 0) {
             // The media app's resource: through an image gate, its bitmap files decoded in the protected VM on an
-            // image thread. Nothing waits here: what is not made yet shows from the next update.
+            // image thread. Nothing waits here: once it is made, the app's media notifications are loaded again.
             return ForeignIcons.loadNoWait(
                 context,
                 Icon.createWithResource(packageName, customAction.iconResId),
                 context.userId,
                 packageName,
                 size,
-                /* onMade= */ null,
-            )
+            ) {
+                MediaIconReload.reloadPackage(packageName)
+            }
         }
 
         if (customAction.iconUri != null) {

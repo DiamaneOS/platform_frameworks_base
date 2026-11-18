@@ -115,13 +115,6 @@ public final class NotificationImageGate {
     private final ImageBudget mBudget;
     private final AppResourceImages mResources;
     private final RemoteViewsImages.Images mLayoutImages = new LayoutImages();
-    // A widget's views: the same, and a collection the app's service fills later is refused.
-    private final RemoteViewsImages.Images mWidgetImages = new LayoutImages() {
-        @Override
-        public boolean refusesServiceCollections() {
-            return true;
-        }
-    };
     private Context mAppContext; // the gated context of the posting app, once made
     private boolean mLayoutsAllowed;
     private boolean mStrip; // remove every app image, decode nothing
@@ -408,6 +401,30 @@ public final class NotificationImageGate {
         }
     }
 
+    /**
+     * {@link #forNotification(Context, String, int, int, int, int, AppResourceImages)} for a row of a widget's list,
+     * with caps of its own: at most {@code maxImages} images and {@code maxPixels} pixels (never more than a
+     * notification's), so that the rows of one widget stay under the widget's caps together.
+     */
+    public static NotificationImageGate forWidgetRow(Context context, String ownerPackage, int userId, int iconPx,
+            int pictureWidth, int pictureHeight, AppResourceImages previous, int maxImages, long maxPixels) {
+        final String key = ownerPackage == null ? "" : ownerPackage;
+        final boolean imageThread = ImageThreads.isImageThread();
+        final long time = imageThread
+                ? sQuota.reserve(key, ImageBudget.TIME_MS, SystemClock.uptimeMillis()) : ImageBudget.TIME_MS;
+        final ImageBudget budget = new ImageBudget(time, Math.min(maxImages, ImageBudget.MAX_IMAGES),
+                Math.min(maxPixels, ImageBudget.MAX_PIXELS), ImageBudget.CLOCK, sPixels, key);
+        try {
+            return new NotificationImageGate(context, ownerPackage, userId, iconPx, pictureWidth, pictureHeight,
+                    budget, imageThread, previous);
+        } catch (RuntimeException | Error e) {
+            if (imageThread) {
+                settle(ownerPackage, budget, false);
+            }
+            throw e;
+        }
+    }
+
     /** {@link #forNotification(Context, String, int, int, int, int)} with a budget of the caller's (tests). */
     public static NotificationImageGate forNotification(Context context, String ownerPackage, int userId,
             int iconPx, int pictureWidth, int pictureHeight, ImageBudget budget) {
@@ -483,15 +500,33 @@ public final class NotificationImageGate {
     }
 
     /**
-     * A checked copy of {@code views} (a widget's), its images re-made like a notification's custom layout, or null
-     * when it cannot be checked. Call {@link #packageContext} first. On an image thread the VM is asked.
+     * A checked copy of {@code views} (a widget's or a row of its list), its images re-made like a notification's
+     * custom layout, or null when it cannot be checked. Call {@link #packageContext} first. On an image thread the VM
+     * is asked. A list the widget's service fills is checked row by row as the rows come (see {@link WidgetImages}).
      */
     public RemoteViews layoutCopy(RemoteViews views) {
         if (views == null) {
             return null;
         }
         final RemoteViews copy = views.clone();
-        return mLayoutsAllowed && RemoteViewsImages.convert(copy, mWidgetImages) ? copy : null;
+        return mLayoutsAllowed && RemoteViewsImages.convert(copy, mLayoutImages) ? copy : null;
+    }
+
+    /**
+     * {@code icon}, a URI, data or app resource icon of the app's views, as pixels made within this gate's caps (in
+     * the VM on an image thread, else only what was made before), or an empty icon. Call {@link #packageContext}
+     * first.
+     */
+    public Icon layoutIcon(Icon icon) {
+        return mLayoutImages.convert(icon);
+    }
+
+    /** Makes ahead, on an image thread, the drawable {@code resId} of the app as it will be loaded. */
+    public void prewarmDrawable(Context packageContext, int resId) {
+        if (!mLayoutsAllowed || mStrip || !decodes()) {
+            return;
+        }
+        prewarmDrawable(packageContext, resId, new java.util.HashSet<>());
     }
 
     /** Makes ahead, on an image thread, the app resource images {@code views} (a {@link #layoutCopy}) will load. */

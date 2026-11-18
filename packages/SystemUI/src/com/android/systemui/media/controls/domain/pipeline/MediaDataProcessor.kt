@@ -186,6 +186,7 @@ class MediaDataProcessor(
 
     override fun start() {
         MediaIconReload.addListener { reloadForIcon(it) }
+        MediaIconReload.addPackageListener { reloadForPackage(it) }
         if (!SceneContainerFlag.isEnabled && !MediaControlsInComposeFlag.isEnabled) {
             return
         }
@@ -211,7 +212,8 @@ class MediaDataProcessor(
     }
 
     fun onNotificationAdded(key: String, sbn: StatusBarNotification) {
-        latestSbn[key] = sbn
+        // Only media notifications are kept for a reload after an icon was made.
+        if (isMediaNotification(sbn)) latestSbn[key] = sbn else latestSbn.remove(key)
         if (useQsMediaPlayer && isMediaNotification(sbn)) {
             var isNewlyActiveEntry = false
             var isConvertingToActive = false
@@ -538,14 +540,19 @@ class MediaDataProcessor(
             MediaIconReload.reload(sbn)
         }
 
-    // The last notification seen per key: a reload after an icon was made is done only while it is still current.
+    // The last media notification seen per key, loaded again once an icon of it was made.
     private val latestSbn = java.util.concurrent.ConcurrentHashMap<String, StatusBarNotification>()
 
+    // Every notification of the key that asked is told: the latest one of the key is loaded again (a media app
+    // re-posts its notification, so an older object asked for the icon).
     private fun reloadForIcon(sbn: StatusBarNotification) {
+        foregroundExecutor.execute { latestSbn[sbn.key]?.let { onNotificationAdded(it.key, it) } }
+    }
+
+    // An icon of a media session of the package was made: its notifications are loaded again.
+    private fun reloadForPackage(packageName: String) {
         foregroundExecutor.execute {
-            if (latestSbn[sbn.key] === sbn) {
-                onNotificationAdded(sbn.key, sbn)
-            }
+            latestSbn.values.filter { it.packageName == packageName }.forEach { onNotificationAdded(it.key, it) }
         }
     }
 

@@ -254,7 +254,7 @@ public final class VmIcons {
         } catch (VmDecode.RejectedException e) {
             // Refused by the VM (broken, unsupported, hostile): not worth asking again.
             if (key != null) {
-                sRejected.put(key, Boolean.TRUE);
+                sRejected.put(stableKey(key), Boolean.TRUE);
             }
             Log.w(TAG, "icon not decoded, placeholder shown: " + e.getMessage());
             return null;
@@ -331,12 +331,24 @@ public final class VmIcons {
                 : iconLike(icon, bitmap, icon.getType() == Icon.TYPE_URI_ADAPTIVE_BITMAP);
     }
 
-    // URI and data icons the VM refused, by cache key: not asked for again (retries skip them).
+    // URI and data icons the VM refused, by stable key: not asked for again (retries skip them).
     private static final LruCache<String, Boolean> sRejected = new LruCache<>(256);
 
-    /** True when the VM refused the image behind {@code key} (a broken or unsupported file). */
+    /** True when the VM refused the image behind {@code key} (a broken or unsupported file), in any window. */
     static boolean wasRejected(String key) {
-        return key != null && sRejected.get(key) != null;
+        return key != null && sRejected.get(stableKey(key)) != null;
+    }
+
+    /**
+     * {@code key} (a {@link #cacheKey}) without the time window of a URI icon: the key a refusal and the retries of
+     * an image are counted by, so they do not start over with every window.
+     */
+    static String stableKey(String key) {
+        if (key == null || !key.startsWith("uri:")) {
+            return key;
+        }
+        final int window = key.lastIndexOf(":t");
+        return window > 0 ? key.substring(0, window) : key;
     }
 
     // URI icons by user, owner and URI (as SystemUI's own image caches do), data icons by a hash of their bytes.

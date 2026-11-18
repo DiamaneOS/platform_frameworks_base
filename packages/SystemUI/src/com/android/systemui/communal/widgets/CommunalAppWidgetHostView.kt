@@ -61,6 +61,9 @@ private constructor(
     private var pendingUpdate: Boolean = false
     private var pendingRemoteViews: RemoteViews? = null
 
+    // The latest update while it is being checked: checked again when the view comes back after a detach dropped it.
+    private var uncheckedUpdate: RemoteViews? = null
+
     init {
         enforcedCornerRadius = RoundedCornerEnforcement.computeEnforcedRadius(widgetImages.context())
         enforcedRectangle = Rect()
@@ -73,7 +76,9 @@ private constructor(
     }
 
     override fun setAppWidget(appWidgetId: Int, info: AppWidgetProviderInfo?) {
-        // The widget's app: its images are charged to it, its package contexts load through its own gate.
+        // The widget's app: its images are charged to it, its package contexts load through its own gate. An update
+        // of the widget the view showed before is dropped.
+        uncheckedUpdate = null
         widgetImages.setApp(info?.provider?.packageName, info?.profile?.identifier ?: context.userId)
         super.setAppWidget(appWidgetId, info)
         setPadding(0, 0, 0, 0)
@@ -92,11 +97,32 @@ private constructor(
 
     override fun updateAppWidget(remoteViews: RemoteViews?) {
         if (remoteViews == null) {
+            uncheckedUpdate = null
+            widgetImages.cancel()
             showAppWidget(null)
             return
         }
-        // Checked on an image thread first: what is shown is the checked copy, or nothing.
-        widgetImages.prepare(remoteViews, context.mainExecutor) { checked -> showAppWidget(checked) }
+        // Checked on an image thread first: what is shown is the checked copy, or nothing. Only the latest update
+        // waits for its check.
+        uncheckedUpdate = remoteViews
+        widgetImages.prepare(remoteViews, context.mainExecutor) { checked ->
+            uncheckedUpdate = null
+            showAppWidget(checked)
+        }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        // An update whose check a detach dropped is checked now.
+        uncheckedUpdate?.let { updateAppWidget(it) }
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        // A detached view keeps no image thread busy: its update is checked again if it comes back.
+        if (uncheckedUpdate != null) {
+            widgetImages.cancel()
+        }
     }
 
     private fun showAppWidget(remoteViews: RemoteViews?) {

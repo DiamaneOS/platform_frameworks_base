@@ -204,15 +204,16 @@ private fun getCustomAction(
 ): MediaAction {
     return MediaAction(
         // The media app's resource: through an image gate, its bitmap files decoded in the protected VM on an image
-        // thread. Nothing waits here: what is not made yet shows from the next update of the session.
+        // thread. Nothing waits here: once it is made, the app's media notifications are loaded again.
         ForeignIcons.loadNoWait(
             context,
             Icon.createWithResource(packageName, customAction.icon),
             userId,
             packageName,
             ACTION_ICON_MAX_PX,
-            /* onMade= */ null,
-        ),
+        ) {
+            MediaIconReload.reloadPackage(packageName)
+        },
         { controller.transportControls.sendCustomAction(customAction, customAction.extras) },
         customAction.name,
         null,
@@ -381,5 +382,17 @@ object MediaIconReload {
 
     fun reload(sbn: android.service.notification.StatusBarNotification) {
         listeners.forEach { it(sbn) }
+    }
+
+    private val packageListeners = java.util.concurrent.CopyOnWriteArrayList<(String) -> Unit>()
+
+    /** Called with the package whose media session icon was made, on the main thread. */
+    fun addPackageListener(listener: (String) -> Unit) {
+        packageListeners += listener
+    }
+
+    /** An icon of a media session of [packageName] (not of a notification) was made. */
+    fun reloadPackage(packageName: String) {
+        packageListeners.forEach { it(packageName) }
     }
 }

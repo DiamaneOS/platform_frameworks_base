@@ -451,12 +451,12 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
                 return;
             }
             final Point display = largestDisplaySize();
-            final Rect crop;
+            final java.util.List<int[]> crops;
             synchronized (mLock) {
-                crop = wallpaper == null ? null : WallpaperVmSanitizer.cropUnion(wallpaper);
+                crops = wallpaper == null ? null : WallpaperVmSanitizer.cropHints(wallpaper);
             }
             final WallpaperVmSanitizer.Outcome outcome =
-                    mVmSanitizer.sanitize(source, display.x, display.y, crop);
+                    mVmSanitizer.sanitize(source, display.x, display.y, crops);
             switch (outcome.result) {
                 case CLEAN:
                     if (outcome.remade && wallpaper != null) {
@@ -488,24 +488,24 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
     }
 
     /**
-     * The largest size the default display can have (all its sizes, a fold's inner and outer screen included): the VM
-     * makes the clean copy just big enough to cover it, so the crop that follows under the lock is cheap.
+     * The size to cover on the default display: the largest short side and the largest long side over all its sizes
+     * (a fold's inner and cover screens included). The VM makes the clean copy just big enough for it, so the crop
+     * that follows under the lock is cheap. Other displays are cropped from that copy too.
      */
     private Point largestDisplaySize() {
         final SparseArray<Point> sizes = mWallpaperDisplayHelper.getDefaultDisplaySizes();
-        Point largest = null;
+        final java.util.List<int[]> all = new java.util.ArrayList<>();
         for (int i = 0; sizes != null && i < sizes.size(); i++) {
             final Point size = sizes.valueAt(i);
-            if (largest == null || (long) size.x * size.y > (long) largest.x * largest.y) {
-                largest = size;
-            }
+            all.add(new int[] {size.x, size.y});
         }
-        if (largest == null) {
+        if (all.isEmpty()) {
             final android.view.DisplayInfo info =
                     mWallpaperDisplayHelper.getDisplayInfo(android.view.Display.DEFAULT_DISPLAY);
-            largest = info == null ? new Point(2048, 2048) : new Point(info.logicalWidth, info.logicalHeight);
+            all.add(info == null ? new int[] {2048, 2048} : new int[] {info.logicalWidth, info.logicalHeight});
         }
-        return new Point(Math.max(1, largest.x), Math.max(1, largest.y));
+        final int[] largest = de.diamaneos.decode.client.WallpaperBox.largest(all);
+        return new Point(Math.max(1, largest[0]), Math.max(1, largest[1]));
     }
 
     /**

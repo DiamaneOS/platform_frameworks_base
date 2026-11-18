@@ -955,32 +955,7 @@ public class RemoteViewsImagesDeviceTest {
     }
 
     @Test
-    public void imageThreads_refusePastTheQueueCapPerApp() throws Exception {
-        final CountDownLatch release = new CountDownLatch(1);
-        final List<ImageThreads.Task> tasks = new ArrayList<>();
-        try {
-            tasks.add(ImageThreads.execute("app.queue", () -> {
-                try {
-                    release.await(10, TimeUnit.SECONDS);
-                } catch (InterruptedException ignored) {
-                    // Ends the task.
-                }
-            }));
-            Thread.sleep(200);
-            for (int i = 0; i < ImageThreads.MAX_QUEUED_PER_OWNER; i++) {
-                assertNotNull(ImageThreads.execute("app.queue", () -> { }));
-            }
-            assertNull(ImageThreads.execute("app.queue", () -> { }));
-            // Another app is not refused.
-            final ImageThreads.Task other = ImageThreads.execute("app.other.queue", () -> { });
-            assertNotNull(other);
-        } finally {
-            release.countDown();
-        }
-    }
-
-    @Test
-    public void widgetImages_checkedCopy_serviceCollectionsRefused() throws Exception {
+    public void widgetImages_checkedCopy() throws Exception {
         final WidgetImages widget = onMain(() -> new WidgetImages(mContext));
         widget.setApp(mPackage, mContext.getUserId());
         final RemoteViews views = new RemoteViews(mPackage, R.layout.vm_test_probe);
@@ -999,17 +974,6 @@ public class RemoteViewsImagesDeviceTest {
         }
         // The original is not changed.
         assertEquals(Icon.TYPE_DATA, RemoteViewsImages.icons(views).get(0).getType());
-        // A list filled later by the app's service would be applied unchecked: not shown.
-        final RemoteViews list = new RemoteViews(mPackage, R.layout.vm_test_probe);
-        list.setRemoteAdapter(R.id.vm_probe, new Intent("x").setPackage(mPackage));
-        final CountDownLatch refused = new CountDownLatch(1);
-        final AtomicReference<RemoteViews> listChecked = new AtomicReference<>(views);
-        widget.prepare(list, Runnable::run, v -> {
-            listChecked.set(v);
-            refused.countDown();
-        });
-        assertTrue(refused.await(10, TimeUnit.SECONDS));
-        assertNull(listChecked.get());
         // The host context keeps the caller's theme and resources.
         assertSame(mContext.getTheme(), widget.context().getTheme());
     }

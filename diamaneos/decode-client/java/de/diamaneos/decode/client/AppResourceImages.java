@@ -75,8 +75,11 @@ public final class AppResourceImages implements ImageFileGate {
     private static volatile byte[] sEmptyPng;
 
     // Per thread: how many app images a load could not make (missing off the image threads, refused, failed, or an
-    // XML drawable that failed), and how many bitmap files of an app it asked for at all. See beginTracking.
-    private static final ThreadLocal<int[]> sMisses = ThreadLocal.withInitial(() -> new int[2]);
+    // XML drawable that failed), how many bitmap files of an app it asked for at all, and how many of them the VM
+    // refused. See beginTracking.
+    private static final ThreadLocal<int[]> sMisses = ThreadLocal.withInitial(() -> new int[3]);
+    // Files the VM refused (broken, unsupported, hostile), by cache key: never asked for again.
+    private static final LruCache<String, Boolean> sRejected = new LruCache<>(256);
 
     private final Context mContext;
     private final String mOwner;
@@ -90,6 +93,7 @@ public final class AppResourceImages implements ImageFileGate {
     private int mMaxHeight; // guarded by mLock
     private Map<String, Made> mRound = new HashMap<>(); // guarded by mLock
     private final Set<String> mFiles = new LinkedHashSet<>(); // guarded by mLock
+    private volatile LateImages mLate; // files not made yet wait for it, see setLate
 
     /**
      * A gate for SystemUI: {@code context} is SystemUI's own (it binds the decode service), {@code ownerPackage} the
@@ -118,6 +122,15 @@ public final class AppResourceImages implements ImageFileGate {
         final int[] counts = sMisses.get();
         counts[0] = 0;
         counts[1] = 0;
+        counts[2] = 0;
+    }
+
+    /**
+     * True when a load on this thread since {@link #beginTracking} met a bitmap file the VM refused: trying again will
+     * not make it.
+     */
+    public static boolean rejected() {
+        return sMisses.get()[2] > 0;
     }
 
     /**
@@ -138,6 +151,14 @@ public final class AppResourceImages implements ImageFileGate {
         return null;
     }
 
+    /**
+     * A gate that never asks the VM itself, for views that show before their images are made: a bitmap file not made
+     * yet loads as a drawable that waits for {@code late}, and the placeholder icons of {@code late} load from it.
+     */
+    void setLate(LateImages late) {
+        mLate = late;
+    }
+
     /** While {@code cancelled} answers true, the VM is not asked: the work is no longer wanted. */
     public void setCancelled(BooleanSupplier cancelled) {
         synchronized (mLock) {
@@ -147,6 +168,10 @@ public final class AppResourceImages implements ImageFileGate {
 
     @Override
     public Resources resourcesFor(String packageName) {
+        final LateImages late = mLate;
+        if (LateImages.PACKAGE.equals(packageName)) {
+            return late != null ? late.placeholders() : null;
+        }
         synchronized (mLock) {
             final Resources known = mOtherPackages.get(packageName);
             if (known != null) {
@@ -209,8 +234,33 @@ public final class AppResourceImages implements ImageFileGate {
     public Drawable loadImage(Resources res, TypedValue value, String apkPath) {
         final Made made = make(res, value, apkPath, null);
         if (made == null) {
-            return empty();
+            final LateImages late = mLate;
+            return late != null ? late.waitingFile(res, keyFor(value, apkPath)) : empty();
         }
+        return drawable(res, made);
+    }
+
+    /** The drawable of a file made before, found by its cache key, or null. */
+    static Drawable cachedDrawable(Resources res, String key) {
+        final Made made = key == null ? null : cached(key);
+        return made == null ? null : drawable(res, made);
+    }
+
+    // The key the file has in the cache in this gate's current box.
+    private String keyFor(TypedValue value, String apkPath) {
+        if (value.string == null) {
+            return null;
+        }
+        final int maxWidth;
+        final int maxHeight;
+        synchronized (mLock) {
+            maxWidth = mMaxWidth;
+            maxHeight = mMaxHeight;
+        }
+        return key(apkPath, value.string.toString(), bitmapDensity(value), maxWidth, maxHeight);
+    }
+
+    private static Drawable drawable(Resources res, Made made) {
         if (made.chunk != null) {
             final NinePatchChunk c = made.chunk;
             final int[] insets = c.opticalInsets();
@@ -332,6 +382,10 @@ public final class AppResourceImages implements ImageFileGate {
         if (budget.hasFailed(roundKey)) {
             return missing();
         }
+        if (key != null && sRejected.get(key) != null) {
+            sMisses.get()[2]++;
+            return missing();
+        }
         Made made = key == null ? null : cached(key);
         if (made != null) {
             if (admission == ImageBudget.Admission.NEW && !budget.charge(roundKey, pixels(made.bitmap))) {
@@ -356,7 +410,7 @@ public final class AppResourceImages implements ImageFileGate {
             Log.w(TAG, "notification layout images over their pixel cap, empty: " + file);
             return missing();
         }
-        made = decode(budget, bytes, plan, density, file);
+        made = decode(budget, bytes, plan, density, file, key);
         if (made == null) {
             if (admission == ImageBudget.Admission.NEW) {
                 budget.refund(plan.pixels);
@@ -400,7 +454,7 @@ public final class AppResourceImages implements ImageFileGate {
         return new Made(bitmap, chunk instanceof NinePatchChunk ? (NinePatchChunk) chunk : null);
     }
 
-    private Made decode(ImageBudget budget, byte[] bytes, ImagePlan plan, int density, String file) {
+    private Made decode(ImageBudget budget, byte[] bytes, ImagePlan plan, int density, String file, String key) {
         final long left = budget.remainingMs();
         if (left <= 0) {
             Log.w(TAG, "notification image budget spent, empty: " + file);
@@ -411,7 +465,15 @@ public final class AppResourceImages implements ImageFileGate {
             budget.countVmCall();
             bitmap = VmDecode.decodeBytes(mContext, bytes, 0, bytes.length, mOwner,
                     VmDecode.PRIORITY_USER_WAITING, plan.boxWidth, plan.boxHeight, VmDecode.deadlineIn(left));
-        } catch (VmDecode.UnavailableException | VmDecode.RejectedException e) {
+        } catch (VmDecode.RejectedException e) {
+            // Refused by the VM: not asked for again, and its icon is not tried again.
+            if (key != null) {
+                sRejected.put(key, Boolean.TRUE);
+            }
+            sMisses.get()[2]++;
+            Log.w(TAG, "app image file refused, empty: " + file + ": " + e.getMessage());
+            return null;
+        } catch (VmDecode.UnavailableException e) {
             Log.w(TAG, "app image file not decoded, empty: " + file + ": " + e.getMessage());
             return null;
         }

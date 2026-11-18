@@ -152,6 +152,17 @@ class ControlViewHolder(
         }
     }
 
+    // DiamaneOS: whether the last bind was locked, for a bind again once an icon is made.
+    private var lastLocked = false
+
+    /**
+     * DiamaneOS: an icon of the control that was not made yet has been made in the protected VM: the control is
+     * bound again, which loads it.
+     */
+    fun rebindForImage() {
+        uiExecutor.execute { if (::cws.isInitialized) bindData(cws, lastLocked) }
+    }
+
     fun bindData(cws: ControlWithState, isLocked: Boolean) {
         // If an interaction is in progress, the update may visually interfere with the action the
         // action the user wants to make. Don't apply the update, and instead assume a new update
@@ -159,6 +170,7 @@ class ControlViewHolder(
         if (userInteractionInProgress) return
 
         this.cws = cws
+        lastLocked = isLocked
 
         // For the following statuses only, assume the title/subtitle could not be set properly
         // by the app and instead use the last known information from favorites
@@ -505,7 +517,7 @@ class ControlViewHolder(
         status.setTextColor(color)
 
         control?.customIcon?.takeIf(canUseIconPredicate)?.let { it ->
-            val loadedDrawable = safeIconLoader.load(it)
+            val loadedDrawable = safeIconLoader.load(it) { rebindForImage() }
             icon.setImageDrawable(loadedDrawable)
             icon.imageTintList = it.tintList
             loadedDrawable

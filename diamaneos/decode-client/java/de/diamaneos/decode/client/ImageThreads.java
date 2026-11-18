@@ -15,6 +15,8 @@
  */
 package de.diamaneos.decode.client;
 
+import android.os.Handler;
+import android.os.Looper;
 import android.os.Process;
 import android.util.Log;
 
@@ -30,10 +32,13 @@ import java.util.Set;
  * does. Two lanes: the normal one (three threads) and an urgent one (two threads) for calls, alarms and other urgent
  * notifications, which never queue behind normal image work. In each lane work runs per app in order and at most one
  * task per app at a time, and apps take turns: one app's slow provider or many images hold one thread of its lane,
- * never the others. Each task is bounded by its budget (wall-clock time, checked in every loop of the work) and the
- * app's {@link OwnerQuota}, reserved before the task and settled after it: an app whose tasks overrun waits its debt
- * out. The urgent lane is only for what an app cannot claim for itself (see {@link NotificationImageGate#lane}). A
- * task that is cancelled before it runs is dropped ({@link Task#cancel}), a running one stops at its next check.
+ * never the others. Waiting is fair too: an app may queue as many tasks as there is room for, and when a lane is
+ * full, a new task of an app takes the place of the newest task of the app with the most waiting (which is told,
+ * {@code onDropped}), so no app or group of apps can keep the others out. Each task is bounded by its budget
+ * (wall-clock time, checked in every loop of the work) and the app's {@link OwnerQuota}, reserved before the task and
+ * settled after it: an app whose tasks overrun waits its debt out. The urgent lane is only for what an app cannot
+ * claim for itself (see {@link NotificationImageGate#lane}). A task that is cancelled before it runs is dropped
+ * ({@link Task#cancel}), a running one stops at its next check.
  *
  * <p>Images of the app's own layouts are decoded only on these threads. Elsewhere (the inflation thread, the main
  * thread) they come from what these threads made, or are empty.
@@ -52,11 +57,13 @@ public final class ImageThreads {
         private final Lane mLane;
         private final String mOwner;
         private final Runnable mRunnable;
+        private final Runnable mOnDropped;
 
-        private Task(Lane lane, String owner, Runnable runnable) {
+        private Task(Lane lane, String owner, Runnable runnable, Runnable onDropped) {
             mLane = lane;
             mOwner = owner;
             mRunnable = runnable;
+            mOnDropped = onDropped;
         }
 
         /** Drops the task if it has not started. A running task stops at its next check of its own signal. */
@@ -99,21 +106,39 @@ public final class ImageThreads {
         return Thread.currentThread() instanceof ImageThread;
     }
 
-    /** Tasks one app may have waiting in a lane, and all apps together: past that, a new task is refused. */
-    public static final int MAX_QUEUED_PER_OWNER = 32;
+    /**
+     * Tasks waiting in a lane, all apps together. When it is full, the app with the most waiting gives up its newest
+     * task for a new task of another app, and a new task of that app itself is refused.
+     */
     public static final int MAX_QUEUED = 256;
+
+    // Where onDropped runs: never on the thread that queued the task that took the place.
+    private static final Handler sMain = new Handler(Looper.getMainLooper());
 
     /**
      * Runs {@code task} on a normal image thread, after the earlier tasks of {@code owner}. Null when the task is
-     * refused because too many are waiting (for that app, or for all): the caller goes on without the image thread.
+     * refused (the lane is full and {@code owner} has the most waiting): the caller goes on without the image thread.
      */
     public static Task execute(String owner, Runnable task) {
-        return NORMAL.add(owner, task);
+        return NORMAL.add(owner, task, null);
+    }
+
+    /**
+     * {@link #execute}, and when the task is dropped later for a task of an app with fewer waiting,
+     * {@code onDropped} runs on the main thread instead of the task, so the caller can go on without it.
+     */
+    public static Task execute(String owner, Runnable task, Runnable onDropped) {
+        return NORMAL.add(owner, task, onDropped);
     }
 
     /** Like {@link #execute}, in the urgent lane, which normal image work never holds up. */
     public static Task executeUrgent(String owner, Runnable task) {
-        return URGENT.add(owner, task);
+        return URGENT.add(owner, task, null);
+    }
+
+    /** Like {@link #execute(String, Runnable, Runnable)}, in the urgent lane. */
+    public static Task executeUrgent(String owner, Runnable task, Runnable onDropped) {
+        return URGENT.add(owner, task, onDropped);
     }
 
     /** One lane: its threads, pending work per app, and the apps running now. */
@@ -132,14 +157,30 @@ public final class ImageThreads {
             mThreads = threads;
         }
 
-        Task add(String owner, Runnable runnable) {
-            final Task task = new Task(this, owner == null ? "" : owner, runnable);
+        Task add(String owner, Runnable runnable, Runnable onDropped) {
+            final Task task = new Task(this, owner == null ? "" : owner, runnable, onDropped);
             int start = -1;
+            Task dropped = null;
             synchronized (this) {
-                final ArrayDeque<Task> queue = mQueues.get(task.mOwner);
-                if ((queue != null && queue.size() >= MAX_QUEUED_PER_OWNER) || mQueued >= MAX_QUEUED) {
-                    Log.w(TAG, "too many image tasks waiting, refused for " + task.mOwner);
-                    return null;
+                if (mQueued >= MAX_QUEUED) {
+                    // Full: the app with the most waiting gives up its newest task, unless that is this app (or it
+                    // would have as many as that one afterwards).
+                    ArrayDeque<Task> longest = null;
+                    for (ArrayDeque<Task> q : mQueues.values()) {
+                        if (longest == null || q.size() > longest.size()) {
+                            longest = q;
+                        }
+                    }
+                    final ArrayDeque<Task> own = mQueues.get(task.mOwner);
+                    final int ownSize = own == null ? 0 : own.size();
+                    if (longest == null || longest.size() <= ownSize + 1) {
+                        Log.w(TAG, "image tasks full, refused for " + task.mOwner);
+                        return null;
+                    }
+                    dropped = longest.pollLast();
+                    mQueued--;
+                    Log.w(TAG, "image tasks full, a task of " + dropped.mOwner + " gives way to "
+                            + task.mOwner);
                 }
                 mQueues.computeIfAbsent(task.mOwner, k -> new ArrayDeque<>()).add(task);
                 mQueued++;
@@ -152,6 +193,9 @@ public final class ImageThreads {
             if (start >= 0) {
                 // Started outside the lock and not waited for: the caller (often the main thread) never stalls.
                 new ImageThread(this, mName + start).start();
+            }
+            if (dropped != null && dropped.mOnDropped != null) {
+                sMain.post(dropped.mOnDropped);
             }
             return task;
         }

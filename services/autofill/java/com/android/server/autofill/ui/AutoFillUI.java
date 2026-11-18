@@ -23,6 +23,7 @@ import static com.android.server.autofill.Helper.sVerbose;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
+import android.app.ActivityManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -45,6 +46,7 @@ import android.view.KeyEvent;
 import android.view.autofill.AutofillId;
 import android.view.autofill.AutofillManager;
 import android.view.autofill.IAutofillWindowPresenter;
+import android.widget.RemoteViews;
 import android.widget.Toast;
 
 import com.android.internal.logging.MetricsLogger;
@@ -58,7 +60,9 @@ import com.android.server.autofill.SaveEventLogger;
 import com.android.server.utils.Slogf;
 
 import java.io.PrintWriter;
+import java.util.WeakHashMap;
 
+import de.diamaneos.decode.client.LateImages;
 import de.diamaneos.decode.client.NoImageViews;
 
 /**
@@ -72,6 +76,8 @@ public final class AutoFillUI {
     private static final String TAG = "AutofillUI";
 
     private final Handler mHandler = UiThread.getHandler();
+    // DiamaneOS: the late images of each response shown, used on the UI thread only (see lateImages).
+    private final WeakHashMap<FillResponse, LateImages> mLateImages = new WeakHashMap<>();
     private final @NonNull Context mContext;
 
     private @Nullable FillUi mFillUi;
@@ -239,12 +245,13 @@ public final class AutoFillUI {
             // DiamaneOS: a UI that cannot be built (its views cannot be checked) is not shown, the system server
             // keeps running.
             try {
-                // DiamaneOS: the service's views are shown without decoding its images in the system server: URI
-                // and data images empty, its bitmap files empty, through the context given here.
-                if (!stripImages(response)) {
+                // DiamaneOS: the service's views show at once, its images are made in the VM on an image thread
+                // and fill in when they are made, through the context given here. Nothing is decoded here.
+                final LateImages images = lateImages(response, servicePackageName);
+                if (images == null) {
                     throw new IllegalArgumentException("views of the autofill service cannot be checked");
                 }
-                mFillUi = new FillUi(NoImageViews.context(context), response, focusedId, filterText,
+                mFillUi = new FillUi(images.context(context), response, focusedId, filterText,
                         serviceLabel, serviceIcon, mUiModeMgr.isNightMode(context.getDisplayId()),
                         maxInputLengthForAutofill,
                         new FillUi.Callback() {
@@ -259,14 +266,14 @@ public final class AutoFillUI {
                                     UI_TYPE_MENU);
                         }
                     }
-    
+
                     @Override
                     public void onShown(int datasetSize) {
                         if (mCallback != null) {
                             mCallback.onShown(UI_TYPE_MENU, datasetSize);
                         }
                     }
-    
+
                     @Override
                     public void onDatasetPicked(Dataset dataset) {
                         log.setType(MetricsEvent.TYPE_ACTION);
@@ -277,13 +284,13 @@ public final class AutoFillUI {
                                     dataset, UI_TYPE_MENU);
                         }
                     }
-    
+
                     @Override
                     public void onCanceled() {
                         log.setType(MetricsEvent.TYPE_DISMISS);
                         hideFillUiUiThread(callback, true);
                     }
-    
+
                     @Override
                     public void onDestroy() {
                         if (log.getType() == MetricsEvent.TYPE_UNKNOWN) {
@@ -291,7 +298,7 @@ public final class AutoFillUI {
                         }
                         mMetricsLogger.write(log);
                     }
-    
+
                     @Override
                     public void requestShowFillUi(int width, int height,
                             IAutofillWindowPresenter windowPresenter) {
@@ -299,35 +306,35 @@ public final class AutoFillUI {
                             mCallback.requestShowFillUi(focusedId, width, height, windowPresenter);
                         }
                     }
-    
+
                     @Override
                     public void requestHideFillUi() {
                         if (mCallback != null) {
                             mCallback.requestHideFillUi(focusedId);
                         }
                     }
-    
+
                     @Override
                     public void requestHideFillUiWhenDestroyed() {
                         if (mCallback != null) {
                             mCallback.requestHideFillUiWhenDestroyed(focusedId);
                         }
                     }
-    
+
                     @Override
                     public void startIntentSender(IntentSender intentSender) {
                         if (mCallback != null) {
                             mCallback.startIntentSenderAndFinishSession(intentSender);
                         }
                     }
-    
+
                     @Override
                     public void dispatchUnhandledKey(KeyEvent keyEvent) {
                         if (mCallback != null) {
                             mCallback.dispatchUnhandledKey(focusedId, keyEvent);
                         }
                     }
-    
+
                     @Override
                     public void cancelSession() {
                         if (mCallback != null) {
@@ -425,7 +432,7 @@ public final class AutoFillUI {
                                 callback.save();
                                 destroySaveUiUiThread(pendingSaveUi, true);
                             }
-    
+
                             @Override
                             public void onCancel(IntentSender listener) {
                                 log.setType(MetricsEvent.TYPE_DISMISS);
@@ -444,12 +451,12 @@ public final class AutoFillUI {
                                 callback.cancelSave();
                                 destroySaveUiUiThread(pendingSaveUi, true);
                             }
-    
+
                             @Override
                             public void onDestroy() {
                                 if (log.getType() == MetricsEvent.TYPE_UNKNOWN) {
                                     log.setType(MetricsEvent.TYPE_CLOSE);
-    
+
                                     callback.cancelSave();
                                 }
                                 mMetricsLogger.write(log);
@@ -457,7 +464,7 @@ public final class AutoFillUI {
                                     mSaveEventLogger.maybeSetDialogDismissed(true);
                                 }
                             }
-    
+
                             @Override
                             public void startIntentSender(IntentSender intentSender, Intent intent) {
                                 callback.startIntentSender(intentSender, intent);
@@ -505,11 +512,12 @@ public final class AutoFillUI {
             // DiamaneOS: a UI that cannot be built (its views cannot be checked) is not shown, the system server
             // keeps running.
             try {
-                // DiamaneOS: as for the fill UI, nothing of the service's images is decoded here.
-                if (!stripImages(response)) {
+                // DiamaneOS: as for the fill UI, the images fill in once made, nothing is decoded here.
+                final LateImages images = lateImages(response, servicePackageName);
+                if (images == null) {
                     throw new IllegalArgumentException("views of the autofill service cannot be checked");
                 }
-                mFillDialog = new DialogFillUi(NoImageViews.context(mContext), response, focusedId, filterText,
+                mFillDialog = new DialogFillUi(images.context(mContext), response, focusedId, filterText,
                         serviceIcon, servicePackageName, componentName,
                         mUiModeMgr.isNightMode(mContext.getDisplayId()), new DialogFillUi.UiCallback() {
                             @Override
@@ -523,14 +531,14 @@ public final class AutoFillUI {
                                             UI_TYPE_DIALOG);
                                 }
                             }
-    
+
                             @Override
                             public void onShown(int datasetsShown) {
                                 if (mCallback != null) {
                                     mCallback.onShown(UI_TYPE_DIALOG, datasetsShown);
                                 }
                             }
-    
+
                             @Override
                             public void onDatasetPicked(Dataset dataset) {
                                 log(MetricsEvent.TYPE_ACTION);
@@ -547,7 +555,7 @@ public final class AutoFillUI {
                                             UI_TYPE_DIALOG);
                                 }
                             }
-    
+
                             @Override
                             public void onDismissed() {
                                 log(MetricsEvent.TYPE_DISMISS);
@@ -560,7 +568,7 @@ public final class AutoFillUI {
                                 callback.requestShowSoftInput(focusedId);
                                 callback.requestFallbackFromFillDialog();
                             }
-    
+
                             @Override
                             public void onCanceled() {
                                 log(MetricsEvent.TYPE_CLOSE);
@@ -574,14 +582,14 @@ public final class AutoFillUI {
                                 callback.requestShowSoftInput(focusedId);
                                 callback.requestFallbackFromFillDialog();
                             }
-    
+
                             @Override
                             public void startIntentSender(IntentSender intentSender) {
                                 if (mCallback != null) {
                                     mCallback.startIntentSenderAndFinishSession(intentSender);
                                 }
                             }
-    
+
                             private void log(int type) {
                                 log.setType(type);
                                 mMetricsLogger.write(log);
@@ -659,11 +667,30 @@ public final class AutoFillUI {
         }
     }
 
+    // DiamaneOS: the images of a response's views, made on an image thread once per response while the fill UI and
+    // the fill dialog show (the session keeps the response, and so its images, for as long as it may show again).
+    // Null when a view of the response cannot be checked: then none may be shown.
     @android.annotation.UiThread
+    @Nullable
+    private LateImages lateImages(@NonNull FillResponse response, @Nullable String servicePackageName) {
+        LateImages images = mLateImages.get(response);
+        if (images != null) {
+            return images;
+        }
+        images = new LateImages(mContext, servicePackageName, ActivityManager.getCurrentUser(), mHandler);
+        if (!prepareImages(response, images)) {
+            return null;
+        }
+        images.start();
+        mLateImages.put(response, images);
+        return images;
+    }
+
     // DiamaneOS: every view of the response the fill UI or the fill dialog may show, its URI and data images replaced
-    // by empty ones in place (the system server's own copy of the response). False when one cannot be checked.
-    private static boolean stripImages(@NonNull FillResponse response) {
-        if (!NoImageViews.stripInPlace(response.getPresentation(), response.getHeader(), response.getFooter(),
+    // in place (the system server's own copy of the response) by placeholders the image thread fills in. Views of
+    // another user show without them. False when one cannot be checked.
+    private static boolean prepareImages(@NonNull FillResponse response, @NonNull LateImages images) {
+        if (!prepare(images, response.getPresentation(), response.getHeader(), response.getFooter(),
                 response.getDialogPresentation(), response.getDialogHeader())) {
             return false;
         }
@@ -675,8 +702,7 @@ public final class AutoFillUI {
             final java.util.ArrayList<android.view.autofill.AutofillId> ids = dataset.getFieldIds();
             final int count = ids == null ? 0 : ids.size();
             for (int i = 0; i < count; i++) {
-                if (!NoImageViews.stripInPlace(dataset.getFieldPresentation(i),
-                        dataset.getFieldDialogPresentation(i))) {
+                if (!prepare(images, dataset.getFieldPresentation(i), dataset.getFieldDialogPresentation(i))) {
                     return false;
                 }
             }
@@ -684,6 +710,22 @@ public final class AutoFillUI {
         return true;
     }
 
+    private static boolean prepare(@NonNull LateImages images, RemoteViews... views) {
+        for (RemoteViews v : views) {
+            if (v == null) {
+                continue;
+            }
+            // URIs of another user than the one shown to are never opened (Helper's check, as the UIs make it).
+            final boolean ok = Helper.sanitizeRemoteView(v) != null
+                    ? images.prepareInPlace(v) : NoImageViews.stripInPlace(v);
+            if (!ok) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    @android.annotation.UiThread
     private void hideFillUiUiThread(@Nullable AutoFillUiCallback callback, boolean notifyClient) {
         if (mFillUi != null && (callback == null || callback == mCallback)) {
             mFillUi.destroy(notifyClient);

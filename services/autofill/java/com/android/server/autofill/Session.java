@@ -205,6 +205,7 @@ import com.android.internal.logging.MetricsLogger;
 import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 import com.android.internal.util.ArrayUtils;
 import com.android.server.LocalServices;
+import com.android.server.UiThread;
 import com.android.server.autofill.ui.AutoFillUI;
 import com.android.server.autofill.ui.InlineFillUi;
 import com.android.server.autofill.ui.PendingUi;
@@ -231,7 +232,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
-import de.diamaneos.decode.client.NoImageViews;
+import de.diamaneos.decode.client.LateImages;
 
 /**
  * A session for a given activity.
@@ -5655,15 +5656,15 @@ final class Session
         final Drawable serviceIcon;
         synchronized (this.mService.mLock) {
             serviceLabel = mService.getServiceLabelLocked();
-            // DiamaneOS: the service's icon without decoding its image files here (a vector or a file of the
-            // system image), else a blank one.
+            // DiamaneOS: the service's icon shows at once, its bitmap files fill in once an image thread has
+            // made them in the VM. Nothing is decoded here. A blank one when it cannot be loaded.
             final ServiceInfo serviceInfo = mService.getServiceInfo();
             final long token = Binder.clearCallingIdentity();
             Drawable icon = null;
             try {
-                icon = serviceInfo == null ? null : NoImageViews.packageDrawable(
+                icon = serviceInfo == null ? null : LateImages.packageDrawable(
                         mService.getMaster().getContext(), mService.getServicePackageName(),
-                        mService.getUserId(), serviceInfo.getIconResource());
+                        mService.getUserId(), serviceInfo.getIconResource(), UiThread.getHandler());
             } finally {
                 Binder.restoreCallingIdentity(token);
             }
@@ -5972,26 +5973,28 @@ final class Session
     @GuardedBy("mLock")
     private Drawable getServiceIcon(FillResponse response) {
         Drawable serviceIcon = null;
-        // DiamaneOS: the service's icons are loaded without decoding its image files in the system server: a vector
-        // (or a file of the system image) shows, a bitmap file of the service gives no icon.
+        // DiamaneOS: the service's icons show at once without decoding its image files in the system server, and
+        // its bitmap files fill in once an image thread has made them in the VM. Never null: a blank icon when none
+        // can be loaded, so the save UI still shows.
         final Context context = mService.getMaster().getContext();
         final String servicePackage = mService.getServicePackageName();
         long token = Binder.clearCallingIdentity();
         try {
             // Try to get the custom Icon, if one was passed through FillResponse
-            serviceIcon = NoImageViews.packageDrawable(context, servicePackage,
-                    mService.getUserId(), response.getIconResourceId());
+            serviceIcon = LateImages.packageDrawable(context, servicePackage,
+                    mService.getUserId(), response.getIconResourceId(), UiThread.getHandler());
             // Custom icon wasn't fetched, use the default service icon instead
             final ServiceInfo serviceInfo = mService.getServiceInfo();
             if (serviceIcon == null && serviceInfo != null) {
-                serviceIcon = NoImageViews.packageDrawable(context, servicePackage,
-                        mService.getUserId(), serviceInfo.getIconResource());
+                serviceIcon = LateImages.packageDrawable(context, servicePackage,
+                        mService.getUserId(), serviceInfo.getIconResource(), UiThread.getHandler());
             }
         } finally {
             Binder.restoreCallingIdentity(token);
         }
 
-        return serviceIcon;
+        return serviceIcon != null ? serviceIcon
+                : new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT);
     }
 
     /**

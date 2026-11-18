@@ -27,6 +27,7 @@ import android.util.Slog;
 import android.util.SparseArray;
 
 import de.diamaneos.decode.client.VmDecode;
+import de.diamaneos.decode.client.WallpaperBox;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -138,7 +139,7 @@ final class WallpaperVmSanitizer {
      * it as the app gave it, never decoded on Android. Call on a worker thread: it waits for the VM. Never deletes
      * {@code source}: on any failure it stays as it is and is simply not decoded.
      */
-    Outcome sanitize(File source, int displayWidth, int displayHeight, Rect crop) {
+    Outcome sanitize(File source, int displayWidth, int displayHeight, java.util.List<int[]> crops) {
         if (!source.isFile()) {
             return new Outcome(Result.REJECTED);
         }
@@ -150,8 +151,8 @@ final class WallpaperVmSanitizer {
         try {
             original = VmDecode.probeFile(mContext, source, "", VmDecode.PRIORITY_USER_WAITING,
                     VmDecode.NO_DEADLINE);
-            final int side = boxSide(original.getWidth(), original.getHeight(), displayWidth, displayHeight,
-                    crop);
+            final int side = WallpaperBox.side(original.getWidth(), original.getHeight(), displayWidth,
+                    displayHeight, crops, VmDecode.MAX_BOX);
             decoded = VmDecode.decodeFile(mContext, source, "", VmDecode.PRIORITY_USER_WAITING, side, side,
                     VmDecode.NO_DEADLINE);
         } catch (VmDecode.UnavailableException e) {
@@ -208,40 +209,25 @@ final class WallpaperVmSanitizer {
     }
 
     /**
-     * The side of the square box asked of the VM: the original's longest side scaled so that {@code crop} covers the
-     * display in either orientation (the turn the file asks for is only known after the decode), never above the
-     * original and within the contract's limit. A square box keeps the picture's shape whatever the turn.
+     * Every crop hint of {@code wallpaper} (one per screen orientation and size), in the original's stored pixels: the
+     * clean copy is made big enough for the most demanding one. Empty when it has none (the whole image counts).
      */
-    static int boxSide(int width, int height, int displayWidth, int displayHeight, Rect crop) {
-        if (width <= 0 || height <= 0) {
-            return Math.max(1, Math.min(Math.max(displayWidth, displayHeight), VmDecode.MAX_BOX));
-        }
-        final Rect c = crop == null ? new Rect() : new Rect(crop);
-        if (c.isEmpty() || !c.intersect(0, 0, width, height) || c.isEmpty()) {
-            c.set(0, 0, width, height);
-        }
-        final double cw = c.width();
-        final double ch = c.height();
-        final double scale = Math.min(1.0, Math.max(
-                Math.max(displayWidth / cw, displayHeight / ch),
-                Math.max(displayWidth / ch, displayHeight / cw)));
-        final long side = (long) Math.ceil(Math.max(width, height) * scale);
-        return (int) Math.max(1, Math.min(side, VmDecode.MAX_BOX));
-    }
-
-    /** All crop hints of {@code wallpaper} together, in the original's stored pixels, or null when it has none. */
-    static Rect cropUnion(WallpaperData wallpaper) {
-        final Rect union = new Rect();
+    static java.util.List<int[]> cropHints(WallpaperData wallpaper) {
+        final java.util.List<int[]> hints = new java.util.ArrayList<>();
         if (wallpaper.cropHint != null && !wallpaper.cropHint.isEmpty()) {
-            union.union(wallpaper.cropHint);
+            hints.add(rect(wallpaper.cropHint));
         }
         for (int i = 0; wallpaper.mCropHints != null && i < wallpaper.mCropHints.size(); i++) {
             final Rect r = wallpaper.mCropHints.valueAt(i);
             if (r != null && !r.isEmpty()) {
-                union.union(r);
+                hints.add(rect(r));
             }
         }
-        return union.isEmpty() ? null : union;
+        return hints;
+    }
+
+    private static int[] rect(Rect r) {
+        return new int[] {r.left, r.top, r.right, r.bottom};
     }
 
     /**
@@ -264,31 +250,9 @@ final class WallpaperVmSanitizer {
 
     /** {@code r} in the original's stored pixels, in the clean file's pixels. */
     static Rect mapRect(Rect r, Outcome o) {
-        final int w = o.originalWidth;
-        final int h = o.originalHeight;
-        // Turn clockwise as the clean file was turned.
-        final Rect t;
-        switch (o.rotation) {
-            case 90:
-                t = new Rect(h - r.bottom, r.left, h - r.top, r.right);
-                break;
-            case 180:
-                t = new Rect(w - r.right, h - r.bottom, w - r.left, h - r.top);
-                break;
-            case 270:
-                t = new Rect(r.top, w - r.right, r.bottom, w - r.left);
-                break;
-            default:
-                t = new Rect(r);
-                break;
-        }
-        final boolean turned = o.rotation == 90 || o.rotation == 270;
-        final double sx = (double) o.width / (turned ? h : w);
-        final double sy = (double) o.height / (turned ? w : h);
-        final Rect out = new Rect((int) Math.floor(t.left * sx), (int) Math.floor(t.top * sy),
-                (int) Math.ceil(t.right * sx), (int) Math.ceil(t.bottom * sy));
-        out.intersect(0, 0, o.width, o.height);
-        return out;
+        final int[] m = WallpaperBox.map(rect(r), o.originalWidth, o.originalHeight, o.rotation, o.width,
+                o.height);
+        return new Rect(m[0], m[1], m[2], m[3]);
     }
 
     private static String hash(File file) {

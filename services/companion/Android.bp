@@ -31,6 +31,9 @@ java_library_static {
         "androidx.annotation_annotation",
         "app-compat-annotations",
         "services.core",
+        // DiamaneOS: the calling app's icon is made in the protected VM (ForeignIcons). The library is built into
+        // services.core.
+        "diamaneos-decode-client",
     ],
     static_libs: [
         "ukey2_jni",
