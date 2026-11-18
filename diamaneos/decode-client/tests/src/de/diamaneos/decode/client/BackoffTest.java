@@ -16,6 +16,7 @@
 
 package de.diamaneos.decode.client;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -33,10 +34,11 @@ public class BackoffTest {
         assertTrue(backoff.start("a", 0));
         // Running: not started twice.
         assertFalse(backoff.start("a", 0));
-        backoff.failed("a", 0);
+        // The wait is returned, so the caller can schedule the next try.
+        assertEquals(2_000, backoff.failed("a", 0));
         assertFalse(backoff.mayTry("a", 1_999));
         assertTrue(backoff.start("a", 2_000));
-        backoff.failed("a", 2_000);
+        assertEquals(4_000, backoff.failed("a", 2_000));
         assertFalse(backoff.mayTry("a", 5_999));
         assertTrue(backoff.mayTry("a", 6_000));
         // Never longer than the most.

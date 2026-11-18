@@ -76,8 +76,11 @@ public final class Backoff {
         mFailed.remove(key);
     }
 
-    /** {@code key} failed at {@code nowMs}: the next try waits, longer after each failure. */
-    public synchronized void failed(String key, long nowMs) {
+    /**
+     * {@code key} failed at {@code nowMs}: the next try waits, longer after each failure. Returns that wait, so the
+     * caller can schedule the next try (nothing here schedules it).
+     */
+    public synchronized long failed(String key, long nowMs) {
         mRunning.remove(key);
         long[] failed = mFailed.get(key);
         if (failed == null) {
@@ -93,6 +96,13 @@ public final class Backoff {
             wait *= 2;
         }
         failed[1] = nowMs + Math.min(mMaxMs, wait);
+        return failed[1] - nowMs;
+    }
+
+    /** How often {@code key} failed in a row so far. */
+    public synchronized int failures(String key) {
+        final long[] failed = mFailed.get(key);
+        return failed == null ? 0 : (int) Math.min(Integer.MAX_VALUE, failed[0]);
     }
 
     /** Forgets every failure: everything may be tried at once (the decode service came up). */

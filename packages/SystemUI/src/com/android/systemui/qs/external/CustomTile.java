@@ -459,9 +459,10 @@ public class CustomTile extends QSTileImpl<State> implements TileChangeListener,
             return null;
         }
         // An app resource icon loads through an image gate (its bitmap files, also inside its XML, decoded in the
-        // VM), URI and data icons are decoded in the VM. Made on an image thread for the tile's app.
-        return ForeignIcons.load(mUserContext, icon, mUserContext.getUserId(), mComponent.getPackageName(),
-                TILE_ICON_MAX_PX);
+        // VM), URI and data icons are decoded in the VM. Made on an image thread for the tile's app: this shared
+        // thread never waits for it, the tile is refreshed once it is made.
+        return ForeignIcons.loadNoWait(mUserContext, icon, mUserContext.getUserId(), mComponent.getPackageName(),
+                TILE_ICON_MAX_PX, this::refreshState);
     }
 
     private static final int TILE_ICON_MAX_PX = 256;

@@ -94,6 +94,8 @@ public final class NotificationImageGate {
     private static final int MAX_RESOURCE_LOADS = 32;
     private static final int MAX_PREWARM_DRAWABLES = 32;
     private static final int MAX_PREWARM_LAYOUTS = 8;
+    // People and message senders per notification that keep an app image.
+    private static final int MAX_PEOPLE_ICONS = 32;
 
     // Time each app may keep the image threads busy across its notifications, and the pixels it holds.
     private static final OwnerQuota sQuota = new OwnerQuota();
@@ -125,6 +127,7 @@ public final class NotificationImageGate {
     private int mLayoutResourceIcons;
     private int mPrewarmDrawables;
     private int mPrewarmLayouts;
+    private int mPeopleIcons;
 
     private NotificationImageGate(Context context, String ownerPackage, int userId, int iconPx, int pictureWidth,
             int pictureHeight, ImageBudget budget, boolean reserved, AppResourceImages previous) {
@@ -217,9 +220,9 @@ public final class NotificationImageGate {
      * The lane for {@code n} posted by {@code ownerPackage} ({@code uid}) for {@code userId}. Cheap: reads the
      * notification and what is known about its icons, loads nothing. NONE when no app image needs an image thread:
      * pixels, framework icons and app resource icons known to name no bitmap file of the app. URGENT only for what
-     * the app cannot claim for itself: a full-screen intent (kept by the notification service only for apps allowed
-     * one), a call style of a foreground service or user-initiated job, or a system process. {@code context} is
-     * SystemUI's (its configuration picks the resources).
+     * the app cannot claim for itself: a system process, a call or alarm of an app on the system image, or a call
+     * style of a foreground service whose app telecom reports in a self-managed call. {@code context} is SystemUI's
+     * (its configuration picks the resources).
      */
     public static Lane lane(Context context, Notification n, String ownerPackage, int uid, int userId) {
         try {
@@ -231,16 +234,51 @@ public final class NotificationImageGate {
             // Extras that cannot be read: the image work removes them, on an image thread.
             Log.w(TAG, "notification images not looked at here: " + e);
         }
-        return isUrgent(n, uid) ? Lane.URGENT : Lane.NORMAL;
+        return isUrgent(context, n, ownerPackage, uid, userId) ? Lane.URGENT : Lane.NORMAL;
     }
 
-    private static boolean isUrgent(Notification n, int uid) {
-        if (UserHandle.getAppId(uid) < Process.FIRST_APPLICATION_UID || n.fullScreenIntent != null) {
+    // Only what an app cannot claim for itself. A full-screen intent no longer counts: on this build any app that
+    // lists USE_FULL_SCREEN_INTENT holds it, and an old target SDK needs nothing. A system process, a call or an alarm
+    // of an app on the system image (the phone, the clock), or a call style of a foreground service whose app
+    // telecom reports in a call it manages itself.
+    private static boolean isUrgent(Context context, Notification n, String ownerPackage, int uid, int userId) {
+        if (UserHandle.getAppId(uid) < Process.FIRST_APPLICATION_UID) {
             return true;
         }
-        return n.isStyle(Notification.CallStyle.class)
-                && (n.flags & (Notification.FLAG_FOREGROUND_SERVICE
-                        | Notification.FLAG_USER_INITIATED_JOB)) != 0;
+        final boolean callStyle = n.isStyle(Notification.CallStyle.class);
+        final boolean callOrAlarm = callStyle || Notification.CATEGORY_CALL.equals(n.category)
+                || Notification.CATEGORY_ALARM.equals(n.category);
+        if (!callOrAlarm) {
+            return false;
+        }
+        if (isSystemImageApp(n)) {
+            return true;
+        }
+        if (!callStyle || (n.flags & Notification.FLAG_FOREGROUND_SERVICE) == 0) {
+            return false;
+        }
+        try {
+            final android.telecom.TelecomManager telecom =
+                    context.getSystemService(android.telecom.TelecomManager.class);
+            return telecom != null && userId >= 0
+                    && telecom.isInSelfManagedCall(ownerPackage, UserHandle.of(userId));
+        } catch (Throwable e) {
+            return false;
+        }
+    }
+
+    // The posting app is on the system image, as the notification service recorded it in the notification.
+    private static boolean isSystemImageApp(Notification n) {
+        if (n.extras == null) {
+            return false;
+        }
+        try {
+            final ApplicationInfo ai = n.extras.getParcelable(Notification.EXTRA_BUILDER_APPLICATION_INFO,
+                    ApplicationInfo.class);
+            return ai != null && (ai.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
+        } catch (RuntimeException e) {
+            return false;
+        }
     }
 
     // The APK of the posting app, as the notification service and SystemUI recorded it in the notification.
@@ -367,8 +405,17 @@ public final class NotificationImageGate {
         // On an image thread the time is reserved off the app's quota (call finish). Elsewhere nothing is decoded and
         // the quota is left alone, the wall-clock limit applies all the same.
         final boolean imageThread = ImageThreads.isImageThread();
-        return new NotificationImageGate(context, ownerPackage, userId, iconPx, pictureWidth, pictureHeight,
-                imageThread ? budgetFor(ownerPackage) : budgetOffImageThreads(ownerPackage), imageThread, previous);
+        final ImageBudget budget = imageThread ? budgetFor(ownerPackage) : budgetOffImageThreads(ownerPackage);
+        try {
+            return new NotificationImageGate(context, ownerPackage, userId, iconPx, pictureWidth, pictureHeight,
+                    budget, imageThread, previous);
+        } catch (RuntimeException | Error e) {
+            // The time taken off the quota goes back when no gate is there to settle it.
+            if (imageThread) {
+                settle(ownerPackage, budget, false);
+            }
+            throw e;
+        }
     }
 
     /** {@link #forNotification(Context, String, int, int, int, int)} with a budget of the caller's (tests). */
@@ -836,7 +883,9 @@ public final class NotificationImageGate {
         if (person == null || !needsGate(person.getIcon())) {
             return person;
         }
-        return person.toBuilder().setIcon(safe(person.getIcon(), mIconPx)).build();
+        // At most MAX_PEOPLE_ICONS people and senders keep an app image: past that, the person shows without one.
+        final Icon icon = ++mPeopleIcons > MAX_PEOPLE_ICONS ? null : safe(person.getIcon(), mIconPx);
+        return person.toBuilder().setIcon(icon).build();
     }
 
     private Icon safe(Icon icon, int px) {
@@ -867,7 +916,14 @@ public final class NotificationImageGate {
         if (left <= 0 || stopped()) {
             return null;
         }
-        return VmIcons.toSafeIcon(icon, user, mOwner, maxWidth, maxHeight, VmDecode.deadlineIn(left));
+        final Icon made = VmIcons.toSafeIcon(icon, user, mOwner, maxWidth, maxHeight, VmDecode.deadlineIn(left));
+        // The pixels count against what the app holds across its notifications.
+        if (made != null && made.getBitmap() != null && !mBudget.chargePool(
+                (long) made.getBitmap().getWidth() * made.getBitmap().getHeight())) {
+            Log.w(TAG, "the app holds too many image pixels, image left out");
+            return null;
+        }
+        return made;
     }
 
     private static Notification.Action withIcon(Notification.Action action, Icon icon) {

@@ -602,22 +602,6 @@ public class RemoteViewsImagesDeviceTest {
     }
 
     @Test
-    public void appXmlIcon_withABitmapFile_isDrawnFromVmPixels_vectorKept() throws Exception {
-        final Icon wrapsPng = Icon.createWithResource(mPackage, R.drawable.vm_test_bitmap);
-        final Icon vector = Icon.createWithResource(mPackage, R.drawable.vm_test_vector);
-        // As the system server converts icons at post time: any worker thread.
-        final Icon[] safe = onWorker(() -> new Icon[] {
-                VmIcons.toSafeIconWithResources(wrapsPng, mContext, mContext.getUserId(), mPackage, 64, 64,
-                        VmDecode.deadlineIn(2_000)),
-                VmIcons.toSafeIconWithResources(vector, mContext, mContext.getUserId(), mPackage, 64, 64,
-                        VmDecode.deadlineIn(2_000)),
-        });
-        assertNotNull(safe[0]);
-        assertEquals(Icon.TYPE_BITMAP, safe[0].getType());
-        assertSame(vector, safe[1]);
-    }
-
-    @Test
     public void imageThreads_oneTaskPerAppAtATime_appsTakeTurns() throws Exception {
         final CountDownLatch release = new CountDownLatch(1);
         final CountDownLatch otherRan = new CountDownLatch(1);
@@ -887,18 +871,65 @@ public class RemoteViewsImagesDeviceTest {
                                 new android.content.Intent("x").setPackage(mPackage),
                                 android.app.PendingIntent.FLAG_IMMUTABLE)))
                 .build();
+        // A call style of a foreground service of an app not on the system image and in no self-managed call
+        // (this test app): normal.
         call.flags |= Notification.FLAG_FOREGROUND_SERVICE;
-        assertEquals(NotificationImageGate.Lane.URGENT, lane(call, appUid));
-        call.flags &= ~Notification.FLAG_FOREGROUND_SERVICE;
         assertEquals(NotificationImageGate.Lane.NORMAL, lane(call, appUid));
+        // A full-screen intent no longer counts: any app can hold the permission.
         final Notification alarm = new Notification.Builder(mContext, "test")
                 .setSmallIcon(Icon.createWithResource(mPackage, R.drawable.vm_test_red))
+                .setCategory(Notification.CATEGORY_ALARM)
                 .setFullScreenIntent(android.app.PendingIntent.getActivity(mContext, 0,
                         new android.content.Intent("x").setPackage(mPackage),
                         android.app.PendingIntent.FLAG_IMMUTABLE), true)
                 .build();
+        assertEquals(NotificationImageGate.Lane.NORMAL, lane(alarm, appUid));
+        // The same alarm from an app on the system image (as the notification service records it): urgent.
+        final android.content.pm.ApplicationInfo system =
+                new android.content.pm.ApplicationInfo(mContext.getApplicationInfo());
+        system.flags |= android.content.pm.ApplicationInfo.FLAG_SYSTEM;
+        alarm.extras.putParcelable(Notification.EXTRA_BUILDER_APPLICATION_INFO, system);
         assertEquals(NotificationImageGate.Lane.URGENT, lane(alarm, appUid));
+        // A system process: urgent.
         assertEquals(NotificationImageGate.Lane.URGENT, lane(claimed, android.os.Process.PHONE_UID));
+    }
+
+    @Test
+    public void appIcons_dataSmallIcon_neutralThenDecodedInTheVm() throws Exception {
+        // The status bar, shelf and always-on display show the original notification's small icon. A data icon is
+        // never decoded on the main thread: the neutral icon, then the VM's pixels once an image thread made them.
+        final Icon data = oracleIcon(4242);
+        final CountDownLatch made = new CountDownLatch(1);
+        final Icon first = onMain(() -> AppIcons.forView(mContext, data, mContext.getUserId(), mPackage,
+                made::countDown));
+        assertEquals("android", first.getResPackage());
+        if (made.await(10, TimeUnit.SECONDS)) {
+            final Icon second = onMain(() -> AppIcons.forView(mContext, data, mContext.getUserId(), mPackage,
+                    null));
+            assertEquals(Icon.TYPE_BITMAP, second.getType());
+        } else {
+            // Without the decode service: still the neutral icon, nothing decoded here.
+            assertEquals("android", onMain(() -> AppIcons.forView(mContext, data, mContext.getUserId(),
+                    mPackage, null)).getResPackage());
+        }
+    }
+
+    @Test
+    public void noImageViews_emptyImagesAndNoAppBitmapFiles() throws Exception {
+        final RemoteViews views = new RemoteViews(mPackage, R.layout.vm_test_probe);
+        views.setImageViewIcon(R.id.vm_probe, oracleIcon(4343));
+        views.setImageViewUri(R.id.vm_probe, URI);
+        final RemoteViews copy = NoImageViews.withoutImages(views);
+        assertNotNull(copy);
+        final Context context = NoImageViews.context(mContext);
+        final View root = onWorker(() -> inflate(context, copy));
+        for (Icon icon : ((ProbeView) root.findViewById(R.id.vm_probe)).icons) {
+            assertEquals(Icon.TYPE_BITMAP, icon.getType());
+            assertEquals(1, icon.getBitmap().getWidth());
+        }
+        // A bitmap file of an app outside the system image comes out empty, a vector loads as before.
+        assertTrue(onWorker(() -> context.getDrawable(R.drawable.vm_test_red)) instanceof ColorDrawable);
+        assertTrue(onWorker(() -> context.getDrawable(R.drawable.vm_test_vector)) instanceof VectorDrawable);
     }
 
     @Test

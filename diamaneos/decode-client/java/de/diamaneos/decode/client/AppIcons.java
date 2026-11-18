@@ -28,23 +28,32 @@ import android.util.DisplayMetrics;
 import android.util.Log;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * An app's resource icon where SystemUI loads it on the main thread (the status bar, the shelf, always on display):
  * through resources behind an image gate, so whatever configuration the icon is shown in (night, landscape, another
  * density, an updated app) a bitmap file of the app is decoded in the VM, never here. The main thread only finds images
- * already made. When the icon's image is not made yet, the neutral icon shows, the image is made on an image thread,
- * and the caller is told to load the icon again. An image that could not be made (the VM not up yet, the app's quota
- * spent) is tried again later, waiting longer after each failure ({@link Backoff}). The gated resources follow the
- * parts of SystemUI's configuration that can pick another resource ({@link #configKey}): after such a change they are
- * made anew, and the caller refreshes its icons. Window-only changes keep them.
+ * already made. URI and data icons of the original notification are decoded in the VM the same way, at the size the
+ * notification views use, so the status bar shares what the row made. When an icon's image is not made yet, the
+ * neutral icon shows, the image is made on an image thread, and the caller is told to load the icon again. An image
+ * that could not be made (the VM not up yet, the app's quota spent) is tried again on its own, after a wait that grows
+ * with each failure ({@link Backoff}), and the caller is told when it worked. The gated resources follow the parts of
+ * SystemUI's configuration that can pick another resource ({@link #configKey}): after such a change they are made anew
+ * ({@link #prepare}, off the main thread), and the caller refreshes its icons. Window-only changes keep them.
  */
 public final class AppIcons {
     private static final String TAG = "VmDecode";
     private static final int PICTURE_DP = 320;
+    /** The size URI and data icons are decoded at, the same as the notification views (so they share the cache). */
+    public static final int ICON_DP = 128;
     private static final int MAX_GATED = 128;
+    // Retries stop after this many failures in a row (a wait of about five minutes in all): the next build tries.
+    private static final int MAX_RETRIES = 8;
 
     private static final Object sLock = new Object();
     // Gated resources and their gate per posting app, user and package, for one configuration and one APK. Least
@@ -58,6 +67,12 @@ public final class AppIcons {
     // Images asked for and not made yet, or failed and waiting for their next try.
     private static final Backoff sRetry = new Backoff();
     private static final Handler sMain = new Handler(Looper.getMainLooper());
+    // Gated resources are made here after a configuration change, not on the main thread.
+    private static final ExecutorService sPrepare = Executors.newSingleThreadExecutor(r -> {
+        final Thread thread = new Thread(r, "AppIconsPrepare");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     private AppIcons() {
     }
@@ -123,8 +138,11 @@ public final class AppIcons {
 
     /** {@link #forView}, with null where it would give the neutral icon (the caller has a better fallback). */
     public static Icon forViewOrNull(Context context, Icon icon, int userId, String ownerPackage, Runnable onMade) {
-        if (icon == null || VmIcons.needsVm(icon)) {
+        if (icon == null) {
             return null;
+        }
+        if (VmIcons.needsVm(icon)) {
+            return vmIcon(context, icon, userId, ownerPackage, onMade);
         }
         if (!isAppResource(icon)) {
             return icon;
@@ -143,6 +161,110 @@ public final class AppIcons {
             make(context, gated, copy, ownerPackage, retryKey, onMade);
         }
         return null;
+    }
+
+    /** The size {@link #forView} decodes URI and data icons at. */
+    public static int iconPx(Context context) {
+        return Math.max(1, (int) (ICON_DP * context.getResources().getDisplayMetrics().density));
+    }
+
+    // A URI or data icon: what the VM made of it, else null while an image thread makes it.
+    private static Icon vmIcon(Context context, Icon icon, int userId, String ownerPackage, Runnable onMade) {
+        final Context user = userContext(context, userId);
+        if (user == null) {
+            return null;
+        }
+        final int px = iconPx(context);
+        final Icon cached = VmIcons.cachedSafeIcon(icon, user, ownerPackage, px, px);
+        if (cached != null) {
+            return cached;
+        }
+        final String key = VmIcons.cacheKey(icon, user, ownerPackage, px + "x" + px);
+        if (key != null && sRetry.start(key, SystemClock.uptimeMillis())) {
+            makeVm(user, icon, ownerPackage, px, key, onMade);
+        }
+        return null;
+    }
+
+    // Decodes a URI or data icon in the VM on an image thread, charged to the app, into the shared cache.
+    private static void makeVm(Context user, Icon icon, String ownerPackage, int px, String key, Runnable onMade) {
+        ImageThreads.execute(ownerPackage, () -> {
+            final ImageBudget budget = NotificationImageGate.budgetFor(ownerPackage);
+            boolean made = false;
+            try {
+                made = !budget.expired() && VmIcons.toSafeIcon(icon, user, ownerPackage, px, px,
+                        VmDecode.deadlineIn(budget.remainingMs())) != null;
+            } catch (Throwable e) {
+                Log.w(TAG, "icon not made: " + e);
+            } finally {
+                NotificationImageGate.settle(ownerPackage, budget, false);
+            }
+            finished(key, made, onMade, () -> makeVm(user, icon, ownerPackage, px, key, onMade));
+        });
+    }
+
+    // After a try: tell the caller, or schedule the next try after the backoff's wait.
+    private static void finished(String key, boolean made, Runnable onMade, Runnable again) {
+        if (made) {
+            sRetry.succeeded(key);
+            if (onMade != null) {
+                sMain.post(onMade);
+            }
+            return;
+        }
+        final long wait = sRetry.failed(key, SystemClock.uptimeMillis());
+        if (sRetry.failures(key) > MAX_RETRIES) {
+            return;
+        }
+        sMain.postDelayed(() -> {
+            if (sRetry.start(key, SystemClock.uptimeMillis())) {
+                again.run();
+            }
+        }, wait);
+    }
+
+    private static Context userContext(Context context, int userId) {
+        if (userId < 0 || context.getUserId() == userId) {
+            return context;
+        }
+        try {
+            return context.createContextAsUser(android.os.UserHandle.of(userId), 0);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** An icon {@link #prepare} makes gated resources for: its user, the app that posted it, the icon. */
+    public static final class Wanted {
+        final int userId;
+        final String ownerPackage;
+        final Icon icon;
+
+        public Wanted(int userId, String ownerPackage, Icon icon) {
+            this.userId = userId;
+            this.ownerPackage = ownerPackage;
+            this.icon = icon;
+        }
+    }
+
+    /**
+     * After a configuration change: makes the gated resources {@code wanted} need in the new configuration on a
+     * background thread (a package lookup and two contexts each), then runs {@code onReady} on the main thread, which
+     * rebuilds its icons. Until then the icons shown stay as they are.
+     */
+    public static void prepare(Context context, List<Wanted> wanted, Runnable onReady) {
+        sPrepare.execute(() -> {
+            for (Wanted w : wanted) {
+                if (isAppResource(w.icon)) {
+                    try {
+                        gated(context, w.userId, packageOf(w.icon, w.ownerPackage), w.ownerPackage);
+                    } catch (Throwable e) {
+                        Log.w(TAG, "gated resources not made ahead: " + e);
+                    }
+                }
+            }
+            sMain.post(onReady);
+        });
     }
 
     // True when the icon loads with every app image it names already made (no VM here).
@@ -172,14 +294,7 @@ public final class AppIcons {
             } finally {
                 NotificationImageGate.settle(ownerPackage, budget, false);
             }
-            if (made) {
-                sRetry.succeeded(retryKey);
-                if (onMade != null) {
-                    sMain.post(onMade);
-                }
-            } else {
-                sRetry.failed(retryKey, SystemClock.uptimeMillis());
-            }
+            finished(retryKey, made, onMade, () -> make(context, gated, copy, ownerPackage, retryKey, onMade));
         });
     }
 

@@ -17,11 +17,6 @@
 package de.diamaneos.decode.client;
 
 import android.content.Context;
-import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageManager;
-import android.content.res.ApkAssets;
-import android.content.res.Resources;
-import android.util.TypedValue;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.drawable.AdaptiveIconDrawable;
@@ -33,10 +28,6 @@ import android.os.SystemClock;
 import android.util.Log;
 import android.util.LruCache;
 
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
@@ -267,142 +258,6 @@ public final class VmIcons {
     }
 
     /**
-     * The compressed bytes behind a resource icon from an app's own package: a bitmap file (PNG, JPEG, WebP, GIF and
-     * so on) in an APK that is not part of the system image. Null for anything else: other icon types, resources of
-     * the system image (verified at boot), XML drawables (parsed by the framework's XML and vector code, not by an
-     * image codec), and resources that cannot be read. The bytes are read as an opaque blob, never decoded here.
-     */
-    public static byte[] appBitmapResourceBytes(Icon icon, Context context, int userId) {
-        return readAppResource(icon, context, userId);
-    }
-
-    private static byte[] readAppResource(Icon icon, Context context, int userId) {
-        if (icon == null || icon.getType() != Icon.TYPE_RESOURCE) {
-            return null;
-        }
-        final String pkg = icon.getResPackage();
-        if (pkg == null || pkg.isEmpty() || "android".equals(pkg)) {
-            return null;
-        }
-        try {
-            final PackageManager pm = context.getPackageManager();
-            final ApplicationInfo ai = pm.getApplicationInfoAsUser(pkg, 0, userId);
-            final Resources res = pm.getResourcesForApplication(ai);
-            final TypedValue value = new TypedValue();
-            res.getValue(icon.getResId(), value, true);
-            if (value.string == null) {
-                return null;
-            }
-            // One test for the system image everywhere: the APK this file is in (an overlay from /data included).
-            if (SystemImagePaths.isSystemImage(apkPath(res, value.assetCookie))) {
-                return null;
-            }
-            final String path = value.string.toString();
-            if (path.endsWith(".xml")) {
-                // Not loaded here: SystemUI loads every app resource icon through its image gate.
-                return null;
-            }
-            if (!path.startsWith("res/")) {
-                return null;
-            }
-            try (InputStream in = res.getAssets().openNonAsset(value.assetCookie, path)) {
-                final ByteArrayOutputStream out = new ByteArrayOutputStream();
-                final byte[] buffer = new byte[64 * 1024];
-                int n;
-                while ((n = in.read(buffer)) > 0) {
-                    if (out.size() + n > MAX_RESOURCE_BYTES) {
-                        throw new IOException("resource too large");
-                    }
-                    out.write(buffer, 0, n);
-                }
-                return out.toByteArray();
-            }
-        } catch (PackageManager.NameNotFoundException | IOException | RuntimeException e) {
-            Log.w(TAG, "app resource icon not read: " + e.getMessage());
-            // Unreadable: treated as an app image that cannot be shown.
-            return EMPTY;
-        }
-    }
-
-    private static final byte[] EMPTY = new byte[0];
-    private static final int MAX_RESOURCE_BYTES = 8 * 1024 * 1024;
-
-    /**
-     * True for a package whose APKs are all in the system image, by path (the one test used everywhere, see
-     * {@link SystemImagePaths}). An updated system app is under /data, so it is not.
-     */
-    public static boolean isSystemImage(ApplicationInfo ai) {
-        if (ai == null || !SystemImagePaths.isSystemImage(ai.sourceDir)) {
-            return false;
-        }
-        if (ai.splitSourceDirs != null) {
-            for (String split : ai.splitSourceDirs) {
-                if (!SystemImagePaths.isSystemImage(split)) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-
-    /** The path of the APK holding the files of {@code cookie} in {@code res}, or null. */
-    static String apkPath(Resources res, int cookie) {
-        try {
-            final ApkAssets[] apks = res.getAssets().getApkAssets();
-            if (cookie < 1 || cookie > apks.length) {
-                return null;
-            }
-            final String path = apks[cookie - 1].getAssetPath();
-            return path == null || path.isEmpty() ? null : path;
-        } catch (RuntimeException e) {
-            return null;
-        }
-    }
-
-    /**
-     * Like {@link #toSafeIcon(Icon, Context, String, int, int, long)}, and a resource icon that is a bitmap file in an
-     * app's own APK is decoded in the VM too. For code that may wait (not the main thread). Null when such an icon
-     * cannot be decoded. {@code userId} is the user whose copy of the package to read.
-     */
-    public static Icon toSafeIconWithResources(Icon icon, Context context, int userId, String ownerPackage,
-            int maxWidth, int maxHeight, long deadline) {
-        if (needsVm(icon)) {
-            return toSafeIcon(icon, context, ownerPackage, maxWidth, maxHeight, deadline);
-        }
-        final byte[] bytes = readAppResource(icon, context, userId);
-        if (bytes == null) {
-            return icon;
-        }
-        if (bytes.length == 0 || Looper.myLooper() == Looper.getMainLooper()) {
-            return null;
-        }
-        final String key = resourceKey(icon, context, userId, maxWidth + "x" + maxHeight);
-        Bitmap bitmap = key == null ? null : sCache.get(key);
-        if (bitmap == null) {
-            if (deadline != VmDecode.NO_DEADLINE && deadline <= SystemClock.uptimeMillis()) {
-                return null;
-            }
-            try {
-                bitmap = VmDecode.decodeBytes(context, bytes, 0, bytes.length, ownerPackage,
-                        VmDecode.PRIORITY_USER_WAITING, maxWidth, maxHeight, deadline);
-            } catch (VmDecode.UnavailableException | VmDecode.RejectedException e) {
-                Log.w(TAG, "app resource icon not decoded, placeholder shown: " + e.getMessage());
-                return null;
-            }
-            bitmap = immutable(bitmap);
-            if (key != null) {
-                cachePut(key, bitmap);
-            }
-        }
-        final Icon safe = Icon.createWithBitmap(bitmap);
-        if (icon.hasTint()) {
-            safe.setTintList(icon.getTintList());
-            safe.setTintBlendMode(icon.getTintBlendMode());
-        }
-        return safe;
-    }
-
-    /**
      * {@code drawable} drawn into a new bitmap: at its own size fitted into {@code maxWidth} x {@code maxHeight}, and a
      * smaller one (a vector) drawn larger up to {@code minSide}, so it stays sharp in a bigger view. An adaptive icon
      * is drawn whole (both layers, no mask), to be shown as an adaptive bitmap. A square of {@code minSide} when the
@@ -461,18 +316,6 @@ public final class VmIcons {
         final Bitmap bitmap = key == null ? null : sCache.get(key);
         return bitmap == null ? null
                 : iconLike(icon, bitmap, icon.getType() == Icon.TYPE_URI_ADAPTIVE_BITMAP);
-    }
-
-    // A resource by user, package, its APK (path and time, so an update decodes again) and resource ID.
-    static String resourceKey(Icon icon, Context context, int userId, String box) {
-        try {
-            final ApplicationInfo ai = context.getPackageManager().getApplicationInfoAsUser(
-                    icon.getResPackage(), 0, userId);
-            return "res:" + userId + ':' + icon.getResPackage() + ':' + ai.sourceDir + ':'
-                    + new File(ai.sourceDir).lastModified() + ':' + icon.getResId() + ':' + box;
-        } catch (PackageManager.NameNotFoundException e) {
-            return null;
-        }
     }
 
     // URI icons by user, owner and URI (as SystemUI's own image caches do), data icons by a hash of their bytes.

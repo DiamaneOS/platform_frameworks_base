@@ -145,6 +145,18 @@ public final class ImageBudget {
         return true;
     }
 
+    /**
+     * Charges the pixels of an image of the standard fields (an icon, a person, a message sender) to the app's pool
+     * only, once it is made: they do not count against this notification's layout caps. False when the app holds too
+     * many already: the image is then not used.
+     */
+    public synchronized boolean chargePool(long pixels) {
+        if (mReleased || pixels < 0) {
+            return false;
+        }
+        return mPool == null || mPool.add(mOwner, this, pixels);
+    }
+
     /** Gives back pixels charged for an image that came back smaller, or not at all. */
     public synchronized void refund(long pixels) {
         final long back = Math.min(mPixels, Math.max(0, pixels));

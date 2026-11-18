@@ -161,7 +161,7 @@ final class FillUi {
         mCallback = callback;
         mFullScreen = isFullScreen(context);
         mContext = new ContextThemeWrapper(context, mThemeId);
-        mUserContext = Helper.getUserContext(mContext);
+        mUserContext = Helper.userContextForViews(mContext);
         mMaxInputLengthForAutofill = maxInputLengthForAutofill;
         mIsCredmanAutofillSession = (Flags.autofillCredmanIntegration()
             && ((response.getFlags() & FLAG_CREDENTIAL_MANAGER_RESPONSE) != 0));
@@ -250,10 +250,12 @@ final class FillUi {
             ViewGroup container = decor.findViewById(R.id.autofill_dataset_picker);
             final View content;
             try {
-                if (Helper.sanitizeRemoteView(response.getPresentation()) == null) {
+                // DiamaneOS: the checked copy is applied, never the service's original.
+                final RemoteViews presentation = Helper.sanitizeRemoteView(response.getPresentation());
+                if (presentation == null) {
                     throw new RuntimeException("Permission error accessing RemoteView");
                 }
-                content = response.getPresentation().applyWithTheme(
+                content = presentation.applyWithTheme(
                         mUserContext, decor, interceptionHandler, mThemeId);
                 container.addView(content);
             } catch (RuntimeException e) {

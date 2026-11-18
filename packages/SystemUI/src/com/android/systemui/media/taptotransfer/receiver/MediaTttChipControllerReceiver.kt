@@ -183,12 +183,13 @@ constructor(
         }
 
         // The sending app's icon is never decoded here: data and URI icons in the protected VM, an app's resources
-        // through an image gate, made on an image thread. The listener runs on the main handler, it updates the UI.
+        // through an image gate, made on an image thread and charged to the route's app (never to a package an icon
+        // names). The listener runs on the main handler, it updates the UI.
         ForeignIcons.loadAsync(
             context,
             appIcon,
             context.userId,
-            if (appIcon.type == Icon.TYPE_RESOURCE) appIcon.resPackage else "",
+            routeInfo.clientPackageName ?: "",
             APP_ICON_MAX_PX,
             { mainHandler.post(it) },
         ) { drawable ->

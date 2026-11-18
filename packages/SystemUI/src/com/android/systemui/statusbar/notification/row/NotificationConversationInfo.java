@@ -85,6 +85,8 @@ import java.util.Optional;
 import java.util.ArrayList;
 import java.util.List;
 
+import de.diamaneos.decode.client.ForeignIcons;
+
 /**
  * The guts of a conversation notification revealed when performing a long press.
  */
@@ -363,7 +365,18 @@ public class NotificationConversationInfo extends LinearLayout implements
     }
 
     private void bindIcon(boolean important) {
-        Drawable person =  mIconFactory.getBaseIconDrawable(mShortcutInfo);
+        // DiamaneOS: the shortcut's icon (a file, a URI or a resource of the app) is decoded in the protected VM on
+        // an image thread, never here. What is not made yet shows the person placeholder until the guts open again.
+        Drawable person = null;
+        if (mShortcutInfo != null) {
+            final android.graphics.drawable.Icon shortcut = ForeignIcons.shortcutIcon(mContext,
+                    mContext.getSystemService(android.content.pm.LauncherApps.class), mShortcutInfo,
+                    ForeignIcons.shortcutPx(mContext), /* mayWait= */ false);
+            if (shortcut != null) {
+                person = ForeignIcons.loadNoWait(mContext, shortcut, mShortcutInfo.getUserId(),
+                        mShortcutInfo.getPackage(), ForeignIcons.shortcutPx(mContext), null);
+            }
+        }
         if (person == null) {
             person = mContext.getDrawable(R.drawable.ic_person).mutate();
             int colorPrimary = mContext.getColor(com.android.internal.R.color.materialColorPrimary);

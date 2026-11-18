@@ -46,7 +46,6 @@ import android.app.people.PeopleSpaceTile;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
-import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
 import android.graphics.text.LineBreaker;
@@ -96,8 +95,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-import de.diamaneos.decode.client.VmDecode;
-import de.diamaneos.decode.client.VmIcons;
+import de.diamaneos.decode.client.ForeignIcons;
 
 /** Variables and functions that is related to Emoji. */
 class EmojiHelper {
@@ -767,22 +765,20 @@ public class PeopleTileViewHelper {
     }
 
      Drawable resolveImage(Uri uri, Context context) throws IOException {
-        // DiamaneOS: the image the conversation's app named is decoded in the protected VM, never in this process,
-        // at most as big as the tile shows it.
+        // DiamaneOS: the image the conversation's app named is decoded in the protected VM on an image thread,
+        // charged to that app, never in this process, at most as big as the tile shows it.
         final int widthInPx = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, mWidth,
                 mContext.getResources().getDisplayMetrics());
         final int heightInPx = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, mHeight,
                 mContext.getResources().getDisplayMetrics());
         final int maxPx = Math.max(1, Math.min(Math.max(widthInPx, heightInPx),
                 (int) (1.5 * Math.min(widthInPx, heightInPx))));
-        try {
-            final Bitmap bitmap = VmDecode.decodeUri(context, context.getContentResolver(), uri,
-                    mTile.getPackageName(), VmDecode.PRIORITY_USER_WAITING, maxPx, maxPx,
-                    VmDecode.deadlineIn(VmIcons.UI_DEADLINE_MS));
-            return new BitmapDrawable(context.getResources(), bitmap);
-        } catch (VmDecode.UnavailableException | VmDecode.RejectedException e) {
-            throw new IOException("image not decoded: " + e.getMessage());
+        final Drawable drawable = ForeignIcons.load(context, Icon.createWithContentUri(uri),
+                context.getUserId(), mTile.getPackageName(), maxPx);
+        if (drawable == null) {
+            throw new IOException("image not decoded");
         }
+        return drawable;
     }
 
     private void setContentDescriptionForNotificationTextContent(RemoteViews views,

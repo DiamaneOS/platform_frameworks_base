@@ -9464,29 +9464,6 @@ public class NotificationManagerService extends SystemService {
             return false;
         }
 
-        // Images packed into the notification as bytes (bitmap files in the app's APK, createWithData icons) are
-        // re-made from pixels decoded in the protected VM before any listener sees them. Nothing here decodes them.
-        // An image that cannot be made in time is removed, never passed on as it was. If converting fails, every app
-        // image is removed instead, so the notification (a call, a message) still shows. Only if that fails too is it
-        // not posted.
-        final int iconUserId = (userId == USER_ALL) ? USER_SYSTEM : userId;
-        // Throwable: an Error here (a stack overflow, out of memory) must cost the images, not the system server.
-        // Posted on a thread of the system server itself (the activity manager's handler for foreground services,
-        // other system services) rather than on the app's binder call: it waits much less, so that thread is never
-        // held up for long.
-        final boolean systemThread = byForegroundService || Binder.getCallingPid() == Process.myPid();
-        try {
-            NotificationVmIcons.convert(getContext(), notification, pkg, iconUserId, systemThread);
-        } catch (Throwable e) {
-            Slog.e(TAG, "Cannot convert notification images, posting it without them", e);
-            try {
-                NotificationVmIcons.strip(getContext(), notification, pkg, iconUserId);
-            } catch (Throwable e2) {
-                Slog.e(TAG, "Cannot remove notification images, not posted", e2);
-                return false;
-            }
-        }
-
         if (policy == ServiceNotificationPolicy.UPDATE_ONLY) {
             // Proceed if the notification is already showing/known, otherwise ignore
             // because the service lifecycle logic has retained responsibility for its

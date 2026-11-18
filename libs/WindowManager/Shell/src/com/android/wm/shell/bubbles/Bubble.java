@@ -903,9 +903,9 @@ public class Bubble implements BubbleViewProvider {
     /**
      * A bubble icon that could name another app's compressed image is not loaded here: a URI, createWithData bytes,
      * or a resource of any package but the framework (its bitmap files would be decoded here, in whatever
-     * configuration the bubble shows). The bubble shows the shortcut or app icon instead. Images from apps are decoded
-     * only in the protected VM (DiamaneOS): the system server makes bitmap icons of data icons and resource bitmap
-     * files at post time, and those are kept.
+     * configuration the bubble shows). The bubble shows the shortcut or app icon instead (DiamaneOS: images from apps
+     * are decoded only in the protected VM, the shortcut icon too, see BubbleViewInfoTask). Pixels and the framework's
+     * icons are kept.
      */
     private static Icon withoutAppImage(Icon icon) {
         if (icon == null) {

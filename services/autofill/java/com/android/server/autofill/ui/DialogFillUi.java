@@ -128,7 +128,7 @@ final class DialogFillUi {
         mComponentName = componentName;
 
         mContext = new ContextThemeWrapper(context, mThemeId);
-        mUserContext = Helper.getUserContext(mContext);
+        mUserContext = Helper.userContextForViews(mContext);
         final LayoutInflater inflater = LayoutInflater.from(mContext);
         final View decor = inflater.inflate(getLayoutResId(), null);
         mListView = decor.findViewById(R.id.autofill_dialog_list);

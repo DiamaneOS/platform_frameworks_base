@@ -54,6 +54,8 @@ import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
  * Inflates and updates icons associated with notifications
@@ -121,9 +123,21 @@ constructor(
                         return
                     }
                     iconConfiguration = Configuration(newConfig)
-                    notifCollection.allNotifs.forEach {
-                        if (usesAppResourceIcon(it)) {
-                            updateIconsSafe(it)
+                    val entries = notifCollection.allNotifs.filter { usesAppResourceIcon(it) }
+                    // The gated resources of the new configuration are made off the main thread first. The icons
+                    // shown stay until they are ready, then the entries are built again.
+                    val wanted =
+                        entries.flatMap { entry ->
+                            listOfNotNull(entry.sbn.notification.smallIcon, entry.sbn.notification.getLargeIcon())
+                                .map {
+                                    AppIcons.Wanted(entry.sbn.normalizedUserId, entry.sbn.packageName, it)
+                                }
+                        }
+                    AppIcons.prepare(shadeContext, wanted) {
+                        entries.forEach {
+                            if (notifCollection.getEntry(it.key) === it) {
+                                updateIconsSafe(it)
+                            }
                         }
                     }
                 }
@@ -519,15 +533,19 @@ constructor(
             val shortcut = entry.ranking.conversationShortcutInfo
             if (shortcut != null) {
                 try {
-                    // A file or URI icon is decoded in the protected VM, a resource icon goes through appIcon.
-                    icon =
-                        ForeignIcons.shortcutIcon(
+                    // A file or URI icon is decoded in the protected VM on an image thread (this shared thread
+                    // does not wait for it), a resource icon goes through appIcon.
+                    icon = suspendCancellableCoroutine<Icon?> { cont ->
+                        ForeignIcons.shortcutIconAsync(
                             shadeContext,
                             launcherApps,
                             shortcut,
                             ForeignIcons.shortcutPx(shadeContext),
-                            /* mayWait= */ true,
-                        )
+                            { it.run() },
+                        ) {
+                            cont.resume(it)
+                        }
+                    }
                 } catch (e: Exception) {
                     Log.e(
                         TAG,

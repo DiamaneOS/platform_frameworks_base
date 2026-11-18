@@ -47,11 +47,11 @@ constructor(
     fun load(icon: Icon): Drawable? {
         // The URI grant is checked as before. Then nothing of the app is decoded here: URI and data icons in the
         // protected VM, the app's resources (also bitmap files inside its XML) through an image gate, made on an
-        // image thread for the app. On the main thread only what was made before.
+        // image thread for the app. No thread waits for it: what was made before, the rest from the next update.
         if (!ForeignIcons.uriGranted(icon, iUriGrantsManager, serviceUid, packageName)) {
             return null
         }
-        return ForeignIcons.load(applicationContext, icon, userId, packageName, ICON_MAX_PX)
+        return ForeignIcons.loadNoWait(applicationContext, icon, userId, packageName, ICON_MAX_PX, null)
     }
 
     private companion object {

@@ -41,6 +41,7 @@ import com.android.systemui.media.controls.shared.model.MediaNotificationAction
 import com.android.systemui.plugins.ActivityStarter
 import com.android.systemui.res.R
 import com.android.systemui.util.kotlin.logI
+import de.diamaneos.decode.client.ForeignIcons
 
 private const val TAG = "MediaActions"
 
@@ -202,7 +203,14 @@ private fun getCustomAction(
     @UserIdInt userId: Int,
 ): MediaAction {
     return MediaAction(
-        Icon.createWithResource(packageName, customAction.icon).loadDrawableAsUser(context, userId),
+        // The media app's resource: through an image gate, its bitmap files decoded in the protected VM.
+        ForeignIcons.load(
+            context,
+            Icon.createWithResource(packageName, customAction.icon),
+            userId,
+            packageName,
+            ACTION_ICON_MAX_PX,
+        ),
         { controller.transportControls.sendCustomAction(customAction, customAction.extras) },
         customAction.name,
         null,
@@ -267,14 +275,21 @@ fun createActionsFromNotification(
                     )
                     .defaultColor
 
+            // The original notification's action icon: pixels as they are, URI and data icons decoded in the
+            // protected VM, the app's resources through an image gate. Never decoded here.
             val mediaActionIcon =
-                when (action.getIcon().type) {
-                        Icon.TYPE_RESOURCE ->
-                            Icon.createWithResource(sbn.packageName, action.getIcon()!!.getResId())
-                        else -> action.getIcon()
-                    }
-                    .setTint(themeText)
-                    .loadDrawableAsUser(context, sbn.user.identifier)
+                ForeignIcons.load(
+                    context,
+                    when (action.getIcon().type) {
+                            Icon.TYPE_RESOURCE ->
+                                Icon.createWithResource(sbn.packageName, action.getIcon()!!.getResId())
+                            else -> action.getIcon()
+                        }
+                        .setTint(themeText),
+                    sbn.normalizedUserId,
+                    sbn.packageName,
+                    ACTION_ICON_MAX_PX,
+                )
 
             val mediaAction =
                 MediaNotificationAction(
@@ -341,3 +356,6 @@ private fun sendPendingIntent(intent: PendingIntent): Boolean {
         false
     }
 }
+
+/** The most a media action icon of an app is decoded to. */
+private const val ACTION_ICON_MAX_PX = 256

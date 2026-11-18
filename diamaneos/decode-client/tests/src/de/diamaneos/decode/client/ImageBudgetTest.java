@@ -119,6 +119,11 @@ public class ImageBudgetTest {
         assertFalse(first.charge("e", 1));
         assertTrue(second.charge("f", 50));
         assertEquals(100, pool.held("app"));
+        // Icons and people count against the app's pool only, not the layout caps of the notification.
+        assertTrue(second.chargePool(50));
+        assertFalse(second.chargePool(1));
+        assertEquals(100, second.pixels());
+        assertFalse(first.chargePool(1));
     }
 
     @Test

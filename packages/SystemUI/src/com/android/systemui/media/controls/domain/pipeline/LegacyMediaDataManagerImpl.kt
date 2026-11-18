@@ -71,6 +71,8 @@ import javax.inject.Inject
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.withContext
+import de.diamaneos.decode.client.AppIcons
+import de.diamaneos.decode.client.ForeignIcons
 
 private const val TAG = "MediaDataManager"
 private const val DEBUG = true
@@ -370,6 +372,17 @@ class LegacyMediaDataManagerImpl(
         }
     }
 
+    /**
+     * The media notification's small icon or large icon (the original's, as the loader reads them) as an Icon that
+     * never needs a decode of the app's bytes in SystemUI: pixels as they are, URI and data icons decoded in the
+     * protected VM, the app's resources through an image gate. This background thread may wait for the image thread.
+     */
+    private fun safeMediaIcon(icon: Icon?, sbn: StatusBarNotification, px: Int): Icon? =
+        ForeignIcons.safeIcon(context, icon, sbn.normalizedUserId, sbn.packageName, px)
+
+    private fun artworkPx(): Int =
+        context.resources.displayMetrics.let { minOf(it.widthPixels, it.heightPixels) }.coerceAtLeast(1)
+
     private suspend fun loadMediaDataWithLoader(
         key: String,
         sbn: StatusBarNotification,
@@ -398,10 +411,10 @@ class LegacyMediaDataManagerImpl(
                     userId = sbn.normalizedUserId,
                     initialized = true,
                     app = result.appName,
-                    appIcon = result.appIcon,
+                    appIcon = safeMediaIcon(result.appIcon, sbn, AppIcons.iconPx(context)),
                     artist = result.artist,
                     song = result.song,
-                    artwork = result.artworkIcon,
+                    artwork = safeMediaIcon(result.artworkIcon, sbn, artworkPx()),
                     actions = result.actionIcons,
                     actionsToShowInCompact = result.actionsToShowInCompact,
                     semanticActions = result.semanticActions,

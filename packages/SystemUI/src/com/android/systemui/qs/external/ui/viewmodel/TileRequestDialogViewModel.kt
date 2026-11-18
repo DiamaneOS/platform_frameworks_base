@@ -18,6 +18,7 @@ package com.android.systemui.qs.external.ui.viewmodel
 
 import android.app.IUriGrantsManager
 import android.content.Context
+import android.graphics.drawable.Drawable
 import android.os.UserHandle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -37,7 +38,9 @@ import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import de.diamaneos.decode.client.ForeignIcons
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
 
 class TileRequestDialogViewModel
 @AssistedInject
@@ -77,13 +80,19 @@ constructor(
                         tileData.packageName,
                     )
             ) {
-                ForeignIcons.load(
-                        dialogContext,
-                        icon,
-                        UserHandle.getUserId(tileData.callingUid),
-                        tileData.packageName,
-                        TILE_ICON_MAX_PX,
-                    )
+                // Made on an image thread: this background thread does not wait for it.
+                suspendCancellableCoroutine<Drawable?> { cont ->
+                        ForeignIcons.loadAsync(
+                            dialogContext,
+                            icon,
+                            UserHandle.getUserId(tileData.callingUid),
+                            tileData.packageName,
+                            TILE_ICON_MAX_PX,
+                            { it.run() },
+                        ) {
+                            cont.resume(it)
+                        }
+                    }
                     ?.run { _icon = DrawableIcon(this) }
             }
         }

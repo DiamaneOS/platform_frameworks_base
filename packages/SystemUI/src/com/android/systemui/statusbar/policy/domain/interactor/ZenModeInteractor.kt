@@ -50,6 +50,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import de.diamaneos.decode.client.ForeignIcons
 
 /**
  * An interactor that performs business logic related to the status and configuration of Zen Mode
@@ -193,7 +194,10 @@ constructor(
     }
 
     suspend fun getModeIcon(mode: ZenMode): Icon.Loaded {
-        val zenIcon = iconLoader.getIcon(context, mode).await()
+        // A mode's icon can be a drawable of the app that made the rule: loaded through an image gate, its bitmap
+        // files decoded in the protected VM on the loader's own threads, charged to that app. Never here.
+        val owner = mode.iconKey.resPackage ?: ""
+        val zenIcon = iconLoader.getIcon(ForeignIcons.gatedContext(context, owner, context.userId), mode).await()
         val drawable = zenIcon.drawable
         // Return a copy of the icon, to prevent callers from making changes that will be reflected
         // everywhere.

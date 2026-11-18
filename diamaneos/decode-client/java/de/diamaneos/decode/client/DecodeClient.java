@@ -40,6 +40,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * The connection to the decode service, the same rules as MediaProvider's client: binds on first use, only to the
@@ -168,17 +169,28 @@ final class DecodeClient {
             throw new VmDecode.UnavailableException("decode calls are all busy", e);
         }
         try {
-            return future.get(callTimeout, TimeUnit.MILLISECONDS);
+            final T result = future.get(callTimeout, TimeUnit.MILLISECONDS);
+            mMissedInARow.set(0);
+            return result;
         } catch (TimeoutException e) {
             if (claimed.compareAndSet(false, true)) {
                 releaseSlot(lane); // never started: only the queue was slow
             }
             future.cancel(true);
             // A service that took the call and then missed its own full deadline is not trusted to recover by itself:
-            // drop the binding, the next call binds again. A call that waited in the queue, or a caller's shorter
-            // deadline, only ends that call.
-            if (started.get() && callTimeout >= defaultCallTimeout) {
-                unbind();
+            // drop the binding, the next call binds again. Calls it took that missed the caller's shorter deadline
+            // twice in a row mean the same (a wedged service): it is also not asked for WEDGED_RETRY_MS. A call that
+            // only waited in the queue ends that call.
+            if (started.get()) {
+                if (callTimeout >= defaultCallTimeout) {
+                    unbind();
+                } else if (mMissedInARow.incrementAndGet() >= 2) {
+                    mMissedInARow.set(0);
+                    synchronized (mLock) {
+                        mDownUntil = SystemClock.uptimeMillis() + WEDGED_RETRY_MS;
+                    }
+                    unbind();
+                }
             }
             throw new VmDecode.UnavailableException("decode service missed the deadline", e);
         } catch (InterruptedException e) {
@@ -225,10 +237,17 @@ final class DecodeClient {
     // After a bind or connect that failed, calls fail at once until this time (uptime), so a VM that is down costs
     // nothing per image instead of the whole wait every time. A connection that comes up clears it.
     private static final long DOWN_RETRY_MS = 10_000;
+    // After a service that took calls missed two deadlines in a row.
+    private static final long WEDGED_RETRY_MS = 5_000;
     private long mDownUntil; // guarded by mLock
+    // Counts binds. An unbind while a bind is on its way makes the binding thread undo its own bind.
+    private int mGeneration; // guarded by mLock
+    private boolean mBound; // a bind of the current generation returned true, guarded by mLock
+    private final AtomicInteger mMissedInARow = new AtomicInteger();
 
     private IDecodeService connect(long timeoutMs) throws VmDecode.UnavailableException {
         boolean bind = false;
+        int generation = 0;
         synchronized (mLock) {
             if (mService != null && mService.asBinder().isBinderAlive()) {
                 return mService;
@@ -239,14 +258,17 @@ final class DecodeClient {
             }
             if (!mBinding) {
                 mBinding = true;
+                mBound = false;
+                generation = ++mGeneration;
                 bind = true;
             }
         }
         if (bind) {
             // Bound outside the lock: the package manager and the binder call never hold up the other callers.
-            // Always as this process, for its own user: in the system server the caller may be on an app's binder
-            // call (a notification post), whose identity must not be the one that binds. The app stays the owner
-            // the decode is charged to, as data in the request.
+            // Always as this process, for the user of its application context (user 0 for both SystemUI and the
+            // system server, the only callers): a caller may be on an app's binder call, whose identity must not be
+            // the one that binds. Only the bind runs with the identity cleared. The app stays the owner each decode
+            // is charged to, as data in the request.
             boolean bound = false;
             String why = "decode service did not bind";
             final long token = Binder.clearCallingIdentity();
@@ -264,12 +286,25 @@ final class DecodeClient {
             } finally {
                 Binder.restoreCallingIdentity(token);
             }
-            if (!bound) {
-                synchronized (mLock) {
+            boolean undo = false;
+            synchronized (mLock) {
+                if (generation != mGeneration) {
+                    // Unbound while this bind was on its way: the bind is undone here, after it registered.
+                    undo = bound;
+                    bound = false;
+                    why = "decode service binding was dropped";
+                } else if (!bound) {
                     mBinding = false;
                     mDownUntil = SystemClock.uptimeMillis() + DOWN_RETRY_MS;
                     mLock.notifyAll();
+                } else {
+                    mBound = true;
                 }
+            }
+            if (undo) {
+                unbindQuietly();
+            }
+            if (!bound) {
                 throw new VmDecode.UnavailableException(why);
             }
         }
@@ -311,18 +346,28 @@ final class DecodeClient {
         return intent.setComponent(new ComponentName(app.packageName, info.serviceInfo.name));
     }
 
+    // Drops the binding. unbindService runs after the lock is left (in the system server it takes the activity
+    // manager's lock). A bind still on its way is undone by the thread that made it.
     private void unbind() {
+        final boolean wasBound;
         synchronized (mLock) {
-            if (mBinding) {
-                try {
-                    mContext.unbindService(mConnection);
-                } catch (IllegalArgumentException ignored) {
-                    // Already unbound.
-                }
-            }
+            wasBound = mBinding && mBound;
             mBinding = false;
+            mBound = false;
             mService = null;
+            mGeneration++;
             mLock.notifyAll();
+        }
+        if (wasBound) {
+            unbindQuietly();
+        }
+    }
+
+    private void unbindQuietly() {
+        try {
+            mContext.unbindService(mConnection);
+        } catch (IllegalArgumentException ignored) {
+            // Already unbound.
         }
     }
 }

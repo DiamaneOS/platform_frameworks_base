@@ -19,7 +19,6 @@ package com.android.server.wallpaper;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
-import android.os.Binder;
 import android.os.SELinux;
 import android.system.ErrnoException;
 import android.system.Os;
@@ -145,9 +144,6 @@ final class WallpaperVmSanitizer {
         }
         final Size original;
         final VmDecode.Decoded decoded;
-        // As the system server whatever thread this runs on (no app's binder identity), and never under a lock of
-        // the wallpaper service: the caller runs it on its own thread before it takes the lock to publish.
-        final long identity = Binder.clearCallingIdentity();
         try {
             original = VmDecode.probeFile(mContext, source, "", VmDecode.PRIORITY_USER_WAITING,
                     VmDecode.NO_DEADLINE);
@@ -159,8 +155,6 @@ final class WallpaperVmSanitizer {
         } catch (VmDecode.RejectedException e) {
             Slog.w(TAG, "Image not decoded for " + source.getName() + ": " + e.getMessage());
             return new Outcome(Result.REJECTED);
-        } finally {
-            Binder.restoreCallingIdentity(identity);
         }
         final Bitmap bitmap = decoded.bitmap;
         final File dir = source.getParentFile();

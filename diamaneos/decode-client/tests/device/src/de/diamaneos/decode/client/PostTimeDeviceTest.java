@@ -18,15 +18,12 @@ package de.diamaneos.decode.client;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assume.assumeTrue;
 
 import android.Manifest;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.content.Context;
-import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.drawable.Icon;
 import android.os.SystemClock;
@@ -43,10 +40,9 @@ import org.junit.runner.RunWith;
 import java.io.ByteArrayOutputStream;
 
 /**
- * A notification posted by this app (an app uid, through its own binder call) gets its packed images re-made in the
- * system server at post time: a resource PNG small icon and a data large icon come back as real bitmaps, not the
- * neutral icon. Catches a decode client that binds with the posting app's identity (refused by the activity manager,
- * so every image fell back to the neutral icon). Needs the decode service: skipped on a build without it.
+ * The system server decodes nothing of a notification and reads no package's resources for it: a notification this
+ * app posts (an app uid, its own binder call) comes back with its icons exactly as it gave them. SystemUI makes them
+ * safe where it shows them (AppIcons, the checked copy of each row).
  */
 @RunWith(AndroidJUnit4.class)
 public class PostTimeDeviceTest {
@@ -54,12 +50,6 @@ public class PostTimeDeviceTest {
     private static final int ID = 4711;
 
     private final Context mContext = InstrumentationRegistry.getInstrumentation().getTargetContext();
-
-    private boolean decodeServicePresent() {
-        return mContext.getPackageManager().resolveService(
-                new Intent(DecodeClient.SERVICE_ACTION).setPackage(DecodeClient.SERVICE_PACKAGE),
-                PackageManager.MATCH_SYSTEM_ONLY) != null;
-    }
 
     private static Icon pngIcon() {
         final Bitmap bitmap = Bitmap.createBitmap(9, 5, Bitmap.Config.ARGB_8888);
@@ -71,8 +61,7 @@ public class PostTimeDeviceTest {
     }
 
     @Test
-    public void appPost_reachesRealBitmaps() throws Exception {
-        assumeTrue("no decode service in this build", decodeServicePresent());
+    public void appPost_iconsLeftAsTheyWere() throws Exception {
         InstrumentationRegistry.getInstrumentation().getUiAutomation().grantRuntimePermission(
                 mContext.getPackageName(), Manifest.permission.POST_NOTIFICATIONS);
         final NotificationManager nm = mContext.getSystemService(NotificationManager.class);
@@ -97,14 +86,13 @@ public class PostTimeDeviceTest {
                 }
             }
             assertNotNull("not posted", posted);
-            // The PNG of this app's APK, re-made from VM pixels: a bitmap of its size, not the neutral icon.
             final Icon small = posted.getSmallIcon();
-            assertEquals("small icon " + small, Icon.TYPE_BITMAP, small.getType());
-            assertEquals(8, small.getBitmap().getWidth());
+            assertEquals("small icon " + small, Icon.TYPE_RESOURCE, small.getType());
+            assertEquals(mContext.getPackageName(), small.getResPackage());
+            assertEquals(R.drawable.vm_test_red, small.getResId());
             final Icon large = posted.getLargeIcon();
             assertNotNull("large icon removed", large);
-            assertEquals(Icon.TYPE_BITMAP, large.getType());
-            assertEquals(9, large.getBitmap().getWidth());
+            assertEquals(Icon.TYPE_DATA, large.getType());
         } finally {
             nm.cancel(ID);
         }

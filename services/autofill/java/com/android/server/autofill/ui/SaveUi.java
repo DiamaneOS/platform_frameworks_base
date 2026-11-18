@@ -88,6 +88,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Predicate;
 
+import de.diamaneos.decode.client.NoImageViews;
+
 /**
  * Autofill Save Prompt
  */
@@ -424,6 +426,8 @@ final class SaveUi {
             return false;
         }
         writeLog(MetricsEvent.AUTOFILL_SAVE_CUSTOM_DESCRIPTION);
+        // DiamaneOS: the service's views are applied with resources whose app bitmap files come out empty.
+        final Context viewContext = NoImageViews.context(context);
         final RemoteViews template = Helper.sanitizeRemoteView(customDescription.getPresentation());
         if (template == null) {
             Slog.w(TAG, "No remote view on custom description");
@@ -466,7 +470,7 @@ final class SaveUi {
         try {
             // Create the remote view peer.
             final View customSubtitleView = template.applyWithTheme(
-                    context, null, handler, mThemeId);
+                    viewContext, null, handler, mThemeId);
 
             // Apply batch updates (if any).
             final ArrayList<Pair<InternalValidator, BatchUpdates>> updates =
@@ -491,7 +495,7 @@ final class SaveUi {
                             Helper.sanitizeRemoteView(batchUpdates.getUpdates());
                     if (templateUpdates != null) {
                         if (sDebug) Slog.d(TAG, "Applying template updates for batch update #" + i);
-                        templateUpdates.reapply(context, customSubtitleView);
+                        templateUpdates.reapply(viewContext, customSubtitleView);
                     }
                     // Then the transformations...
                     final ArrayList<Pair<Integer, InternalTransformation>> batchTransformations =
@@ -507,7 +511,7 @@ final class SaveUi {
                                     + "#" + i + ": " + batchTransformations);
                             return false;
                         }
-                        template.reapply(context, customSubtitleView);
+                        template.reapply(viewContext, customSubtitleView);
                     }
                 }
             }

@@ -113,7 +113,8 @@ constructor(
     ): IconResult {
         var failedToLoad = false
         // The tile's icon and its default icon (from the tile app's manifest) are made without decoding the app's
-        // bytes here: URI and data icons in the protected VM, the app's resources through an image gate. A URI the
+        // bytes here: URI and data icons in the protected VM, the app's resources through an image gate, on an image
+        // thread. This shared thread never waits: what is not made yet shows from the tile's next update. A URI the
         // app may not read is refused as before.
         val drawable: Drawable? =
             try {
@@ -122,12 +123,13 @@ constructor(
                         ForeignIcons.uriGranted(it, uriGrantsManager, callingAppUid, packageName)
                     }
                     ?.let {
-                        ForeignIcons.load(
+                        ForeignIcons.loadNoWait(
                             userContext,
                             it,
                             userContext.userId,
                             packageName,
                             TILE_ICON_MAX_PX,
+                            /* onMade= */ null,
                         )
                     }
             } catch (e: Exception) {
@@ -135,12 +137,13 @@ constructor(
                 null
             }
                 ?: defaultIcon?.let {
-                    ForeignIcons.load(
+                    ForeignIcons.loadNoWait(
                         userContext,
                         it,
                         userContext.userId,
                         packageName,
                         TILE_ICON_MAX_PX,
+                        /* onMade= */ null,
                     )
                 }
         return IconResult(

@@ -17,6 +17,7 @@ package com.android.systemui.statusbar.notification.row
 
 import de.diamaneos.decode.client.AppResourceImages
 import de.diamaneos.decode.client.ForeignIcons
+import de.diamaneos.decode.client.ImageBudget
 import de.diamaneos.decode.client.ImageThreads
 import de.diamaneos.decode.client.NotificationImageGate
 import java.util.concurrent.atomic.AtomicBoolean
@@ -435,6 +436,8 @@ constructor(
         // Set by abort. The row's image gate keeps only this flag, never the task: the task holds the row, and the
         // gate lives in a map keyed by the row, which must be able to forget it.
         private val imagesCancelled = AtomicBoolean()
+        // The budget of this task's images: given back to the app's pixel pool when the task is aborted.
+        @Volatile private var imageBudget: ImageBudget? = null
 
         /**
          * Starts the task. The app's images wait for the protected VM on an image thread (one task per app at a
@@ -506,6 +509,7 @@ constructor(
                         rowImages[row],
                     )
                 imageGate = gate
+                imageBudget = gate.budget()
                 // The row's views keep its gate: each inflation starts a new round of it with a fresh budget.
                 rowImages[row] = gate.resourceImages()
                 // A cancelled task (a newer update, a removed notification) stops its image work.
@@ -682,6 +686,8 @@ constructor(
             logger.logAsyncTaskProgress(entry.logKey, "cancelling inflate")
             // Image work not started yet is dropped. Running image work stops at its next check (see setCancelled).
             imagesCancelled.set(true)
+            // Its pixels no longer count against the app (a removed notification, or a newer update's round).
+            imageBudget?.release()
             imageTask?.cancel()
             cancel(/* mayInterruptIfRunning= */ true)
             if (cancellationSignal != null) {
