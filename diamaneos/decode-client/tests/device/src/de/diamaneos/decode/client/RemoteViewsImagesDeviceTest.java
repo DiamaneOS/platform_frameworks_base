@@ -787,9 +787,9 @@ public class RemoteViewsImagesDeviceTest {
         final Icon shown = onMain(() -> AppIcons.forView(night, variant, mContext.getUserId(), mPackage,
                 made::countDown));
         assertNotNull(shown);
-        if ("android".equals(shown.getResPackage())) {
-            // Not made yet: the neutral icon, and an image thread makes it.
-            assertEquals(android.R.drawable.ic_dialog_info, shown.getResId());
+        if (isPlaceholder(shown)) {
+            // Not made yet: the transparent placeholder, and an image thread makes it.
+            assertEquals(Icon.TYPE_BITMAP, shown.getType());
         } else {
             assertNotNull(shown.getResources().getImageFileGate());
         }
@@ -799,7 +799,7 @@ public class RemoteViewsImagesDeviceTest {
         assertEquals(mPackage, dayIcon.getResPackage());
         assertNotNull(dayIcon.getResources().getImageFileGate());
         // A URI or data icon is never loaded on the main thread.
-        assertEquals("android", onMain(() -> AppIcons.forView(day, dataIcon(1), 0, mPackage, null)).getResPackage());
+        assertTrue(isPlaceholder(onMain(() -> AppIcons.forView(day, dataIcon(1), 0, mPackage, null))));
     }
 
     @Test
@@ -895,24 +895,37 @@ public class RemoteViewsImagesDeviceTest {
         assertEquals(NotificationImageGate.Lane.URGENT, lane(claimed, android.os.Process.PHONE_UID));
     }
 
+    // What AppIcons.forView shows while an image is not made: a transparent one-pixel bitmap, nothing of the app.
+    private static boolean isPlaceholder(Icon icon) {
+        return icon != null && icon.getType() == Icon.TYPE_BITMAP && icon.getBitmap().getWidth() == 1
+                && icon.getBitmap().getHeight() == 1;
+    }
+
     @Test
-    public void appIcons_dataSmallIcon_neutralThenDecodedInTheVm() throws Exception {
+    public void appIcons_dataSmallIcon_placeholderThenDecodedInTheVm() throws Exception {
         // The status bar, shelf and always-on display show the original notification's small icon. A data icon is
-        // never decoded on the main thread: the neutral icon, then the VM's pixels once an image thread made them.
+        // never decoded on the main thread: the placeholder, then the VM's pixels once an image thread made them.
+        // The caller is told when the image is made, and also when it is time to ask again (the VM was not there):
+        // each time it asks again, as the status bar does.
         final Icon data = oracleIcon(4242);
-        final CountDownLatch made = new CountDownLatch(1);
-        final Icon first = onMain(() -> AppIcons.forView(mContext, data, mContext.getUserId(), mPackage,
-                made::countDown));
-        assertEquals("android", first.getResPackage());
-        if (made.await(10, TimeUnit.SECONDS)) {
-            final Icon second = onMain(() -> AppIcons.forView(mContext, data, mContext.getUserId(), mPackage,
-                    null));
-            assertEquals(Icon.TYPE_BITMAP, second.getType());
-        } else {
-            // Without the decode service: still the neutral icon, nothing decoded here.
-            assertEquals("android", onMain(() -> AppIcons.forView(mContext, data, mContext.getUserId(),
-                    mPackage, null)).getResPackage());
+        final java.util.concurrent.Semaphore told = new java.util.concurrent.Semaphore(0);
+        Icon shown = onMain(() -> AppIcons.forView(mContext, data, mContext.getUserId(), mPackage, told::release));
+        assertTrue("first the placeholder: " + shown, isPlaceholder(shown));
+        final long end = SystemClock.uptimeMillis() + 10_000;
+        while (isPlaceholder(shown)) {
+            final long left = end - SystemClock.uptimeMillis();
+            if (left <= 0 || !told.tryAcquire(left, TimeUnit.MILLISECONDS)) {
+                break;
+            }
+            shown = onMain(() -> AppIcons.forView(mContext, data, mContext.getUserId(), mPackage, told::release));
         }
+        if (!isPlaceholder(shown)) {
+            // Made in the VM (AppIcons decodes nowhere else): the image's own size.
+            assertEquals(Icon.TYPE_BITMAP, shown.getType());
+            assertEquals(ORACLE_WIDTH, shown.getBitmap().getWidth());
+            assertEquals(ORACLE_HEIGHT, shown.getBitmap().getHeight());
+        }
+        // Else the decode service is not there for this process: still the placeholder, nothing decoded here.
     }
 
     @Test
@@ -1149,7 +1162,9 @@ public class RemoteViewsImagesDeviceTest {
     @Test
     public void cachedImage_keptWhenNoTimeIsLeft() throws Exception {
         final Icon large = dataIcon(9100);
-        final Bitmap made = Bitmap.createBitmap(3, 2, Bitmap.Config.ARGB_8888);
+        // Immutable, as every image the VM makes is cached: an Icon takes an immutable bitmap as it is (a mutable one
+        // it copies).
+        final Bitmap made = Bitmap.createBitmap(3, 2, Bitmap.Config.ARGB_8888).copy(Bitmap.Config.ARGB_8888, false);
         VmIcons.cachePut(VmIcons.cacheKey(large, mContext, mPackage, "64x64"), made);
         final Notification original = new Notification.Builder(mContext, "test")
                 .setSmallIcon(FRAMEWORK_ICON)

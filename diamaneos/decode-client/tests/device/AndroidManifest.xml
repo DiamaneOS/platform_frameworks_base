@@ -21,7 +21,16 @@
     <!-- WallpaperVmDeviceTest sets a wallpaper and reads back whether its crop was made. -->
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
     <uses-permission android:name="android.permission.READ_WALLPAPER_INTERNAL" />
-    <application />
+    <!-- ListsAndQueueDeviceTest checks URI access as SystemUI does: the platform answers that check only for a
+         caller that may act across users. -->
+    <uses-permission android:name="android.permission.INTERACT_ACROSS_USERS_FULL" />
+    <application>
+        <!-- Counts opens, so a test sees whether a URI was opened at all. -->
+        <provider
+            android:name="de.diamaneos.decode.client.ProbeProvider"
+            android:authorities="de.diamaneos.decode.client.tests.probe"
+            android:exported="false" />
+    </application>
     <instrumentation
         android:name="androidx.test.runner.AndroidJUnitRunner"
         android:targetPackage="de.diamaneos.decode.client.tests" />

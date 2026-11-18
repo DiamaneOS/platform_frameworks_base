@@ -41,9 +41,9 @@ import java.util.concurrent.Executors;
  * density, an updated app) a bitmap file of the app is decoded in the VM, never here. The main thread only finds images
  * already made. URI and data icons of the original notification are decoded in the VM the same way, at the size the
  * notification views use, so the status bar shares what the row made. When an icon's image is not made yet, the
- * neutral icon shows, the image is made on an image thread, and the caller is told to load the icon again. An image
- * that could not be made (the VM not up yet, the app's quota spent) is tried again on its own, after a wait that grows
- * with each failure ({@link Backoff}), and the caller is told when it worked. The gated resources follow the parts of
+ * transparent placeholder shows, the image is made on an image thread, and the caller is told to load the icon again.
+ * An image that could not be made (the VM not up yet, the app's quota spent) is tried again after a wait that grows
+ * with each failure ({@link Backoff}): the caller is told then and asks again, which makes it. The gated resources follow the parts of
  * SystemUI's configuration that can pick another resource ({@link #configKey}): after such a change they are made anew
  * ({@link #prepare}, off the main thread), and the caller refreshes its icons. Window-only changes keep them.
  */
@@ -136,10 +136,11 @@ public final class AppIcons {
     }
 
     /**
-     * The icon to give a view that loads it on the main thread. A URI or data icon gives the neutral icon (decoded in
+     * The icon to give a view that loads it on the main thread. A URI or data icon gives the placeholder (decoded in
      * the VM elsewhere). An app resource icon gives a copy that loads through the image gate when its image is made,
-     * else the neutral icon, and then {@code onMade} runs on the main thread once the image is made. Other icons
-     * (pixels, the framework's) come back as they are. {@code context} is SystemUI's.
+     * else a transparent placeholder, and then {@code onMade} runs on the main thread once the image is made, or when
+     * it is time to ask again (the VM was not there): the caller asks again either way. Other icons (pixels, the
+     * framework's) come back as they are. {@code context} is SystemUI's.
      */
     public static Icon forView(Context context, Icon icon, int userId, String ownerPackage, Runnable onMade) {
         return forView(context, icon, userId, ownerPackage, null, onMade);
@@ -158,12 +159,12 @@ public final class AppIcons {
         return shown != null ? shown : placeholder();
     }
 
-    /** {@link #forView}, with null where it would give the neutral icon (the caller has a better fallback). */
+    /** {@link #forView}, with null where it would give the placeholder (the caller has a better fallback). */
     public static Icon forViewOrNull(Context context, Icon icon, int userId, String ownerPackage, Runnable onMade) {
         return forViewOrNull(context, icon, userId, ownerPackage, null, onMade);
     }
 
-    /** {@link #forView} with {@code tag}, and null where it would give the neutral icon. */
+    /** {@link #forView} with {@code tag}, and null where it would give the placeholder. */
     public static Icon forViewOrNull(Context context, Icon icon, int userId, String ownerPackage, String tag,
             Runnable onMade) {
         if (icon == null) {

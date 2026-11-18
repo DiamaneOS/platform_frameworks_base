@@ -17,6 +17,7 @@
 package de.diamaneos.decode.client;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -67,9 +68,14 @@ public class ListsAndQueueDeviceTest {
     }
 
     private WidgetImages widget() {
+        return widget(mPackage);
+    }
+
+    // A host view showing a widget of app ownerPackage.
+    private WidgetImages widget(String ownerPackage) {
         final AtomicReference<WidgetImages> made = new AtomicReference<>();
         InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> made.set(new WidgetImages(mContext)));
-        made.get().setApp(mPackage, mContext.getUserId());
+        made.get().setApp(ownerPackage, mContext.getUserId());
         return made.get();
     }
 
@@ -141,10 +147,25 @@ public class ListsAndQueueDeviceTest {
             final Field cacheField = RemoteViews.class.getDeclaredField("mCollectionCache");
             cacheField.setAccessible(true);
             final Object cache = cacheField.get(views);
+            // As the system fills the cache (RemoteCollectionCache.connectAllUniqueIntents): the items take the
+            // update's hierarchy, so they are written as its children. Without that the update does not survive a
+            // parcel even on Android.
+            final Method rootData = RemoteViews.class.getDeclaredMethod("getHierarchyRootData");
+            rootData.setAccessible(true);
+            final Object root = rootData.invoke(views);
+            final Method setRoot = RemoteViews.RemoteCollectionItems.class.getDeclaredMethod("setHierarchyRootData",
+                    root.getClass());
+            setRoot.setAccessible(true);
+            setRoot.invoke(holder.items, root);
             final Method addMapping = cache.getClass().getDeclaredMethod("addMapping", int.class, String.class,
                     RemoteViews.RemoteCollectionItems.class);
             addMapping.setAccessible(true);
             addMapping.invoke(cache, 7, "intent:test#7", holder.items);
+            // The form must survive the parcel the system sends it in, as SystemUI receives it.
+            final RemoteViews received = RemoteViewsImages.deepCopy(views);
+            if (RemoteViewsImages.icons(received).size() != RemoteViewsImages.icons(views).size()) {
+                return null;
+            }
             return views;
         } catch (ReflectiveOperationException | RuntimeException e) {
             return null;
@@ -164,10 +185,14 @@ public class ListsAndQueueDeviceTest {
         final RemoteViews item = new RemoteViews(mPackage, R.layout.vm_test_probe);
         item.setImageViewIcon(R.id.vm_probe, pngIcon(5151));
         final RemoteViews views = cacheForm(new RemoteCollectionItemsHolder(item));
-        assumeTrue("the cache form cannot be made here", views != null && views.isLegacyListRemoteViews());
+        assertNotNull("the cache form cannot be made", views);
+        assertTrue(views.isLegacyListRemoteViews());
+        // The cached item is walked: its image is found.
+        assertEquals(1, RemoteViewsImages.icons(views).size());
         final WidgetImages widget = widget();
         final RemoteViews first = prepare(widget, views);
         assertNotNull(first);
+        assertEquals(1, RemoteViewsImages.icons(first).size());
         for (Icon icon : RemoteViewsImages.icons(first)) {
             assertEquals(Icon.TYPE_BITMAP, icon.getType());
         }
@@ -193,13 +218,50 @@ public class ListsAndQueueDeviceTest {
         item.setImageViewIcon(R.id.vm_probe,
                 Icon.createWithContentUri("content://99@de.diamaneos.decode.client.tests.none/x.png"));
         final RemoteViews views = cacheForm(new RemoteCollectionItemsHolder(item));
-        assumeTrue("the cache form cannot be made here", views != null);
+        assertNotNull("the cache form cannot be made", views);
         final RemoteViews checked = prepare(widget(), views);
         assertNotNull(checked);
-        for (Icon icon : RemoteViewsImages.icons(checked)) {
+        final List<Icon> icons = RemoteViewsImages.icons(checked);
+        assertEquals(1, icons.size());
+        for (Icon icon : icons) {
             assertEquals(Icon.TYPE_BITMAP, icon.getType());
             assertEquals(1, icon.getBitmap().getWidth());
         }
+    }
+
+    @Test
+    public void uriCheck_isTheAppsOwnAccess_notSystemUis() throws Exception {
+        // The rule the widget check applies to every URI of an update, list items included: the app's own read
+        // access, as its user. SystemUI's wider access is never lent.
+        final NotificationImageGate gate = NotificationImageGate.forNotification(mContext, mPackage,
+                mContext.getUserId(), 64, 512, 512, new ImageBudget());
+        gate.checkUrisAs(android.os.Process.myUid(), mPackage, mContext.getUserId());
+        final Field field = NotificationImageGate.class.getDeclaredField("mUriCheck");
+        field.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        final java.util.function.Predicate<android.net.Uri> mayOpen =
+                (java.util.function.Predicate<android.net.Uri>) field.get(gate);
+        assertNotNull(mayOpen);
+        // Its own provider, as its own user: yes.
+        assertTrue(mayOpen.test(android.net.Uri.parse("content://" + ProbeProvider.AUTHORITY + "/a.png")));
+        // The same provider as another user: no.
+        assertFalse(mayOpen.test(android.net.Uri.parse("content://99@" + ProbeProvider.AUTHORITY + "/a.png")));
+        // A provider guarded by a permission the app does not hold (contacts): no.
+        assertFalse(mayOpen.test(android.net.Uri.parse("content://com.android.contacts/contacts/1/photo")));
+    }
+
+    @Test
+    public void listItemUri_theWidgetAppMayNotRead_isNeverOpened() throws Exception {
+        // The widget is the shell's, the item names this test APK's private provider: the shell may not read it,
+        // though this process (standing in for SystemUI) could. It is never opened.
+        ProbeProvider.OPENS.set(0);
+        final RemoteViews item = new RemoteViews(mPackage, R.layout.vm_test_probe);
+        item.setImageViewIcon(R.id.vm_probe,
+                Icon.createWithContentUri("content://" + ProbeProvider.AUTHORITY + "/x.png"));
+        final RemoteViews views = cacheForm(new RemoteCollectionItemsHolder(item));
+        assertNotNull("the cache form cannot be made", views);
+        assertNotNull(prepare(widget("com.android.shell"), views));
+        assertEquals("a list item URI the widget app may not read was opened", 0, ProbeProvider.OPENS.get());
     }
 
     @Test
