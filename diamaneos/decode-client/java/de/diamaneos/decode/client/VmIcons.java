@@ -19,6 +19,7 @@ package de.diamaneos.decode.client;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.content.res.ApkAssets;
 import android.content.res.Resources;
 import android.util.TypedValue;
 import android.graphics.Bitmap;
@@ -29,7 +30,6 @@ import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
 import android.os.Looper;
 import android.os.SystemClock;
-import android.os.UserHandle;
 import android.util.Log;
 import android.util.LruCache;
 
@@ -254,11 +254,9 @@ public final class VmIcons {
      * image codec), and resources that cannot be read. The bytes are read as an opaque blob, never decoded here.
      */
     public static byte[] appBitmapResourceBytes(Icon icon, Context context, int userId) {
-        final byte[] bytes = readAppResource(icon, context, userId);
-        return bytes == XML ? null : bytes;
+        return readAppResource(icon, context, userId);
     }
 
-    // Like appBitmapResourceBytes, but an XML drawable of an app (outside the system image) gives XML.
     private static byte[] readAppResource(Icon icon, Context context, int userId) {
         if (icon == null || icon.getType() != Icon.TYPE_RESOURCE) {
             return null;
@@ -270,18 +268,20 @@ public final class VmIcons {
         try {
             final PackageManager pm = context.getPackageManager();
             final ApplicationInfo ai = pm.getApplicationInfoAsUser(pkg, 0, userId);
-            if (isSystemImage(ai)) {
-                return null;
-            }
             final Resources res = pm.getResourcesForApplication(ai);
             final TypedValue value = new TypedValue();
             res.getValue(icon.getResId(), value, true);
             if (value.string == null) {
                 return null;
             }
+            // One test for the system image everywhere: the APK this file is in (an overlay from /data included).
+            if (SystemImagePaths.isSystemImage(apkPath(res, value.assetCookie))) {
+                return null;
+            }
             final String path = value.string.toString();
             if (path.endsWith(".xml")) {
-                return XML;
+                // Not loaded here: SystemUI loads every app resource icon through its image gate.
+                return null;
             }
             if (!path.startsWith("res/")) {
                 return null;
@@ -306,13 +306,38 @@ public final class VmIcons {
     }
 
     private static final byte[] EMPTY = new byte[0];
-    private static final byte[] XML = new byte[0];
     private static final int MAX_RESOURCE_BYTES = 8 * 1024 * 1024;
 
-    /** True for a package in the system image that no update replaced. */
-    static boolean isSystemImage(ApplicationInfo ai) {
-        return (ai.flags & ApplicationInfo.FLAG_SYSTEM) != 0
-                && (ai.flags & ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) == 0;
+    /**
+     * True for a package whose APKs are all in the system image, by path (the one test used everywhere, see
+     * {@link SystemImagePaths}). An updated system app is under /data, so it is not.
+     */
+    public static boolean isSystemImage(ApplicationInfo ai) {
+        if (ai == null || !SystemImagePaths.isSystemImage(ai.sourceDir)) {
+            return false;
+        }
+        if (ai.splitSourceDirs != null) {
+            for (String split : ai.splitSourceDirs) {
+                if (!SystemImagePaths.isSystemImage(split)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /** The path of the APK holding the files of {@code cookie} in {@code res}, or null. */
+    static String apkPath(Resources res, int cookie) {
+        try {
+            final ApkAssets[] apks = res.getAssets().getApkAssets();
+            if (cookie < 1 || cookie > apks.length) {
+                return null;
+            }
+            final String path = apks[cookie - 1].getAssetPath();
+            return path == null || path.isEmpty() ? null : path;
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /**
@@ -328,9 +353,6 @@ public final class VmIcons {
         final byte[] bytes = readAppResource(icon, context, userId);
         if (bytes == null) {
             return icon;
-        }
-        if (bytes == XML) {
-            return appXmlResourceIcon(icon, context, userId, ownerPackage, maxWidth, maxHeight, deadline);
         }
         if (bytes.length == 0 || Looper.myLooper() == Looper.getMainLooper()) {
             return null;
@@ -358,82 +380,65 @@ public final class VmIcons {
         return safe;
     }
 
-    // XML resource icons of apps known to name no bitmap file: kept as they are without loading them again.
-    private static final LruCache<String, Boolean> sXmlWithoutImages = new LruCache<>(256);
-
     /**
-     * An app's XML resource icon (a vector, a {@code <bitmap>}, a layer list and so on), loaded through resources
-     * behind an image gate, so the bitmap files it names are decoded in the VM and XML is parsed as usual. One that
-     * names no bitmap file of the app comes back as it is (nothing to decode, and drawn sharp by whoever shows it).
-     * Otherwise it is drawn into a bitmap icon within {@code maxWidth} x {@code maxHeight}, with the same tint. Null
-     * when it cannot be made. For the system server at post time, so every listener and the status bar get pixels.
+     * {@code drawable} drawn into a new bitmap: at its own size fitted into {@code maxWidth} x {@code maxHeight}, and a
+     * smaller one (a vector) drawn larger up to {@code minSide}, so it stays sharp in a bigger view. An adaptive icon
+     * is drawn whole (both layers, no mask), to be shown as an adaptive bitmap. A square of {@code minSide} when the
+     * drawable has no size.
      */
-    static Icon appXmlResourceIcon(Icon icon, Context context, int userId, String ownerPackage, int maxWidth,
-            int maxHeight, long deadline) {
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            return null;
-        }
-        final String box = maxWidth + "x" + maxHeight;
-        final String key = resourceKey(icon, context, userId, box);
-        if (key != null && sXmlWithoutImages.get(key) != null) {
-            return icon;
-        }
-        final Bitmap cachedBitmap = key == null ? null : sCache.get(key + ":xml");
-        if (cachedBitmap != null) {
-            return tinted(Icon.createWithBitmap(cachedBitmap), icon);
-        }
-        final ImageBudget budget = new ImageBudget(Math.max(0, deadline - SystemClock.uptimeMillis()),
-                ImageBudget.MAX_IMAGES, ImageBudget.MAX_PIXELS);
-        final AppResourceImages images =
-                new AppResourceImages(context, ownerPackage, budget, maxWidth, maxHeight, true);
-        final Drawable drawable;
-        try {
-            final Context app = VmImageContext.wrap(context.createPackageContextAsUser(icon.getResPackage(),
-                    Context.CONTEXT_RESTRICTED, UserHandle.of(userId)), images);
-            drawable = app.getDrawable(icon.getResId());
-        } catch (PackageManager.NameNotFoundException | RuntimeException e) {
-            Log.w(TAG, "app XML icon not loaded: " + e);
-            return null;
-        }
-        if (drawable == null) {
-            return null;
-        }
-        if (images.files().isEmpty()) {
-            if (key != null) {
-                sXmlWithoutImages.put(key, Boolean.TRUE);
-            }
-            return icon;
-        }
-        final Bitmap bitmap = draw(drawable, maxWidth, maxHeight);
-        if (key != null) {
-            cachePut(key + ":xml", bitmap);
-        }
-        return tinted(Icon.createWithBitmap(bitmap), icon);
-    }
-
-    /** {@code drawable} drawn into a new bitmap at its own size within the box (a square of the box without one). */
-    static Bitmap draw(Drawable drawable, int maxWidth, int maxHeight) {
+    static Bitmap draw(Drawable drawable, int minSide, int maxWidth, int maxHeight) {
         int width = drawable.getIntrinsicWidth();
         int height = drawable.getIntrinsicHeight();
         if (width <= 0 || height <= 0) {
-            width = Math.min(maxWidth, maxHeight);
-            height = width;
+            width = minSide;
+            height = minSide;
         }
-        final float scale = Math.min(1f, Math.min((float) maxWidth / width, (float) maxHeight / height));
+        float scale = Math.min((float) maxWidth / width, (float) maxHeight / height);
+        if (scale > 1f) {
+            // Up to minSide on the longer side, never past the box.
+            scale = Math.min(scale, Math.max(1f, (float) minSide / Math.max(width, height)));
+        }
         width = Math.max(1, Math.round(width * scale));
         height = Math.max(1, Math.round(height * scale));
         final Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-        drawable.setBounds(0, 0, width, height);
-        drawable.draw(new Canvas(bitmap));
+        final Canvas canvas = new Canvas(bitmap);
+        if (drawable instanceof AdaptiveIconDrawable) {
+            final AdaptiveIconDrawable adaptive = (AdaptiveIconDrawable) drawable;
+            for (Drawable layer : new Drawable[] {adaptive.getBackground(), adaptive.getForeground()}) {
+                if (layer != null) {
+                    layer.setBounds(0, 0, width, height);
+                    layer.draw(canvas);
+                }
+            }
+        } else {
+            drawable.setBounds(0, 0, width, height);
+            drawable.draw(canvas);
+        }
         return immutable(bitmap);
     }
 
-    private static Icon tinted(Icon safe, Icon original) {
+    /** A bitmap icon of {@code bitmap} like {@code original}: adaptive when it was, with its tint. */
+    static Icon iconLike(Icon original, Bitmap bitmap, boolean adaptive) {
+        final Icon safe = adaptive ? Icon.createWithAdaptiveBitmap(bitmap) : Icon.createWithBitmap(bitmap);
         if (original.hasTint()) {
             safe.setTintList(original.getTintList());
             safe.setTintBlendMode(original.getTintBlendMode());
         }
         return safe;
+    }
+
+    /**
+     * The decode of a VM icon from the cache, as a bitmap icon like it, or null. Never asks the VM, on any thread: a
+     * spent budget or quota does not take away an image that is already made.
+     */
+    static Icon cachedSafeIcon(Icon icon, Context context, String ownerPackage, int maxWidth, int maxHeight) {
+        if (!needsVm(icon) || context == null) {
+            return null;
+        }
+        final String key = cacheKey(icon, context, ownerPackage, maxWidth + "x" + maxHeight);
+        final Bitmap bitmap = key == null ? null : sCache.get(key);
+        return bitmap == null ? null
+                : iconLike(icon, bitmap, icon.getType() == Icon.TYPE_URI_ADAPTIVE_BITMAP);
     }
 
     // A resource by user, package, its APK (path and time, so an update decodes again) and resource ID.

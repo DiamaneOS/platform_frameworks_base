@@ -152,7 +152,7 @@ public class VmIconsDeviceTest {
     @Test
     public void gate_cleanNotification_isPassedThrough() {
         final Notification clean = new Notification.Builder(mContext, "test")
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setSmallIcon(Icon.createWithResource("android", android.R.drawable.ic_dialog_info))
                 .setLargeIcon(Icon.createWithBitmap(bitmap()))
                 .build();
         assertSame(clean, gate().sanitizedCopy(clean));

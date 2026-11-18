@@ -28,6 +28,8 @@ import android.app.Notification;
 import android.app.Person;
 import android.content.Context;
 import android.content.ContextWrapper;
+import android.content.res.Configuration;
+import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.Insets;
 import android.graphics.drawable.BitmapDrawable;
@@ -83,6 +85,8 @@ import java.util.concurrent.atomic.AtomicReference;
 @RunWith(AndroidJUnit4.class)
 public class RemoteViewsImagesDeviceTest {
     private static final Uri URI = Uri.parse("content://de.diamaneos.decode.client.tests.none/image.png");
+    // A framework icon (not the test app's): passed as it is.
+    private static final Icon FRAMEWORK_ICON = Icon.createWithResource("android", android.R.drawable.ic_dialog_info);
     private static final int ORACLE_WIDTH = 7;
     private static final int ORACLE_HEIGHT = 3;
 
@@ -272,7 +276,7 @@ public class RemoteViewsImagesDeviceTest {
         final NotificationImageGate gate = gate(new ImageBudget());
         final Context context = gate.packageContext(mContext);
         final Notification n = new Notification.Builder(mContext, "test")
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setSmallIcon(FRAMEWORK_ICON)
                 .setCustomContentView(new RemoteViews(mPackage, R.layout.vm_test_layout))
                 .build();
         final Notification copy = onImageThread(() -> {
@@ -361,11 +365,11 @@ public class RemoteViewsImagesDeviceTest {
         sized.put(new SizeF(100, 100), childWith(dataIcon(seed + 5)));
         sized.put(new SizeF(200, 200), childWith(Icon.createWithContentUri(URI)));
         final Notification publicVersion = new Notification.Builder(mContext, "test")
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setSmallIcon(FRAMEWORK_ICON)
                 .setCustomContentView(childWith(dataIcon(seed + 6)))
                 .build();
         return new Notification.Builder(mContext, "test")
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setSmallIcon(FRAMEWORK_ICON)
                 .setCustomContentView(everyIconAction(seed))
                 .setCustomBigContentView(new RemoteViews(childWith(dataIcon(seed + 7)),
                         childWith(Icon.createWithResource(mContext, R.drawable.vm_test_green))))
@@ -439,7 +443,7 @@ public class RemoteViewsImagesDeviceTest {
     @Test
     public void oracle_nothingOfTheAppIsDecodedOnAndroid() throws Exception {
         final Notification original = new Notification.Builder(mContext, "test")
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setSmallIcon(FRAMEWORK_ICON)
                 .setCustomContentView(oracleLayout())
                 .build();
         // No time for the VM: every app image must come out empty.
@@ -480,7 +484,7 @@ public class RemoteViewsImagesDeviceTest {
         withUnknown.setBundle(R.id.vm_probe, "setData", odd);
 
         final Notification original = new Notification.Builder(mContext, "test")
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setSmallIcon(FRAMEWORK_ICON)
                 .setCustomContentView(withLink)
                 .setCustomBigContentView(withUnknown)
                 .build();
@@ -513,7 +517,7 @@ public class RemoteViewsImagesDeviceTest {
             layout.addView(R.id.vm_container, childWith(dataIcon(3000 + i)));
         }
         final Notification original = new Notification.Builder(mContext, "test")
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setSmallIcon(FRAMEWORK_ICON)
                 .setCustomContentView(layout)
                 .build();
         final NotificationImageGate gate = gate(new ImageBudget());
@@ -557,12 +561,13 @@ public class RemoteViewsImagesDeviceTest {
     @Test
     public void strippedCopy_removesEveryAppImage() {
         final Notification original = new Notification.Builder(mContext, "test")
-                .setSmallIcon(Icon.createWithContentUri(URI))
+                .setSmallIcon(Icon.createWithResource(mPackage, R.drawable.vm_test_red))
                 .setLargeIcon(dataIcon(1))
                 .setCustomContentView(everyIconAction(5000))
                 .build();
         final Notification copy = NotificationImageGate.strippedCopy(mContext, original);
-        assertEquals(Icon.TYPE_RESOURCE, copy.getSmallIcon().getType());
+        // The app's resource small icon too: the neutral icon.
+        assertEquals("android", copy.getSmallIcon().getResPackage());
         assertNull(copy.getLargeIcon());
         assertNull(copy.contentView);
         // The original is unchanged.
@@ -573,7 +578,7 @@ public class RemoteViewsImagesDeviceTest {
     @Test
     public void templateOnly_doesNotCopyForALayout() {
         final Notification n = new Notification.Builder(mContext, "test")
-                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setSmallIcon(FRAMEWORK_ICON)
                 .setCustomContentView(everyIconAction(6000))
                 .build();
         final NotificationImageGate gate = NotificationImageGate.forNotification(mContext, mPackage,
@@ -641,6 +646,248 @@ public class RemoteViewsImagesDeviceTest {
         assertTrue(done.await(10, TimeUnit.SECONDS));
         // The slow app never had two tasks at once.
         assertEquals(1, maxRunning.get());
+    }
+
+    private byte[] fileBytes(int drawable) throws Exception {
+        final TypedValue value = new TypedValue();
+        mContext.getResources().getValue(drawable, value, true);
+        try (java.io.InputStream in = mContext.getResources().getAssets().openNonAsset(value.assetCookie,
+                value.string.toString())) {
+            return in.readAllBytes();
+        }
+    }
+
+    @Test
+    public void ninePatch_opticalInsetsOfTheBuiltFile_inTheDeviceByteOrder() throws Exception {
+        // The file as aapt2 built it into this APK: its npLb chunk must read as the insets drawn in its border.
+        final byte[] file = fileBytes(R.drawable.vm_test_patch_lb);
+        final NinePatchChunk chunk = NinePatchChunk.fromPng(file, file.length);
+        assertNotNull(chunk);
+        assertNotNull("optical insets not read", chunk.opticalInsets());
+        assertEquals(java.util.Arrays.toString(new int[] {1, 1, 1, 1}),
+                java.util.Arrays.toString(chunk.opticalInsets()));
+    }
+
+    private Context withConfig(int uiNight, int orientation) {
+        final Configuration config = new Configuration(mContext.getResources().getConfiguration());
+        config.uiMode = (config.uiMode & ~Configuration.UI_MODE_NIGHT_MASK) | uiNight;
+        config.orientation = orientation;
+        return mContext.createConfigurationContext(config);
+    }
+
+    @Test
+    public void resourceIconVariants_nightAndLandscapePngGoThroughTheGate() throws Exception {
+        final Icon variant = Icon.createWithResource(mPackage, R.drawable.vm_test_variant);
+        final String nightFile;
+        final String landFile;
+        {
+            final TypedValue value = new TypedValue();
+            withConfig(Configuration.UI_MODE_NIGHT_YES, Configuration.ORIENTATION_PORTRAIT).getResources()
+                    .getValue(R.drawable.vm_test_variant, value, true);
+            nightFile = value.string.toString();
+            withConfig(Configuration.UI_MODE_NIGHT_NO, Configuration.ORIENTATION_LANDSCAPE).getResources()
+                    .getValue(R.drawable.vm_test_variant, value, true);
+            landFile = value.string.toString();
+            assertTrue(nightFile, nightFile.endsWith(".png"));
+            assertTrue(landFile, landFile.endsWith(".png"));
+        }
+        for (Context config : new Context[] {
+                withConfig(Configuration.UI_MODE_NIGHT_NO, Configuration.ORIENTATION_PORTRAIT),
+                withConfig(Configuration.UI_MODE_NIGHT_YES, Configuration.ORIENTATION_PORTRAIT),
+                withConfig(Configuration.UI_MODE_NIGHT_NO, Configuration.ORIENTATION_LANDSCAPE)}) {
+            final Notification original = new Notification.Builder(mContext, "test")
+                    .setSmallIcon(variant)
+                    .setLargeIcon(variant)
+                    .build();
+            final NotificationImageGate gate = NotificationImageGate.forNotification(config, mPackage,
+                    mContext.getUserId(), 64, 512, 512, new ImageBudget());
+            gate.packageContext(config);
+            final Notification copy = onImageThread(() -> gate.sanitizedCopy(original));
+            final Icon small = copy.getSmallIcon();
+            if (small.getType() == Icon.TYPE_RESOURCE && !"android".equals(small.getResPackage())) {
+                // Kept as a resource icon: it loads through the gate, in this configuration and in any other.
+                assertNotNull(small.getResources());
+                assertNotNull(small.getResources().getImageFileGate());
+            }
+            final boolean night = (config.getResources().getConfiguration().uiMode
+                    & Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES;
+            final boolean land = config.getResources().getConfiguration().orientation
+                    == Configuration.ORIENTATION_LANDSCAPE;
+            final List<String> files = gate.resourceImages().files();
+            if (night) {
+                assertTrue(files.toString(), files.contains(nightFile));
+            } else if (land) {
+                assertTrue(files.toString(), files.contains(landFile));
+            } else {
+                // The vector: no bitmap file.
+                assertTrue(files.toString(), files.isEmpty());
+            }
+        }
+    }
+
+    @Test
+    public void resourceIcon_loadedWithAGatedContext_neverUsesPlainResources() throws Exception {
+        // An Icon that lost its resources (parcelled) and is loaded with the context of a gated layout: the PNG goes
+        // through the gate, never through the package manager's resources.
+        final Context night = withConfig(Configuration.UI_MODE_NIGHT_YES, Configuration.ORIENTATION_PORTRAIT);
+        final NotificationImageGate gate = NotificationImageGate.forNotification(night, mPackage,
+                mContext.getUserId(), 64, 512, 512, new ImageBudget());
+        final Context gated = gate.packageContext(night);
+        final Icon variant = Icon.createWithResource(mPackage, R.drawable.vm_test_variant);
+        final Drawable drawable = onImageThread(() -> variant.loadDrawable(gated));
+        assertNotNull(variant.getResources());
+        assertNotNull(variant.getResources().getImageFileGate());
+        assertTrue(gate.resourceImages().files().toString(), gate.resourceImages().files().size() == 1);
+        assertMadeOrEmpty("night variant", drawable);
+    }
+
+    @Test
+    public void appIcons_onTheMainThread_neutralOrGated_neverPlain() throws Exception {
+        final Context night = withConfig(Configuration.UI_MODE_NIGHT_YES, Configuration.ORIENTATION_PORTRAIT);
+        final Icon variant = Icon.createWithResource(mPackage, R.drawable.vm_test_variant);
+        final CountDownLatch made = new CountDownLatch(1);
+        final Icon shown = onMain(() -> AppIcons.forView(night, variant, mContext.getUserId(), mPackage,
+                made::countDown));
+        assertNotNull(shown);
+        if ("android".equals(shown.getResPackage())) {
+            // Not made yet: the neutral icon, and an image thread makes it.
+            assertEquals(android.R.drawable.ic_dialog_info, shown.getResId());
+        } else {
+            assertNotNull(shown.getResources().getImageFileGate());
+        }
+        // The day variant is a vector: shown through the gate at once.
+        final Context day = withConfig(Configuration.UI_MODE_NIGHT_NO, Configuration.ORIENTATION_PORTRAIT);
+        final Icon dayIcon = onMain(() -> AppIcons.forView(day, variant, mContext.getUserId(), mPackage, null));
+        assertEquals(mPackage, dayIcon.getResPackage());
+        assertNotNull(dayIcon.getResources().getImageFileGate());
+        // A URI or data icon is never loaded on the main thread.
+        assertEquals("android", onMain(() -> AppIcons.forView(day, dataIcon(1), 0, mPackage, null)).getResPackage());
+    }
+
+    @Test
+    public void bundle_toAnotherMethodOrTooLarge_dropsTheLayout() throws Exception {
+        final RemoteViews otherMethod = new RemoteViews(mPackage, R.layout.vm_test_probe);
+        final Bundle data = new Bundle();
+        data.putCharSequence(Notification.EXTRA_TITLE, "t");
+        otherMethod.setBundle(R.id.vm_probe, "setSomethingElse", data);
+
+        final RemoteViews tooLarge = new RemoteViews(mPackage, R.layout.vm_test_probe);
+        final Bundle big = new Bundle();
+        big.putCharSequence(Notification.EXTRA_TEXT, "x".repeat(300_000));
+        tooLarge.setBundle(R.id.vm_probe, "setData", big);
+
+        final Notification original = new Notification.Builder(mContext, "test")
+                .setSmallIcon(FRAMEWORK_ICON)
+                .setCustomContentView(otherMethod)
+                .setCustomBigContentView(tooLarge)
+                .build();
+        final NotificationImageGate gate = gate(new ImageBudget());
+        gate.packageContext(mContext);
+        final Notification copy = onImageThread(() -> gate.sanitizedCopy(original));
+        assertNull(copy.contentView);
+        assertNull(copy.bigContentView);
+    }
+
+    @Test
+    public void bundle_keepsOnlyWhatTheViewReads() throws Exception {
+        final RemoteViews views = new RemoteViews(mPackage, R.layout.vm_test_probe);
+        final Bundle data = new Bundle();
+        data.putCharSequence(Notification.EXTRA_CONVERSATION_TITLE, "chat");
+        data.putBoolean(Notification.EXTRA_IS_GROUP_CONVERSATION, true);
+        views.setBundle(R.id.vm_probe, "setGroupFacePile", data);
+        final Notification original = new Notification.Builder(mContext, "test")
+                .setSmallIcon(FRAMEWORK_ICON)
+                .setCustomContentView(views)
+                .build();
+        final NotificationImageGate gate = gate(new ImageBudget());
+        final Context context = gate.packageContext(mContext);
+        final Notification copy = onImageThread(() -> gate.sanitizedCopy(original));
+        assertNotNull(copy.contentView);
+        final View root = onImageThread(() -> inflate(context, copy.contentView));
+        final Bundle got = ((ProbeView) root.findViewById(R.id.vm_probe)).bundles.get(0);
+        assertEquals("chat", String.valueOf(got.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)));
+        assertTrue(got.getBoolean(Notification.EXTRA_IS_GROUP_CONVERSATION));
+        assertEquals(2, got.keySet().size());
+    }
+
+    @Test
+    public void lanes_urgentAndNoImageNotifications() {
+        final Notification plain = new Notification.Builder(mContext, "test").setSmallIcon(FRAMEWORK_ICON).build();
+        assertEquals(NotificationImageGate.Lane.NONE, NotificationImageGate.lane(plain, mPackage));
+        final Notification call = new Notification.Builder(mContext, "test")
+                .setSmallIcon(Icon.createWithResource(mPackage, R.drawable.vm_test_red))
+                .setCategory(Notification.CATEGORY_CALL)
+                .build();
+        assertEquals(NotificationImageGate.Lane.URGENT, NotificationImageGate.lane(call, mPackage));
+        final Notification app = new Notification.Builder(mContext, "test")
+                .setSmallIcon(Icon.createWithResource(mPackage, R.drawable.vm_test_red))
+                .build();
+        assertEquals(NotificationImageGate.Lane.NORMAL, NotificationImageGate.lane(app, mPackage));
+    }
+
+    @Test
+    public void urgentLane_isNotHeldUpByNormalImageWork() throws Exception {
+        final CountDownLatch release = new CountDownLatch(1);
+        final CountDownLatch urgentRan = new CountDownLatch(1);
+        // Every normal thread busy.
+        for (int i = 0; i < 4; i++) {
+            ImageThreads.execute("app.busy" + i, () -> {
+                try {
+                    release.await(10, TimeUnit.SECONDS);
+                } catch (InterruptedException ignored) {
+                    // Ends the task.
+                }
+            });
+        }
+        ImageThreads.executeUrgent("app.call", urgentRan::countDown);
+        assertTrue(urgentRan.await(5, TimeUnit.SECONDS));
+        release.countDown();
+    }
+
+    @Test
+    public void cancelledWork_neverAsksTheVm() throws Exception {
+        final Notification original = everyLayout(7000);
+        final NotificationImageGate gate = gate(new ImageBudget());
+        gate.packageContext(mContext);
+        gate.setCancelled(() -> true);
+        final Notification copy = onImageThread(() -> gate.sanitizedCopy(original));
+        assertNotNull(copy);
+        assertEquals(0, gate.budget().vmCalls());
+        // A task cancelled before it runs is dropped.
+        final CountDownLatch block = new CountDownLatch(1);
+        final AtomicInteger ran = new AtomicInteger();
+        ImageThreads.execute("app.cancel", () -> {
+            try {
+                block.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {
+                // Ends the task.
+            }
+        });
+        final ImageThreads.Task second = ImageThreads.execute("app.cancel", ran::incrementAndGet);
+        second.cancel();
+        block.countDown();
+        final CountDownLatch after = new CountDownLatch(1);
+        ImageThreads.execute("app.cancel", after::countDown);
+        assertTrue(after.await(5, TimeUnit.SECONDS));
+        assertEquals(0, ran.get());
+    }
+
+    @Test
+    public void cachedImage_keptWhenNoTimeIsLeft() throws Exception {
+        final Icon large = dataIcon(9100);
+        final Bitmap made = Bitmap.createBitmap(3, 2, Bitmap.Config.ARGB_8888);
+        VmIcons.cachePut(VmIcons.cacheKey(large, mContext, mPackage, "64x64"), made);
+        final Notification original = new Notification.Builder(mContext, "test")
+                .setSmallIcon(FRAMEWORK_ICON)
+                .setLargeIcon(large)
+                .build();
+        // No time for the VM at all: the image already made is still shown.
+        final NotificationImageGate gate = gate(new ImageBudget(0, ImageBudget.MAX_IMAGES, ImageBudget.MAX_PIXELS));
+        gate.packageContext(mContext);
+        final Notification copy = onImageThread(() -> gate.sanitizedCopy(original));
+        assertNotNull(copy.getLargeIcon());
+        assertSame(made, copy.getLargeIcon().getBitmap());
+        assertEquals(0, gate.budget().vmCalls());
     }
 
     @Test

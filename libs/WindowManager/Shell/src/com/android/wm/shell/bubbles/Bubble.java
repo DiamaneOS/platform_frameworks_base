@@ -901,25 +901,30 @@ public class Bubble implements BubbleViewProvider {
     }
 
     /**
-     * @return the icon set on BubbleMetadata, if it exists. This is only non-null for bubbles
-     * created via a PendingIntent. For bubbles created by a shortcut, this can be from the
-     * activity/app info or null. In the null case, we use the icon from the shortcut.
-     */
-    @Nullable
-    /**
-     * A bubble icon made of another app's compressed image bytes (a URI or createWithData) is not decoded here: the
-     * bubble shows the shortcut or app icon instead. Images from apps are decoded only in the protected VM
-     * (DiamaneOS), and bubble icons are loaded where that cannot wait.
+     * A bubble icon that could name another app's compressed image is not loaded here: a URI, createWithData bytes,
+     * or a resource of any package but the framework (its bitmap files would be decoded here, in whatever
+     * configuration the bubble shows). The bubble shows the shortcut or app icon instead. Images from apps are decoded
+     * only in the protected VM (DiamaneOS): the system server makes bitmap icons of data icons and resource bitmap
+     * files at post time, and those are kept.
      */
     private static Icon withoutAppImage(Icon icon) {
         if (icon == null) {
             return null;
         }
         final int type = icon.getType();
+        if (type == Icon.TYPE_RESOURCE) {
+            return "android".equals(icon.getResPackage()) ? icon : null;
+        }
         return type == Icon.TYPE_URI || type == Icon.TYPE_URI_ADAPTIVE_BITMAP || type == Icon.TYPE_DATA
                 ? null : icon;
     }
 
+    /**
+     * @return the icon set on BubbleMetadata, if it exists. This is only non-null for bubbles
+     * created via a PendingIntent. For bubbles created by a shortcut, this can be from the
+     * activity/app info or null. In the null case, we use the icon from the shortcut.
+     */
+    @Nullable
     public Icon getIcon() {
         return mIcon;
     }

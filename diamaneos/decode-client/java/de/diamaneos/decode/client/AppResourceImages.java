@@ -16,6 +16,7 @@
 package de.diamaneos.decode.client;
 
 import android.content.Context;
+import android.content.pm.ApplicationInfo;
 import android.content.res.AssetManager;
 import android.content.res.ImageFileGate;
 import android.content.res.Resources;
@@ -45,6 +46,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 
 /**
  * The image file gate of the resources an app's notification layouts are inflated with (see {@link ImageFileGate}):
@@ -73,10 +75,17 @@ public final class AppResourceImages implements ImageFileGate {
     private static final LruCache<String, Object> sChunks = new LruCache<>(512);
     private static volatile byte[] sEmptyPng;
 
+    // Per thread: how many app images a load could not make (missing off the image threads, refused, failed, or an
+    // XML drawable that failed). See beginTracking.
+    private static final ThreadLocal<int[]> sMisses = ThreadLocal.withInitial(() -> new int[1]);
+
     private final Context mContext;
     private final String mOwner;
+    private final int mUserId;
     private final boolean mAnyWorker;
     private final Object mLock = new Object();
+    private BooleanSupplier mCancelled; // guarded by mLock
+    private final Map<String, Resources> mOtherPackages = new HashMap<>(); // guarded by mLock
     private ImageBudget mBudget; // guarded by mLock
     private int mMaxWidth; // guarded by mLock
     private int mMaxHeight; // guarded by mLock
@@ -89,16 +98,65 @@ public final class AppResourceImages implements ImageFileGate {
      */
     public AppResourceImages(Context context, String ownerPackage, ImageBudget budget, int maxWidth,
             int maxHeight) {
-        this(context, ownerPackage, budget, maxWidth, maxHeight, false);
+        this(context, ownerPackage, context.getUserId(), budget, maxWidth, maxHeight, false);
     }
 
-    /** {@code anyWorker}: the VM may be asked on any thread but the main thread (the system server). */
-    public AppResourceImages(Context context, String ownerPackage, ImageBudget budget, int maxWidth,
+    /**
+     * {@code userId}: the user whose packages {@link #resourcesFor} opens. {@code anyWorker}: the VM may be asked on
+     * any thread but the main thread, not only on {@link ImageThreads}.
+     */
+    public AppResourceImages(Context context, String ownerPackage, int userId, ImageBudget budget, int maxWidth,
             int maxHeight, boolean anyWorker) {
         mContext = context;
         mOwner = ownerPackage == null ? "" : ownerPackage;
+        mUserId = userId;
         mAnyWorker = anyWorker;
         startRound(budget, maxWidth, maxHeight);
+    }
+
+    /** Starts counting, on this thread, the app images that loads could not make. */
+    public static void beginTracking() {
+        sMisses.get()[0] = 0;
+    }
+
+    /** True when a load on this thread since {@link #beginTracking} could not make an app image. */
+    public static boolean missed() {
+        return sMisses.get()[0] > 0;
+    }
+
+    private static Made missing() {
+        sMisses.get()[0]++;
+        return null;
+    }
+
+    /** While {@code cancelled} answers true, the VM is not asked: the work is no longer wanted. */
+    public void setCancelled(BooleanSupplier cancelled) {
+        synchronized (mLock) {
+            mCancelled = cancelled;
+        }
+    }
+
+    @Override
+    public Resources resourcesFor(String packageName) {
+        synchronized (mLock) {
+            final Resources known = mOtherPackages.get(packageName);
+            if (known != null) {
+                return known;
+            }
+        }
+        try {
+            final ApplicationInfo ai =
+                    mContext.getPackageManager().getApplicationInfoAsUser(packageName, 0, mUserId);
+            final Resources res = VmImageContext.wrap(
+                    mContext.createApplicationContext(ai, Context.CONTEXT_RESTRICTED), this).getResources();
+            synchronized (mLock) {
+                mOtherPackages.put(packageName, res);
+            }
+            return res;
+        } catch (Exception e) {
+            Log.w(TAG, "no gated resources for " + packageName + ": " + e);
+            return null;
+        }
     }
 
     /** The posting app this gate charges. */
@@ -181,6 +239,7 @@ public final class AppResourceImages implements ImageFileGate {
     @Override
     public Drawable onXmlDrawableFailed(Resources res, TypedValue value, Exception e) {
         Log.w(TAG, "app XML drawable not loaded, empty: " + value.string + ": " + e);
+        missing();
         return empty();
     }
 
@@ -211,6 +270,11 @@ public final class AppResourceImages implements ImageFileGate {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             return false;
         }
+        synchronized (mLock) {
+            if (mCancelled != null && mCancelled.getAsBoolean()) {
+                return false;
+            }
+        }
         return mAnyWorker || ImageThreads.isImageThread();
     }
 
@@ -219,7 +283,7 @@ public final class AppResourceImages implements ImageFileGate {
     private Made make(Resources res, TypedValue value, String apkPath, InputStream original) {
         final String file = value.string == null ? null : value.string.toString();
         if (file == null) {
-            return null;
+            return missing();
         }
         final ImageBudget budget;
         final int maxWidth;
@@ -241,20 +305,21 @@ public final class AppResourceImages implements ImageFileGate {
         }
         if (!vmAllowedHere()) {
             // Not a thread that may wait for the VM: what is cached, else empty (never charged here).
-            return key == null ? null : cached(key);
+            final Made hit = key == null ? null : cached(key);
+            return hit != null ? hit : missing();
         }
         final ImageBudget.Admission admission = budget.admit(roundKey);
         if (admission == ImageBudget.Admission.REFUSED) {
             Log.w(TAG, "too many images in one notification layout, empty: " + file);
-            return null;
+            return missing();
         }
         if (budget.hasFailed(roundKey)) {
-            return null;
+            return missing();
         }
         Made made = key == null ? null : cached(key);
         if (made != null) {
             if (admission == ImageBudget.Admission.NEW && !budget.charge(roundKey, pixels(made.bitmap))) {
-                return null;
+                return missing();
             }
             return keep(roundKey, made);
         }
@@ -264,12 +329,12 @@ public final class AppResourceImages implements ImageFileGate {
         } catch (IOException | RuntimeException e) {
             Log.w(TAG, "app image file not read, empty: " + file + ": " + e.getMessage());
             budget.failed(roundKey);
-            return null;
+            return missing();
         }
         final ImagePlan plan = ImagePlan.of(bytes, bytes.length, maxWidth, maxHeight);
         if (admission == ImageBudget.Admission.NEW && !budget.charge(roundKey, plan.pixels)) {
             Log.w(TAG, "notification layout images over their pixel cap, empty: " + file);
-            return null;
+            return missing();
         }
         made = decode(budget, bytes, plan, density, file);
         if (made == null) {
@@ -277,14 +342,14 @@ public final class AppResourceImages implements ImageFileGate {
                 budget.refund(plan.pixels);
             }
             budget.failed(roundKey);
-            return null;
+            return missing();
         }
         final long pixels = pixels(made.bitmap);
         if (admission == ImageBudget.Admission.NEW) {
             if (pixels < plan.pixels) {
                 budget.refund(plan.pixels - pixels);
             } else if (pixels > plan.pixels && !budget.charge(roundKey, pixels - plan.pixels)) {
-                return null;
+                return missing();
             }
         }
         // Charged before it is cached: a refused image is never kept.

@@ -15,47 +15,80 @@
  */
 package de.diamaneos.decode.client;
 
-import android.os.Handler;
-import android.os.HandlerThread;
 import android.os.Process;
 import android.util.Log;
 
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 /**
  * The threads that wait for the VM for notification images in SystemUI, so the notification inflation thread never
- * does. Work runs per app in order and at most one task per app at a time, and apps take turns: one app's slow
- * provider or many images hold one of these threads, never the others or the inflation of other apps' notifications.
- * Each task is bounded by its notification's budget and the app's {@link OwnerQuota}.
+ * does. Two lanes: the normal one (three threads) and an urgent one (two threads) for calls, alarms and other urgent
+ * notifications, which never queue behind normal image work. In each lane work runs per app in order and at most one
+ * task per app at a time, and apps take turns: one app's slow provider or many images hold one thread of its lane,
+ * never the others. Each task is bounded by its notification's budget and the app's {@link OwnerQuota}, and a task
+ * that is cancelled before it runs is dropped ({@link Task#cancel}).
  *
  * <p>Images of the app's own layouts are decoded only on these threads. Elsewhere (the inflation thread, the main
  * thread) they come from what these threads made, or are empty.
  */
 public final class ImageThreads {
     private static final String TAG = "VmDecode";
-    private static final int THREADS = 3;
 
-    private static final Object sLock = new Object();
-    private static final List<Handler> sIdle = new ArrayList<>(); // guarded by sLock
-    private static int sStarted; // guarded by sLock
-    // Pending work per app, in the order the apps first asked. An app's queue is never run on two threads at once.
-    private static final Map<String, ArrayDeque<Runnable>> sQueues = new LinkedHashMap<>(); // guarded by sLock
-    private static final Set<String> sRunning = new HashSet<>(); // guarded by sLock
+    private static final Lane NORMAL = new Lane("VmImages-", 3);
+    private static final Lane URGENT = new Lane("VmImagesUrgent-", 2);
 
     private ImageThreads() {
     }
 
+    /** A queued piece of work. */
+    public static final class Task {
+        private final Lane mLane;
+        private final String mOwner;
+        private final Runnable mRunnable;
+
+        private Task(Lane lane, String owner, Runnable runnable) {
+            mLane = lane;
+            mOwner = owner;
+            mRunnable = runnable;
+        }
+
+        /** Drops the task if it has not started. A running task stops at its next check of its own signal. */
+        public void cancel() {
+            mLane.remove(this);
+        }
+    }
+
     /** A thread of this pool. */
-    private static final class ImageThread extends HandlerThread {
-        ImageThread(int n) {
-            super("VmImages-" + n, Process.THREAD_PRIORITY_BACKGROUND);
+    private static final class ImageThread extends Thread {
+        private final Lane mLane;
+
+        ImageThread(Lane lane, String name) {
+            super(name);
+            setDaemon(true);
+            mLane = lane;
+        }
+
+        @Override
+        public void run() {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
+            while (true) {
+                final Task task = mLane.take();
+                try {
+                    task.mRunnable.run();
+                } catch (RuntimeException e) {
+                    Log.e(TAG, "notification image task failed for " + task.mOwner, e);
+                } catch (Error e) {
+                    // A stack overflow or out of memory in one task: the thread goes on with the next one.
+                    Log.e(TAG, "notification image task failed for " + task.mOwner, e);
+                } finally {
+                    mLane.done(task);
+                }
+            }
         }
     }
 
@@ -64,66 +97,94 @@ public final class ImageThreads {
         return Thread.currentThread() instanceof ImageThread;
     }
 
-    /** Runs {@code task} on an image thread, after the earlier tasks of {@code owner}. */
-    public static void execute(String owner, Runnable task) {
-        final String key = owner == null ? "" : owner;
-        synchronized (sLock) {
-            sQueues.computeIfAbsent(key, k -> new ArrayDeque<>()).add(task);
-            dispatchLocked();
-        }
+    /** Runs {@code task} on a normal image thread, after the earlier tasks of {@code owner}. */
+    public static Task execute(String owner, Runnable task) {
+        return NORMAL.add(owner, task);
     }
 
-    private static void dispatchLocked() {
-        for (Iterator<Map.Entry<String, ArrayDeque<Runnable>>> it = sQueues.entrySet().iterator(); it.hasNext(); ) {
-            final Map.Entry<String, ArrayDeque<Runnable>> entry = it.next();
-            if (entry.getValue().isEmpty()) {
-                if (!sRunning.contains(entry.getKey())) {
-                    it.remove();
+    /** Like {@link #execute}, in the urgent lane, which normal image work never holds up. */
+    public static Task executeUrgent(String owner, Runnable task) {
+        return URGENT.add(owner, task);
+    }
+
+    /** One lane: its threads, pending work per app, and the apps running now. */
+    private static final class Lane {
+        private final String mName;
+        private final int mThreads;
+        private int mStarted; // guarded by this
+        private int mIdle; // guarded by this
+        // Pending work per app, in the order the apps first asked.
+        private final Map<String, ArrayDeque<Task>> mQueues = new LinkedHashMap<>(); // guarded by this
+        private final Set<String> mRunning = new HashSet<>(); // guarded by this
+
+        Lane(String name, int threads) {
+            mName = name;
+            mThreads = threads;
+        }
+
+        Task add(String owner, Runnable runnable) {
+            final Task task = new Task(this, owner == null ? "" : owner, runnable);
+            int start = -1;
+            synchronized (this) {
+                mQueues.computeIfAbsent(task.mOwner, k -> new ArrayDeque<>()).add(task);
+                if (mIdle == 0 && mStarted < mThreads) {
+                    start = mStarted++;
+                } else {
+                    notifyAll();
                 }
-                continue;
             }
-            if (sRunning.contains(entry.getKey())) {
-                continue;
+            if (start >= 0) {
+                // Started outside the lock and not waited for: the caller (often the main thread) never stalls.
+                new ImageThread(this, mName + start).start();
             }
-            final Handler handler = idleHandlerLocked();
-            if (handler == null) {
-                return;
-            }
-            final String owner = entry.getKey();
-            final Runnable task = entry.getValue().poll();
-            sRunning.add(owner);
-            // The app goes to the back of the line, so apps take turns.
-            it.remove();
-            sQueues.put(owner, entry.getValue());
-            handler.post(() -> run(handler, owner, task));
-            dispatchLocked();
-            return;
+            return task;
         }
-    }
 
-    private static Handler idleHandlerLocked() {
-        if (!sIdle.isEmpty()) {
-            return sIdle.remove(sIdle.size() - 1);
-        }
-        if (sStarted < THREADS) {
-            final ImageThread thread = new ImageThread(sStarted++);
-            thread.start();
-            return new Handler(thread.getLooper());
-        }
-        return null;
-    }
-
-    private static void run(Handler handler, String owner, Runnable task) {
-        try {
-            task.run();
-        } catch (RuntimeException e) {
-            Log.e(TAG, "notification image task failed for " + owner, e);
-        } finally {
-            synchronized (sLock) {
-                sRunning.remove(owner);
-                sIdle.add(handler);
-                dispatchLocked();
+        synchronized void remove(Task task) {
+            final ArrayDeque<Task> queue = mQueues.get(task.mOwner);
+            if (queue != null) {
+                queue.remove(task);
             }
+        }
+
+        // The next task of an app that is not running, apps taking turns. Waits while there is none.
+        synchronized Task take() {
+            while (true) {
+                for (Iterator<Map.Entry<String, ArrayDeque<Task>>> it = mQueues.entrySet().iterator();
+                        it.hasNext(); ) {
+                    final Map.Entry<String, ArrayDeque<Task>> entry = it.next();
+                    final String owner = entry.getKey();
+                    if (entry.getValue().isEmpty()) {
+                        if (!mRunning.contains(owner)) {
+                            it.remove();
+                        }
+                        continue;
+                    }
+                    if (mRunning.contains(owner)) {
+                        continue;
+                    }
+                    final ArrayDeque<Task> queue = entry.getValue();
+                    final Task task = queue.poll();
+                    mRunning.add(owner);
+                    // The app goes to the back of the line.
+                    it.remove();
+                    mQueues.put(owner, queue);
+                    return task;
+                }
+                mIdle++;
+                try {
+                    wait();
+                } catch (InterruptedException ignored) {
+                    // Look again.
+                } finally {
+                    mIdle--;
+                }
+            }
+        }
+
+        synchronized void done(Task task) {
+            mRunning.remove(task.mOwner);
+            notifyAll();
         }
     }
 }

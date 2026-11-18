@@ -16,12 +16,15 @@
 
 package com.android.systemui.statusbar.notification.icon
 
+import de.diamaneos.decode.client.AppIcons
 import de.diamaneos.decode.client.VmIcons
 import android.app.Notification
 import android.app.Notification.MessagingStyle
 import android.app.Person
+import android.content.ComponentCallbacks
 import android.content.Context
 import android.content.pm.LauncherApps
+import android.content.res.Configuration
 import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.Bundle
@@ -102,6 +105,18 @@ constructor(
 
     fun attach() {
         notifCollection.addCollectionListener(entryListener)
+        // An app's resource icons are loaded through resources behind an image gate in the current configuration.
+        // After a change (dark mode, rotation, density) they may name other files: the icons are built again, and
+        // an image not made yet shows the neutral icon until an image thread has made it.
+        shadeContext.registerComponentCallbacks(
+            object : ComponentCallbacks {
+                override fun onConfigurationChanged(newConfig: Configuration) {
+                    notifCollection.allNotifs.forEach { updateIconsSafe(it) }
+                }
+
+                @Deprecated("Deprecated in Java") override fun onLowMemory() {}
+            }
+        )
     }
 
     private val entryListener =
@@ -438,7 +453,7 @@ constructor(
         return StatusBarIcon(
             entry.sbn.user,
             entry.sbn.packageName,
-            /* icon = */ withoutVmIcon(this),
+            /* icon = */ appIcon(this, entry),
             n.iconLevel,
             n.number,
             iconBuilder.getIconContentDescription(n),
@@ -461,6 +476,18 @@ constructor(
             type,
         )
     }
+
+    /**
+     * The icon these views load on the main thread: a URI or data icon becomes the neutral icon, and an app resource
+     * icon loads through resources behind an image gate (its bitmap files decoded in the VM), or is the neutral icon
+     * until an image thread has made its image, after which the entry's icons are built again.
+     */
+    private fun appIcon(icon: Icon, entry: NotificationEntry): Icon =
+        AppIcons.forView(shadeContext, icon, entry.sbn.normalizedUserId, entry.sbn.packageName) {
+            if (notifCollection.getEntry(entry.key) === entry) {
+                updateIconsSafe(entry)
+            }
+        } ?: withoutVmIcon(icon)
 
     private suspend fun getLauncherShortcutIconForPeopleAvatar(entry: NotificationEntry) =
         withContext(bgCoroutineContext) {

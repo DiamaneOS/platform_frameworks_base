@@ -56,4 +56,10 @@ public class ProbeView extends View {
     public void setData(Bundle data) {
         bundles.add(data);
     }
+
+    /** Like CompactMessagingLayout.setGroupFacePile. */
+    @RemotableViewMethod
+    public void setGroupFacePile(Bundle data) {
+        bundles.add(data);
+    }
 }

@@ -65,4 +65,12 @@ public interface ImageFileGate {
      */
     @NonNull
     Drawable onXmlDrawableFailed(@NonNull Resources res, @NonNull TypedValue value, @NonNull Exception e);
+
+    /**
+     * Resources of {@code packageName} behind this same gate, for a resource Icon of that package loaded with a
+     * context whose resources have this gate (see {@code Icon}). Null when they cannot be made: the icon is then not
+     * loaded, never loaded with plain resources.
+     */
+    @Nullable
+    Resources resourcesFor(@NonNull String packageName);
 }

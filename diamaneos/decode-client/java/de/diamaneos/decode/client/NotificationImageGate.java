@@ -32,10 +32,10 @@ import android.os.Parcelable;
 import android.os.SystemClock;
 import android.os.UserHandle;
 import android.util.Log;
-import android.widget.FrameLayout;
 import android.widget.RemoteViews;
 
 import java.util.ArrayList;
+import java.util.function.BooleanSupplier;
 
 /**
  * The images of one notification in SystemUI, for one inflation of its views. Two parts:
@@ -87,7 +87,8 @@ public final class NotificationImageGate {
     private static final OwnerQuota sQuota = new OwnerQuota();
 
     private final Context mContext;
-    private final Context mUserContext;
+    private Context mUserContext; // made when first needed
+    private boolean mUserContextMade;
     private final String mOwner;
     private final int mUserId;
     private final int mIconPx;
@@ -100,13 +101,13 @@ public final class NotificationImageGate {
     private boolean mLayoutsAllowed;
     private boolean mStrip; // remove every app image, decode nothing
     private boolean mTemplateOnly; // the caller shows no custom layout
+    private BooleanSupplier mCancelled; // the work is no longer wanted
 
     private NotificationImageGate(Context context, String ownerPackage, int userId, int iconPx, int pictureWidth,
             int pictureHeight, ImageBudget budget, AppResourceImages previous) {
         mContext = context;
         mOwner = ownerPackage == null ? "" : ownerPackage;
         mUserId = userId;
-        mUserContext = userContext(context, userId);
         mIconPx = Math.max(1, iconPx);
         mPictureWidth = Math.max(1, pictureWidth);
         mPictureHeight = Math.max(1, pictureHeight);
@@ -116,29 +117,112 @@ public final class NotificationImageGate {
             previous.startRound(budget, mPictureWidth, mPictureHeight);
             mResources = previous;
         } else {
-            mResources = new AppResourceImages(context, mOwner, budget, mPictureWidth, mPictureHeight);
+            mResources = new AppResourceImages(context, mOwner, userId < 0 ? context.getUserId() : userId, budget,
+                    mPictureWidth, mPictureHeight, false);
         }
     }
 
-    // URIs of the notification are opened as its user, with SystemUI's grants for that user.
-    private static Context userContext(Context context, int userId) {
-        if (userId < 0 || context.getUserId() == userId) {
-            return context;
+    // URIs of the notification are opened as its user, with SystemUI's grants for that user. Made when first
+    // needed, so a gate that decodes nothing (the group header on the main thread) never makes one.
+    private Context userContext() {
+        if (!mUserContextMade) {
+            mUserContextMade = true;
+            if (mUserId < 0 || mContext.getUserId() == mUserId) {
+                mUserContext = mContext;
+            } else {
+                try {
+                    mUserContext = mContext.createContextAsUser(UserHandle.of(mUserId), 0);
+                } catch (RuntimeException e) {
+                    Log.w(TAG, "no context for user " + mUserId + ": " + e);
+                    mUserContext = null;
+                }
+            }
         }
-        try {
-            return context.createContextAsUser(UserHandle.of(userId), 0);
-        } catch (RuntimeException e) {
-            Log.w(TAG, "no context for user " + userId + ": " + e);
-            return null;
-        }
+        return mUserContext;
     }
 
-    // A fresh budget, bounded by what the posting app has left of its quota.
-    private static ImageBudget budgetFor(String owner) {
+    // A fresh budget, bounded by what the posting app has left of its quota. The quota is charged with the whole
+    // time of the image work (chargeTime), not only the waits for the VM.
+    static ImageBudget budgetFor(String owner) {
         final String key = owner == null ? "" : owner;
         final long time = Math.min(ImageBudget.TIME_MS, sQuota.available(key, SystemClock.uptimeMillis()));
-        return new ImageBudget(time, ImageBudget.MAX_IMAGES, ImageBudget.MAX_PIXELS,
-                ms -> sQuota.spend(key, ms, SystemClock.uptimeMillis()));
+        return new ImageBudget(time, ImageBudget.MAX_IMAGES, ImageBudget.MAX_PIXELS);
+    }
+
+    /** Charges {@code ms} of image work (on an image thread) to {@code ownerPackage}'s quota. */
+    public static void chargeTime(String ownerPackage, long ms) {
+        sQuota.spend(ownerPackage == null ? "" : ownerPackage, ms, SystemClock.uptimeMillis());
+    }
+
+    /** Where the image work of a notification runs. */
+    public enum Lane {
+        /** No app image at all: no image thread needed. */
+        NONE,
+        /** Calls, alarms and other urgent notifications: the urgent image threads. */
+        URGENT,
+        /** Everything else: the normal image threads. */
+        NORMAL,
+    }
+
+    /** The lane for {@code n} posted by {@code ownerPackage}. Cheap: reads the notification only. */
+    public static Lane lane(Notification n, String ownerPackage) {
+        if (!hasAppImages(n, 0)) {
+            return Lane.NONE;
+        }
+        final String category = n.category;
+        if (n.fullScreenIntent != null || Notification.CATEGORY_CALL.equals(category)
+                || Notification.CATEGORY_ALARM.equals(category) || Notification.CATEGORY_REMINDER.equals(category)
+                || Notification.CATEGORY_STOPWATCH.equals(category)
+                || Notification.CATEGORY_NAVIGATION.equals(category)
+                || (n.extras != null && n.extras.containsKey(Notification.EXTRA_CALL_PERSON))) {
+            return Lane.URGENT;
+        }
+        return Lane.NORMAL;
+    }
+
+    // Any icon that is not pixels or the framework's, or a custom layout.
+    private static boolean hasAppImages(Notification n, int depth) {
+        if (n.contentView != null || n.bigContentView != null || n.headsUpContentView != null
+                || n.tickerView != null) {
+            return true;
+        }
+        if (isAppImage(n.getSmallIcon()) || isAppImage(n.getLargeIcon())) {
+            return true;
+        }
+        if (n.actions != null) {
+            for (Notification.Action action : n.actions) {
+                if (action != null && isAppImage(action.getIcon())) {
+                    return true;
+                }
+            }
+        }
+        if (n.extras != null && !n.extras.isEmpty()) {
+            // Extras may hold icons and people: looked at by the image work, not here.
+            for (String key : ICON_EXTRAS) {
+                if (n.extras.containsKey(key)) {
+                    return true;
+                }
+            }
+            if (n.extras.containsKey(Notification.EXTRA_MESSAGES)
+                    || n.extras.containsKey(Notification.EXTRA_HISTORIC_MESSAGES)
+                    || n.extras.containsKey(Notification.EXTRA_MESSAGING_PERSON)
+                    || n.extras.containsKey(Notification.EXTRA_CALL_PERSON)
+                    || n.extras.containsKey(Notification.EXTRA_PEOPLE_LIST)) {
+                return true;
+            }
+        }
+        return n.publicVersion != null && depth == 0 && hasAppImages(n.publicVersion, depth + 1);
+    }
+
+    private static boolean isAppImage(Icon icon) {
+        return icon != null && icon.getType() != Icon.TYPE_BITMAP && icon.getType() != Icon.TYPE_ADAPTIVE_BITMAP
+                && !(icon.getType() == Icon.TYPE_RESOURCE && "android".equals(icon.getResPackage()));
+    }
+
+    /** While {@code cancelled} answers true, nothing more is decoded: the notification is gone or replaced. */
+    public void setCancelled(BooleanSupplier cancelled) {
+        mCancelled = cancelled;
+        mResources.setCancelled(cancelled);
     }
 
     /**
@@ -236,49 +320,165 @@ public final class NotificationImageGate {
     }
 
     private boolean decodes() {
-        return !mStrip && mUserContext != null && ImageThreads.isImageThread();
+        if (mStrip || !ImageThreads.isImageThread()) {
+            return false;
+        }
+        if (mCancelled != null && mCancelled.getAsBoolean()) {
+            return false;
+        }
+        return userContext() != null;
     }
 
     /**
-     * Applies each custom layout of {@code copy} (this gate's {@link #sanitizedCopy}) once, on an image thread, with
-     * {@code packageContext} (this gate's {@link #packageContext}), and throws the views away: the app's resource
-     * images are decoded here, so the inflation that follows on its own thread finds them made and never waits.
+     * True for an icon this gate re-makes: a URI or data icon (decoded in the VM), or a resource icon of any package
+     * but the framework, which is loaded through resources behind the image gate in whatever configuration it is shown
+     * (its bitmap files decoded in the VM, XML parsed as usual).
+     */
+    static boolean needsGate(Icon icon) {
+        return VmIcons.needsVm(icon) || isAppResource(icon);
+    }
+
+    private static boolean isAppResource(Icon icon) {
+        return icon != null && icon.getType() == Icon.TYPE_RESOURCE && !"android".equals(icon.getResPackage());
+    }
+
+    /**
+     * {@code icon}, a resource icon of an app, as a copy that loads through resources behind the image gate, or null
+     * when it cannot be shown. It is loaded once here: on an image thread its bitmap files are decoded in the VM now,
+     * so the views find them made, anywhere else only images already made are found. An icon that cannot be made is
+     * removed (a small icon becomes the neutral icon).
+     */
+    private Icon gatedResource(Icon icon) {
+        if (mStrip) {
+            return null;
+        }
+        final String pkg = resourcePackage(icon);
+        final android.content.res.Resources res = pkg.equals(mOwner) && mAppContext != null
+                ? mAppContext.getResources() : mResources.resourcesFor(pkg);
+        if (res == null) {
+            return null;
+        }
+        final Icon gated = icon.copyWithResources(res);
+        AppResourceImages.beginTracking();
+        final Drawable drawable;
+        try {
+            drawable = gated.loadDrawable(mContext);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "app resource icon not loaded: " + e);
+            return null;
+        }
+        return drawable == null || AppResourceImages.missed() ? null : gated;
+    }
+
+    /**
+     * Loads ahead, on an image thread, the app resource images the custom layouts of {@code copy} (this gate's
+     * {@link #sanitizedCopy}) will load: the drawables their layout XML names (included layouts and theme attributes
+     * too) and the ones their actions set by ID, through {@code packageContext} (this gate's {@link #packageContext}).
+     * Their bitmap files are decoded in the VM here, so the inflation that follows on its own thread finds them made
+     * and never waits. Nothing is inflated or applied. Skipped when the app has no time left.
      */
     public void prewarm(Notification copy, Context packageContext) {
-        if (!mLayoutsAllowed || mStrip || copy == null || !ImageThreads.isImageThread()) {
+        if (!mLayoutsAllowed || mStrip || copy == null || !decodes()) {
             return;
         }
-        prewarm(copy.contentView, packageContext);
-        prewarm(copy.bigContentView, packageContext);
-        prewarm(copy.headsUpContentView, packageContext);
+        final java.util.Set<Integer> done = new java.util.HashSet<>();
+        prewarm(copy.contentView, packageContext, done);
+        prewarm(copy.bigContentView, packageContext, done);
+        prewarm(copy.headsUpContentView, packageContext, done);
         if (copy.publicVersion != null) {
-            prewarm(copy.publicVersion.contentView, packageContext);
-            prewarm(copy.publicVersion.bigContentView, packageContext);
-            prewarm(copy.publicVersion.headsUpContentView, packageContext);
+            prewarm(copy.publicVersion.contentView, packageContext, done);
+            prewarm(copy.publicVersion.bigContentView, packageContext, done);
+            prewarm(copy.publicVersion.headsUpContentView, packageContext, done);
         }
     }
 
-    private void prewarm(RemoteViews views, Context packageContext) {
-        if (views == null || mBudget.remainingMs() <= 0) {
+    private static final int MAX_PREWARM_DEPTH = 4;
+    private static final int MAX_PREWARM_NODES = 2_000;
+
+    private void prewarm(RemoteViews views, Context packageContext, java.util.Set<Integer> done) {
+        if (views == null) {
             return;
         }
-        try {
-            views.clone().apply(packageContext, new FrameLayout(packageContext));
-        } catch (RuntimeException e) {
+        final RemoteViewsImages.Targets targets = RemoteViewsImages.resources(views);
+        final int[] nodes = {0};
+        for (int layout : targets.layouts) {
+            prewarmLayout(packageContext, layout, 0, nodes, done);
+        }
+        for (int drawable : targets.drawables) {
+            prewarmDrawable(packageContext, drawable, done);
+        }
+    }
+
+    // The drawables a layout XML names, read with the resource parser only (no view is made).
+    private void prewarmLayout(Context context, int layout, int depth, int[] nodes, java.util.Set<Integer> done) {
+        if (layout == 0 || depth > MAX_PREWARM_DEPTH || !done.add(layout) || !decodes()) {
+            return;
+        }
+        final android.content.res.Resources res = context.getResources();
+        try (android.content.res.XmlResourceParser parser = res.getLayout(layout)) {
+            int event;
+            while ((event = parser.next()) != org.xmlpull.v1.XmlPullParser.END_DOCUMENT) {
+                if (event != org.xmlpull.v1.XmlPullParser.START_TAG) {
+                    continue;
+                }
+                if (++nodes[0] > MAX_PREWARM_NODES || mBudget.remainingMs() <= 0) {
+                    return;
+                }
+                for (int i = 0; i < parser.getAttributeCount(); i++) {
+                    final int id = parser.getAttributeResourceValue(i, 0);
+                    if (id == 0) {
+                        continue;
+                    }
+                    final String type = typeName(res, id);
+                    if ("layout".equals(type)) {
+                        prewarmLayout(context, id, depth + 1, nodes, done);
+                    } else if ("drawable".equals(type) || "mipmap".equals(type)) {
+                        prewarmDrawable(context, id, done);
+                    } else if ("attr".equals(type)) {
+                        final android.util.TypedValue value = new android.util.TypedValue();
+                        if (context.getTheme().resolveAttribute(id, value, true) && value.resourceId != 0) {
+                            final String target = typeName(res, value.resourceId);
+                            if ("drawable".equals(target) || "mipmap".equals(target)) {
+                                prewarmDrawable(context, value.resourceId, done);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
             // The real inflation reports what is wrong with the layout.
             Log.w(TAG, "layout images not made ahead: " + e);
         }
     }
 
+    private static String typeName(android.content.res.Resources res, int id) {
+        try {
+            return res.getResourceTypeName(id);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    private void prewarmDrawable(Context context, int id, java.util.Set<Integer> done) {
+        if (id == 0 || !done.add(id) || mBudget.remainingMs() <= 0) {
+            return;
+        }
+        try {
+            context.getDrawable(id);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "layout image not made ahead: " + e);
+        }
+    }
+
     /** True when {@code n} holds an app image to decode, or a custom layout to convert or drop. */
     private boolean needsWork(Notification n, int depth) {
-        if (VmIcons.needsVm(n.getSmallIcon()) || VmIcons.needsVm(n.getLargeIcon())) {
+        if (needsGate(n.getSmallIcon()) || needsGate(n.getLargeIcon())) {
             return true;
         }
         if (n.extras != null) {
             for (String key : ICON_EXTRAS) {
                 final Parcelable value = n.extras.getParcelable(key, Parcelable.class);
-                if (value instanceof Icon && VmIcons.needsVm((Icon) value)) {
+                if (value instanceof Icon && needsGate((Icon) value)) {
                     return true;
                 }
             }
@@ -302,7 +502,7 @@ public final class NotificationImageGate {
         }
         if (n.actions != null) {
             for (Notification.Action action : n.actions) {
-                if (action != null && VmIcons.needsVm(action.getIcon())) {
+                if (action != null && needsGate(action.getIcon())) {
                     return true;
                 }
             }
@@ -322,7 +522,7 @@ public final class NotificationImageGate {
     }
 
     private static boolean needsVm(Person person) {
-        return person != null && VmIcons.needsVm(person.getIcon());
+        return person != null && needsGate(person.getIcon());
     }
 
     private static boolean sendersNeedVm(Bundle extras, String key) {
@@ -340,7 +540,7 @@ public final class NotificationImageGate {
     }
 
     private void sanitize(Notification n, int depth) {
-        if (VmIcons.needsVm(n.getSmallIcon())) {
+        if (needsGate(n.getSmallIcon())) {
             final Icon safe = safe(n.getSmallIcon(), mIconPx);
             n.setSmallIcon(safe != null ? safe
                     : Icon.createWithResource("android", android.R.drawable.ic_dialog_info));
@@ -348,14 +548,14 @@ public final class NotificationImageGate {
         if (n.extras != null) {
             sanitizeExtras(n.extras);
         }
-        if (VmIcons.needsVm(n.getLargeIcon())) {
+        if (needsGate(n.getLargeIcon())) {
             // The large icon field has no setter of its own. An adopting builder sets the field and its extra.
             new Notification.Builder(mContext, n).setLargeIcon(safe(n.getLargeIcon(), mIconPx));
         }
         if (n.actions != null) {
             for (int i = 0; i < n.actions.length; i++) {
                 final Notification.Action action = n.actions[i];
-                if (action != null && VmIcons.needsVm(action.getIcon())) {
+                if (action != null && needsGate(action.getIcon())) {
                     n.actions[i] = withIcon(action, safe(action.getIcon(), mIconPx));
                 }
             }
@@ -372,7 +572,7 @@ public final class NotificationImageGate {
     private void sanitizeExtras(Bundle extras) {
         for (String key : ICON_EXTRAS) {
             final Parcelable value = extras.getParcelable(key, Parcelable.class);
-            if (value instanceof Icon && VmIcons.needsVm((Icon) value)) {
+            if (value instanceof Icon && needsGate((Icon) value)) {
                 final Icon safe = Notification.EXTRA_PICTURE_ICON.equals(key)
                         ? safe((Icon) value, mPictureWidth, mPictureHeight)
                         : safe((Icon) value, mIconPx);
@@ -400,7 +600,7 @@ public final class NotificationImageGate {
 
     private void sanitizePerson(Bundle extras, String key) {
         final Person person = extras.getParcelable(key, Person.class);
-        if (person != null && VmIcons.needsVm(person.getIcon())) {
+        if (person != null && needsGate(person.getIcon())) {
             extras.putParcelable(key, safe(person));
         }
     }
@@ -418,7 +618,7 @@ public final class NotificationImageGate {
             }
             final Bundle copy = new Bundle((Bundle) messages[i]);
             final Person sender = copy.getParcelable(KEY_SENDER_PERSON, Person.class);
-            if (sender != null && VmIcons.needsVm(sender.getIcon())) {
+            if (sender != null && needsGate(sender.getIcon())) {
                 copy.putParcelable(KEY_SENDER_PERSON, safe(sender));
             }
             copies[i] = copy;
@@ -427,7 +627,7 @@ public final class NotificationImageGate {
     }
 
     private Person safe(Person person) {
-        if (person == null || !VmIcons.needsVm(person.getIcon())) {
+        if (person == null || !needsGate(person.getIcon())) {
             return person;
         }
         return person.toBuilder().setIcon(safe(person.getIcon(), mIconPx)).build();
@@ -437,10 +637,22 @@ public final class NotificationImageGate {
         return safe(icon, px, px);
     }
 
-    // A URI or data icon of the standard fields: decoded in the VM within the notification's time, or null.
+    // An icon of the standard fields: a URI or data icon decoded in the VM within the notification's time, an app
+    // resource icon through the image gate, or null. An image already made is used even when no time is left.
     private Icon safe(Icon icon, int maxWidth, int maxHeight) {
-        if (!VmIcons.needsVm(icon)) {
+        if (!needsGate(icon)) {
             return icon;
+        }
+        if (mStrip) {
+            return null;
+        }
+        if (icon.getType() == Icon.TYPE_RESOURCE) {
+            return gatedResource(icon);
+        }
+        final Context user = userContext();
+        final Icon cached = user == null ? null : VmIcons.cachedSafeIcon(icon, user, mOwner, maxWidth, maxHeight);
+        if (cached != null) {
+            return cached;
         }
         if (!decodes()) {
             return null;
@@ -451,7 +663,7 @@ public final class NotificationImageGate {
         }
         final long start = SystemClock.uptimeMillis();
         try {
-            return VmIcons.toSafeIcon(icon, mUserContext, mOwner, maxWidth, maxHeight, VmDecode.deadlineIn(left));
+            return VmIcons.toSafeIcon(icon, user, mOwner, maxWidth, maxHeight, VmDecode.deadlineIn(left));
         } finally {
             mBudget.spent(SystemClock.uptimeMillis() - start);
         }
@@ -536,12 +748,30 @@ public final class NotificationImageGate {
     // A URI or data icon of a layout, decoded in the VM, or null. The most pixels it can have (the box) are charged
     // before the VM is asked, and what is left over is given back.
     private Icon vmIcon(Icon icon) {
-        if (!decodes()) {
+        final Context user = userContext();
+        if (user == null || mStrip) {
             return null;
         }
         final String box = mPictureWidth + "x" + mPictureHeight;
-        final String cacheKey = VmIcons.cacheKey(icon, mUserContext, mOwner, box);
+        final String cacheKey = VmIcons.cacheKey(icon, user, mOwner, box);
         final String key = cacheKey != null ? cacheKey : "icon:" + System.identityHashCode(icon);
+        // An image already made is used on any thread and with no time left, counted against the layout's caps.
+        final Icon cached = VmIcons.cachedSafeIcon(icon, user, mOwner, mPictureWidth, mPictureHeight);
+        if (cached != null) {
+            final ImageBudget.Admission admission = mBudget.admit(key);
+            if (admission == ImageBudget.Admission.REFUSED) {
+                return null;
+            }
+            final Bitmap bitmap = cached.getBitmap();
+            if (admission == ImageBudget.Admission.NEW
+                    && !mBudget.charge(key, (long) bitmap.getWidth() * bitmap.getHeight())) {
+                return null;
+            }
+            return cached;
+        }
+        if (!decodes()) {
+            return null;
+        }
         final ImageBudget.Admission admission = mBudget.admit(key);
         if (admission == ImageBudget.Admission.REFUSED || mBudget.hasFailed(key)) {
             return null;
@@ -556,7 +786,7 @@ public final class NotificationImageGate {
             final long start = SystemClock.uptimeMillis();
             try {
                 mBudget.countVmCall();
-                safe = VmIcons.toSafeIcon(icon, mUserContext, mOwner, mPictureWidth, mPictureHeight,
+                safe = VmIcons.toSafeIcon(icon, user, mOwner, mPictureWidth, mPictureHeight,
                         VmDecode.deadlineIn(left));
             } finally {
                 mBudget.spent(SystemClock.uptimeMillis() - start);
@@ -586,13 +816,15 @@ public final class NotificationImageGate {
             return null;
         }
         final Drawable drawable;
+        AppResourceImages.beginTracking();
         try {
             drawable = appContext.getDrawable(icon.getResId());
         } catch (RuntimeException e) {
             Log.w(TAG, "layout resource icon not loaded: " + e);
             return null;
         }
-        if (drawable == null) {
+        if (drawable == null || AppResourceImages.missed()) {
+            // Never a picture with holes, made while an image of it could not be made: empty instead.
             return null;
         }
         // A bitmap file comes back as the bitmap the image gate made in the VM, already admitted and charged there.
@@ -609,12 +841,8 @@ public final class NotificationImageGate {
                 return null;
             }
         }
-        final Icon safe = Icon.createWithBitmap(bitmap);
-        if (icon.hasTint()) {
-            safe.setTintList(icon.getTintList());
-            safe.setTintBlendMode(icon.getTintBlendMode());
-        }
-        return safe;
+        return VmIcons.iconLike(icon, bitmap,
+                drawable instanceof android.graphics.drawable.AdaptiveIconDrawable);
     }
 
     // The gated context of the posting app, or of another app whose resource an icon names.
@@ -644,11 +872,9 @@ public final class NotificationImageGate {
         return null;
     }
 
-    // The drawable drawn into a bitmap within the layout box (an icon's size when it has none).
+    // The drawable drawn into a bitmap within the layout box, a small one (a 24 dp vector) drawn at the size of a large
+    // icon, so it stays sharp when the app's view shows it bigger.
     private Bitmap draw(Drawable drawable) {
-        if (drawable.getIntrinsicWidth() <= 0 || drawable.getIntrinsicHeight() <= 0) {
-            return VmIcons.draw(drawable, mIconPx, mIconPx);
-        }
-        return VmIcons.draw(drawable, mPictureWidth, mPictureHeight);
+        return VmIcons.draw(drawable, mIconPx, mPictureWidth, mPictureHeight);
     }
 }

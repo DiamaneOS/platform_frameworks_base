@@ -341,6 +341,10 @@ public final class VmDecode {
     private static AssetFileDescriptor openImageWithin(ContentResolver resolver, Uri uri, int maxWidth,
             int maxHeight, String owner, long deadline) throws FileNotFoundException, UnavailableException {
         final long end = deadline > 0 ? deadline : SystemClock.uptimeMillis() + PUMP_TOTAL_MS;
+        if (end <= SystemClock.uptimeMillis()) {
+            // No time left: no open is started, so none is left behind and counted against the owner.
+            throw new UnavailableException("deadline passed before the open");
+        }
         final String lane = owner == null ? "" : owner;
         synchronized (sStuckLock) {
             if (sStuck.getOrDefault(lane, 0) >= MAX_STUCK_PER_OWNER || sStuckTotal >= MAX_STUCK) {

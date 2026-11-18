@@ -156,15 +156,17 @@ public final class NinePatchChunk {
         return chunk;
     }
 
-    // Optical insets as a PNG stores them: left, top, right, bottom, in network byte order.
+    // Optical insets as a PNG stores them: left, top, right, bottom, in the device's own byte order. Unlike npTc,
+    // aapt writes them with memcpy of host ints and Android's reader (NinePatchPeeker) reads them the same way.
     private static int[] parseInsets(byte[] b, int start, int length, int width, int height) {
         if (length != 16) {
             return null;
         }
-        final int left = readInt(b, start);
-        final int top = readInt(b, start + 4);
-        final int right = readInt(b, start + 8);
-        final int bottom = readInt(b, start + 12);
+        final ByteBuffer in = ByteBuffer.wrap(b, start, 16).order(ByteOrder.nativeOrder());
+        final int left = in.getInt();
+        final int top = in.getInt();
+        final int right = in.getInt();
+        final int bottom = in.getInt();
         if (!inRange(left, width) || !inRange(right, width) || !inRange(top, height) || !inRange(bottom, height)
                 || left + right > width || top + bottom > height) {
             return null;
@@ -172,12 +174,12 @@ public final class NinePatchChunk {
         return new int[] {left, top, right, bottom};
     }
 
-    /** The optical insets chunk data for a PNG file ("npLb"), or null when there are none. */
+    /** The optical insets chunk data for a PNG file ("npLb", device byte order), or null when there are none. */
     public byte[] insetsFileFormat() {
         if (mOpticalInsets == null) {
             return null;
         }
-        final ByteBuffer out = ByteBuffer.allocate(16).order(ByteOrder.BIG_ENDIAN);
+        final ByteBuffer out = ByteBuffer.allocate(16).order(ByteOrder.nativeOrder());
         for (int inset : mOpticalInsets) {
             out.putInt(inset);
         }

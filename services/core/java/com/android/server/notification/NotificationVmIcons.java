@@ -23,7 +23,9 @@ import android.content.Context;
 import android.graphics.drawable.Icon;
 import android.os.Bundle;
 import android.os.Parcelable;
+import android.os.SystemClock;
 
+import de.diamaneos.decode.client.OwnerQuota;
 import de.diamaneos.decode.client.VmDecode;
 import de.diamaneos.decode.client.VmIcons;
 
@@ -41,11 +43,19 @@ import java.util.ArrayList;
  * behind an image gate: one that names a bitmap file of the app (a {@code <bitmap>}, a layer list) is drawn into a
  * bitmap from pixels decoded in the VM, a vector-only one is kept as it is.
  *
- * <p>All images of one notification share {@link #BUDGET_MS}. An image that cannot be decoded in time is removed, a
- * small icon becomes a neutral system icon. Decoded resources are cached per package version.
+ * <p>Nothing of the app is parsed or drawn here either: an XML resource icon (a vector, or XML that names a bitmap
+ * file) is kept as it is, and SystemUI loads it through its image gate in whatever configuration it shows it.
+ *
+ * <p>All images of one notification share {@link #BUDGET_MS}, and each app shares a quota across its notifications
+ * ({@link OwnerQuota}, charged with the whole time spent here), so one app cannot hold the posting threads. An image
+ * that cannot be decoded in time is removed, a small icon becomes a neutral system icon. Decoded resources are cached
+ * per package version.
  */
 final class NotificationVmIcons {
     static final long BUDGET_MS = 2_000;
+
+    // Time each app may make the posting threads wait for the VM, across its notifications.
+    private static final OwnerQuota sQuota = new OwnerQuota();
 
     // Icons and people are shown at most this big. The big picture at most this wide and high.
     private static final int ICON_PX = 512;
@@ -73,13 +83,19 @@ final class NotificationVmIcons {
         mContext = context;
         mPkg = pkg;
         mUserId = userId;
-        mDeadline = VmDecode.deadlineIn(BUDGET_MS);
+        mDeadline = VmDecode.deadlineIn(Math.min(BUDGET_MS,
+                stripOnly ? BUDGET_MS : sQuota.available(pkg, SystemClock.uptimeMillis())));
         mStripOnly = stripOnly;
     }
 
     /** Re-makes the app's packed images in {@code n} in place. Call without holding any lock: it waits for the VM. */
     static void convert(Context context, Notification n, String pkg, int userId) {
-        new NotificationVmIcons(context, pkg, userId, false).convert(n, 0);
+        final long start = SystemClock.uptimeMillis();
+        try {
+            new NotificationVmIcons(context, pkg, userId, false).convert(n, 0);
+        } finally {
+            sQuota.spend(pkg, SystemClock.uptimeMillis() - start, SystemClock.uptimeMillis());
+        }
     }
 
     /**
@@ -141,6 +157,17 @@ final class NotificationVmIcons {
                 if (safe != icon) {
                     n.actions[i] = withIcon(action, safe);
                 }
+            }
+        }
+        // The bubble icon: made into pixels like the others. Its Icon is this notification's own, so it is changed
+        // in place. One that cannot be made becomes the neutral icon (a bubble needs one).
+        final Notification.BubbleMetadata bubble = n.getBubbleMetadata();
+        final Icon bubbleIcon = bubble == null ? null : bubble.getIcon();
+        if (bubbleIcon != null) {
+            final Icon safe = safe(bubbleIcon, ICON_PX, ICON_PX);
+            if (safe != bubbleIcon) {
+                bubbleIcon.setTo(safe != null ? safe
+                        : Icon.createWithResource("android", android.R.drawable.ic_dialog_info));
             }
         }
         if (n.publicVersion != null && depth == 0) {

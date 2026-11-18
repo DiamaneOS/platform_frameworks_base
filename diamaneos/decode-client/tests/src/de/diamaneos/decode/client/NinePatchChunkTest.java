@@ -172,8 +172,10 @@ public class NinePatchChunkTest {
         assertEquals(4, device.getInt(44));
     }
 
+    // As aapt writes it and Android reads it: host ints, little endian on every device and on this host.
     private static byte[] npLb(int left, int top, int right, int bottom) {
-        return ByteBuffer.allocate(16).putInt(left).putInt(top).putInt(right).putInt(bottom).array();
+        return ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN)
+                .putInt(left).putInt(top).putInt(right).putInt(bottom).array();
     }
 
     private static byte[] pngWithInsets(byte[] insets) {
@@ -202,6 +204,11 @@ public class NinePatchChunkTest {
         assertNull(NinePatchChunk.fromPng(f, f.length).opticalInsets());
         f = pngWithInsets(new byte[12]);
         assertNull(NinePatchChunk.fromPng(f, f.length).opticalInsets());
+        // Network byte order is not what aapt writes: insets of 1 would read as 16777216 and be refused.
+        f = pngWithInsets(ByteBuffer.allocate(16).order(ByteOrder.BIG_ENDIAN).putInt(1).putInt(1).putInt(1)
+                .putInt(1).array());
+        assertNull(NinePatchChunk.fromPng(f, f.length).opticalInsets());
+        assertEquals(ByteOrder.LITTLE_ENDIAN, ByteOrder.nativeOrder());
         // None in the file: none.
         final byte[] plain = png(8, 6, npTc(new int[] {2, 5}, new int[] {1, 4}, new int[] {0, 0, 0, 0}, 0), false);
         assertNull(NinePatchChunk.fromPng(plain, plain.length).opticalInsets());

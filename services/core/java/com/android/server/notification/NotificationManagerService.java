@@ -9470,13 +9470,14 @@ public class NotificationManagerService extends SystemService {
         // image is removed instead, so the notification (a call, a message) still shows. Only if that fails too is it
         // not posted.
         final int iconUserId = (userId == USER_ALL) ? USER_SYSTEM : userId;
+        // Throwable: an Error here (a stack overflow, out of memory) must cost the images, not the system server.
         try {
             NotificationVmIcons.convert(getContext(), notification, pkg, iconUserId);
-        } catch (RuntimeException e) {
+        } catch (Throwable e) {
             Slog.e(TAG, "Cannot convert notification images, posting it without them", e);
             try {
                 NotificationVmIcons.strip(getContext(), notification, pkg, iconUserId);
-            } catch (RuntimeException e2) {
+            } catch (Throwable e2) {
                 Slog.e(TAG, "Cannot remove notification images, not posted", e2);
                 return false;
             }

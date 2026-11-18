@@ -35,6 +35,7 @@ import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
+import android.content.res.ImageFileGate;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -186,6 +187,25 @@ public final class Icon implements Parcelable {
         mInsetScale = other.mInsetScale;
         mTintList = other.mTintList;
         mBlendMode = other.mBlendMode;
+    }
+
+    /**
+     * A copy of this resource icon that loads from {@code res}: for SystemUI, which loads an app's resource icons
+     * through resources behind an image file gate (see {@link Resources#setImageFileGate}), so the app's bitmap files
+     * are decoded in a protected VM in whatever configuration the icon is shown. The copy keeps these resources: a
+     * configuration change does not swap them for plain ones.
+     *
+     * @hide
+     */
+    @NonNull
+    public Icon copyWithResources(@NonNull Resources res) {
+        if (mType != TYPE_RESOURCE) {
+            throw new IllegalStateException("not a resource icon");
+        }
+        final Icon copy = new Icon(TYPE_RESOURCE);
+        copy.setTo(this);
+        copy.mObj1 = res;
+        return copy;
     }
 
     /**
@@ -476,6 +496,10 @@ public final class Icon implements Parcelable {
 
     @RavenwoodReplace(blockedBy = PackageManager.class)
     private Resources getResourcesForPackage(Context context, String resPackage) {
+        final Resources gated = gatedResourcesForPackage(context, resPackage);
+        if (gated != null || isGated(context)) {
+            return gated;
+        }
         final PackageManager pm = context.getPackageManager();
         try {
             ApplicationInfo ai = pm.getApplicationInfo(
@@ -492,6 +516,22 @@ public final class Icon implements Parcelable {
                     resPackage, this), e);
             return null;
         }
+    }
+
+    // DiamaneOS: a context whose resources have an image file gate loads every package's resources through it, so an
+    // app's bitmap files are decoded in a protected VM. Null when the context has no gate, or the gate has none.
+    private static Resources gatedResourcesForPackage(Context context, String resPackage) {
+        final Resources res = context.getResources();
+        final ImageFileGate gate = res == null ? null : res.getImageFileGate();
+        if (gate == null) {
+            return null;
+        }
+        return resPackage.equals(context.getPackageName()) ? res : gate.resourcesFor(resPackage);
+    }
+
+    private static boolean isGated(Context context) {
+        final Resources res = context.getResources();
+        return res != null && res.getImageFileGate() != null;
     }
 
     private Resources getResourcesForPackage$ravenwood(Context context, String resPackage) {
@@ -625,6 +665,13 @@ public final class Icon implements Parcelable {
                 resPackage = context.getPackageName();
             }
             invalidateResourcesCacheIfNeeded(context);
+            if (getResources() == null && !(getResPackage().equals("android")) && isGated(context)) {
+                // DiamaneOS: through the context's image file gate, never plain resources.
+                mObj1 = gatedResourcesForPackage(context, resPackage);
+                if (mObj1 == null) {
+                    return null;
+                }
+            }
             if (getResources() == null && !(getResPackage().equals("android"))) {
                 // TODO(b/173307037): Move CONTEXT_INCLUDE_CODE to ContextImpl.createContextAsUser
                 final Context userContext;
@@ -660,6 +707,10 @@ public final class Icon implements Parcelable {
         if (mType == TYPE_RESOURCE && mObj1 != null) {
             Resources cachedResources = (Resources) mObj1;
             if (cachedResources == null) {
+                return;
+            }
+            if (cachedResources.getImageFileGate() != null) {
+                // DiamaneOS: gated resources are replaced by their owner, never by plain ones.
                 return;
             }
             if (cachedResources.getConfiguration().diff(context.getResources().getConfiguration())

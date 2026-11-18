@@ -33,6 +33,7 @@ import android.os.CancellationSignal
 import android.os.Trace
 import android.os.UserHandle
 import android.service.notification.StatusBarNotification
+import android.os.SystemClock
 import android.util.Log
 import android.view.NotificationHeaderView
 import android.view.View
@@ -159,14 +160,7 @@ constructor(
             task.prepareImages()
             task.onPostExecute(task.doInBackground())
         } else {
-            // The app's images wait for the protected VM on an image thread (one per app at a time, apps take
-            // turns), never on the inflation thread that every notification shares.
-            ImageThreads.execute(sbn.packageName) {
-                if (!task.isCancelled) {
-                    task.prepareImages()
-                    task.executeOnExecutor(inflationExecutor)
-                }
-            }
+            task.startImages()
         }
     }
 
@@ -197,6 +191,8 @@ constructor(
                 conversationProcessor = conversationProcessor,
                 promotedNotificationContentExtractor = promotedNotificationContentExtractor,
                 logger = logger,
+                // A test hook without the image threads: the copy with every app image removed.
+                sourceNotification = NotificationImageGate.strippedCopy(row.context, entry.sbn.notification),
             )
         inflateSmartReplyViews(
             result,
@@ -432,6 +428,39 @@ constructor(
         // Made by prepareImages before the task runs: the checked copy and the context to apply it with.
         @Volatile private var checkedNotification: Notification? = null
         @Volatile private var gatedPackageContext: Context? = null
+        @Volatile private var imageTask: ImageThreads.Task? = null
+
+        /**
+         * Starts the task. The app's images wait for the protected VM on an image thread (one task per app at a
+         * time, apps take turns), never on the inflation thread every notification shares. Calls, alarms and other
+         * urgent notifications use the urgent image threads, which normal image work never holds up, and a
+         * notification with no app image goes to the inflation thread at once.
+         */
+        fun startImages() {
+            val sbn = entry.sbn
+            val run = Runnable {
+                if (isCancelled) {
+                    return@Runnable
+                }
+                val start = SystemClock.uptimeMillis()
+                prepareImages()
+                // The whole time of the image work is charged to the app, not only the waits for the VM.
+                NotificationImageGate.chargeTime(sbn.packageName, SystemClock.uptimeMillis() - start)
+                if (!isCancelled) {
+                    try {
+                        executeOnExecutor(inflationExecutor)
+                    } catch (e: IllegalStateException) {
+                        Log.w(TAG, "inflation task not started: ${e.message}")
+                    }
+                }
+            }
+            when (NotificationImageGate.lane(sbn.notification, sbn.packageName)) {
+                NotificationImageGate.Lane.NONE -> executeOnExecutor(inflationExecutor)
+                NotificationImageGate.Lane.URGENT ->
+                    imageTask = ImageThreads.executeUrgent(sbn.packageName, run)
+                else -> imageTask = ImageThreads.execute(sbn.packageName, run)
+            }
+        }
 
         /**
          * Every app image in the notification is decoded in the protected VM first (or removed), so the framework's
@@ -459,14 +488,15 @@ constructor(
                     )
                 // The row's views keep its gate: each inflation starts a new round of it with a fresh budget.
                 rowImages[row] = imageGate.resourceImages()
+                // A cancelled task (a newer update, a removed notification) stops asking the VM.
+                imageGate.setCancelled { isCancelled }
                 val gated = imageGate.packageContext(packageContext)
                 val copy = imageGate.sanitizedCopy(sbn.notification)
                 imageGate.prewarm(copy, gated)
                 gatedPackageContext = gated
                 checkedNotification = copy
-            } catch (e: RuntimeException) {
-                strip(e, packageContext)
-            } catch (e: OutOfMemoryError) {
+            } catch (e: Throwable) {
+                // Any Error too (a stack overflow, out of memory): it costs the images, not the notification.
                 strip(e, packageContext)
             }
         }
@@ -476,7 +506,7 @@ constructor(
             try {
                 checkedNotification = NotificationImageGate.strippedCopy(context, entry.sbn.notification)
                 gatedPackageContext = packageContext
-            } catch (e2: RuntimeException) {
+            } catch (e2: Throwable) {
                 // Only if that fails too is the notification not shown.
                 Log.e(TAG, "cannot remove notification images", e2)
                 checkedNotification = null
@@ -615,6 +645,8 @@ constructor(
 
         override fun abort() {
             logger.logAsyncTaskProgress(entry.logKey, "cancelling inflate")
+            // Image work not started yet is dropped. Running image work stops asking the VM (see setCancelled).
+            imageTask?.cancel()
             cancel(/* mayInterruptIfRunning= */ true)
             if (cancellationSignal != null) {
                 logger.logAsyncTaskProgress(entry.logKey, "cancelling apply")
@@ -753,7 +785,7 @@ constructor(
             promotedNotificationContentExtractor: PromotedNotificationContentExtractor,
             logger: NotificationRowContentBinderLogger,
             // The notification the views are made from: the checked copy (see prepareImages).
-            sourceNotification: Notification = entry.sbn.notification,
+            sourceNotification: Notification,
         ): InflationProgress {
             val rowImageInflater =
                 RowImageInflater.newInstance(
@@ -807,7 +839,7 @@ constructor(
                 if (reInflateFlags and FLAG_CONTENT_VIEW_SINGLE_LINE != 0) {
                     logger.logAsyncTaskProgress(entry.logKey, "inflating single line view model")
                     SingleLineViewInflater.inflateSingleLineViewModel(
-                        notification = entry.sbn.notification,
+                        notification = sourceNotification,
                         messagingStyle = messagingStyle,
                         metricStyle = metricStyle,
                         builder = builder,
@@ -826,7 +858,7 @@ constructor(
                     )
                     if (bindParams.redactionType == REDACTION_TYPE_OTP) {
                         SingleLineViewInflater.inflateSingleLineViewModel(
-                            notification = entry.sbn.notification,
+                            notification = sourceNotification,
                             messagingStyle = messagingStyle,
                             metricStyle = metricStyle,
                             builder = builder,
