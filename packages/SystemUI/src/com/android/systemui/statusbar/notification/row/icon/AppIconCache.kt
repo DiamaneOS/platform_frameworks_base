@@ -39,19 +39,29 @@ import java.io.PrintWriter
 class AppIconCache(systemClock: SystemClock) : Dumpable {
     private val bitmapInfoCache = NotifCollectionCache<BitmapInfo>(systemClock = systemClock)
     private val drawableCache = NotifCollectionCache<Drawable>(systemClock = systemClock)
+    // DiamaneOS: the newest package stamp per app and user (AppIconStamps).
+    private val stamps = AppIconStamps()
 
     fun purgeCache(wantedPackages: Collection<String>) {
         // We don't know from the packages if it's the work profile app or not, so let's just keep
         // both if they're present in the cache.
-        bitmapInfoCache.purgeUnless { getPackageFromKey(it) in wantedPackages }
-        drawableCache.purgeUnless { getPackageFromKey(it) in wantedPackages }
+        // DiamaneOS: entries made for an older stamp of the package go too.
+        bitmapInfoCache.purgeUnless { getPackageFromKey(it) in wantedPackages && isCurrent(it) }
+        drawableCache.purgeUnless { getPackageFromKey(it) in wantedPackages && isCurrent(it) }
     }
 
+    // DiamaneOS: the key ends with the package stamp, so an updated or reinstalled app gets new entries.
     private fun createKey(
         packageName: String,
         userHandle: UserHandle?,
         instanceKey: String,
-    ): String = "$packageName|${userHandle?.identifier}|$instanceKey"
+        stamp: String = "",
+    ): String = "$packageName|${userHandle?.identifier}|$instanceKey|$stamp"
+
+    private fun isCurrent(key: String): Boolean {
+        val parts = key.split('|')
+        return parts.size < 4 || stamps.isCurrent(parts[0], parts[1], parts.subList(3, parts.size).joinToString("|"))
+    }
 
     private fun getPackageFromKey(key: String): String = key.substringBefore('|')
 
@@ -70,12 +80,15 @@ class AppIconCache(systemClock: SystemClock) : Dumpable {
         userHandle: UserHandle?,
         drawableInstanceKey: String,
         createDrawable: (BitmapInfo) -> Drawable,
+        stamp: String = "", // DiamaneOS: the package stamp (appIconStamp)
         fetchBitmapInfo: () -> BitmapInfo,
     ): Drawable {
-        val drawableCacheKey = createKey(packageName, userHandle, drawableInstanceKey)
+        stamps.note(packageName, "${userHandle?.identifier}", stamp) // DiamaneOS
+        val drawableCacheKey = createKey(packageName, userHandle, drawableInstanceKey, stamp)
         val drawable =
             drawableCache.getOrFetch(drawableCacheKey) {
-                val bitmapInfoCacheKey = createKey(packageName, userHandle, instanceKey = "SHARED")
+                val bitmapInfoCacheKey =
+                    createKey(packageName, userHandle, instanceKey = "SHARED", stamp = stamp)
                 val bitmapInfo =
                     bitmapInfoCache.getOrFetch(bitmapInfoCacheKey) { fetchBitmapInfo() }
                 createDrawable(bitmapInfo)
