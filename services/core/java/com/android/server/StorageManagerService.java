@@ -3253,10 +3253,11 @@ class StorageManagerService extends IStorageManager.Stub
         Objects.requireNonNull(token, "token cannot be null");
         Objects.requireNonNull(obbInfo, "obbInfo cannot be null");
 
-        validateObbInfo(obbInfo, rawPath);
+        // DiamaneOS: vold gets the path checked here, never the client's canonicalPath, which nothing checked.
+        final String checkedPath = validateObbInfo(obbInfo, rawPath);
 
         final int callingUid = Binder.getCallingUid();
-        final ObbState obbState = new ObbState(rawPath, canonicalPath,
+        final ObbState obbState = new ObbState(rawPath, checkedPath,
                 callingUid, token, nonce, null);
         final ObbAction action = new MountObbAction(obbState, callingUid, obbInfo);
         mObbActionHandler.sendMessage(mObbActionHandler.obtainMessage(OBB_RUN_ACTION, action));
@@ -3265,7 +3266,8 @@ class StorageManagerService extends IStorageManager.Stub
             Slog.i(TAG, "Send to OBB handler: " + action.toString());
     }
 
-    private void validateObbInfo(ObbInfo obbInfo, String rawPath) {
+    /** Checks the OBB path against the caller and returns its canonical form, the path vold may open. */
+    private String validateObbInfo(ObbInfo obbInfo, String rawPath) {
         String obbFilePath;
         try {
             obbFilePath = new File(rawPath).getCanonicalPath();
@@ -3291,6 +3293,7 @@ class StorageManagerService extends IStorageManager.Stub
         } else {
             throw new SecurityException("Invalid path to Obb file : " + obbFilePath);
         }
+        return obbFilePath;
     }
 
     @Override
