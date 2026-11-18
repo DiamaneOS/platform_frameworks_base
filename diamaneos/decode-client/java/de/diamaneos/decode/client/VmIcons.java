@@ -80,6 +80,21 @@ public final class VmIcons {
     }
 
     private static final int MAX_CACHE_ENTRY_BYTES = 4 * 1024 * 1024;
+
+    /**
+     * {@code {maxWidth, maxHeight}} made smaller, keeping its shape, so that an image decoded into it fits a cache
+     * entry (ARGB): what is made can be kept and shown, never made again and again.
+     */
+    static int[] cacheableBox(int maxWidth, int maxHeight) {
+        final long maxPixels = MAX_CACHE_ENTRY_BYTES / 4;
+        final long pixels = (long) maxWidth * maxHeight;
+        if (pixels <= maxPixels) {
+            return new int[] {maxWidth, maxHeight};
+        }
+        final double scale = Math.sqrt((double) maxPixels / pixels);
+        return new int[] {Math.max(1, (int) Math.floor(maxWidth * scale)),
+                Math.max(1, (int) Math.floor(maxHeight * scale))};
+    }
     private static final long URI_CACHE_MS = 30_000;
 
     /** {@code bitmap}, or an immutable copy: cached bitmaps are shared between views, nobody may draw into them. */
@@ -253,15 +268,17 @@ public final class VmIcons {
             // No time left: what is cached only. Nothing is opened or handed to the VM.
             return null;
         }
+        // Decoded at most as big as a cache entry holds, under the key of the box asked for.
+        final int[] box = cacheableBox(maxWidth, maxHeight);
         try {
             Bitmap bitmap;
             if (icon.getType() == Icon.TYPE_DATA) {
                 bitmap = VmDecode.decodeBytes(context, icon.getDataBytes(), icon.getDataOffset(),
-                        icon.getDataLength(), ownerPackage, VmDecode.PRIORITY_USER_WAITING, maxWidth,
-                        maxHeight, deadline);
+                        icon.getDataLength(), ownerPackage, VmDecode.PRIORITY_USER_WAITING, box[0],
+                        box[1], deadline);
             } else {
                 bitmap = VmDecode.decodeUri(context, context.getContentResolver(), icon.getUri(), ownerPackage,
-                        VmDecode.PRIORITY_USER_WAITING, maxWidth, maxHeight, deadline);
+                        VmDecode.PRIORITY_USER_WAITING, box[0], box[1], deadline);
             }
             // Cached bitmaps are shared between views: an immutable copy, so nobody can draw into it.
             bitmap = immutable(bitmap);

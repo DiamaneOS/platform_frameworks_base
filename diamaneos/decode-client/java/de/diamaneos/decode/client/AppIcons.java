@@ -176,7 +176,7 @@ public final class AppIcons {
             return copy;
         }
         final String retryKey = gated.key + ':' + gated.configKey + ':' + icon.getResId();
-        sWaiters.add(retryKey, ownerPackage, tag, onMade);
+        askAgainLater(sWaiters.add(retryKey, ownerPackage, tag, onMade));
         if (sRetry.start(retryKey, SystemClock.uptimeMillis())) {
             make(context, gated, copy, ownerPackage, retryKey);
         }
@@ -203,7 +203,7 @@ public final class AppIcons {
         final String cacheKey = VmIcons.cacheKey(icon, user, ownerPackage, px + "x" + px);
         // Waiters and retries go by the image, not by the time window of a URI.
         final String key = VmIcons.stableKey(cacheKey);
-        sWaiters.add(key, ownerPackage, tag, onMade);
+        askAgainLater(sWaiters.add(key, ownerPackage, tag, onMade));
         if (key != null && sRetry.start(key, SystemClock.uptimeMillis())) {
             makeVm(user, icon, ownerPackage, px, key);
         }
@@ -508,5 +508,19 @@ public final class AppIcons {
             Log.w(TAG, "no gated resources for " + pkg + ": " + e);
             return null;
         }
+    }
+
+    // Askers a waiter cap let go: told after a while on the main thread, so they ask again.
+    private static void askAgainLater(java.util.List<Waiters.Waiter> evicted) {
+        if (evicted.isEmpty()) {
+            return;
+        }
+        sMain.postDelayed(() -> {
+            for (Waiters.Waiter w : evicted) {
+                if (sWaiters.live(w)) {
+                    w.onMade.run();
+                }
+            }
+        }, Waiters.EVICTED_RETRY_MS);
     }
 }

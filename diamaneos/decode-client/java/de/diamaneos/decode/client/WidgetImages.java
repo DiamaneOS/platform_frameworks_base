@@ -38,9 +38,11 @@ import java.util.function.Consumer;
  * app's bitmap files through the image gate (on the main and apply threads only what was made, else empty).
  *
  * <p>A list widget's items come inside the update: the widget's app fetches them from its own RemoteViewsService
- * before it sends the views (the {@code remote_adapter_conversion} flag, on in this release), so they are checked
- * with the rest, and share the update's image caps. A list that SystemUI would have to fetch from the app's service
- * itself (the older action, which the system refuses to bind with the flag on) is not shown.
+ * before it sends the views (the {@code remote_adapter_conversion} flag, which the build requires to be a fixed true),
+ * so they are checked with the rest on a copy that shares nothing with the update, and share the update's image caps.
+ * Their URIs are opened only when the widget's app may read them itself. Views that would make SystemUI fetch a list
+ * from the app's service itself (the older action, or the same by method name or with any Intent) are not shown,
+ * whatever the flag says.
  *
  * <p>Only the latest update of a widget waits for an image thread: a newer one, {@link #setApp} and {@link #cancel}
  * drop the older one before it runs and stop it if it does, and it never delivers.
@@ -49,6 +51,14 @@ public final class WidgetImages {
     private static final String TAG = "VmDecode";
     private static final int ICON_DP = 128;
     private static final int PICTURE_DP = 320;
+
+    // Copies without the app's images for updates that gave way in a full image lane.
+    private static final java.util.concurrent.ExecutorService sStrip =
+            java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+                final Thread thread = new Thread(r, "WidgetImagesStrip");
+                thread.setDaemon(true);
+                return thread;
+            });
 
     private final Context mHost;
     private final GatedPackages mContext;
@@ -149,15 +159,19 @@ public final class WidgetImages {
                     }
                 });
             }
-        }, () -> {
-            // Gave way to another app's task: shown without the app's images, never unchecked.
+        }, () -> sStrip.execute(() -> {
+            // Gave way to another app's task: shown without the app's images, never unchecked. The copy is made on a
+            // thread of its own, not on the main thread the drop is told on.
+            if (cancelled.get()) {
+                return;
+            }
             final RemoteViews stripped = NoImageViews.withoutImages(views);
             executor.execute(() -> {
                 if (!cancelled.get()) {
                     done.accept(stripped);
                 }
             });
-        });
+        }));
         if (task == null) {
             // Too many image tasks are waiting: this update is not shown, the next one is.
             Log.w(TAG, "widget update not checked now: too many image tasks of " + owner);
@@ -178,6 +192,12 @@ public final class WidgetImages {
         try {
             imageGate.setCancelled(cancelled);
             final ApplicationInfo ai = mHost.getPackageManager().getApplicationInfoAsUser(owner, 0, userId);
+            // URIs in the update, list items included, are opened only when the widget's app may read them itself,
+            // as its user. SystemUI's own access is never lent to them.
+            final android.app.IUriGrantsManager grants = android.app.UriGrantsManager.getService();
+            imageGate.setUriCheck(uri -> android.content.ContentProvider.getUserIdFromUri(uri, userId) == userId
+                    && ForeignIcons.uriGranted(android.graphics.drawable.Icon.createWithContentUri(uri), grants,
+                            ai.uid, owner, userId));
             final Context gated = imageGate.packageContext(
                     mHost.createApplicationContext(ai, Context.CONTEXT_RESTRICTED));
             final RemoteViews checked = imageGate.layoutCopy(views);

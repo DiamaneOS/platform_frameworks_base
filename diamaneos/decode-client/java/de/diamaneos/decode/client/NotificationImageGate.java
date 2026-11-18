@@ -116,6 +116,7 @@ public final class NotificationImageGate {
     private final AppResourceImages mResources;
     private final RemoteViewsImages.Images mLayoutImages = new LayoutImages();
     private Context mAppContext; // the gated context of the posting app, once made
+    private java.util.function.Predicate<Uri> mUriCheck; // URIs the layouts' owner may open, null for all
     private boolean mLayoutsAllowed;
     private boolean mStrip; // remove every app image, decode nothing
     private boolean mTemplateOnly; // the caller shows no custom layout
@@ -499,8 +500,19 @@ public final class NotificationImageGate {
         if (views == null) {
             return null;
         }
-        final RemoteViews copy = views.clone();
+        // A copy that shares nothing with the original, list items included: what this check converts (also when it
+        // is cancelled half way) never lands in the update another check starts from.
+        final RemoteViews copy = RemoteViewsImages.deepCopy(views);
         return mLayoutsAllowed && RemoteViewsImages.convert(copy, mLayoutImages) ? copy : null;
+    }
+
+    /**
+     * Which URIs of the layouts may be opened ({@code mayOpen}, given the URI): for views SystemUI was not handed
+     * through a check of the poster's grants (a widget's), the widget app's own access. A URI it refuses is an empty
+     * image, never opened. Call before {@link #layoutCopy}.
+     */
+    public void setUriCheck(java.util.function.Predicate<Uri> mayOpen) {
+        mUriCheck = mayOpen;
     }
 
     /**
@@ -1037,6 +1049,19 @@ public final class NotificationImageGate {
 
         @Override
         public Icon convert(Icon icon) {
+            if (mUriCheck != null && (icon.getType() == Icon.TYPE_URI
+                    || icon.getType() == Icon.TYPE_URI_ADAPTIVE_BITMAP)) {
+                boolean may;
+                try {
+                    may = mUriCheck.test(icon.getUri());
+                } catch (RuntimeException e) {
+                    may = false;
+                }
+                if (!may) {
+                    Log.w(TAG, "layout image the app may not read, empty");
+                    return VmIcons.emptyIcon();
+                }
+            }
             Icon safe = null;
             try {
                 safe = icon.getType() == Icon.TYPE_RESOURCE ? resourceIcon(icon) : vmIcon(icon);

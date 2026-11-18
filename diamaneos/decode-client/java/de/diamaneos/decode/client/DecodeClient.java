@@ -177,6 +177,8 @@ final class DecodeClient {
             callTimeout = Math.min(callTimeout, Math.max(1, deadline - SystemClock.uptimeMillis()));
         }
         final long callStart = SystemClock.uptimeMillis();
+        // 0 running, 1 ended, 2 given up while it ran (a stuck call, counted until it ends).
+        final java.util.concurrent.atomic.AtomicInteger state = new java.util.concurrent.atomic.AtomicInteger();
         final Future<T> future;
         try {
             future = mExecutor.submit(() -> {
@@ -188,6 +190,9 @@ final class DecodeClient {
                     return call.run(bound.service);
                 } finally {
                     releaseSlot(lane);
+                    if (state.getAndSet(1) == 2) {
+                        stuckEnded(bound.generation);
+                    }
                 }
             });
         } catch (RuntimeException e) {
@@ -212,14 +217,17 @@ final class DecodeClient {
             }
             future.cancel(true);
             // A missed deadline alone says nothing about the service: a hostile image may simply be slow. The binding
-            // is dropped only when the service itself no longer answers a cheap call (answers()): after a call that
-            // missed its full deadline, or after calls of two different apps that were in flight together and both
-            // missed a deadline of at least WEDGE_MIN_DEADLINE_MS within WEDGE_WINDOW_MS. A dropped binding is not
-            // asked again for WEDGED_RETRY_MS. Calls without an app (SystemUI's own image loader, the wallpaper)
-            // never count as an app of their own, and nothing counts before the service of a binding has answered
-            // once (a VM still starting is slow, not wedged). Only the binding the call was made on is ever dropped.
-            // A call that only waited in the queue ends that call.
+            // is dropped when the service cannot serve: most of the call threads are stuck in calls of this binding
+            // past their deadlines, or the VM itself does not answer a probe of a tiny image of our own (checkHealth,
+            // in the background, one at a time per binding). The probe is asked after a call that missed its full
+            // deadline, or after calls of two different apps that were in flight together and both missed a deadline
+            // of at least WEDGE_MIN_DEADLINE_MS within WEDGE_WINDOW_MS. A dropped binding is not asked again for
+            // WEDGED_RETRY_MS. Calls without an app (SystemUI's own image loader, the wallpaper) never count as an app
+            // of their own, and the two-app rule waits until the service of a binding has answered once (a VM still
+            // starting is slow, not wedged). Only the binding the call was made on is ever dropped. A call that only
+            // waited in the queue ends that call.
             if (started.get()) {
+                final int stuck = state.compareAndSet(0, 2) ? stuckStarted(bound.generation) : 0;
                 boolean suspect = false;
                 if (callTimeout >= defaultCallTimeout) {
                     suspect = true;
@@ -236,13 +244,11 @@ final class DecodeClient {
                         }
                     }
                 }
-                if (suspect && !answers(bound)) {
-                    synchronized (mLock) {
-                        if (bound.generation == mGeneration) {
-                            mDownUntil = SystemClock.uptimeMillis() + WEDGED_RETRY_MS;
-                        }
-                    }
-                    unbind(bound.generation);
+                if (stuck >= MAX_THREADS - 1) {
+                    Log.w(TAG, "decode calls stuck in the service, binding dropped");
+                    dropWedged(bound.generation);
+                } else if (suspect) {
+                    checkHealth(bound);
                 }
             }
             throw new VmDecode.UnavailableException("decode service missed the deadline", e);
@@ -265,43 +271,142 @@ final class DecodeClient {
         }
     }
 
-    // The service's own health: true when it answers a cheap call (release of a handle that does not exist) within
-    // PROBE_MS, whatever the call answers. One probe at a time, on a thread of its own (the call threads may all be
-    // stuck): while one runs, the service counts as answering.
-    private boolean answers(Bound bound) {
-        if (!mProbing.compareAndSet(false, true)) {
-            return true;
-        }
-        final java.util.concurrent.CompletableFuture<Boolean> answered = new java.util.concurrent.CompletableFuture<>();
-        final Thread probe = new Thread(() -> {
-            try {
-                bound.service.release(PROBE_HANDLE);
-                answered.complete(true);
-            } catch (RemoteException e) {
-                answered.complete(false);
-            } catch (RuntimeException e) {
-                // An answer all the same (the handle is not known).
-                answered.complete(true);
-            } finally {
-                mProbing.set(false);
+    // Calls of a binding that missed their deadlines and still hold a call thread, guarded by mLock.
+    private int mStuckGeneration = -1;
+    private int mStuckCalls;
+
+    private int stuckStarted(int generation) {
+        synchronized (mLock) {
+            if (mStuckGeneration != generation) {
+                mStuckGeneration = generation;
+                mStuckCalls = 0;
             }
-        }, "VmDecodeProbe");
-        probe.setDaemon(true);
-        probe.start();
+            return ++mStuckCalls;
+        }
+    }
+
+    private void stuckEnded(int generation) {
+        synchronized (mLock) {
+            if (mStuckGeneration == generation && mStuckCalls > 0) {
+                mStuckCalls--;
+            }
+        }
+    }
+
+    private void dropWedged(int generation) {
+        synchronized (mLock) {
+            if (generation != mGeneration) {
+                return;
+            }
+            mDownUntil = SystemClock.uptimeMillis() + WEDGED_RETRY_MS;
+        }
+        unbind(generation);
+    }
+
+    // The binding whose health is being checked, guarded by mLock: one check per binding at a time, a check of an
+    // older binding does not hold up one of the current.
+    private int mHealthGeneration = -1;
+    private boolean mHealthRunning;
+    private static final long PROBE_MS = 3_000;
+    private static final String HEALTH_OWNER = "de.diamaneos.decode.health";
+    private static volatile byte[] sHealthPng;
+
+    // In the background, never on the caller's thread: asks the VM for the header of a one pixel PNG this process
+    // wrote itself, through the same path as decode jobs (the service hands it to the VM). No answer within
+    // PROBE_MS, a failed binder call or an answer that the VM is not available: the binding is dropped.
+    private void checkHealth(Bound bound) {
+        synchronized (mLock) {
+            if (bound.generation != mGeneration
+                    || (mHealthRunning && mHealthGeneration == bound.generation)) {
+                return;
+            }
+            mHealthGeneration = bound.generation;
+            mHealthRunning = true;
+        }
         try {
+            final Thread health = new Thread(() -> {
+                try {
+                    if (!vmAnswers(bound)) {
+                        Log.w(TAG, "decode VM does not answer, binding dropped");
+                        dropWedged(bound.generation);
+                    }
+                } finally {
+                    healthDone(bound.generation);
+                }
+            }, "VmDecodeHealth");
+            health.setDaemon(true);
+            health.start();
+        } catch (Throwable e) {
+            healthDone(bound.generation);
+        }
+    }
+
+    private void healthDone(int generation) {
+        synchronized (mLock) {
+            if (mHealthGeneration == generation) {
+                mHealthRunning = false;
+            }
+        }
+    }
+
+    private boolean vmAnswers(Bound bound) {
+        final java.util.concurrent.CompletableFuture<Boolean> answered =
+                new java.util.concurrent.CompletableFuture<>();
+        try {
+            final Thread probe = new Thread(() -> {
+                android.os.ParcelFileDescriptor read = null;
+                try {
+                    final android.os.ParcelFileDescriptor[] pipe = android.os.ParcelFileDescriptor.createPipe();
+                    read = pipe[0];
+                    try (java.io.OutputStream out =
+                            new android.os.ParcelFileDescriptor.AutoCloseOutputStream(pipe[1])) {
+                        out.write(healthPng());
+                    }
+                    final de.diamaneos.sanitizer.decode.DecodeRequest request =
+                            new de.diamaneos.sanitizer.decode.DecodeRequest();
+                    request.file = read;
+                    request.ownerPackage = HEALTH_OWNER;
+                    request.priority = IDecodeService.PRIORITY_USER_WAITING;
+                    request.mimeTypeHint = "image/png";
+                    final de.diamaneos.sanitizer.decode.ImageInfo info = bound.service.probe(request);
+                    answered.complete(info != null && info.status != IDecodeService.STATUS_UNAVAILABLE);
+                } catch (Throwable e) {
+                    answered.complete(false);
+                } finally {
+                    if (read != null) {
+                        try {
+                            read.close();
+                        } catch (java.io.IOException ignored) {
+                            // Nothing to do.
+                        }
+                    }
+                }
+            }, "VmDecodeProbe");
+            probe.setDaemon(true);
+            probe.start();
             return answered.get(PROBE_MS, TimeUnit.MILLISECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return true;
-        } catch (ExecutionException | TimeoutException e) {
-            Log.w(TAG, "decode service does not answer, binding dropped");
+        } catch (Throwable e) {
             return false;
         }
     }
 
-    private static final long PROBE_MS = 1_000;
-    private static final long PROBE_HANDLE = -1;
-    private final AtomicBoolean mProbing = new AtomicBoolean();
+    // A one pixel PNG written here from pixels, never decoded here.
+    private static byte[] healthPng() {
+        byte[] png = sHealthPng;
+        if (png == null) {
+            final android.graphics.Bitmap one =
+                    android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888);
+            final java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            one.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out);
+            one.recycle();
+            png = out.toByteArray();
+            sHealthPng = png;
+        }
+        return png;
+    }
 
     private void claimSlot(String lane) throws VmDecode.UnavailableException {
         synchronized (mOwnerCalls) {
@@ -353,6 +458,7 @@ final class DecodeClient {
         boolean bind = false;
         int generation = 0;
         Connection connection = null;
+        int staleNow = -1;
         synchronized (mLock) {
             if (mService != null && mService.asBinder().isBinderAlive()) {
                 return new Bound(mService, mGeneration);
@@ -361,9 +467,12 @@ final class DecodeClient {
             if (SystemClock.uptimeMillis() < mDownUntil) {
                 throw new VmDecode.UnavailableException("decode service is down, not asked again yet");
             }
-            if (mBinding && !fullWait) {
+            if (mBinding && SystemClock.uptimeMillis() - mBindStart >= STALE_BIND_MS) {
+                // A binding that never connected: dropped here, whoever asks, and bound anew by the next call.
+                staleNow = mGeneration;
+            } else if (mBinding && !fullWait) {
                 // Another caller is binding: a caller with a short deadline does not spend it waiting for the
-                // connection, it fails at once (its image is made later).
+                // connection, it fails at once (its image is made by a later call, for callers that ask again).
                 throw new VmDecode.UnavailableException("decode service is connecting");
             }
             if (!mBinding) {
@@ -376,6 +485,10 @@ final class DecodeClient {
                 mBindStart = SystemClock.uptimeMillis();
                 bind = true;
             }
+        }
+        if (staleNow >= 0) {
+            unbind(staleNow);
+            throw new VmDecode.UnavailableException("decode service never connected, bound anew next time");
         }
         if (bind) {
             // Bound outside the lock: the package manager and the binder call never hold up the other callers.

@@ -101,6 +101,10 @@ final class RemoteViewsImages {
     private static final int sIconType;
     private static final int sBundleType;
     private static final int sIntType;
+    // Every reflection action (RemoteViews.BaseReflectionAction) and its INTENT type: a list adapter can be set
+    // through any of them by method name.
+    private static final Class<?> sBaseReflectionAction;
+    private static final int sIntentType;
 
     static {
         Class<?> action = null;
@@ -111,6 +115,8 @@ final class RemoteViewsImages {
         int iconType = -1;
         int bundleType = -1;
         int intType = -1;
+        Class<?> baseAction = null;
+        int intentType = -1;
         try {
             action = Class.forName(REMOTE_VIEWS + "$ReflectionAction");
             final Class<?> base = action.getSuperclass();
@@ -132,6 +138,10 @@ final class RemoteViewsImages {
             integer.setAccessible(true);
             bundleType = bundle.getInt(null);
             intType = integer.getInt(null);
+            final Field intent = base.getDeclaredField("INTENT");
+            intent.setAccessible(true);
+            intentType = intent.getInt(null);
+            baseAction = base;
         } catch (ReflectiveOperationException | RuntimeException e) {
             Log.e(TAG, "RemoteViews actions cannot be read: custom layouts with images are dropped", e);
             action = null;
@@ -144,6 +154,8 @@ final class RemoteViewsImages {
         sIconType = iconType;
         sBundleType = bundleType;
         sIntType = intType;
+        sBaseReflectionAction = baseAction;
+        sIntentType = intentType;
     }
 
     private static final Map<Class<?>, Field[]> sFields = new ConcurrentHashMap<>();
@@ -233,6 +245,22 @@ final class RemoteViewsImages {
      * Re-makes every image of {@code views} in place. Returns false when the layout must be dropped instead: it holds
      * something that cannot be converted, or a check afterwards still finds an image that was not.
      */
+    /**
+     * A copy of {@code views} that shares nothing with it, list items of the collection cache included (the clone of
+     * RemoteViews keeps the cache's items), made through a parcel. What is converted in the copy never changes the
+     * original.
+     */
+    static RemoteViews deepCopy(RemoteViews views) {
+        final android.os.Parcel parcel = android.os.Parcel.obtain();
+        try {
+            views.writeToParcel(parcel, 0);
+            parcel.setDataPosition(0);
+            return RemoteViews.CREATOR.createFromParcel(parcel);
+        } finally {
+            parcel.recycle();
+        }
+    }
+
     static boolean convert(RemoteViews views, Images images) {
         if (views == null) {
             return true;
@@ -346,6 +374,18 @@ final class RemoteViewsImages {
         }
     }
 
+    // A reflection action that sets a list adapter by method name, or that hands a view an Intent at all.
+    private static boolean setsServiceAdapter(Object o) throws ReflectiveOperationException {
+        if (sBaseReflectionAction == null || !sBaseReflectionAction.isInstance(o)) {
+            return false;
+        }
+        final Object name = sMethodName.get(o);
+        if (name instanceof String && ((String) name).toLowerCase(java.util.Locale.ROOT).contains("adapter")) {
+            return true;
+        }
+        return sType.getInt(o) == sIntentType;
+    }
+
     private static boolean isLeaf(Object o) {
         final Class<?> cls = o.getClass();
         if (cls.isArray() && cls.getComponentType().isPrimitive()) {
@@ -372,10 +412,11 @@ final class RemoteViewsImages {
             mUnsafe = "draw instructions";
             return;
         }
-        if (o.getClass().getName().endsWith("$SetRemoteViewsAdapterIntent")) {
-            // A list whose items SystemUI would fetch from the app's service itself, unchecked. With
-            // remote_adapter_conversion on the system refuses to bind it anyway, and widgets send their items inside
-            // the update (SetRemoteCollectionItemListAdapterAction, walked like any nested views).
+        if (o.getClass().getName().endsWith("$SetRemoteViewsAdapterIntent") || setsServiceAdapter(o)) {
+            // A list whose items SystemUI would fetch from the app's service itself, unchecked: the named action, or
+            // the same done by method name (setRemoteViewsAdapter on a StackView or an AdapterViewFlipper, or any
+            // setter given an Intent). Refused whatever remote_adapter_conversion says: widgets send their items
+            // inside the update (SetRemoteCollectionItemListAdapterAction, walked like any nested views).
             mUnsafe = "a collection served by the app's service";
             return;
         }

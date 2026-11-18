@@ -345,7 +345,7 @@ public final class ForeignIcons {
         if (key == null) {
             return null;
         }
-        sWaiters.add(key, owner, null, onMade);
+        askAgainLater(sWaiters.add(key, owner, null, onMade));
         if (!sMaking.start(key, SystemClock.uptimeMillis())) {
             return null;
         }
@@ -371,9 +371,16 @@ public final class ForeignIcons {
                 sMaking.failed(key, SystemClock.uptimeMillis());
             }
         }, () -> {
-            // Gave way to another app's task: tried again when asked again.
-            sWaiters.take(key);
-            sMaking.failed(key, SystemClock.uptimeMillis());
+            // Gave way to another app's task: its askers are told after the backoff's wait, so they ask again.
+            final java.util.List<Waiters.Waiter> waiters = sWaiters.take(key);
+            final long wait = sMaking.failed(key, SystemClock.uptimeMillis());
+            sMain.postDelayed(() -> {
+                for (Waiters.Waiter w : waiters) {
+                    if (sWaiters.live(w)) {
+                        w.onMade.run();
+                    }
+                }
+            }, wait);
         });
         if (task == null) {
             sWaiters.take(key);
@@ -444,5 +451,19 @@ public final class ForeignIcons {
             // Never another user's URIs or packages in its place.
             return null;
         }
+    }
+
+    // Askers a waiter cap let go: told after a while on the main thread, so they ask again.
+    private static void askAgainLater(java.util.List<Waiters.Waiter> evicted) {
+        if (evicted.isEmpty()) {
+            return;
+        }
+        sMain.postDelayed(() -> {
+            for (Waiters.Waiter w : evicted) {
+                if (sWaiters.live(w)) {
+                    w.onMade.run();
+                }
+            }
+        }, Waiters.EVICTED_RETRY_MS);
     }
 }

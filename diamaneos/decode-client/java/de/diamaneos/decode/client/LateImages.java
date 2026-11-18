@@ -83,6 +83,14 @@ public final class LateImages {
     private boolean mStarted; // guarded by mLock
     private boolean mDone; // guarded by mLock
     private AppResourceImages mWorkerGate; // the image thread's gate, until the fill, guarded by mLock
+    // The URI and data images made, weakly: a later show takes them while the views of an earlier one still hold
+    // them, else the cache. Guarded by mLock.
+    private java.lang.ref.WeakReference<Bitmap>[] mMadeRefs;
+    private boolean[] mMadeAdaptive;
+    // Package icons made whole before, by package, user, resource and configuration: a later call takes them without
+    // any image work.
+    private static final android.util.LruCache<String, Drawable.ConstantState> sMadeIcons =
+            new android.util.LruCache<>(16);
     private Context mUserContext; // for the cache keys of URI and data images, guarded by mLock
 
     /**
@@ -115,13 +123,24 @@ public final class LateImages {
         if (resId == 0 || packageName == null) {
             return null;
         }
+        final String cacheKey = userId + ":" + packageName + ":" + resId + ":"
+                + AppIcons.configKey(context.getResources().getConfiguration());
+        final Drawable.ConstantState made = sMadeIcons.get(cacheKey);
+        if (made != null) {
+            return made.newDrawable();
+        }
         try {
             final LateImages late = new LateImages(context, packageName, userId, showing);
             final Context app = context.createPackageContextAsUser(packageName, 0, UserHandle.of(userId));
             final Drawable drawable = VmImageContext.wrap(app, late.mShownGate).getDrawable(resId);
             synchronized (late.mLock) {
                 if (late.mWaiting.isEmpty()) {
-                    // Nothing waits (a vector, files of the system image, files made before): no image work.
+                    // Nothing waits (a vector, files of the system image, files made before): no image work, and
+                    // the next call takes it as it is.
+                    final Drawable.ConstantState state = drawable == null ? null : drawable.getConstantState();
+                    if (state != null) {
+                        sMadeIcons.put(cacheKey, state);
+                    }
                     return drawable;
                 }
                 late.mResources.add(resId);
@@ -292,8 +311,20 @@ public final class LateImages {
             waiting = new ArrayList<>(mWaiting);
             mWaiting.clear();
             worker = mWorkerGate;
-            // Nothing made is held once the waiting drawables have it: a later show finds it in the cache.
+            // Nothing made is held once the waiting drawables have it: a later show takes it weakly, else from the
+            // cache.
             mWorkerGate = null;
+            @SuppressWarnings("unchecked")
+            final java.lang.ref.WeakReference<Bitmap>[] refs = new java.lang.ref.WeakReference[made.length];
+            mMadeAdaptive = new boolean[made.length];
+            for (int i = 0; i < made.length; i++) {
+                if (made[i] != null && (made[i].getType() == Icon.TYPE_BITMAP
+                        || made[i].getType() == Icon.TYPE_ADAPTIVE_BITMAP)) {
+                    refs[i] = new java.lang.ref.WeakReference<>(made[i].getBitmap());
+                    mMadeAdaptive[i] = made[i].getType() == Icon.TYPE_ADAPTIVE_BITMAP;
+                }
+            }
+            mMadeRefs = refs;
         }
         for (Waiting w : waiting) {
             try {
@@ -311,6 +342,12 @@ public final class LateImages {
 
     // A URI or data image of the views made before, from the cache (a show after the fill), as a drawable, or null.
     private Drawable cachedIcon(int index) {
+        final Bitmap kept = mMadeRefs == null || index >= mMadeRefs.length || mMadeRefs[index] == null
+                ? null : mMadeRefs[index].get();
+        if (kept != null && (kept.getWidth() > 1 || kept.getHeight() > 1)) {
+            return (mMadeAdaptive[index] ? Icon.createWithAdaptiveBitmap(kept) : Icon.createWithBitmap(kept))
+                    .loadDrawable(mContext);
+        }
         final Icon original = mOriginals.get(index);
         if (mUserContext == null) {
             try {

@@ -34,7 +34,8 @@ import java.util.Set;
  * task per app at a time, and apps take turns: one app's slow provider or many images hold one thread of its lane,
  * never the others. Waiting is fair too: an app may queue as many tasks as there is room for, and when a lane is
  * full, a new task of an app takes the place of the newest task of the app with the most waiting (which is told,
- * {@code onDropped}), so no app or group of apps can keep the others out. Each task is bounded by its budget
+ * {@code onDropped}), so no single app can keep the others out. That is fairness by app (package name): apps that
+ * work together can still fill a lane between them. Each task is bounded by its budget
  * (wall-clock time, checked in every loop of the work) and the app's {@link OwnerQuota}, reserved before the task and
  * settled after it: an app whose tasks overrun waits its debt out. The urgent lane is only for what an app cannot
  * claim for itself (see {@link NotificationImageGate#lane}). A task that is cancelled before it runs is dropped
@@ -118,9 +119,9 @@ public final class ImageThreads {
     /**
      * Runs {@code task} on a normal image thread, after the earlier tasks of {@code owner}. Null when the task is
      * refused (the lane is full and {@code owner} has the most waiting): the caller goes on without the image thread.
-     * A task queued this way never gives way to another app's: pass {@code onDropped} for that.
+     * A task queued this way never gives way to another app's (for tests): callers pass {@code onDropped}.
      */
-    public static Task execute(String owner, Runnable task) {
+    static Task execute(String owner, Runnable task) {
         return NORMAL.add(owner, task, null);
     }
 
@@ -132,8 +133,8 @@ public final class ImageThreads {
         return NORMAL.add(owner, task, onDropped);
     }
 
-    /** Like {@link #execute}, in the urgent lane, which normal image work never holds up. */
-    public static Task executeUrgent(String owner, Runnable task) {
+    /** Like {@link #execute}, in the urgent lane, which normal image work never holds up (for tests). */
+    static Task executeUrgent(String owner, Runnable task) {
         return URGENT.add(owner, task, null);
     }
 

@@ -51,7 +51,7 @@ public final class NoImageViews {
             return null;
         }
         try {
-            final RemoteViews copy = views.clone();
+            final RemoteViews copy = RemoteViewsImages.deepCopy(views);
             return RemoteViewsImages.convert(copy, EMPTY) ? copy : null;
         } catch (RuntimeException e) {
             Log.w(TAG, "views from another app not shown: " + e);

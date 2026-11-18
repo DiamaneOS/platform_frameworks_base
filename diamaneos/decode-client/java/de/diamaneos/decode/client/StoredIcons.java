@@ -114,7 +114,7 @@ public final class StoredIcons {
      * {@code sbn} as handed to a system process outside the listeners: itself when every icon in it is kept, else a
      * light copy (no large icon, no Parcelable extras) whose small icon, public version's small icon and action icons
      * are replaced as {@link #forSystemReaders} does. The original is not changed. Never throws on what an app put in
-     * a notification: if the copy cannot be made, a light copy with the generic icon and no actions or public version.
+     * a notification: if the copy cannot be made, a new notification with the generic icon and nothing else.
      */
     public static StatusBarNotification forSystemReaders(StatusBarNotification sbn) {
         if (sbn == null) {
@@ -128,13 +128,15 @@ public final class StoredIcons {
             final StatusBarNotification copy = sbn.cloneLight();
             replace(copy.getNotification(), sbn.getPackageName(), appInfo, 0);
             return copy;
-        } catch (RuntimeException e) {
-            final StatusBarNotification copy = sbn.cloneLight();
-            final Notification n = copy.getNotification();
+        } catch (Throwable e) {
+            // Made from nothing of the notification, so it cannot fail the same way again: a new notification with
+            // the generic app icon and the post time, under the original's identity.
+            final Notification n = new Notification();
             n.setSmallIcon(Icon.createWithResource("android", android.R.drawable.sym_def_app_icon));
-            n.actions = null;
-            n.publicVersion = null;
-            return copy;
+            n.when = sbn.getPostTime();
+            return new StatusBarNotification(sbn.getPackageName(), sbn.getOpPkg(), sbn.getId(), sbn.getTag(),
+                    sbn.getUid(), sbn.getInitialPid(), n, sbn.getUser(), sbn.getOverrideGroupKey(),
+                    sbn.getPostTime());
         }
     }
 

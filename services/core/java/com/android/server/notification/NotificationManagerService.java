@@ -940,8 +940,8 @@ public class NotificationManagerService extends SystemService {
                 // We don't want to store the heavy bits of the notification in the archive,
                 // but other clients in the system process might be using the object, so we
                 // store a (lightened) copy.
-                // DiamaneOS: with no data or URI icon either (Settings reads the archive and decodes what it
-                // gets): the app's own icon instead.
+                // DiamaneOS: with only pixels, framework icons and the app's launcher icon (Settings reads the
+                // archive and decodes what it gets, StoredIcons).
                 StatusBarNotification stored = StoredIcons.forSystemReaders(sbn);
                 if (stored == sbn) {
                     stored = sbn.cloneLight();
@@ -4290,8 +4290,8 @@ public class NotificationManagerService extends SystemService {
                             .setTitle(r.getNotification().getHistoryTitle(getContext()))
                             .setText(r.getNotification().getHistoryText(getContext()))
                             // DiamaneOS: the history (read by Settings, kept on disk) keeps only
-                            // icons that need no decode of the app's bytes: the app's own icon in
-                            // place of a data or URI icon.
+                            // pixels, framework icons and the app's launcher icon, that launcher
+                            // icon in place of any other.
                             .setIcon(StoredIcons.forSystemReaders(
                                     r.getNotification().getSmallIcon(), r.getSbn().getPackageName(),
                                     StoredIcons.appInfoOf(r.getNotification())));
@@ -5974,7 +5974,8 @@ public class NotificationManagerService extends SystemService {
                         final StatusBarNotification sbn = mNotificationList.get(i).getSbn();
                         if (currentUsers.contains(sbn.getUserId())) {
                             // DiamaneOS: for system callers outside the listeners (the Settings
-                            // notification log), no data or URI icon: the app's own icon instead.
+                            // notification log), only pixels, framework icons and the app's launcher
+                            // icon (StoredIcons).
                             tmp.add(StoredIcons.forSystemReaders(sbn));
                         }
                     }

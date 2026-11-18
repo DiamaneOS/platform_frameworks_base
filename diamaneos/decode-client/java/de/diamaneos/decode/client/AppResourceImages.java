@@ -422,7 +422,9 @@ public final class AppResourceImages implements ImageFileGate {
             budget.failed(roundKey);
             return missing();
         }
-        final ImagePlan plan = ImagePlan.of(bytes, bytes.length, maxWidth, maxHeight);
+        // At most as big as a cache entry holds, so what is made is kept (under the key of the gate's box).
+        final int[] box = VmIcons.cacheableBox(maxWidth, maxHeight);
+        final ImagePlan plan = ImagePlan.of(bytes, bytes.length, box[0], box[1]);
         if (admission == ImageBudget.Admission.NEW && !budget.charge(roundKey, plan.pixels)) {
             Log.w(TAG, "notification layout images over their pixel cap, empty: " + file);
             return missing();

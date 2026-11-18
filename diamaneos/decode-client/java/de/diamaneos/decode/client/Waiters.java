@@ -19,24 +19,28 @@ package de.diamaneos.decode.client;
 import android.util.LruCache;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Everyone who asked for an image that an image thread is making (or will try again): each is told when it is made,
- * not only the first. Only the key, the asker's app and tag and its callback are kept, never an image. Capped per app,
- * so one app cannot push out another app's waiters: at most {@link #MAX_KEYS_PER_OWNER} images of one app (counted by
- * the app of the image's first asker) and {@link #MAX_PER_KEY} askers of one image, the oldest of that app or image let
- * go past that (they ask again on their next update), and {@link #MAX_KEYS} in all, where the app with the most images
- * gives up its oldest. A tag that is cancelled (a notification that went) drops its callbacks, also those already
- * handed out for a later retry. Thread-safe.
+ * not only the first. Only the key, the asker's app and tag and its callback are kept, never an image. Capped per app
+ * (the app of each asker), so one app cannot push out another app's askers: at most
+ * {@link #MAX_KEYS_PER_OWNER} images an app's askers wait for, {@link #MAX_PER_KEY} askers of one image, and
+ * {@link #MAX_KEYS} images in all, where the app waiting for the most gives up its oldest. Askers let go past a cap
+ * are handed back to the caller, which tells them later so that they ask again. A tag that is cancelled (a
+ * notification that went) drops its callbacks, also those already handed out. Thread-safe.
  */
 final class Waiters {
     static final int MAX_KEYS = 512;
-    static final int MAX_KEYS_PER_OWNER = 32;
+    static final int MAX_KEYS_PER_OWNER = 128;
     static final int MAX_PER_KEY = 64;
+    /** How long the caller waits before it tells askers let go past a cap, so they ask again. */
+    static final long EVICTED_RETRY_MS = 2_000;
 
     /** One asker. */
     static final class Waiter {
@@ -54,71 +58,98 @@ final class Waiters {
     }
 
     private final LinkedHashMap<String, List<Waiter>> mWaiting = new LinkedHashMap<>(); // guarded by this
+    // The images each app's askers wait for, oldest first. Guarded by this.
+    private final Map<String, LinkedHashSet<String>> mKeysOf = new HashMap<>();
     // The sequence number at which each tag was last cancelled, for callbacks already handed out.
     private final LruCache<String, Long> mCancelled = new LruCache<>(512); // guarded by this
     private long mSeq; // guarded by this
 
-    private static String ownerOf(List<Waiter> list) {
-        return list.isEmpty() ? "" : list.get(0).owner;
-    }
-
-    /** Adds {@code onMade} (if not null) as a waiter for {@code key}. */
-    synchronized void add(String key, String owner, String tag, Runnable onMade) {
+    /**
+     * Adds {@code onMade} (if not null) as a waiter for {@code key}. Returns the askers let go to make room (empty
+     * mostly): the caller tells them later, so they ask again.
+     */
+    synchronized List<Waiter> add(String key, String owner, String tag, Runnable onMade) {
+        final List<Waiter> evicted = new ArrayList<>();
         if (key == null || onMade == null) {
-            return;
+            return evicted;
         }
-        List<Waiter> list = mWaiting.remove(key);
-        if (list == null) {
-            list = new ArrayList<>();
-            final String o = owner == null ? "" : owner;
-            // A new image of this app: past its cap, its oldest image's waiters go.
-            String oldestOfOwner = null;
-            int ofOwner = 0;
-            for (Map.Entry<String, List<Waiter>> e : mWaiting.entrySet()) {
-                if (ownerOf(e.getValue()).equals(o)) {
-                    if (oldestOfOwner == null) {
-                        oldestOfOwner = e.getKey();
-                    }
-                    ofOwner++;
+        final String o = owner == null ? "" : owner;
+        List<Waiter> list = mWaiting.get(key);
+        if (list != null) {
+            // The same callback object is kept once.
+            for (Waiter w : list) {
+                if (w.onMade == onMade) {
+                    return evicted;
                 }
             }
-            if (ofOwner >= MAX_KEYS_PER_OWNER && oldestOfOwner != null) {
-                mWaiting.remove(oldestOfOwner);
-            }
         }
-        // The same callback object is kept once.
-        for (Waiter w : list) {
-            if (w.onMade == onMade) {
-                mWaiting.put(key, list);
-                return;
-            }
+        final LinkedHashSet<String> keys = mKeysOf.computeIfAbsent(o, k -> new LinkedHashSet<>());
+        if (!keys.contains(key) && keys.size() >= MAX_KEYS_PER_OWNER) {
+            evicted.addAll(removeOwnerFrom(keys.iterator().next(), o));
+        }
+        list = mWaiting.get(key);
+        if (list == null) {
+            list = new ArrayList<>();
+            mWaiting.put(key, list);
         }
         if (list.size() >= MAX_PER_KEY) {
-            list.remove(0);
+            final Waiter gone = list.remove(0);
+            evicted.add(gone);
+            unlinkIfLast(gone.owner, key, list);
         }
-        list.add(new Waiter(owner, tag, onMade, ++mSeq));
-        mWaiting.put(key, list);
+        list.add(new Waiter(o, tag, onMade, ++mSeq));
+        mKeysOf.computeIfAbsent(o, k -> new LinkedHashSet<>()).add(key);
         if (mWaiting.size() > MAX_KEYS) {
-            dropFromLargestOwner();
-        }
-    }
-
-    // The app with the most images waited for gives up its oldest one.
-    private void dropFromLargestOwner() {
-        final Map<String, Integer> counts = new java.util.HashMap<>();
-        for (List<Waiter> list : mWaiting.values()) {
-            counts.merge(ownerOf(list), 1, Integer::sum);
-        }
-        String largest = null;
-        for (Map.Entry<String, Integer> e : counts.entrySet()) {
-            if (largest == null || e.getValue() > counts.get(largest)) {
-                largest = e.getKey();
+            // The app waiting for the most images gives up its oldest.
+            String largest = null;
+            for (Map.Entry<String, LinkedHashSet<String>> e : mKeysOf.entrySet()) {
+                if (!e.getValue().isEmpty()
+                        && (largest == null || e.getValue().size() > mKeysOf.get(largest).size())) {
+                    largest = e.getKey();
+                }
+            }
+            if (largest != null) {
+                evicted.addAll(removeOwnerFrom(mKeysOf.get(largest).iterator().next(), largest));
             }
         }
-        for (Iterator<Map.Entry<String, List<Waiter>>> it = mWaiting.entrySet().iterator(); it.hasNext(); ) {
-            if (ownerOf(it.next().getValue()).equals(largest)) {
-                it.remove();
+        return evicted;
+    }
+
+    // Removes the askers of owner from key, and key when nobody is left. Returns them.
+    private List<Waiter> removeOwnerFrom(String key, String owner) {
+        final List<Waiter> removed = new ArrayList<>();
+        final List<Waiter> list = mWaiting.get(key);
+        if (list != null) {
+            for (Iterator<Waiter> it = list.iterator(); it.hasNext(); ) {
+                final Waiter w = it.next();
+                if (w.owner.equals(owner)) {
+                    it.remove();
+                    removed.add(w);
+                }
+            }
+            if (list.isEmpty()) {
+                mWaiting.remove(key);
+            }
+        }
+        unlink(owner, key);
+        return removed;
+    }
+
+    private void unlinkIfLast(String owner, String key, List<Waiter> list) {
+        for (Waiter w : list) {
+            if (w.owner.equals(owner)) {
                 return;
+            }
+        }
+        unlink(owner, key);
+    }
+
+    private void unlink(String owner, String key) {
+        final LinkedHashSet<String> keys = mKeysOf.get(owner);
+        if (keys != null) {
+            keys.remove(key);
+            if (keys.isEmpty()) {
+                mKeysOf.remove(owner);
             }
         }
     }
@@ -126,7 +157,13 @@ final class Waiters {
     /** Takes every waiter of {@code key}: the caller tells them. */
     synchronized List<Waiter> take(String key) {
         final List<Waiter> list = key == null ? null : mWaiting.remove(key);
-        return list != null ? list : new ArrayList<>();
+        if (list == null) {
+            return new ArrayList<>();
+        }
+        for (Waiter w : list) {
+            unlink(w.owner, key);
+        }
+        return list;
     }
 
     /** True when someone waits for {@code key}. */
@@ -147,7 +184,20 @@ final class Waiters {
         final Iterator<Map.Entry<String, List<Waiter>>> it = mWaiting.entrySet().iterator();
         while (it.hasNext()) {
             final Map.Entry<String, List<Waiter>> e = it.next();
-            if (e.getValue().removeIf(w -> tag.equals(w.tag)) && e.getValue().isEmpty()) {
+            final List<Waiter> gone = new ArrayList<>();
+            for (Waiter w : e.getValue()) {
+                if (tag.equals(w.tag)) {
+                    gone.add(w);
+                }
+            }
+            if (gone.isEmpty()) {
+                continue;
+            }
+            e.getValue().removeAll(gone);
+            for (Waiter w : gone) {
+                unlinkIfLast(w.owner, e.getKey(), e.getValue());
+            }
+            if (e.getValue().isEmpty()) {
                 it.remove();
                 unwanted.add(e.getKey());
             }
@@ -162,5 +212,14 @@ final class Waiters {
         }
         final Long at = mCancelled.get(w.tag);
         return at == null || at < w.seq;
+    }
+
+    /** Askers waiting in all, for tests. */
+    synchronized int size() {
+        int n = 0;
+        for (List<Waiter> list : mWaiting.values()) {
+            n += list.size();
+        }
+        return n;
     }
 }
