@@ -56,6 +56,8 @@ import java.util.Map;
 import java.util.function.Consumer;
 
 public class LockscreenFragment extends PreferenceFragment {
+    // DiamaneOS: the most an app icon of a shortcut is made to.
+    private static final int ICON_PX = 256;
 
     private static final String KEY_LEFT = "left";
     private static final String KEY_RIGHT = "right";
@@ -175,7 +177,9 @@ public class LockscreenFragment extends PreferenceFragment {
 
         @Override
         public Drawable getDrawable() {
-            return mShortcut.icon.loadDrawable(mContext);
+            // DiamaneOS: the app's resource through the image gate, the neutral icon until it is made.
+            return de.diamaneos.decode.client.ForeignIcons.loadOrNeutral(mContext, mShortcut.icon,
+                    mContext.getUserId(), mShortcut.pkg, ICON_PX, null);
         }
 
         @Override
@@ -355,7 +359,9 @@ public class LockscreenFragment extends PreferenceFragment {
             mShortcut = shortcut;
             mIconState = new IconState();
             mIconState.isVisible = true;
-            mIconState.drawable = shortcut.icon.loadDrawable(context).mutate();
+            // DiamaneOS: the app's resource through the image gate, the neutral icon until it is made.
+            mIconState.drawable = de.diamaneos.decode.client.ForeignIcons.loadOrNeutral(context, shortcut.icon,
+                    context.getUserId(), shortcut.pkg, ICON_PX, null).mutate();
             mIconState.contentDescription = mShortcut.label;
             int size = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 32,
                     context.getResources().getDisplayMetrics());
@@ -383,7 +389,11 @@ public class LockscreenFragment extends PreferenceFragment {
             mIntent = new Intent().setComponent(new ComponentName(info.packageName, info.name));
             mIconState = new IconState();
             mIconState.isVisible = true;
-            mIconState.drawable = info.loadIcon(context.getPackageManager()).mutate();
+            // DiamaneOS: the activity's icon resource through the image gate, the neutral icon until it is made.
+            mIconState.drawable = de.diamaneos.decode.client.ForeignIcons.loadOrNeutral(context,
+                    android.graphics.drawable.Icon.createWithResource(info.packageName,
+                            info.getIconResource()),
+                    context.getUserId(), info.packageName, ICON_PX, null).mutate();
             mIconState.contentDescription = info.loadLabel(context.getPackageManager());
             int size = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 32,
                     context.getResources().getDisplayMetrics());

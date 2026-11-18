@@ -182,8 +182,9 @@ public class NavBarTuner extends TunerPreferenceFragment {
             String pkg = icon.getValue().split("/")[0];
             int id = Integer.parseInt(icon.getValue().split("/")[1]);
             SpannableStringBuilder builder = new SpannableStringBuilder();
-            Drawable d = Icon.createWithResource(pkg, id)
-                    .loadDrawable(getContext());
+            // DiamaneOS: a package's resource through the image gate, the neutral icon until made.
+            Drawable d = de.diamaneos.decode.client.ForeignIcons.loadOrNeutral(getContext(),
+                    Icon.createWithResource(pkg, id), getContext().getUserId(), pkg, size, null);
             d.setTint(Color.BLACK);
             d.setBounds(0, 0, size, size);
             ImageSpan span = new ImageSpan(d, ImageSpan.ALIGN_BASELINE);
@@ -223,8 +224,8 @@ public class NavBarTuner extends TunerPreferenceFragment {
                 getContext().getResources().getDisplayMetrics());
         for (int i = 0; i < ICONS.length; i++) {
             SpannableStringBuilder builder = new SpannableStringBuilder();
-            Drawable d = Icon.createWithResource(getContext().getPackageName(), ICONS[i][0])
-                    .loadDrawable(getContext());
+            // DiamaneOS: SystemUI's own drawable.
+            Drawable d = getContext().getDrawable(ICONS[i][0]).mutate();
             d.setTint(Color.BLACK);
             d.setBounds(0, 0, size, size);
             ImageSpan span = new ImageSpan(d, ImageSpan.ALIGN_BASELINE);

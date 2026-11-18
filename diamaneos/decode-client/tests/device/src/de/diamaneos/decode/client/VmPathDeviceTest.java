@@ -199,6 +199,29 @@ public class VmPathDeviceTest {
     }
 
     @Test
+    public void foreignIcons_madeInTheVm_afterAskingAgain() throws Exception {
+        // As the wallet, shortcut helper, screen capture, selection toolbar and tuner callers load: nothing waits,
+        // they are told, and they ask again.
+        final Icon data = pngIcon(0xff00ff);
+        final Semaphore told = new Semaphore(0);
+        final Callable<Drawable> ask = () -> {
+            final Drawable[] shown = new Drawable[1];
+            InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> shown[0] = ForeignIcons.loadNoWait(
+                    mContext, data, mContext.getUserId(), mPackage, 64, told::release));
+            return shown[0];
+        };
+        Drawable shown = ask.call();
+        final long end = SystemClock.uptimeMillis() + 20_000;
+        while (shown == null) {
+            final long left = end - SystemClock.uptimeMillis();
+            assertTrue("never made in the VM", left > 0 && told.tryAcquire(left, TimeUnit.MILLISECONDS));
+            shown = ask.call();
+        }
+        assertTrue(String.valueOf(shown), shown instanceof BitmapDrawable);
+        assertMadeInTheVm("app icon", ((BitmapDrawable) shown).getBitmap(), WIDTH, HEIGHT, 0xffff00ff);
+    }
+
+    @Test
     public void appIcons_dataSmallIcon_madeAfterAskingAgain() throws Exception {
         // The status bar asks, gets the placeholder, is told, asks again: with the VM there it gets the image.
         final Icon data = pngIcon(0x00ffff);

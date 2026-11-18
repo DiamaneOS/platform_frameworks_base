@@ -111,6 +111,28 @@ public final class ForeignIcons {
     }
 
     /**
+     * {@link #loadNoWait}, or the neutral icon while the image is not made, for a view that cannot wait and may not
+     * be told when it is made (onMade may be null).
+     */
+    public static Drawable loadOrNeutral(Context context, Icon icon, int userId, String ownerPackage, int maxPx,
+            Runnable onMade) {
+        final Drawable made = loadNoWait(context, icon, userId, ownerPackage, maxPx, onMade);
+        return made != null ? made : AppIcons.neutral().loadDrawable(context);
+    }
+
+    /**
+     * {@code icon} as a drawable only when it is pixels already (a bitmap or adaptive bitmap icon), which needs no
+     * decoder, else null: for callers that show nothing else (wallet cards).
+     */
+    public static Drawable pixelsOnly(Context context, Icon icon) {
+        if (icon == null
+                || (icon.getType() != Icon.TYPE_BITMAP && icon.getType() != Icon.TYPE_ADAPTIVE_BITMAP)) {
+            return null;
+        }
+        return icon.loadDrawable(context);
+    }
+
+    /**
      * {@code icon} as a drawable, never waiting: what was made before, or null while an image thread makes it for
      * {@code ownerPackage} (the app that handed it over, whose quota pays). {@code onMade}, if not null, runs on the
      * main thread once it is made, so the caller can load it again. {@code context} is the caller's own (SystemUI or

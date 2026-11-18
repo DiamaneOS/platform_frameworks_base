@@ -254,7 +254,9 @@ public class QuickAccessWalletTile extends QSTileImpl<QSTile.State> {
             switch (mSelectedCard.getCardImage().getType()) {
                 case TYPE_BITMAP:
                 case TYPE_ADAPTIVE_BITMAP:
-                    mCardViewDrawable = mSelectedCard.getCardImage().loadDrawable(mContext);
+                    // DiamaneOS: pixels as they are, never a decoder.
+                    mCardViewDrawable = de.diamaneos.decode.client.ForeignIcons.pixelsOnly(mContext,
+                            mSelectedCard.getCardImage());
                     break;
                 case TYPE_URI:
                 case TYPE_URI_ADAPTIVE_BITMAP:
