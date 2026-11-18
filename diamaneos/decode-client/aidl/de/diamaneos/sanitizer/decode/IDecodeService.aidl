@@ -53,8 +53,14 @@ interface IDecodeService {
     const int FORMAT_ICO = 9;
     const int FORMAT_WBMP = 10;
 
-    /** Thumbnails and metadata: a longer input is refused (STATUS_INVALID). */
-    const int MAX_INPUT_BYTES = 33554432;
+    /**
+     * Thumbnails and metadata: a longer input is refused (STATUS_INVALID). A regular file the service can read without
+     * stalling (not on FUSE) longer than MAX_BUFFERED_BYTES is streamed to the VM, never held whole, and is decoded
+     * when it is a JPEG or PNG. Any other format above MAX_BUFFERED_BYTES is refused.
+     */
+    const int MAX_INPUT_BYTES = 268435456;
+    /** Inputs the service holds in memory while they are decoded: a pipe, a file on FUSE, or any non-JPEG/PNG file. */
+    const int MAX_BUFFERED_BYTES = 33554432;
     /** A probe reads at most this much from the start of the input, so it works for inputs of any size. */
     const int MAX_PROBE_BYTES = 1048576;
     const int MAX_DIMENSION = 65535;

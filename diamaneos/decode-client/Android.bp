@@ -39,6 +39,18 @@ java_genrule {
         " > $(out)",
 }
 
+// The copy of the decode service's API this library compiles: its AIDL files and DecodeChecks. The service's
+// build compares them byte for byte with its originals (decode_api_copies_check), so a copy that drifts fails the
+// build.
+filegroup {
+    name: "framework-decode-api-copy",
+    srcs: [
+        "aidl/de/diamaneos/sanitizer/decode/*.aidl",
+        "java/de/diamaneos/sanitizer/decode/DecodeChecks.java",
+    ],
+    visibility: ["//packages/apps/DiamaneOSSanitizer"],
+}
+
 java_library {
     name: "diamaneos-decode-client",
     srcs: [
@@ -67,6 +79,7 @@ java_test_host {
     srcs: [
         "tests/src/**/*.java",
         "java/de/diamaneos/decode/client/Backoff.java",
+        "java/de/diamaneos/decode/client/CallPool.java",
         "java/de/diamaneos/decode/client/ImageBudget.java",
         "java/de/diamaneos/decode/client/ImagePlan.java",
         "java/de/diamaneos/decode/client/NinePatchChunk.java",

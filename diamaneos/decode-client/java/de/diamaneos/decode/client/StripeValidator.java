@@ -89,8 +89,8 @@ public final class StripeValidator {
 
     /**
      * Copies stripe {@code index} into {@code frame} (width * height * 4 bytes of premultiplied RGBA) after checking its
-     * exact length. Colour channels above alpha are clamped, so the pixels are valid premultiplied values whatever the
-     * VM sent.
+     * exact length and that no colour channel is above alpha. A stripe that breaks either is refused, as the contract's
+     * own check (DecodeChecks) refuses it: the whole image is then a placeholder.
      */
     public static void putStripe(byte[] frame, int width, int height, int stripeRows, int index, byte[] stripe)
             throws BadReplyException {
@@ -102,14 +102,13 @@ public final class StripeValidator {
             throw new BadReplyException("stripe " + index + " has " + (stripe == null ? -1 : stripe.length)
                     + " bytes, expected " + expected);
         }
-        final int offset = index * stripeRows * width * 4;
         for (int i = 0; i < expected; i += 4) {
             final int a = stripe[i + 3] & 0xff;
-            frame[offset + i] = (byte) Math.min(stripe[i] & 0xff, a);
-            frame[offset + i + 1] = (byte) Math.min(stripe[i + 1] & 0xff, a);
-            frame[offset + i + 2] = (byte) Math.min(stripe[i + 2] & 0xff, a);
-            frame[offset + i + 3] = (byte) a;
+            if ((stripe[i] & 0xff) > a || (stripe[i + 1] & 0xff) > a || (stripe[i + 2] & 0xff) > a) {
+                throw new BadReplyException("stripe " + index + ": colour above alpha at byte " + i);
+            }
         }
+        System.arraycopy(stripe, 0, frame, index * stripeRows * width * 4, expected);
     }
 
     /** Checks a probe result. */

@@ -341,7 +341,9 @@ object SingleLineViewInflater {
     ): ConversationAvatar {
         val userKey = user.getKeyOrName()
         // DiamaneOS: avatars are charged to the posting app.
-        val poster = StoredIcons.appInfoOf(notification)?.packageName ?: ""
+        val poster =
+            StoredIcons.appInfoOf(notification)?.packageName
+                ?: de.diamaneos.decode.client.VmDecode.unknownOwner("conversation")
         var conversationIcon: Icon? = shortcutIcon
         var conversationText: CharSequence? = conversationTitle
 

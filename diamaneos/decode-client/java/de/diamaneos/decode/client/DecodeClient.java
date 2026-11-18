@@ -35,8 +35,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -74,8 +72,12 @@ final class DecodeClient {
     }
 
     private final Context mContext;
-    private final ThreadPoolExecutor mExecutor = new ThreadPoolExecutor(MAX_THREADS, MAX_THREADS, 30,
-            TimeUnit.SECONDS, new LinkedBlockingQueue<>(64), new ThreadPoolExecutor.AbortPolicy());
+    // In the system server one of the threads serves only its own calls (made without an owner: the wallpaper), so
+    // apps' calls can never hold every thread. The others serve apps round robin across owners (CallPool).
+    private static final boolean SYSTEM_PROCESS = android.os.Process.myUid() == android.os.Process.SYSTEM_UID;
+    private static final int APP_THREADS = SYSTEM_PROCESS ? MAX_THREADS - 1 : MAX_THREADS;
+    private final CallPool mPool = new CallPool(APP_THREADS, MAX_THREADS - APP_THREADS, 64,
+            MAX_CALLS_UNKNOWN_OWNER);
 
     private final Object mLock = new Object();
     private IDecodeService mService; // guarded by mLock
@@ -138,7 +140,6 @@ final class DecodeClient {
     DecodeClient(Context context) {
         final Context app = context.getApplicationContext();
         mContext = app != null ? app : context;
-        mExecutor.allowCoreThreadTimeOut(true);
     }
 
     /**
@@ -181,7 +182,7 @@ final class DecodeClient {
         final java.util.concurrent.atomic.AtomicInteger state = new java.util.concurrent.atomic.AtomicInteger();
         final Future<T> future;
         try {
-            future = mExecutor.submit(() -> {
+            future = mPool.submit(lane, isSystemLane(lane), () -> {
                 if (!claimed.compareAndSet(false, true)) {
                     return null; // given up before it started
                 }
@@ -453,12 +454,16 @@ final class DecodeClient {
             if (n >= max) {
                 throw new VmDecode.UnavailableException("too many decodes in flight for " + lane);
             }
-            int total = 0;
-            for (int calls : mOwnerCalls.values()) {
-                total += calls;
-            }
-            if (n > 0 && total >= MAX_THREADS - 1) {
-                throw new VmDecode.UnavailableException("the last call thread is kept for others than " + lane);
+            if (!isSystemLane(lane)) {
+                int total = 0;
+                for (Map.Entry<String, Integer> calls : mOwnerCalls.entrySet()) {
+                    if (!isSystemLane(calls.getKey())) {
+                        total += calls.getValue();
+                    }
+                }
+                if (n > 0 && total >= APP_THREADS - 1) {
+                    throw new VmDecode.UnavailableException("the last call thread is kept for others than " + lane);
+                }
             }
             mOwnerCalls.put(lane, n + 1);
         }
@@ -469,6 +474,11 @@ final class DecodeClient {
     private static final long BACK_OFF_MS = 30_000;
     // The owners of the calls stuck in the current binding, guarded by mLock.
     private final Map<String, Integer> mStuckOwners = new HashMap<>();
+
+    // The system server's own calls (no owner): served by a thread of their own.
+    private static boolean isSystemLane(String lane) {
+        return SYSTEM_PROCESS && lane.isEmpty();
+    }
 
     private void releaseSlot(String lane) {
         synchronized (mOwnerCalls) {

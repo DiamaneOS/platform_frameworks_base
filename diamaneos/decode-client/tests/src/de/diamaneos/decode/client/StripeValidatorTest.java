@@ -67,12 +67,14 @@ public class StripeValidatorTest {
     }
 
     @Test
-    public void putStripeChecksLengthAndClampsToAlpha() throws Exception {
+    public void putStripeChecksLengthAndRefusesColourAboveAlpha() throws Exception {
         final byte[] frame = new byte[2 * 2 * 4];
-        final byte[] first = {(byte) 200, 10, 20, (byte) 100, 1, 2, 3, (byte) 255};
+        final byte[] first = {(byte) 100, 10, 20, (byte) 100, 1, 2, 3, (byte) 255};
         StripeValidator.putStripe(frame, 2, 2, 1, 0, first);
-        assertArrayEquals(new byte[] {(byte) 100, 10, 20, (byte) 100, 1, 2, 3, (byte) 255},
-                java.util.Arrays.copyOfRange(frame, 0, 8));
+        assertArrayEquals(first, java.util.Arrays.copyOfRange(frame, 0, 8));
+        // A colour channel above alpha is not a premultiplied pixel: refused, not clamped (DecodeChecks).
+        final byte[] bad = {(byte) 200, 10, 20, (byte) 100, 1, 2, 3, (byte) 255};
+        assertThrows(BadReplyException.class, () -> StripeValidator.putStripe(frame, 2, 2, 1, 1, bad));
         assertThrows(BadReplyException.class, () -> StripeValidator.putStripe(frame, 2, 2, 1, 1, new byte[7]));
         assertThrows(BadReplyException.class, () -> StripeValidator.putStripe(frame, 2, 2, 1, 1, new byte[9]));
         assertThrows(BadReplyException.class, () -> StripeValidator.putStripe(frame, 2, 2, 1, 1, null));

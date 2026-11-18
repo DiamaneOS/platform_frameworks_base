@@ -36,6 +36,7 @@ import android.system.StructPollfd;
 import android.util.Log;
 import android.util.Size;
 
+import de.diamaneos.sanitizer.decode.DecodeChecks;
 import de.diamaneos.sanitizer.decode.DecodeRequest;
 import de.diamaneos.sanitizer.decode.IDecodeService;
 import de.diamaneos.sanitizer.decode.ImageInfo;
@@ -202,6 +203,11 @@ public final class VmDecode {
                 throw new RejectedException("no reply");
             }
             checkStatus(info.status);
+            // The contract's own checks (DecodeChecks, the service's copy, compared at build time), then ours.
+            final String broken = DecodeChecks.check(info);
+            if (broken != null) {
+                throw new RejectedException("probe reply breaks the contract: " + broken);
+            }
             try {
                 StripeValidator.checkInfo(info.format, info.width, info.height, info.animated);
             } catch (StripeValidator.BadReplyException e) {
@@ -298,7 +304,8 @@ public final class VmDecode {
         if (data == null || offset < 0 || length < 0 || offset > data.length - length) {
             throw new RejectedException("bad byte range");
         }
-        if (length > IDecodeService.MAX_INPUT_BYTES) {
+        // Bytes reach the service through a pipe, which it holds in memory: the buffered limit.
+        if (length > IDecodeService.MAX_BUFFERED_BYTES) {
             throw new RejectedException("larger than the decode limit");
         }
         final Pumper pumper;
@@ -548,6 +555,14 @@ public final class VmDecode {
             throws RemoteException, RejectedException {
         final int width = thumbnail.width;
         final int height = thumbnail.height;
+        if (maxWidth < 1 || maxHeight < 1) {
+            throw new RejectedException("bad box " + maxWidth + "x" + maxHeight);
+        }
+        // The contract's own checks (DecodeChecks, the service's copy, compared at build time), then ours.
+        final String broken = DecodeChecks.check(thumbnail, maxWidth, maxHeight);
+        if (broken != null) {
+            throw new RejectedException("thumbnail breaks the contract: " + broken);
+        }
         final int stripes;
         try {
             stripes = StripeValidator.checkHeader(width, height, thumbnail.stripeRows, thumbnail.rotation,
@@ -557,9 +572,13 @@ public final class VmDecode {
         }
         final byte[] frame = new byte[width * height * 4];
         for (int i = 0; i < stripes; i++) {
+            final byte[] stripe = service.readStripe(thumbnail.handle, i);
+            final String bad = DecodeChecks.check(thumbnail, i, stripe);
+            if (bad != null) {
+                throw new RejectedException("stripe " + i + " breaks the contract: " + bad);
+            }
             try {
-                StripeValidator.putStripe(frame, width, height, thumbnail.stripeRows, i,
-                        service.readStripe(thumbnail.handle, i));
+                StripeValidator.putStripe(frame, width, height, thumbnail.stripeRows, i, stripe);
             } catch (StripeValidator.BadReplyException e) {
                 throw new RejectedException(e.getMessage());
             }
@@ -715,7 +734,8 @@ public final class VmDecode {
                     break;
                 }
                 lastData = SystemClock.uptimeMillis();
-                if (copied + n > IDecodeService.MAX_INPUT_BYTES) {
+                // A pipe is held in memory by the service: the buffered limit.
+                if (copied + n > IDecodeService.MAX_BUFFERED_BYTES) {
                     throw new IOException("larger than the decode limit");
                 }
                 writeAll(write, buffer, n, deadline);
