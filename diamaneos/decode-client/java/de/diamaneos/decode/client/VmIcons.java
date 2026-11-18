@@ -58,7 +58,25 @@ public final class VmIcons {
         // One image may take at most a quarter of the cache, so it cannot flush the others.
         if (bitmap.getAllocationByteCount() <= MAX_CACHE_ENTRY_BYTES) {
             sCache.put(key, bitmap);
+        } else {
+            sNotKept.get()[0]++;
         }
+    }
+
+    // Per thread: images made since beginKeptTracking that were too big for the cache.
+    private static final ThreadLocal<int[]> sNotKept = ThreadLocal.withInitial(() -> new int[1]);
+
+    /** Starts counting, on this thread, images made but too big to keep in the cache. */
+    static void beginKeptTracking() {
+        sNotKept.get()[0] = 0;
+    }
+
+    /**
+     * True when an image made on this thread since {@link #beginKeptTracking} was too big for the cache: whoever asks
+     * again does not find it, so nobody is told to ask again (that would make it again and again).
+     */
+    static boolean notKept() {
+        return sNotKept.get()[0] > 0;
     }
 
     private static final int MAX_CACHE_ENTRY_BYTES = 4 * 1024 * 1024;
@@ -252,8 +270,9 @@ public final class VmIcons {
             }
             return bitmap;
         } catch (VmDecode.RejectedException e) {
-            // Refused by the VM (broken, unsupported, hostile): not worth asking again.
-            if (key != null) {
+            // Refused by the VM (broken, unsupported, hostile): not worth asking again. A URI that could not be opened
+            // (not there yet, the provider not ready) is tried again later like any passing failure.
+            if (key != null && !e.openFailed) {
                 sRejected.put(stableKey(key), Boolean.TRUE);
             }
             Log.w(TAG, "icon not decoded, placeholder shown: " + e.getMessage());
@@ -334,7 +353,10 @@ public final class VmIcons {
     // URI and data icons the VM refused, by stable key: not asked for again (retries skip them).
     private static final LruCache<String, Boolean> sRejected = new LruCache<>(256);
 
-    /** True when the VM refused the image behind {@code key} (a broken or unsupported file), in any window. */
+    /**
+     * True when the VM refused the image behind {@code key} (a cache key or a stable key) itself (a broken or
+     * unsupported file), in any window.
+     */
     static boolean wasRejected(String key) {
         return key != null && sRejected.get(stableKey(key)) != null;
     }
@@ -347,8 +369,18 @@ public final class VmIcons {
         if (key == null || !key.startsWith("uri:")) {
             return key;
         }
+        // Only the window uriKey appends (":t" and digits at the very end), so a key that is stable already, whose
+        // URI may hold ":t" itself, comes back as it is.
         final int window = key.lastIndexOf(":t");
-        return window > 0 ? key.substring(0, window) : key;
+        if (window <= 0 || window + 2 >= key.length()) {
+            return key;
+        }
+        for (int i = window + 2; i < key.length(); i++) {
+            if (!Character.isDigit(key.charAt(i))) {
+                return key;
+            }
+        }
+        return key.substring(0, window) + ":stable";
     }
 
     // URI icons by user, owner and URI (as SystemUI's own image caches do), data icons by a hash of their bytes.

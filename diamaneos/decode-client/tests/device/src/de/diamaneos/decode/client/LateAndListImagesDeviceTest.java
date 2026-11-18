@@ -22,7 +22,6 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import android.content.Context;
-import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
@@ -32,9 +31,7 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.SystemClock;
-import android.view.ContextThemeWrapper;
 import android.widget.RemoteViews;
-import android.widget.RemoteViewsAdapter;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -53,8 +50,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Images that show before they are made (an autofill service's views in the system server), the rows of a widget's
- * list checked one by one, the fair image queue, and every asker told when an image is made. Runs with or without
+ * Images that show before they are made (an autofill service's views in the system server), the items of a widget's
+ * list checked with its update, the fair image queue, and every asker told when an image is made. Runs with or without
  * the decode service: without it images stay empty, and the checks hold either way.
  */
 @RunWith(AndroidJUnit4.class)
@@ -156,43 +153,32 @@ public class LateAndListImagesDeviceTest {
     }
 
     @Test
-    public void widgetLists_keptAndCheckedRowByRow() throws Exception {
+    public void widgetLists_itemsInsideTheUpdate_checkedWithIt() throws Exception {
+        // With remote_adapter_conversion on (this release), a widget's list items come inside the update: they are
+        // checked and their images re-made with the rest of the views.
         final WidgetImages widget = onMain(() -> new WidgetImages(mContext));
         widget.setApp(mPackage, mContext.getUserId());
-        // A list the app's service fills is kept: its rows are checked as they come.
+        final RemoteViews item = new RemoteViews(mPackage, R.layout.vm_test_probe);
+        item.setImageViewIcon(R.id.vm_probe, pngIcon(4848));
         final RemoteViews list = new RemoteViews(mPackage, R.layout.vm_test_probe);
-        list.setRemoteAdapter(R.id.vm_probe, new Intent("x").setPackage(mPackage));
+        list.setRemoteAdapter(R.id.vm_probe,
+                new RemoteViews.RemoteCollectionItems.Builder().addItem(1, item).build());
         final CountDownLatch done = new CountDownLatch(1);
-        final AtomicReference<RemoteViews> checkedList = new AtomicReference<>();
+        final AtomicReference<RemoteViews> checked = new AtomicReference<>();
         widget.prepare(list, Runnable::run, v -> {
-            checkedList.set(v);
+            checked.set(v);
             done.countDown();
         });
         assertTrue(done.await(10, TimeUnit.SECONDS));
-        assertNotNull(checkedList.get());
-        // A list view made under the host context finds the row check there, through the wrappers RemoteViews adds.
-        final RemoteViewsAdapter.RowCheck check = RemoteViewsAdapter.rowCheckOf(
-                new ContextThemeWrapper(widget.context(), android.R.style.Theme_DeviceDefault));
-        assertNotNull(check);
-        assertNull(RemoteViewsAdapter.rowCheckOf(mContext));
-        // A row, on the adapter's worker thread: checked on an image thread, the original left as it is.
-        final RemoteViews row = new RemoteViews(mPackage, R.layout.vm_test_probe);
-        row.setImageViewIcon(R.id.vm_probe, pngIcon(4848));
-        final RemoteViews checked = onWorker(() -> check.checkRow(row, 0));
-        assertNotNull(checked);
-        for (Icon icon : RemoteViewsImages.icons(checked)) {
+        assertNotNull(checked.get());
+        final List<Icon> icons = RemoteViewsImages.icons(checked.get());
+        assertTrue(!icons.isEmpty());
+        for (Icon icon : icons) {
+            // Pixels from the VM, or empty without it: never the app's bytes.
             assertEquals(Icon.TYPE_BITMAP, icon.getType());
         }
-        assertEquals(Icon.TYPE_DATA, RemoteViewsImages.icons(row).get(0).getType());
-        // Past the row cap: without the app's images, the VM not asked.
-        final RemoteViews past = onWorker(() -> check.checkRow(row, WidgetImages.MAX_ROWS));
-        final Icon empty = RemoteViewsImages.icons(past).get(0);
-        assertEquals(Icon.TYPE_BITMAP, empty.getType());
-        assertEquals(1, empty.getBitmap().getWidth());
-        // A row that cannot be checked (a Bundle for a method that is not known) is not shown.
-        final RemoteViews unknown = new RemoteViews(mPackage, R.layout.vm_test_probe);
-        unknown.setBundle(R.id.vm_probe, "setUnknownThing", new android.os.Bundle());
-        assertNull(onWorker(() -> check.checkRow(unknown, 1)));
+        // The app's own item is left as it is.
+        assertEquals(Icon.TYPE_DATA, RemoteViewsImages.icons(item).get(0).getType());
     }
 
     @Test
@@ -221,6 +207,25 @@ public class LateAndListImagesDeviceTest {
         } finally {
             release.countDown();
         }
+    }
+
+    @Test
+    public void uriThatCannotBeOpened_isTriedAgain_aRefusedSchemeIsNot() throws Exception {
+        // No provider behind it (not there yet, say): a passing failure, not a verdict on the image.
+        final Icon missing = Icon.createWithContentUri("content://de.diamaneos.decode.client.tests.none/a:t1.png");
+        assertNull(onWorker(() -> VmIcons.decode(missing, mContext, mPackage, 64,
+                SystemClock.uptimeMillis() + 2_000)));
+        final String key = VmIcons.cacheKey(missing, mContext, mPackage, "64x64");
+        assertTrue(!VmIcons.wasRejected(key));
+        // A file URI is never opened: that is a verdict.
+        final Icon file = Icon.createWithContentUri("file:///data/local/tmp/x.png");
+        assertNull(onWorker(() -> VmIcons.decode(file, mContext, mPackage, 64,
+                SystemClock.uptimeMillis() + 2_000)));
+        assertTrue(VmIcons.wasRejected(VmIcons.cacheKey(file, mContext, mPackage, "64x64")));
+        // The stable key of a key is itself, even with ":t" inside the URI.
+        final String stable = VmIcons.stableKey(key);
+        assertEquals(stable, VmIcons.stableKey(stable));
+        assertTrue(stable.contains("a:t1.png"));
     }
 
     @Test

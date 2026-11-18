@@ -398,9 +398,8 @@ constructor(
                 context.userId,
                 packageName,
                 size,
-            ) {
-                MediaIconReload.reloadPackage(packageName)
-            }
+                MediaIconReload.reloaderFor(packageName),
+            )
         }
 
         if (customAction.iconUri != null) {

@@ -20,18 +20,13 @@ import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
-import android.os.Looper;
 import android.os.UserHandle;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.widget.RemoteViews;
-import android.widget.RemoteViewsAdapter;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
@@ -42,11 +37,10 @@ import java.util.function.Consumer;
  * resources stay as they are, and every package context RemoteViews makes from it for the widget's app loads that
  * app's bitmap files through the image gate (on the main and apply threads only what was made, else empty).
  *
- * <p>A list the app's RemoteViewsService fills is checked row by row: the context is the list adapter's
- * {@link RemoteViewsAdapter.RowCheck}, so each row (and the loading view) is checked on an image thread while the
- * adapter's own worker thread waits, and the loading view shows until then. Rows past {@link #MAX_ROWS} and images
- * past the widget's caps ({@link #MAX_WIDGET_IMAGES}, {@link #MAX_WIDGET_PIXELS}) show without the app's images. A row
- * that cannot be checked is not shown.
+ * <p>A list widget's items come inside the update: the widget's app fetches them from its own RemoteViewsService
+ * before it sends the views (the {@code remote_adapter_conversion} flag, on in this release), so they are checked
+ * with the rest, and share the update's image caps. A list that SystemUI would have to fetch from the app's service
+ * itself (the older action, which the system refuses to bind with the flag on) is not shown.
  *
  * <p>Only the latest update of a widget waits for an image thread: a newer one, {@link #setApp} and {@link #cancel}
  * drop the older one before it runs and stop it if it does, and it never delivers.
@@ -55,32 +49,20 @@ public final class WidgetImages {
     private static final String TAG = "VmDecode";
     private static final int ICON_DP = 128;
     private static final int PICTURE_DP = 320;
-    /** Rows of a widget's list whose images are made. Later rows show without the app's images. */
-    public static final int MAX_ROWS = 50;
-    /** Images of all the rows of one widget's lists together. */
-    public static final int MAX_WIDGET_IMAGES = 48;
-    /** Pixels of those images together (32 MB in ARGB). */
-    public static final long MAX_WIDGET_PIXELS = 8_000_000;
-    // How long the list adapter's worker thread waits for a row: a turn on the image threads and the row's own time.
-    private static final long ROW_WAIT_MS = ImageBudget.TIME_MS + 3_000;
 
     private final Context mHost;
     private final GatedPackages mContext;
     private final Object mLock = new Object();
     private AppResourceImages mGate; // guarded by mLock
-    private AppResourceImages mRowGate; // the rows' own, guarded by mLock
     private String mOwner = ""; // guarded by mLock
     private int mUserId; // guarded by mLock
     private AtomicBoolean mCancelled = new AtomicBoolean(); // the latest update's, guarded by mLock
     private ImageThreads.Task mTask; // the latest update's, guarded by mLock
-    // Images and pixels of each row slot (the rows, then the loading view), guarded by mLock.
-    private final int[] mRowImages = new int[MAX_ROWS + 1];
-    private final long[] mRowPixels = new long[MAX_ROWS + 1];
 
     /** For a host view made with {@code themed} (the view's own context, its theme kept). */
     public WidgetImages(Context themed) {
         mHost = themed;
-        mContext = new GatedPackages(themed, this);
+        mContext = new GatedPackages(themed);
         mUserId = themed.getUserId();
     }
 
@@ -106,10 +88,6 @@ public final class WidgetImages {
             final DisplayMetrics metrics = mHost.getResources().getDisplayMetrics();
             mGate = new AppResourceImages(mHost, owner, userId, new ImageBudget(0, 0, 0), pictureWidth(metrics),
                     pictureHeight(metrics), false);
-            mRowGate = new AppResourceImages(mHost, owner, userId, new ImageBudget(0, 0, 0), pictureWidth(metrics),
-                    pictureHeight(metrics), false);
-            java.util.Arrays.fill(mRowImages, 0);
-            java.util.Arrays.fill(mRowPixels, 0);
             mContext.setGate(mGate);
         }
     }
@@ -171,6 +149,14 @@ public final class WidgetImages {
                     }
                 });
             }
+        }, () -> {
+            // Gave way to another app's task: shown without the app's images, never unchecked.
+            final RemoteViews stripped = NoImageViews.withoutImages(views);
+            executor.execute(() -> {
+                if (!cancelled.get()) {
+                    done.accept(stripped);
+                }
+            });
         });
         if (task == null) {
             // Too many image tasks are waiting: this update is not shown, the next one is.
@@ -207,101 +193,6 @@ public final class WidgetImages {
         }
     }
 
-    /**
-     * A row of one of the widget's lists ({@code position} -1: its loading view) as it may be shown, or null. On the
-     * list adapter's worker thread, which waits for an image thread. A row that waited too long, came past the caps
-     * or found the image threads full shows without the app's images.
-     */
-    RemoteViews checkRow(RemoteViews row, int position) {
-        final int slot = position < 0 ? MAX_ROWS : position;
-        final String owner;
-        final int userId;
-        final AppResourceImages rowGate;
-        final int maxImages;
-        final long maxPixels;
-        synchronized (mLock) {
-            owner = mOwner;
-            userId = mUserId;
-            rowGate = mRowGate;
-            if (slot <= MAX_ROWS) {
-                maxImages = MAX_WIDGET_IMAGES - sum(mRowImages) + mRowImages[slot];
-                maxPixels = MAX_WIDGET_PIXELS - sum(mRowPixels) + mRowPixels[slot];
-            } else {
-                maxImages = 0;
-                maxPixels = 0;
-            }
-        }
-        if (rowGate == null) {
-            return null;
-        }
-        if (maxImages <= 0 || maxPixels <= 0 || Looper.myLooper() == Looper.getMainLooper()
-                || ImageThreads.isImageThread()) {
-            return NoImageViews.withoutImages(row);
-        }
-        final AtomicBoolean cancelled = new AtomicBoolean();
-        final CountDownLatch finished = new CountDownLatch(1);
-        final AtomicReference<RemoteViews> result = new AtomicReference<>();
-        final ImageThreads.Task task = ImageThreads.execute(owner, () -> {
-            try {
-                if (cancelled.get()) {
-                    return;
-                }
-                final DisplayMetrics metrics = mHost.getResources().getDisplayMetrics();
-                final NotificationImageGate gate = NotificationImageGate.forWidgetRow(mHost, owner, userId,
-                        Math.max(1, (int) (ICON_DP * metrics.density)), pictureWidth(metrics),
-                        pictureHeight(metrics), rowGate, maxImages, maxPixels);
-                result.set(check(gate, row, owner, userId, cancelled));
-                synchronized (mLock) {
-                    if (rowGate == mRowGate) {
-                        mRowImages[slot] = gate.budget().images();
-                        mRowPixels[slot] = gate.budget().pixels();
-                    }
-                }
-            } catch (RuntimeException | Error e) {
-                Log.w(TAG, "widget row not checked, not shown: " + e);
-            } finally {
-                finished.countDown();
-            }
-        }, () -> {
-            // Gave way to another app's task: the row shows without the app's images.
-            result.set(NoImageViews.withoutImages(row));
-            finished.countDown();
-        });
-        if (task == null) {
-            return NoImageViews.withoutImages(row);
-        }
-        boolean done;
-        try {
-            done = finished.await(ROW_WAIT_MS, TimeUnit.MILLISECONDS);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            done = false;
-        }
-        if (!done) {
-            cancelled.set(true);
-            task.cancel();
-            Log.w(TAG, "widget row " + position + " of " + owner + " not made in time, without its images");
-            return NoImageViews.withoutImages(row);
-        }
-        return result.get();
-    }
-
-    private static int sum(int[] values) {
-        int total = 0;
-        for (int v : values) {
-            total += v;
-        }
-        return total;
-    }
-
-    private static long sum(long[] values) {
-        long total = 0;
-        for (long v : values) {
-            total += v;
-        }
-        return total;
-    }
-
     private static int pictureWidth(DisplayMetrics metrics) {
         return Math.max(1, Math.min(metrics.widthPixels, metrics.heightPixels));
     }
@@ -311,19 +202,12 @@ public final class WidgetImages {
     }
 
     // The host view's own context, theme and resources unchanged. Package contexts made from it (RemoteViews makes
-    // one for the widget's app) load through the gate. A list adapter made under it checks its rows here.
-    private static final class GatedPackages extends ContextWrapper implements RemoteViewsAdapter.RowCheck {
-        private final WidgetImages mWidget;
+    // one for the widget's app) load through the gate.
+    private static final class GatedPackages extends ContextWrapper {
         private volatile AppResourceImages mGate;
 
-        GatedPackages(Context base, WidgetImages widget) {
+        GatedPackages(Context base) {
             super(base);
-            mWidget = widget;
-        }
-
-        @Override
-        public RemoteViews checkRow(RemoteViews row, int position) {
-            return mWidget.checkRow(row, position);
         }
 
         void setGate(AppResourceImages gate) {
@@ -360,7 +244,7 @@ public final class WidgetImages {
         @Override
         public Context createContextAsUser(UserHandle user, int flags) {
             final Context made = super.createContextAsUser(user, flags);
-            final GatedPackages wrapped = new GatedPackages(made, mWidget);
+            final GatedPackages wrapped = new GatedPackages(made);
             wrapped.setGate(mGate);
             return wrapped;
         }

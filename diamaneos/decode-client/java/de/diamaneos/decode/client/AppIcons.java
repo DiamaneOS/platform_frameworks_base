@@ -213,23 +213,28 @@ public final class AppIcons {
     // Queues work for the image of key, kept so it can be dropped when nobody waits for it any more. A task that
     // gave way to another app's is tried again later, like a failure.
     private static void queue(String ownerPackage, String key, Runnable work) {
-        final ImageThreads.Task task = ImageThreads.execute(ownerPackage, () -> {
-            synchronized (sLock) {
-                sTasks.remove(key);
+        final ImageThreads.Task task;
+        // Queued and recorded under the lock, so the task (which takes the lock first) never runs before its entry is
+        // there, and never leaves a finished task in the map.
+        synchronized (sLock) {
+            task = ImageThreads.execute(ownerPackage, () -> {
+                synchronized (sLock) {
+                    sTasks.remove(key);
+                }
+                VmIcons.beginKeptTracking();
+                work.run();
+            }, () -> {
+                synchronized (sLock) {
+                    sTasks.remove(key);
+                }
+                finished(key, false, true);
+            });
+            if (task != null) {
+                sTasks.put(key, task);
             }
-            work.run();
-        }, () -> {
-            synchronized (sLock) {
-                sTasks.remove(key);
-            }
-            finished(key, false, true);
-        });
+        }
         if (task == null) {
             finished(key, false, true);
-            return;
-        }
-        synchronized (sLock) {
-            sTasks.put(key, task);
         }
     }
 
@@ -248,7 +253,12 @@ public final class AppIcons {
                 NotificationImageGate.settle(ownerPackage, budget, false);
             }
             // Tried again only when the VM was not there: never for an image it refused, nor while the app has no
-            // time left (its next post tries again).
+            // time left (its next post tries again). An image too big for the cache is not found by whoever asks
+            // again: nobody is told, so it is not made again and again.
+            if (made && VmIcons.notKept()) {
+                finished(key, false, false);
+                return;
+            }
             finished(key, made, hadTime && !VmIcons.wasRejected(key));
         });
     }
@@ -424,7 +434,12 @@ public final class AppIcons {
             } finally {
                 NotificationImageGate.settle(ownerPackage, budget, false);
             }
-            // A file the VM refused is not tried again.
+            // A file the VM refused is not tried again. An image too big for the cache is not found again on the
+            // main thread: nobody is told, so it is not made again and again.
+            if (made && VmIcons.notKept()) {
+                finished(retryKey, false, false);
+                return;
+            }
             finished(retryKey, made, hadTime && !AppResourceImages.rejected());
         });
     }

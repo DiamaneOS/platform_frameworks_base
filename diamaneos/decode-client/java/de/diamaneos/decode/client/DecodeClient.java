@@ -176,6 +176,7 @@ final class DecodeClient {
         if (deadline > 0) {
             callTimeout = Math.min(callTimeout, Math.max(1, deadline - SystemClock.uptimeMillis()));
         }
+        final long callStart = SystemClock.uptimeMillis();
         final Future<T> future;
         try {
             future = mExecutor.submit(() -> {
@@ -210,34 +211,38 @@ final class DecodeClient {
                 releaseSlot(lane); // never started: only the queue was slow
             }
             future.cancel(true);
-            // A service that took the call and then missed its own full deadline is not trusted to recover by itself:
-            // drop the binding, the next call binds again. Calls it took that missed a deadline of at least
-            // WEDGE_MIN_DEADLINE_MS, from two different apps within WEDGE_WINDOW_MS with no success between, mean
-            // the same (a wedged service): it is also not asked for WEDGED_RETRY_MS. One app alone cannot trip that,
-            // nor can a short deadline an app's own budget left. Calls without an app (SystemUI's own image loader,
-            // the wallpaper) never count as an app of their own, and nothing counts before the service of a binding
-            // has answered once (a VM still starting is slow, not wedged). Only the binding the call was made on is
-            // ever dropped. A call that only waited in the queue ends that call.
+            // A missed deadline alone says nothing about the service: a hostile image may simply be slow. The binding
+            // is dropped only when the service itself no longer answers a cheap call (answers()): after a call that
+            // missed its full deadline, or after calls of two different apps that were in flight together and both
+            // missed a deadline of at least WEDGE_MIN_DEADLINE_MS within WEDGE_WINDOW_MS. A dropped binding is not
+            // asked again for WEDGED_RETRY_MS. Calls without an app (SystemUI's own image loader, the wallpaper)
+            // never count as an app of their own, and nothing counts before the service of a binding has answered
+            // once (a VM still starting is slow, not wedged). Only the binding the call was made on is ever dropped.
+            // A call that only waited in the queue ends that call.
             if (started.get()) {
+                boolean suspect = false;
                 if (callTimeout >= defaultCallTimeout) {
-                    unbind(bound.generation);
+                    suspect = true;
                 } else if (callTimeout >= WEDGE_MIN_DEADLINE_MS && !lane.isEmpty()) {
-                    boolean wedged = false;
                     synchronized (mLock) {
                         if (mWarm && bound.generation == mGeneration) {
                             final long now = SystemClock.uptimeMillis();
-                            wedged = mLastMissOwner != null && !mLastMissOwner.equals(lane)
-                                    && now - mLastMissAt <= WEDGE_WINDOW_MS;
-                            mLastMissOwner = wedged ? null : lane;
+                            suspect = mLastMissOwner != null && !mLastMissOwner.equals(lane)
+                                    && now - mLastMissAt <= WEDGE_WINDOW_MS
+                                    // In flight together: this call started before the other one ended.
+                                    && callStart < mLastMissAt;
+                            mLastMissOwner = suspect ? null : lane;
                             mLastMissAt = now;
-                            if (wedged) {
-                                mDownUntil = now + WEDGED_RETRY_MS;
-                            }
                         }
                     }
-                    if (wedged) {
-                        unbind(bound.generation);
+                }
+                if (suspect && !answers(bound)) {
+                    synchronized (mLock) {
+                        if (bound.generation == mGeneration) {
+                            mDownUntil = SystemClock.uptimeMillis() + WEDGED_RETRY_MS;
+                        }
                     }
+                    unbind(bound.generation);
                 }
             }
             throw new VmDecode.UnavailableException("decode service missed the deadline", e);
@@ -259,6 +264,44 @@ final class DecodeClient {
             throw new VmDecode.UnavailableException("decode call failed", cause);
         }
     }
+
+    // The service's own health: true when it answers a cheap call (release of a handle that does not exist) within
+    // PROBE_MS, whatever the call answers. One probe at a time, on a thread of its own (the call threads may all be
+    // stuck): while one runs, the service counts as answering.
+    private boolean answers(Bound bound) {
+        if (!mProbing.compareAndSet(false, true)) {
+            return true;
+        }
+        final java.util.concurrent.CompletableFuture<Boolean> answered = new java.util.concurrent.CompletableFuture<>();
+        final Thread probe = new Thread(() -> {
+            try {
+                bound.service.release(PROBE_HANDLE);
+                answered.complete(true);
+            } catch (RemoteException e) {
+                answered.complete(false);
+            } catch (RuntimeException e) {
+                // An answer all the same (the handle is not known).
+                answered.complete(true);
+            } finally {
+                mProbing.set(false);
+            }
+        }, "VmDecodeProbe");
+        probe.setDaemon(true);
+        probe.start();
+        try {
+            return answered.get(PROBE_MS, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return true;
+        } catch (ExecutionException | TimeoutException e) {
+            Log.w(TAG, "decode service does not answer, binding dropped");
+            return false;
+        }
+    }
+
+    private static final long PROBE_MS = 1_000;
+    private static final long PROBE_HANDLE = -1;
+    private final AtomicBoolean mProbing = new AtomicBoolean();
 
     private void claimSlot(String lane) throws VmDecode.UnavailableException {
         synchronized (mOwnerCalls) {
@@ -285,6 +328,8 @@ final class DecodeClient {
     // After a bind or connect that failed, calls fail at once until this time (uptime), so a VM that is down costs
     // nothing per image instead of the whole wait every time. A connection that comes up clears it.
     private static final long DOWN_RETRY_MS = 10_000;
+    // After a connect wait that a caller's short deadline cut off.
+    private static final long SHORT_DOWN_MS = 1_500;
     // After a service that took calls missed deadlines for two different apps in a row.
     private static final long WEDGED_RETRY_MS = 5_000;
     // Only a missed deadline at least this long counts towards a wedged service.
@@ -315,6 +360,11 @@ final class DecodeClient {
             mService = null;
             if (SystemClock.uptimeMillis() < mDownUntil) {
                 throw new VmDecode.UnavailableException("decode service is down, not asked again yet");
+            }
+            if (mBinding && !fullWait) {
+                // Another caller is binding: a caller with a short deadline does not spend it waiting for the
+                // connection, it fails at once (its image is made later).
+                throw new VmDecode.UnavailableException("decode service is connecting");
             }
             if (!mBinding) {
                 mBinding = true;
@@ -384,9 +434,9 @@ final class DecodeClient {
                 }
                 final long left = end - SystemClock.uptimeMillis();
                 if (left <= 0) {
-                    if (fullWait) {
-                        mDownUntil = SystemClock.uptimeMillis() + DOWN_RETRY_MS;
-                    }
+                    // Calls fail at once for a while: the whole DOWN_RETRY_MS after a full wait, a short window
+                    // after a wait the caller's deadline cut short.
+                    mDownUntil = SystemClock.uptimeMillis() + (fullWait ? DOWN_RETRY_MS : SHORT_DOWN_MS);
                     // A binding that has not connected for STALE_BIND_MS is dropped, so a later try binds anew. A
                     // younger one is left alone: the service may still be starting its VM.
                     if (SystemClock.uptimeMillis() - mBindStart >= STALE_BIND_MS) {

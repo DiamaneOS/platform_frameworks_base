@@ -242,12 +242,27 @@ public final class NotificationImageGate {
     // foreground service, or a self-managed call (MANAGE_OWN_CALLS is a normal permission). No binder call here.
     private static boolean isUrgent(Context context, Notification n, String ownerPackage, int uid, int userId) {
         if (UserHandle.getAppId(uid) < Process.FIRST_APPLICATION_UID) {
-            return true;
+            // A system notification that shows another app's icon (the overlay window notice, the accessibility
+            // warning) is posted at a moment that app chooses: its image is normal work.
+            return !showsOtherAppsIcon(n, ownerPackage);
         }
         final boolean callOrAlarm = n.isStyle(Notification.CallStyle.class)
                 || Notification.CATEGORY_CALL.equals(n.category)
                 || Notification.CATEGORY_ALARM.equals(n.category);
         return callOrAlarm && isSystemImageApp(n);
+    }
+
+    // A small or large icon that is a resource of a package other than the framework and the poster.
+    private static boolean showsOtherAppsIcon(Notification n, String ownerPackage) {
+        for (Icon icon : new Icon[] {n.getSmallIcon(), n.getLargeIcon()}) {
+            if (icon != null && icon.getType() == Icon.TYPE_RESOURCE) {
+                final String pkg = icon.getResPackage();
+                if (pkg != null && !pkg.isEmpty() && !"android".equals(pkg) && !pkg.equals(ownerPackage)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     // The posting app is on the system image, as the notification service recorded it in the notification.
@@ -401,30 +416,6 @@ public final class NotificationImageGate {
         }
     }
 
-    /**
-     * {@link #forNotification(Context, String, int, int, int, int, AppResourceImages)} for a row of a widget's list,
-     * with caps of its own: at most {@code maxImages} images and {@code maxPixels} pixels (never more than a
-     * notification's), so that the rows of one widget stay under the widget's caps together.
-     */
-    public static NotificationImageGate forWidgetRow(Context context, String ownerPackage, int userId, int iconPx,
-            int pictureWidth, int pictureHeight, AppResourceImages previous, int maxImages, long maxPixels) {
-        final String key = ownerPackage == null ? "" : ownerPackage;
-        final boolean imageThread = ImageThreads.isImageThread();
-        final long time = imageThread
-                ? sQuota.reserve(key, ImageBudget.TIME_MS, SystemClock.uptimeMillis()) : ImageBudget.TIME_MS;
-        final ImageBudget budget = new ImageBudget(time, Math.min(maxImages, ImageBudget.MAX_IMAGES),
-                Math.min(maxPixels, ImageBudget.MAX_PIXELS), ImageBudget.CLOCK, sPixels, key);
-        try {
-            return new NotificationImageGate(context, ownerPackage, userId, iconPx, pictureWidth, pictureHeight,
-                    budget, imageThread, previous);
-        } catch (RuntimeException | Error e) {
-            if (imageThread) {
-                settle(ownerPackage, budget, false);
-            }
-            throw e;
-        }
-    }
-
     /** {@link #forNotification(Context, String, int, int, int, int)} with a budget of the caller's (tests). */
     public static NotificationImageGate forNotification(Context context, String ownerPackage, int userId,
             int iconPx, int pictureWidth, int pictureHeight, ImageBudget budget) {
@@ -500,9 +491,9 @@ public final class NotificationImageGate {
     }
 
     /**
-     * A checked copy of {@code views} (a widget's or a row of its list), its images re-made like a notification's
-     * custom layout, or null when it cannot be checked. Call {@link #packageContext} first. On an image thread the VM
-     * is asked. A list the widget's service fills is checked row by row as the rows come (see {@link WidgetImages}).
+     * A checked copy of {@code views} (a widget's, with the items of its lists), its images re-made like a
+     * notification's custom layout, or null when it cannot be checked. Call {@link #packageContext} first. On an image
+     * thread the VM is asked.
      */
     public RemoteViews layoutCopy(RemoteViews views) {
         if (views == null) {

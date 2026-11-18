@@ -82,7 +82,8 @@ public final class LateImages {
     private final List<Waiting> mWaiting = new ArrayList<>(); // guarded by mLock
     private boolean mStarted; // guarded by mLock
     private boolean mDone; // guarded by mLock
-    private Icon[] mMade; // guarded by mLock
+    private AppResourceImages mWorkerGate; // the image thread's gate, until the fill, guarded by mLock
+    private Context mUserContext; // for the cache keys of URI and data images, guarded by mLock
 
     /**
      * For the views of {@code ownerPackage} (the app every decode is charged to) for {@code userId}, shown with
@@ -119,6 +120,10 @@ public final class LateImages {
             final Context app = context.createPackageContextAsUser(packageName, 0, UserHandle.of(userId));
             final Drawable drawable = VmImageContext.wrap(app, late.mShownGate).getDrawable(resId);
             synchronized (late.mLock) {
+                if (late.mWaiting.isEmpty()) {
+                    // Nothing waits (a vector, files of the system image, files made before): no image work.
+                    return drawable;
+                }
                 late.mResources.add(resId);
             }
             late.start();
@@ -148,8 +153,9 @@ public final class LateImages {
             return true;
         }
         synchronized (mLock) {
-            if (mStarted) {
-                // Too late for the image thread: the views show without the app's images.
+            if (mStarted || mViews.size() >= MAX_VIEWS) {
+                // Too late for the image thread, or past the cap: the views show without the app's images, and
+                // nothing is copied for them.
                 return NoImageViews.stripInPlace(views);
             }
         }
@@ -224,7 +230,6 @@ public final class LateImages {
             mViews.clear();
             if (originals.length == 0 && views.length == 0 && resources.length == 0) {
                 mDone = true;
-                mMade = new Icon[0];
                 return;
             }
         }
@@ -255,7 +260,7 @@ public final class LateImages {
             final IUriGrantsManager grants = UriGrantsManager.getService();
             for (int i = 0; i < originals.length; i++) {
                 // The system server could read any URI: only what the app itself may read is opened for it.
-                if (ForeignIcons.uriGranted(originals[i], grants, ai.uid, mOwner)) {
+                if (ForeignIcons.uriGranted(originals[i], grants, ai.uid, mOwner, mUserId)) {
                     made[i] = gate.layoutIcon(originals[i]);
                 }
             }
@@ -264,6 +269,9 @@ public final class LateImages {
             }
             for (int id : resources) {
                 gate.prewarmDrawable(app, id);
+            }
+            synchronized (mLock) {
+                mWorkerGate = gate.resourceImages();
             }
         } catch (Throwable e) {
             Log.w(TAG, "images of " + mOwner + " not made, they stay empty: " + e);
@@ -278,19 +286,42 @@ public final class LateImages {
     // On the showing thread: the waiting drawables get what was made.
     private void filled(Icon[] made) {
         final List<Waiting> waiting;
+        final AppResourceImages worker;
         synchronized (mLock) {
-            mMade = made;
             mDone = true;
             waiting = new ArrayList<>(mWaiting);
             mWaiting.clear();
+            worker = mWorkerGate;
+            // Nothing made is held once the waiting drawables have it: a later show finds it in the cache.
+            mWorkerGate = null;
         }
         for (Waiting w : waiting) {
             try {
-                w.fill(w.mKey != null ? AppResourceImages.cachedDrawable(w.mRes, w.mKey) : madeIcon(made, w.mIndex));
+                if (w.mKey != null) {
+                    w.fill(worker != null ? worker.madeDrawable(w.mRes, w.mKey)
+                            : AppResourceImages.cachedDrawable(w.mRes, w.mKey));
+                } else {
+                    w.fill(madeIcon(made, w.mIndex));
+                }
             } catch (RuntimeException e) {
                 Log.w(TAG, "image not filled in, it stays empty: " + e);
             }
         }
+    }
+
+    // A URI or data image of the views made before, from the cache (a show after the fill), as a drawable, or null.
+    private Drawable cachedIcon(int index) {
+        final Icon original = mOriginals.get(index);
+        if (mUserContext == null) {
+            try {
+                mUserContext = mContext.getUserId() == mUserId ? mContext
+                        : mContext.createContextAsUser(UserHandle.of(mUserId), 0);
+            } catch (RuntimeException e) {
+                return null;
+            }
+        }
+        final Icon cached = VmIcons.cachedSafeIcon(original, mUserContext, mOwner, mPictureWidth, mPictureHeight);
+        return cached == null ? null : cached.loadDrawable(mContext);
     }
 
     private Drawable madeIcon(Icon[] made, int index) {
@@ -315,7 +346,7 @@ public final class LateImages {
                 return AppResourceImages.empty();
             }
             if (mDone) {
-                final Drawable made = madeIcon(mMade, index);
+                final Drawable made = cachedIcon(index);
                 return made != null ? made : AppResourceImages.empty();
             }
             if (mWaiting.size() >= MAX_WAITING) {

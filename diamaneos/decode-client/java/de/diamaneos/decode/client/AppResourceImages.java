@@ -240,6 +240,23 @@ public final class AppResourceImages implements ImageFileGate {
         return drawable(res, made);
     }
 
+    /**
+     * A file this gate made in its current round (also one too big for the cache), else one the cache holds, as a
+     * drawable, or null. By its cache key.
+     */
+    Drawable madeDrawable(Resources res, String key) {
+        if (key == null) {
+            return null;
+        }
+        synchronized (mLock) {
+            final Made made = mRound.get(key);
+            if (made != null) {
+                return drawable(res, made);
+            }
+        }
+        return cachedDrawable(res, key);
+    }
+
     /** The drawable of a file made before, found by its cache key, or null. */
     static Drawable cachedDrawable(Resources res, String key) {
         final Made made = key == null ? null : cached(key);

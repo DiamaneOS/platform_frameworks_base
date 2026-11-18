@@ -26,16 +26,21 @@ import android.service.notification.StatusBarNotification;
  * Notification icons that the system server keeps and hands to other system processes outside the notification
  * listeners: the notification history (on disk too, read by Settings) and the archive and active list behind
  * {@code getActiveNotifications} and {@code getHistoricalNotifications} for callers with ACCESS_NOTIFICATIONS (the
- * Settings notification log). Settings runs as the system uid and decodes what it gets natively, so only icons that
- * need no decode of an app's bytes are kept: resource icons and pixels. A data or URI icon is replaced by the app's
- * own icon (a resource of the app, from the application info the notification service recorded), or by the generic
- * app icon. A type check only: nothing is decoded or read.
+ * Settings notification log). Settings runs as the system uid and decodes what it gets natively. So only pixels, the
+ * framework's resources and the app's own launcher icon (from the application info the notification service
+ * recorded) are kept: every other icon (data, URI, any other resource of an app) is replaced by that launcher icon,
+ * or by the generic app icon. Settings then decodes at most the app's launcher icon, the file the launcher and
+ * Settings' app list decode anyway. A type check only: nothing is decoded or read.
  */
 public final class StoredIcons {
     private StoredIcons() {
     }
 
-    /** True for an icon a system process may load without decoding an app's compressed bytes from it. */
+    /**
+     * True for an icon a system process may load without decoding compressed bytes an app handed over at post time:
+     * pixels and resource icons. History files on disk keep that (they are written from what
+     * {@link #forSystemReaders(Icon, String, ApplicationInfo)} kept).
+     */
     public static boolean needsNoAppBytes(Icon icon) {
         if (icon == null) {
             return true;
@@ -50,22 +55,49 @@ public final class StoredIcons {
         }
     }
 
+    // True for an icon kept for system readers of a notification of packageName: pixels, a framework resource, or
+    // the app's launcher icon. Without the application info only the type is checked (needsNoAppBytes).
+    private static boolean kept(Icon icon, String packageName, ApplicationInfo appInfo) {
+        if (appInfo == null || icon == null) {
+            return needsNoAppBytes(icon);
+        }
+        switch (icon.getType()) {
+            case Icon.TYPE_BITMAP:
+            case Icon.TYPE_ADAPTIVE_BITMAP:
+                return true;
+            case Icon.TYPE_RESOURCE:
+                final String resPackage = icon.getResPackage() == null || icon.getResPackage().isEmpty()
+                        ? packageName : icon.getResPackage();
+                if ("android".equals(resPackage)) {
+                    return true;
+                }
+                return launcherIconOf(packageName, appInfo) && resPackage.equals(packageName)
+                        && icon.getResId() == appInfo.icon;
+            default:
+                return false;
+        }
+    }
+
+    private static boolean launcherIconOf(String packageName, ApplicationInfo appInfo) {
+        return appInfo != null && appInfo.icon != 0 && packageName != null
+                && packageName.equals(appInfo.packageName);
+    }
+
     /**
-     * {@code icon} of a notification of {@code packageName} as the history and the archive keep it: itself when it
-     * needs no app bytes, else the app's own icon ({@code appInfo}'s, when it is that app's), else the generic app
-     * icon.
+     * {@code icon} of a notification of {@code packageName} as the history and the archive keep it: itself when it is
+     * pixels, a framework resource or the app's launcher icon ({@code appInfo}'s, when it is that app's), else that
+     * launcher icon, else the generic app icon. Without {@code appInfo} (history files read back) resource icons are
+     * kept and data and URI icons become the generic app icon.
      */
     public static Icon forSystemReaders(Icon icon, String packageName, ApplicationInfo appInfo) {
-        if (needsNoAppBytes(icon)) {
+        if (kept(icon, packageName, appInfo)) {
             return icon;
         }
-        if (appInfo != null && appInfo.icon != 0 && packageName != null
-                && packageName.equals(appInfo.packageName)) {
+        if (launcherIconOf(packageName, appInfo)) {
             return Icon.createWithResource(packageName, appInfo.icon);
         }
         return Icon.createWithResource("android", android.R.drawable.sym_def_app_icon);
     }
-
     /** The application info the notification service recorded in {@code n}, or null. Typed read. */
     public static ApplicationInfo appInfoOf(Notification n) {
         if (n == null || n.extras == null) {
@@ -79,36 +111,49 @@ public final class StoredIcons {
     }
 
     /**
-     * {@code sbn} as handed to a system process outside the listeners: itself when every icon in it needs no app
-     * bytes, else a light copy (no large icon, no Parcelable extras) whose small icon, public version's small icon
-     * and action icons are replaced as {@link #forSystemReaders} does. The original is not changed.
+     * {@code sbn} as handed to a system process outside the listeners: itself when every icon in it is kept, else a
+     * light copy (no large icon, no Parcelable extras) whose small icon, public version's small icon and action icons
+     * are replaced as {@link #forSystemReaders} does. The original is not changed. Never throws on what an app put in
+     * a notification: if the copy cannot be made, a light copy with the generic icon and no actions or public version.
      */
     public static StatusBarNotification forSystemReaders(StatusBarNotification sbn) {
-        if (sbn == null || clean(sbn.getNotification(), 0)) {
-            return sbn;
+        if (sbn == null) {
+            return null;
         }
-        final ApplicationInfo appInfo = appInfoOf(sbn.getNotification());
-        final StatusBarNotification copy = sbn.cloneLight();
-        replace(copy.getNotification(), sbn.getPackageName(), appInfo, 0);
-        return copy;
+        try {
+            final ApplicationInfo appInfo = appInfoOf(sbn.getNotification());
+            if (clean(sbn.getNotification(), sbn.getPackageName(), appInfo, 0)) {
+                return sbn;
+            }
+            final StatusBarNotification copy = sbn.cloneLight();
+            replace(copy.getNotification(), sbn.getPackageName(), appInfo, 0);
+            return copy;
+        } catch (RuntimeException e) {
+            final StatusBarNotification copy = sbn.cloneLight();
+            final Notification n = copy.getNotification();
+            n.setSmallIcon(Icon.createWithResource("android", android.R.drawable.sym_def_app_icon));
+            n.actions = null;
+            n.publicVersion = null;
+            return copy;
+        }
     }
 
     // A light copy keeps the small icon, the actions and the public version: those are what is checked.
-    private static boolean clean(Notification n, int depth) {
+    private static boolean clean(Notification n, String packageName, ApplicationInfo appInfo, int depth) {
         if (n == null) {
             return true;
         }
-        if (!needsNoAppBytes(n.getSmallIcon()) || !needsNoAppBytes(n.getLargeIcon())) {
+        if (!kept(n.getSmallIcon(), packageName, appInfo) || !kept(n.getLargeIcon(), packageName, appInfo)) {
             return false;
         }
         if (n.actions != null) {
             for (Notification.Action action : n.actions) {
-                if (action != null && !needsNoAppBytes(action.getIcon())) {
+                if (action != null && !kept(action.getIcon(), packageName, appInfo)) {
                     return false;
                 }
             }
         }
-        return depth > 0 || clean(n.publicVersion, depth + 1);
+        return depth > 0 || clean(n.publicVersion, packageName, appInfo, depth + 1);
     }
 
     private static void replace(Notification n, String packageName, ApplicationInfo appInfo, int depth) {
@@ -121,7 +166,7 @@ public final class StoredIcons {
         if (n.actions != null) {
             for (int i = 0; i < n.actions.length; i++) {
                 final Notification.Action action = n.actions[i];
-                if (action != null && !needsNoAppBytes(action.getIcon())) {
+                if (action != null && !kept(action.getIcon(), packageName, appInfo)) {
                     n.actions[i] = withoutIcon(action);
                 }
             }

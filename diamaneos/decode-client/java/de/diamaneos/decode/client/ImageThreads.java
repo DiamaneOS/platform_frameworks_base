@@ -118,6 +118,7 @@ public final class ImageThreads {
     /**
      * Runs {@code task} on a normal image thread, after the earlier tasks of {@code owner}. Null when the task is
      * refused (the lane is full and {@code owner} has the most waiting): the caller goes on without the image thread.
+     * A task queued this way never gives way to another app's: pass {@code onDropped} for that.
      */
     public static Task execute(String owner, Runnable task) {
         return NORMAL.add(owner, task, null);
@@ -177,7 +178,20 @@ public final class ImageThreads {
                         Log.w(TAG, "image tasks full, refused for " + task.mOwner);
                         return null;
                     }
-                    dropped = longest.pollLast();
+                    // Only a task whose caller is told can give way (the newest such one): a task nobody would hear
+                    // of is never lost.
+                    for (Iterator<Task> it = longest.descendingIterator(); it.hasNext(); ) {
+                        final Task t = it.next();
+                        if (t.mOnDropped != null) {
+                            it.remove();
+                            dropped = t;
+                            break;
+                        }
+                    }
+                    if (dropped == null) {
+                        Log.w(TAG, "image tasks full, refused for " + task.mOwner);
+                        return null;
+                    }
                     mQueued--;
                     Log.w(TAG, "image tasks full, a task of " + dropped.mOwner + " gives way to "
                             + task.mOwner);

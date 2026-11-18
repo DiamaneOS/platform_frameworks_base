@@ -85,6 +85,16 @@ public final class ForeignIcons {
      */
     public static boolean uriGranted(Icon icon, IUriGrantsManager uriGrantsManager, int callingUid,
             String packageName) {
+        return uriGranted(icon, uriGrantsManager, callingUid, packageName,
+                android.os.UserHandle.getUserId(callingUid));
+    }
+
+    /**
+     * {@link #uriGranted(Icon, IUriGrantsManager, int, String)} for a URI opened as {@code userId}: a URI without a
+     * user of its own is checked for that user, the one it is opened as.
+     */
+    public static boolean uriGranted(Icon icon, IUriGrantsManager uriGrantsManager, int callingUid,
+            String packageName, int userId) {
         if (icon == null
                 || (icon.getType() != Icon.TYPE_URI && icon.getType() != Icon.TYPE_URI_ADAPTIVE_BITMAP)) {
             return true;
@@ -92,7 +102,7 @@ public final class ForeignIcons {
         try {
             uriGrantsManager.checkGrantUriPermission_ignoreNonSystem(callingUid, packageName,
                     ContentProvider.getUriWithoutUserId(icon.getUri()), Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                    ContentProvider.getUserIdFromUri(icon.getUri()));
+                    ContentProvider.getUserIdFromUri(icon.getUri(), userId));
             return true;
         } catch (SecurityException | RemoteException e) {
             Log.w(TAG, "no grant for the icon's URI, not loaded: " + e);
@@ -184,7 +194,7 @@ public final class ForeignIcons {
             }
             final Drawable result = drawable;
             executor.execute(() -> onLoaded.accept(result));
-        });
+        }, () -> executor.execute(() -> onLoaded.accept(null)));
         if (task == null) {
             executor.execute(() -> onLoaded.accept(null));
         }
@@ -276,7 +286,7 @@ public final class ForeignIcons {
             }
             final Icon result = icon;
             executor.execute(() -> onLoaded.accept(result));
-        });
+        }, () -> executor.execute(() -> onLoaded.accept(null)));
         if (task == null) {
             executor.execute(() -> onLoaded.accept(null));
         }
@@ -341,13 +351,18 @@ public final class ForeignIcons {
         }
         final ImageThreads.Task task = ImageThreads.execute(owner, () -> {
             T made = null;
+            VmIcons.beginKeptTracking();
             try {
                 made = work.get();
             } catch (Throwable e) {
                 Log.w(TAG, "icon not made: " + e);
             }
             final java.util.List<Waiters.Waiter> waiters = sWaiters.take(key);
-            if (made != null) {
+            if (made != null && VmIcons.notKept()) {
+                // Too big for the cache: whoever asks again would not find it, so nobody is told (no loop of makes),
+                // and it is made again only after the backoff's wait.
+                sMaking.failed(key, SystemClock.uptimeMillis());
+            } else if (made != null) {
                 sMaking.succeeded(key);
                 for (Waiters.Waiter w : waiters) {
                     sMain.post(w.onMade);
@@ -403,7 +418,7 @@ public final class ForeignIcons {
                 Log.w(TAG, "icon not made: " + e);
                 result.complete(null);
             }
-        });
+        }, () -> result.complete(null));
         if (task == null) {
             return null;
         }

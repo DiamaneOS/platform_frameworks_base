@@ -85,10 +85,22 @@ public final class VmDecode {
         }
     }
 
-    /** The file is broken, unsupported or hostile, or a reply broke the contract. Show a placeholder, no retry. */
+    /**
+     * The file is broken, unsupported or hostile, or a reply broke the contract: show a placeholder, no retry. Or the
+     * image behind a URI could not be opened ({@link #openFailed}: not there yet, the provider not ready, no access),
+     * which says nothing about the content and may work later.
+     */
     public static final class RejectedException extends Exception {
+        /** True when the URI could not be opened: not a verdict on the image, it may be tried again later. */
+        public final boolean openFailed;
+
         public RejectedException(String message) {
+            this(message, false);
+        }
+
+        public RejectedException(String message, boolean openFailed) {
             super(message);
+            this.openFailed = openFailed;
         }
     }
 
@@ -237,7 +249,7 @@ public final class VmDecode {
         final String owner = owner(context, uri, ownerPackage);
         try (AssetFileDescriptor afd = openImageWithin(resolver, uri, maxWidth, maxHeight, owner, deadline)) {
             if (afd == null) {
-                throw new RejectedException("no image behind the URI");
+                throw new RejectedException("no image behind the URI", true);
             }
             final Pumper pumper = pipe(afd, owner, pumpDeadline(deadline));
             try (ParcelFileDescriptor read = pumper.read) {
@@ -246,7 +258,7 @@ public final class VmDecode {
                 pumper.afterCall();
             }
         } catch (FileNotFoundException | SecurityException | IllegalArgumentException e) {
-            throw new RejectedException("cannot open the URI: " + e.getClass().getSimpleName());
+            throw new RejectedException("cannot open the URI: " + e.getClass().getSimpleName(), true);
         } catch (IOException e) {
             throw new UnavailableException("could not read the URI", e);
         }
@@ -259,7 +271,7 @@ public final class VmDecode {
         final String owner = owner(context, uri, ownerPackage);
         try (AssetFileDescriptor afd = openImageWithin(resolver, uri, 0, 0, owner, deadline)) {
             if (afd == null) {
-                throw new RejectedException("no image behind the URI");
+                throw new RejectedException("no image behind the URI", true);
             }
             final Pumper pumper = pipe(afd, owner, pumpDeadline(deadline));
             try (ParcelFileDescriptor read = pumper.read) {
@@ -268,7 +280,7 @@ public final class VmDecode {
                 pumper.afterCall();
             }
         } catch (FileNotFoundException | SecurityException | IllegalArgumentException e) {
-            throw new RejectedException("cannot open the URI: " + e.getClass().getSimpleName());
+            throw new RejectedException("cannot open the URI: " + e.getClass().getSimpleName(), true);
         } catch (IOException e) {
             throw new UnavailableException("could not read the URI", e);
         }
@@ -339,7 +351,13 @@ public final class VmDecode {
      * opens until they return.
      */
     private static AssetFileDescriptor openImageWithin(ContentResolver resolver, Uri uri, int maxWidth,
-            int maxHeight, String owner, long deadline) throws FileNotFoundException, UnavailableException {
+            int maxHeight, String owner, long deadline)
+            throws FileNotFoundException, UnavailableException, RejectedException {
+        final String scheme = uri.getScheme();
+        if (!ContentResolver.SCHEME_CONTENT.equals(scheme) && !ContentResolver.SCHEME_ANDROID_RESOURCE.equals(scheme)) {
+            // Never opened (see openImage): a verdict, not a passing failure.
+            throw new RejectedException("only content and resource URIs are opened");
+        }
         final long end = deadline > 0 ? deadline : SystemClock.uptimeMillis() + PUMP_TOTAL_MS;
         if (end <= SystemClock.uptimeMillis()) {
             // No time left: no open is started, so none is left behind and counted against the owner.

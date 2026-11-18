@@ -41,8 +41,8 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 
 /**
- * What the notification history and the archive hand to system readers (Settings): never a data or URI icon, the app's
- * own icon instead. Nothing is decoded.
+ * What the notification history and the archive hand to system readers (Settings): pixels, framework resources and
+ * the app's launcher icon only, that launcher icon in place of anything else. Nothing is decoded.
  */
 @RunWith(AndroidJUnit4.class)
 public class StoredIconsDeviceTest {
@@ -69,9 +69,16 @@ public class StoredIconsDeviceTest {
             assertEquals("android", StoredIcons.forSystemReaders(icon, mPackage, null).getResPackage());
             assertEquals("android", StoredIcons.forSystemReaders(icon, "other.app", appInfo()).getResPackage());
         }
-        // Resource icons and pixels are kept as they are.
+        // Another resource of the app becomes its launcher icon too, kept without the app's info (history files).
         final Icon resource = Icon.createWithResource(mPackage, R.drawable.vm_test_red);
-        assertSame(resource, StoredIcons.forSystemReaders(resource, mPackage, appInfo()));
+        assertEquals(R.drawable.vm_test_vector,
+                StoredIcons.forSystemReaders(resource, mPackage, appInfo()).getResId());
+        assertSame(resource, StoredIcons.forSystemReaders(resource, mPackage, null));
+        // The launcher icon, framework resources and pixels are kept as they are.
+        final Icon launcher = Icon.createWithResource(mPackage, R.drawable.vm_test_vector);
+        assertSame(launcher, StoredIcons.forSystemReaders(launcher, mPackage, appInfo()));
+        final Icon framework = Icon.createWithResource("android", android.R.drawable.ic_dialog_info);
+        assertSame(framework, StoredIcons.forSystemReaders(framework, mPackage, appInfo()));
         final Icon pixels = Icon.createWithBitmap(Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888));
         assertSame(pixels, StoredIcons.forSystemReaders(pixels, mPackage, appInfo()));
     }
@@ -101,8 +108,9 @@ public class StoredIconsDeviceTest {
         assertEquals(Icon.TYPE_DATA, n.actions[0].getIcon().getType());
         // A notification with nothing to replace is handed on as it is.
         final Notification plain = new Notification.Builder(mContext, "test")
-                .setSmallIcon(Icon.createWithResource(mPackage, R.drawable.vm_test_red))
+                .setSmallIcon(Icon.createWithResource(mPackage, R.drawable.vm_test_vector))
                 .build();
+        plain.extras.putParcelable(Notification.EXTRA_BUILDER_APPLICATION_INFO, appInfo());
         final StatusBarNotification plainSbn = new StatusBarNotification(mPackage, mPackage, 2, null,
                 Process.myUid(), 0, plain, Process.myUserHandle(), null, 0);
         assertSame(plainSbn, StoredIcons.forSystemReaders(plainSbn));

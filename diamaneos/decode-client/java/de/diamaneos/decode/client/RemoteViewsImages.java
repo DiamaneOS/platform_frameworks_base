@@ -372,6 +372,13 @@ final class RemoteViewsImages {
             mUnsafe = "draw instructions";
             return;
         }
+        if (o.getClass().getName().endsWith("$SetRemoteViewsAdapterIntent")) {
+            // A list whose items SystemUI would fetch from the app's service itself, unchecked. With
+            // remote_adapter_conversion on the system refuses to bind it anyway, and widgets send their items inside
+            // the update (SetRemoteCollectionItemListAdapterAction, walked like any nested views).
+            mUnsafe = "a collection served by the app's service";
+            return;
+        }
         if (sReflectionAction.isInstance(o) && sType.getInt(o) == sUriType) {
             visitUriAction(o);
             return;

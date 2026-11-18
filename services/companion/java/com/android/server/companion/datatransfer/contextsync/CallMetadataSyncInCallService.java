@@ -249,15 +249,23 @@ public class CallMetadataSyncInCallService extends InCallService {
         }
     }
 
-    // DiamaneOS: the calling app's icon is made in the protected VM without holding the call up, and the call is
-    // synced again once it is there, if it is still a current call.
+    // DiamaneOS: the calling app's icon is made in the protected VM without holding the call up, and the calls are
+    // synced again once it is there, if it is still a current call. Icons made close together share one sync.
     private void loadCallingAppIcon(CrossDeviceCall crossDeviceCall) {
         crossDeviceCall.loadCallingAppIcon(this, getMainExecutor(), () -> {
             if (mNumberOfActiveSyncAssociations > 0 && mCurrentCalls.containsValue(crossDeviceCall)) {
-                sync(getUserId());
+                getMainThreadHandler().removeCallbacks(mIconSync);
+                getMainThreadHandler().postDelayed(mIconSync, ICON_SYNC_DELAY_MS);
             }
         });
     }
+
+    private static final long ICON_SYNC_DELAY_MS = 250;
+    private final Runnable mIconSync = () -> {
+        if (mNumberOfActiveSyncAssociations > 0) {
+            sync(getUserId());
+        }
+    };
 
     private void sync(int userId) {
         mCdmsi.crossDeviceSync(userId, mCurrentCalls.values());

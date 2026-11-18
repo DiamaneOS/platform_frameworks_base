@@ -211,9 +211,8 @@ private fun getCustomAction(
             userId,
             packageName,
             ACTION_ICON_MAX_PX,
-        ) {
-            MediaIconReload.reloadPackage(packageName)
-        },
+            MediaIconReload.reloaderFor(packageName),
+        ),
         { controller.transportControls.sendCustomAction(customAction, customAction.extras) },
         customAction.name,
         null,
@@ -394,5 +393,16 @@ object MediaIconReload {
     /** An icon of a media session of [packageName] (not of a notification) was made. */
     fun reloadPackage(packageName: String) {
         packageListeners.forEach { it(packageName) }
+    }
+
+    private val reloaders = java.util.concurrent.ConcurrentHashMap<String, Runnable>()
+
+    /**
+     * The one callback per package for its session icons: an icon asked for by many actions tells it once, and one
+     * reload of the package follows. At most 64 packages are kept.
+     */
+    fun reloaderFor(packageName: String): Runnable {
+        if (reloaders.size > 64) reloaders.clear()
+        return reloaders.getOrPut(packageName) { Runnable { reloadPackage(packageName) } }
     }
 }

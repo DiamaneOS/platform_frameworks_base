@@ -25,7 +25,6 @@ import android.content.Context;
 import android.content.pm.PackageItemInfo;
 import android.content.pm.PackageManager.NameNotFoundException;
 import android.content.pm.ServiceInfo;
-import android.graphics.drawable.Drawable;
 import android.os.Process;
 import android.os.RemoteException;
 import android.os.UserManager;
@@ -351,15 +350,8 @@ public abstract class AbstractPerUserSystemService<S extends AbstractPerUserSyst
                 PackageItemInfo.SAFE_LABEL_FLAG_FIRST_LINE | PackageItemInfo.SAFE_LABEL_FLAG_TRIM);
     }
 
-    /**
-     * Gets the icon the service this service binds to, or {@code null} if the service is disabled.
-     */
-    @Nullable
-    @GuardedBy("mLock")
-    public final Drawable getServiceIconLocked() {
-        return mServiceInfo == null ? null
-                : mServiceInfo.loadIcon(getContext().getPackageManager());
-    }
+    // DiamaneOS: no getServiceIconLocked. It loaded the service's icon natively in the system server
+    // (PackageItemInfo.loadIcon). Callers load it without a native decode (LateImages in autofill).
 
     /**
      * Removes the service from the main service's cache.
