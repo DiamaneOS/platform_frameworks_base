@@ -34,14 +34,12 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
-import android.graphics.Bitmap;
-import android.graphics.drawable.Drawable;
+import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.UserHandle;
 
 import com.android.internal.R;
-import com.android.internal.util.ImageUtils;
 
 /** Displays an ongoing notification for a process displaying an alert window */
 class AlertWindowNotification {
@@ -127,13 +125,11 @@ class AlertWindowNotification {
                 .addExtras(extras)
                 .setContentIntent(getContentIntent(context, mPackageName));
 
-        if (aInfo != null) {
-            final Drawable drawable = pm.getApplicationIcon(aInfo);
-            int size = context.getResources().getDimensionPixelSize(android.R.dimen.app_icon_size);
-            final Bitmap bitmap = ImageUtils.buildScaledBitmap(drawable, size, size);
-            if (bitmap != null) {
-                builder.setLargeIcon(bitmap);
-            }
+        // DiamaneOS: only a reference to the app's icon goes into the notification. Loading it here would decode the
+        // app's image files natively in the system server, at a moment the app chooses: SystemUI draws it through
+        // its image gate, the files decoded in the protected VM.
+        if (aInfo != null && aInfo.icon != 0) {
+            builder.setLargeIcon(Icon.createWithResource(mPackageName, aInfo.icon));
         }
 
         mNotificationManager.notify(mNotificationTag, NOTIFICATION_ID, builder.build());

@@ -63,6 +63,8 @@ public final class ForeignIcons {
 
     // Icons being made in the background, or failed and waiting for their next try.
     private static final Backoff sMaking = new Backoff();
+    // Everyone waiting for an icon being made: all are told, not only the first.
+    private static final Waiters sWaiters = new Waiters();
     private static final Handler sMain = new Handler(Looper.getMainLooper());
 
     // Shortcut icons are adaptive icons of 108 dp: decoded at that size, so every place that shows one is sharp.
@@ -131,29 +133,11 @@ public final class ForeignIcons {
     // failure and never again for an image the VM refused. onMade runs on the main thread when it is made.
     private static void makeLater(Context context, Context user, Icon icon, int userId, String ownerPackage,
             int maxPx, Runnable onMade) {
-        final String key = VmIcons.cacheKey(icon, user, ownerPackage, maxPx + "x" + maxPx);
-        if (key == null || VmIcons.wasRejected(key) || !sMaking.start(key, SystemClock.uptimeMillis())) {
+        final String key = VmIcons.stableKey(VmIcons.cacheKey(icon, user, ownerPackage, maxPx + "x" + maxPx));
+        if (key == null || VmIcons.wasRejected(key)) {
             return;
         }
-        final ImageThreads.Task task = ImageThreads.execute(ownerPackage, () -> {
-            Drawable made = null;
-            try {
-                made = loadHere(context, icon, userId, ownerPackage, maxPx);
-            } catch (Throwable e) {
-                Log.w(TAG, "icon not made: " + e);
-            }
-            if (made != null) {
-                sMaking.succeeded(key);
-                if (onMade != null) {
-                    sMain.post(onMade);
-                }
-            } else {
-                sMaking.failed(key, SystemClock.uptimeMillis());
-            }
-        });
-        if (task == null) {
-            sMaking.failed(key, SystemClock.uptimeMillis());
-        }
+        later(ownerPackage, key, () -> loadHere(context, icon, userId, ownerPackage, maxPx), onMade);
     }
 
     /**
@@ -215,6 +199,15 @@ public final class ForeignIcons {
      */
     public static Icon shortcutIcon(Context context, LauncherApps launcherApps, ShortcutInfo shortcut, int maxPx,
             boolean mayWait) {
+        return shortcutIcon(context, launcherApps, shortcut, maxPx, mayWait, null);
+    }
+
+    /**
+     * {@link #shortcutIcon}: when it does not wait and the icon is not made yet, {@code onMade} (if not null) runs on
+     * the main thread once it is.
+     */
+    public static Icon shortcutIcon(Context context, LauncherApps launcherApps, ShortcutInfo shortcut, int maxPx,
+            boolean mayWait, Runnable onMade) {
         if (shortcut == null) {
             return null;
         }
@@ -228,7 +221,7 @@ public final class ForeignIcons {
                 if (bitmap == null) {
                     final Supplier<Bitmap> work =
                             () -> decodeShortcutFile(context, launcherApps, shortcut, key, maxPx);
-                    bitmap = wait ? onImageThread(owner, work) : later(owner, key, work);
+                    bitmap = wait ? onImageThread(owner, work) : later(owner, key, work, onMade);
                 }
                 if (bitmap == null) {
                     return null;
@@ -261,7 +254,8 @@ public final class ForeignIcons {
                 }
             };
             return wait ? onImageThread(owner, work)
-                    : later(owner, VmIcons.cacheKey(icon, user, owner, maxPx + "x" + maxPx), work);
+                    : later(owner, VmIcons.stableKey(VmIcons.cacheKey(icon, user, owner, maxPx + "x" + maxPx)), work,
+                            onMade);
         } catch (RuntimeException e) {
             // A locked user, a removed shortcut: no icon, the caller falls back.
             Log.w(TAG, "shortcut icon not loaded: " + e);
@@ -294,11 +288,17 @@ public final class ForeignIcons {
      */
     public static Drawable shortcutDrawableNoWait(Context context, LauncherApps launcherApps, ShortcutInfo shortcut,
             int maxPx) {
-        final Icon icon = shortcutIcon(context, launcherApps, shortcut, maxPx, false);
+        return shortcutDrawableNoWait(context, launcherApps, shortcut, maxPx, null);
+    }
+
+    /** {@link #shortcutDrawableNoWait}, and {@code onMade} runs on the main thread once what was missing is made. */
+    public static Drawable shortcutDrawableNoWait(Context context, LauncherApps launcherApps, ShortcutInfo shortcut,
+            int maxPx, Runnable onMade) {
+        final Icon icon = shortcutIcon(context, launcherApps, shortcut, maxPx, false, onMade);
         if (icon == null) {
             return null;
         }
-        return loadNoWait(context, icon, shortcut.getUserId(), shortcut.getPackage(), maxPx, null);
+        return loadNoWait(context, icon, shortcut.getUserId(), shortcut.getPackage(), maxPx, onMade);
     }
 
     private static Bitmap decodeShortcutFile(Context context, LauncherApps launcherApps, ShortcutInfo shortcut,
@@ -329,9 +329,14 @@ public final class ForeignIcons {
     }
 
     // Makes work's result on an image thread in the background (once at a time, with retries spaced out) and returns
-    // null now: the next call finds it in the cache.
-    private static <T> T later(String owner, String key, Supplier<T> work) {
-        if (key == null || !sMaking.start(key, SystemClock.uptimeMillis())) {
+    // null now: the next call finds it in the cache. Everyone who asked meanwhile with a callback is told on the main
+    // thread once it is made.
+    private static <T> T later(String owner, String key, Supplier<T> work, Runnable onMade) {
+        if (key == null) {
+            return null;
+        }
+        sWaiters.add(key, owner, null, onMade);
+        if (!sMaking.start(key, SystemClock.uptimeMillis())) {
             return null;
         }
         final ImageThreads.Task task = ImageThreads.execute(owner, () -> {
@@ -341,13 +346,22 @@ public final class ForeignIcons {
             } catch (Throwable e) {
                 Log.w(TAG, "icon not made: " + e);
             }
+            final java.util.List<Waiters.Waiter> waiters = sWaiters.take(key);
             if (made != null) {
                 sMaking.succeeded(key);
+                for (Waiters.Waiter w : waiters) {
+                    sMain.post(w.onMade);
+                }
             } else {
                 sMaking.failed(key, SystemClock.uptimeMillis());
             }
+        }, () -> {
+            // Gave way to another app's task: tried again when asked again.
+            sWaiters.take(key);
+            sMaking.failed(key, SystemClock.uptimeMillis());
         });
         if (task == null) {
+            sWaiters.take(key);
             sMaking.failed(key, SystemClock.uptimeMillis());
         }
         return null;

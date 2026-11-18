@@ -19,6 +19,7 @@ package android.widget;
 import static android.widget.RemoteViews.EXTRA_REMOTEADAPTER_APPWIDGET_ID;
 import static android.widget.RemoteViews.EXTRA_REMOTEADAPTER_ON_LIGHT_BACKGROUND;
 
+import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.WorkerThread;
 import android.app.IServiceConnection;
@@ -27,6 +28,7 @@ import android.appwidget.AppWidgetManager;
 import android.compat.annotation.UnsupportedAppUsage;
 import android.content.ComponentName;
 import android.content.Context;
+import android.content.ContextWrapper;
 import android.content.Intent;
 import android.content.ServiceConnection;
 import android.content.pm.ActivityInfo;
@@ -102,6 +104,8 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
     private static final int REMOTE_VIEWS_CACHE_DURATION = 5000;
 
     private final Context mContext;
+    // DiamaneOS: the host's check of each row the service sends, or null (see RowCheck).
+    private final @Nullable RowCheck mRowCheck;
     private final Intent mIntent;
     private final int mAppWidgetId;
     private final boolean mOnLightBackground;
@@ -153,6 +157,54 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
         void deferNotifyDataSetChanged();
 
         void setRemoteViewsAdapter(Intent intent, boolean isAsync);
+    }
+
+    /**
+     * DiamaneOS: a host that must not show anything of a widget's list before it is checked gives its views a
+     * context that implements this, anywhere in its chain of wrappers. Every row and the loading view the widget's
+     * RemoteViewsService sends are handed to it on this adapter's worker thread, before anything of them is applied
+     * or kept, and what it returns is used in their place. The loading view shows until a row comes back.
+     *
+     * @hide
+     */
+    public interface RowCheck {
+        /**
+         * The row to show for {@code row}, or null to show none. {@code position} is the row's position, or -1 for
+         * the loading view. Called on the adapter's worker thread, which may wait.
+         */
+        @Nullable
+        RemoteViews checkRow(@NonNull RemoteViews row, int position);
+    }
+
+    /**
+     * DiamaneOS: the {@link RowCheck} of {@code context} or of a context it wraps, or null.
+     *
+     * @hide
+     */
+    @Nullable
+    public static RowCheck rowCheckOf(@Nullable Context context) {
+        for (int depth = 0; context != null && depth < 32; depth++) {
+            if (context instanceof RowCheck) {
+                return (RowCheck) context;
+            }
+            context = context instanceof ContextWrapper ? ((ContextWrapper) context).getBaseContext() : null;
+        }
+        return null;
+    }
+
+    // DiamaneOS: what the service sent, as the host's check lets it through (see RowCheck). Null: not shown.
+    @WorkerThread
+    @Nullable
+    private RemoteViews checked(@Nullable RemoteViews views, int position) {
+        if (views == null || mRowCheck == null) {
+            return views;
+        }
+        try {
+            return mRowCheck.checkRow(views, position);
+        } catch (RuntimeException e) {
+            Log.e(TAG, "row " + position + " not checked, not shown", e);
+            return null;
+        }
     }
 
     public static class AsyncRemoteAdapterAction implements Runnable {
@@ -613,8 +665,12 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
 
         // Configuration for which the cache was created
         private final Configuration mConfiguration;
+        // DiamaneOS: the rows were checked by the host (see RowCheck).
+        private final boolean mRowsChecked;
 
-        FixedSizeRemoteViewsCache(int maxCacheSize, Configuration configuration) {
+        FixedSizeRemoteViewsCache(int maxCacheSize, Configuration configuration,
+                boolean rowsChecked) {
+            mRowsChecked = rowsChecked;
             mMaxCount = maxCacheSize;
             mMaxCountSlack = Math.round(sMaxCountSlackPercent * (mMaxCount / 2));
             mPreloadLowerBound = 0;
@@ -833,6 +889,7 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
     public RemoteViewsAdapter(Context context, Intent intent,
             RemoteAdapterConnectionCallback callback, boolean useAsyncLoader) {
         mContext = context;
+        mRowCheck = rowCheckOf(context);
         mIntent = intent;
 
         if (mIntent == null) {
@@ -868,9 +925,12 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
         synchronized(sCachedRemoteViewsCaches) {
             FixedSizeRemoteViewsCache cache = sCachedRemoteViewsCaches.get(key);
             Configuration config = context.getResources().getConfiguration();
+            // DiamaneOS: rows kept without the host's check are never shown by an adapter that checks them.
             if (cache == null
+                    || (mRowCheck != null && !cache.mRowsChecked)
                     || (cache.mConfiguration.diff(config) & CACHE_RESET_CONFIG_FLAGS) != 0) {
-                mCache = new FixedSizeRemoteViewsCache(DEFAULT_CACHE_SIZE, config);
+                mCache = new FixedSizeRemoteViewsCache(DEFAULT_CACHE_SIZE, config,
+                        mRowCheck != null);
             } else {
                 mCache = sCachedRemoteViewsCaches.get(key);
                 synchronized (mCache.mMetaData) {
@@ -951,9 +1011,9 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
             int viewTypeCount = factory.getViewTypeCount();
             int count = factory.getCount();
             LoadingViewTemplate loadingTemplate =
-                    new LoadingViewTemplate(factory.getLoadingView(), mContext);
+                    new LoadingViewTemplate(checked(factory.getLoadingView(), -1), mContext);
             if ((count > 0) && (loadingTemplate.remoteViews == null)) {
-                RemoteViews firstView = factory.getViewAt(0);
+                RemoteViews firstView = checked(factory.getViewAt(0), 0);
                 if (firstView != null) {
                     loadingTemplate.loadFirstViewHeight(firstView, mContext,
                             new HandlerThreadExecutor(mWorkerThread));
@@ -986,7 +1046,7 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
     private void updateRemoteViews(IRemoteViewsFactory factory, int position,
             boolean notifyWhenLoaded) {
         // Load the item information from the remote service
-        final RemoteViews remoteViews;
+        RemoteViews remoteViews;
         final long itemId;
         try {
             remoteViews = factory.getViewAt(position);
@@ -1000,6 +1060,11 @@ public class RemoteViewsAdapter extends BaseAdapter implements Handler.Callback 
 
             // Return early to prevent additional work in re-centering the view cache, and
             // swapping from the loading view
+            return;
+        }
+        // DiamaneOS: the row as the host's check lets it through. None: the loading view stays.
+        remoteViews = checked(remoteViews, position);
+        if (remoteViews == null) {
             return;
         }
 

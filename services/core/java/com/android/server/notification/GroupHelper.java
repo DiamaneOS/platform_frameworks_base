@@ -287,23 +287,17 @@ public class GroupHelper {
     NotificationAttributes getAutobundledSummaryAttributes(@NonNull String packageName,
             @NonNull List<NotificationAttributes> childrenAttr) {
         Icon newIcon = null;
-        boolean childrenHaveSameIcon = true;
         int newColor = Notification.COLOR_INVALID;
         boolean childrenHaveSameColor = true;
         int newVisibility = VISIBILITY_PRIVATE;
 
         // Both the icon drawable and the icon background color are updated according to this rule:
         // - if all child icons are identical => use the common icon
-        // - if child icons are different: use the monochromatic app icon, if exists.
-        // Otherwise fall back to a generic icon representing a stack.
+        // - if child icons are different: DiamaneOS: use the first child's icon (see below).
         for (NotificationAttributes state: childrenAttr) {
             // Check for icon
             if (newIcon == null) {
                 newIcon = state.icon;
-            } else {
-                if (!newIcon.sameAs(state.icon)) {
-                    childrenHaveSameIcon = false;
-                }
             }
             // Check for color
             if (newColor == Notification.COLOR_INVALID) {
@@ -318,7 +312,9 @@ public class GroupHelper {
                 newVisibility = VISIBILITY_PUBLIC;
             }
         }
-        if (!childrenHaveSameIcon) {
+        // DiamaneOS: when the children's icons differ, the summary keeps the small icon the app gave its first
+        // child (a reference, nothing is decoded here), which SystemUI draws through its image gate.
+        if (newIcon == null) {
             newIcon = getMonochromeAppIcon(packageName);
         }
         if (!childrenHaveSameColor) {
@@ -361,7 +357,7 @@ public class GroupHelper {
     Icon getMonochromeAppIcon(@NonNull final String pkg) {
         // DiamaneOS: the system server decodes nothing an app supplies. Loading the app's launcher icon here would
         // decode its image files natively, at a moment the app chooses, under the notification lock. The generic
-        // summary icon is used instead.
+        // summary icon is used, only for a summary without children.
         return Icon.createWithResource(mContext, R.drawable.ic_notification_summary_auto);
     }
 

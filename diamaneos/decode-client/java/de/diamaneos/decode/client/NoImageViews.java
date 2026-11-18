@@ -120,12 +120,19 @@ public final class NoImageViews {
     // inflaters), the display and whether it is a UI context from the caller's own context. A start that throws (no
     // new-task flag on a plain context) is logged, never thrown into the touch handling of the system server's UI
     // thread.
-    private static final class Starts extends ContextWrapper {
+    static final class Starts extends ContextWrapper {
         private final Context mStarts;
 
         Starts(Context gated, Context starts) {
             super(gated);
             mStarts = starts;
+        }
+
+        // The context for another user (the fill UI applies the views with one) keeps both parts.
+        @Override
+        public Context createContextAsUser(android.os.UserHandle user, int flags) {
+            return new Starts(getBaseContext().createContextAsUser(user, flags),
+                    mStarts.createContextAsUser(user, flags));
         }
 
         @Override

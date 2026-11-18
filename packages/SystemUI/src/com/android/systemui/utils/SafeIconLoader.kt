@@ -42,16 +42,17 @@ constructor(
 
     /**
      * Tries to load the icon. If it fails in any way (for example, cross user permissions), it will
-     * return `null`. Prefer calling this in a background thread.
+     * return `null`. Prefer calling this in a background thread. DiamaneOS: [onMade], if given, runs on the
+     * main thread once an image that was not made yet is made, so the caller can load it again.
      */
-    fun load(icon: Icon): Drawable? {
+    fun load(icon: Icon, onMade: Runnable? = null): Drawable? {
         // The URI grant is checked as before. Then nothing of the app is decoded here: URI and data icons in the
         // protected VM, the app's resources (also bitmap files inside its XML) through an image gate, made on an
-        // image thread for the app. No thread waits for it: what was made before, the rest from the next update.
+        // image thread for the app. No thread waits for it: what was made before, the rest once onMade runs.
         if (!ForeignIcons.uriGranted(icon, iUriGrantsManager, serviceUid, packageName)) {
             return null
         }
-        return ForeignIcons.loadNoWait(applicationContext, icon, userId, packageName, ICON_MAX_PX, null)
+        return ForeignIcons.loadNoWait(applicationContext, icon, userId, packageName, ICON_MAX_PX, onMade)
     }
 
     private companion object {

@@ -75,6 +75,7 @@ import androidx.core.math.MathUtils;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.systemui.people.data.model.PeopleTileModel;
 import com.android.systemui.people.widget.LaunchConversationActivity;
+import com.android.systemui.people.widget.PeopleSpaceWidgetManager;
 import com.android.systemui.people.widget.PeopleSpaceWidgetProvider;
 import com.android.systemui.people.widget.PeopleTileKey;
 import com.android.systemui.res.R;
@@ -767,7 +768,8 @@ public class PeopleTileViewHelper {
      Drawable resolveImage(Uri uri, Context context) throws IOException {
         // DiamaneOS: the image the conversation's app named is decoded in the protected VM on an image thread,
         // charged to that app, never in this process, at most as big as the tile shows it. This shared thread does
-        // not wait for it: until it is made the tile says that there is a new image, as when an image cannot load.
+        // not wait for it: until it is made the tile says that there is a new image, as when an image cannot load,
+        // and then the tiles are drawn again.
         final int widthInPx = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, mWidth,
                 mContext.getResources().getDisplayMetrics());
         final int heightInPx = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, mHeight,
@@ -775,7 +777,8 @@ public class PeopleTileViewHelper {
         final int maxPx = Math.max(1, Math.min(Math.max(widthInPx, heightInPx),
                 (int) (1.5 * Math.min(widthInPx, heightInPx))));
         final Drawable drawable = ForeignIcons.loadNoWait(context, Icon.createWithContentUri(uri),
-                context.getUserId(), mTile.getPackageName(), maxPx, null);
+                context.getUserId(), mTile.getPackageName(), maxPx,
+                PeopleSpaceWidgetManager::onTileImageMade);
         if (drawable == null) {
             throw new IOException("image not decoded");
         }

@@ -473,17 +473,25 @@ constructor(
                 // The conversation's shortcut icon is made on an image thread too.
                 lane = NotificationImageGate.Lane.NORMAL
             }
+            // A task that gave way to another app's (the lane was full and this app had the most waiting) is
+            // inflated at once, like a refused one.
+            val dropped = Runnable {
+                if (!isCancelled && status == AsyncTask.Status.PENDING) {
+                    urgentImages = false
+                    executeOnExecutor(inflationExecutor)
+                }
+            }
             when (lane) {
                 NotificationImageGate.Lane.NONE -> executeOnExecutor(inflationExecutor)
                 NotificationImageGate.Lane.URGENT -> {
                     urgentImages = true
-                    imageTask = ImageThreads.executeUrgent(sbn.packageName, run)
+                    imageTask = ImageThreads.executeUrgent(sbn.packageName, run, dropped)
                 }
-                else -> imageTask = ImageThreads.execute(sbn.packageName, run)
+                else -> imageTask = ImageThreads.execute(sbn.packageName, run, dropped)
             }
             if (lane != NotificationImageGate.Lane.NONE && imageTask == null) {
-                // Too many image tasks of this app are waiting: inflated at once, with only the images made
-                // before (nothing waits for the VM on the inflation thread).
+                // The image threads are full and this app has the most waiting: inflated at once, with only the
+                // images made before (nothing waits for the VM on the inflation thread).
                 urgentImages = false
                 executeOnExecutor(inflationExecutor)
             }

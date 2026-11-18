@@ -34,13 +34,14 @@ java_library {
     visibility: [
         "//frameworks/base/services/core",
         "//frameworks/base/services/autofill",
+        "//frameworks/base/services/companion",
         "//frameworks/base/packages/SystemUI:__subpackages__",
         "//frameworks/base/libs/WindowManager/Shell",
     ],
 }
 
 // The reply checks, the nine-patch chunk reader, the decode plan, the system image paths, the image caps, the per-app
-// quota and pixel pool and the retry waits are plain Java, tested on the host.
+// quota and pixel pool, the retry waits and the wallpaper box are plain Java, tested on the host.
 java_test_host {
     name: "diamaneos-decode-client-tests",
     srcs: [
@@ -53,6 +54,7 @@ java_test_host {
         "java/de/diamaneos/decode/client/OwnerQuota.java",
         "java/de/diamaneos/decode/client/StripeValidator.java",
         "java/de/diamaneos/decode/client/SystemImagePaths.java",
+        "java/de/diamaneos/decode/client/WallpaperBox.java",
     ],
     static_libs: ["junit"],
     test_options: {

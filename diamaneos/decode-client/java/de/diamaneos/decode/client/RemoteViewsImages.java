@@ -90,14 +90,6 @@ final class RemoteViewsImages {
 
         /** The bitmap icon for the image behind {@code uri}: never null, an empty bitmap when it cannot be made. */
         Icon convert(Uri uri);
-
-        /**
-         * True when a collection whose items an app's service sends later (a widget's RemoteViewsService) makes the
-         * views unsafe: those items would be applied without being checked.
-         */
-        default boolean refusesServiceCollections() {
-            return false;
-        }
     }
 
     // RemoteViews.ReflectionAction and the fields of a setImageViewUri action.
@@ -378,10 +370,6 @@ final class RemoteViewsImages {
         }
         if (o.getClass().getName().endsWith("$SetDrawInstructionAction")) {
             mUnsafe = "draw instructions";
-            return;
-        }
-        if (o.getClass().getName().endsWith("$SetRemoteViewsAdapterIntent") && mImages.refusesServiceCollections()) {
-            mUnsafe = "a collection served by the app's service";
             return;
         }
         if (sReflectionAction.isInstance(o) && sType.getInt(o) == sUriType) {

@@ -164,7 +164,9 @@ final class DecodeClient {
         final AtomicBoolean started = new AtomicBoolean();
         final Bound bound;
         try {
-            bound = connect(connectTimeout);
+            // A connect wait that the caller's own deadline cut short says nothing about the service.
+            bound = connect(connectTimeout, connectTimeout >= (waiting
+                    ? CONNECT_TIMEOUT_USER_WAITING_MS : CONNECT_TIMEOUT_BACKGROUND_MS));
         } catch (VmDecode.UnavailableException | RuntimeException e) {
             claimed.set(true);
             releaseSlot(lane);
@@ -197,6 +199,10 @@ final class DecodeClient {
             final T result = future.get(callTimeout, TimeUnit.MILLISECONDS);
             synchronized (mLock) {
                 mLastMissOwner = null;
+                if (bound.generation == mGeneration) {
+                    // The service of this binding answered: it is past its warm-up.
+                    mWarm = true;
+                }
             }
             return result;
         } catch (TimeoutException e) {
@@ -206,20 +212,27 @@ final class DecodeClient {
             future.cancel(true);
             // A service that took the call and then missed its own full deadline is not trusted to recover by itself:
             // drop the binding, the next call binds again. Calls it took that missed a deadline of at least
-            // WEDGE_MIN_DEADLINE_MS, from two different apps in a row with no success between, mean the same (a
-            // wedged service): it is also not asked for WEDGED_RETRY_MS. One app alone cannot trip that, nor can a
-            // short deadline an app's own budget left. Only the binding the call was made on is ever dropped. A call
-            // that only waited in the queue ends that call.
+            // WEDGE_MIN_DEADLINE_MS, from two different apps within WEDGE_WINDOW_MS with no success between, mean
+            // the same (a wedged service): it is also not asked for WEDGED_RETRY_MS. One app alone cannot trip that,
+            // nor can a short deadline an app's own budget left. Calls without an app (SystemUI's own image loader,
+            // the wallpaper) never count as an app of their own, and nothing counts before the service of a binding
+            // has answered once (a VM still starting is slow, not wedged). Only the binding the call was made on is
+            // ever dropped. A call that only waited in the queue ends that call.
             if (started.get()) {
                 if (callTimeout >= defaultCallTimeout) {
                     unbind(bound.generation);
-                } else if (callTimeout >= WEDGE_MIN_DEADLINE_MS) {
-                    boolean wedged;
+                } else if (callTimeout >= WEDGE_MIN_DEADLINE_MS && !lane.isEmpty()) {
+                    boolean wedged = false;
                     synchronized (mLock) {
-                        wedged = mLastMissOwner != null && !mLastMissOwner.equals(lane);
-                        mLastMissOwner = wedged ? null : lane;
-                        if (wedged && bound.generation == mGeneration) {
-                            mDownUntil = SystemClock.uptimeMillis() + WEDGED_RETRY_MS;
+                        if (mWarm && bound.generation == mGeneration) {
+                            final long now = SystemClock.uptimeMillis();
+                            wedged = mLastMissOwner != null && !mLastMissOwner.equals(lane)
+                                    && now - mLastMissAt <= WEDGE_WINDOW_MS;
+                            mLastMissOwner = wedged ? null : lane;
+                            mLastMissAt = now;
+                            if (wedged) {
+                                mDownUntil = now + WEDGED_RETRY_MS;
+                            }
                         }
                     }
                     if (wedged) {
@@ -281,11 +294,17 @@ final class DecodeClient {
     private int mGeneration; // guarded by mLock
     private boolean mBound; // a bind of the current generation returned true, guarded by mLock
     private String mLastMissOwner; // the app of the last missed deadline since a success, guarded by mLock
+    private long mLastMissAt; // when it was missed (uptime), guarded by mLock
+    // Two missed deadlines count together only within this time.
+    private static final long WEDGE_WINDOW_MS = 5_000;
+    private boolean mWarm; // the service of the current binding answered a call, guarded by mLock
     // A binding that never connects is dropped after this long, and bound anew on a later call.
     private static final long STALE_BIND_MS = 30_000;
     private long mBindStart; // uptime of the current bind, guarded by mLock
 
-    private Bound connect(long timeoutMs) throws VmDecode.UnavailableException {
+    // fullWait: timeoutMs is the whole connect timeout, not a part the caller's deadline left. Only a full wait that
+    // ends without a connection marks the service down.
+    private Bound connect(long timeoutMs, boolean fullWait) throws VmDecode.UnavailableException {
         boolean bind = false;
         int generation = 0;
         Connection connection = null;
@@ -300,6 +319,7 @@ final class DecodeClient {
             if (!mBinding) {
                 mBinding = true;
                 mBound = false;
+                mWarm = false;
                 generation = ++mGeneration;
                 connection = new Connection(generation);
                 mConnection = connection;
@@ -314,6 +334,7 @@ final class DecodeClient {
             // the one that binds. Only the bind runs with the identity cleared. The app stays the owner each decode
             // is charged to, as data in the request.
             boolean bound = false;
+            boolean tried = false;
             String why = "decode service did not bind";
             final long token = Binder.clearCallingIdentity();
             try {
@@ -321,6 +342,8 @@ final class DecodeClient {
                 if (intent == null) {
                     why = "no decode service in the system image";
                 } else {
+                    // Even a bind that fails or throws registered the connection: it is unbound below.
+                    tried = true;
                     bound = mContext.bindServiceAsUser(intent, connection,
                             Context.BIND_AUTO_CREATE | Context.BIND_IMPORTANT, mContext.getUser());
                 }
@@ -345,7 +368,7 @@ final class DecodeClient {
                     mBound = true;
                 }
             }
-            if (undo) {
+            if (undo || (tried && !bound)) {
                 unbindQuietly(connection);
             }
             if (!bound) {
@@ -361,7 +384,9 @@ final class DecodeClient {
                 }
                 final long left = end - SystemClock.uptimeMillis();
                 if (left <= 0) {
-                    mDownUntil = SystemClock.uptimeMillis() + DOWN_RETRY_MS;
+                    if (fullWait) {
+                        mDownUntil = SystemClock.uptimeMillis() + DOWN_RETRY_MS;
+                    }
                     // A binding that has not connected for STALE_BIND_MS is dropped, so a later try binds anew. A
                     // younger one is left alone: the service may still be starting its VM.
                     if (SystemClock.uptimeMillis() - mBindStart >= STALE_BIND_MS) {
