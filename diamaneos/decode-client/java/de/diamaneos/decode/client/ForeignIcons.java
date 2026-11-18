@@ -51,11 +51,10 @@ import java.util.function.Supplier;
  * image gate, its bitmap files decoded in the VM. The VM is only asked on the image threads, charged to the app that
  * handed the icon over ({@link ImageThreads}, {@link OwnerQuota}).
  *
- * <p>Three shapes. {@link #loadNoWait} never waits: what was made before, the rest made in the background and the
- * caller told when it is ready (the main thread and shared background threads). {@link #loadAsync} hands the result to
- * a callback. {@link #load} and {@link #safeIcon} wait for an image thread, for callers that have their own thread and
- * need the result now (the media pipeline, bubbles, the people widget): an icon that failed is not waited for again
- * until its retry time.
+ * <p>No caller waits for an image thread. Two shapes: {@link #loadNoWait} and {@link #safeIconNoWait} give what was
+ * made before and make the rest in the background, telling the caller when it is ready, and {@link #loadAsync} hands
+ * the result to a callback (suspending callers). An image the VM refused, or one that failed, is not made again until
+ * its retry time.
  */
 public final class ForeignIcons {
     private static final String TAG = "VmDecode";
@@ -64,8 +63,6 @@ public final class ForeignIcons {
 
     // Icons being made in the background, or failed and waiting for their next try.
     private static final Backoff sMaking = new Backoff();
-    // Icons a waiting caller could not get: not waited for again until their retry time.
-    private static final Backoff sFailed = new Backoff();
     private static final Handler sMain = new Handler(Looper.getMainLooper());
 
     // Shortcut icons are adaptive icons of 108 dp: decoded at that size, so every place that shows one is sharp.
@@ -125,104 +122,68 @@ public final class ForeignIcons {
         }
         final Drawable drawable = VmIcons.loadDrawableNoWait(icon, user, ownerPackage, maxPx);
         if (drawable == null) {
-            final String key = VmIcons.cacheKey(icon, user, ownerPackage, maxPx + "x" + maxPx);
-            if (key != null && sMaking.start(key, SystemClock.uptimeMillis())) {
-                ImageThreads.execute(ownerPackage, () -> {
-                    Drawable made = null;
-                    try {
-                        made = loadHere(context, icon, userId, ownerPackage, maxPx);
-                    } catch (Throwable e) {
-                        Log.w(TAG, "icon not made: " + e);
-                    }
-                    if (made != null) {
-                        sMaking.succeeded(key);
-                        if (onMade != null) {
-                            sMain.post(onMade);
-                        }
-                    } else {
-                        sMaking.failed(key, SystemClock.uptimeMillis());
-                    }
-                });
-            }
+            makeLater(context, user, icon, userId, ownerPackage, maxPx, onMade);
         }
         return drawable;
     }
 
-    /**
-     * {@code icon} as a drawable, waiting for an image thread (at most {@code WAIT_MS}), for a caller on a thread of its
-     * own that needs it now. On the main thread, or for an icon that failed and is not due again, only what was made
-     * before. Null when it cannot be made.
-     */
-    public static Drawable load(Context context, Icon icon, int userId, String ownerPackage, int maxPx) {
-        if (icon == null) {
-            return null;
+    // Decodes a URI or data icon in the VM on an image thread for the next time, once at a time, spaced out after a
+    // failure and never again for an image the VM refused. onMade runs on the main thread when it is made.
+    private static void makeLater(Context context, Context user, Icon icon, int userId, String ownerPackage,
+            int maxPx, Runnable onMade) {
+        final String key = VmIcons.cacheKey(icon, user, ownerPackage, maxPx + "x" + maxPx);
+        if (key == null || VmIcons.wasRejected(key) || !sMaking.start(key, SystemClock.uptimeMillis())) {
+            return;
         }
-        if (!needsWork(icon)) {
-            return icon.loadDrawable(context);
-        }
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            return loadNoWait(context, icon, userId, ownerPackage, maxPx, null);
-        }
-        final String key = failKey(context, icon, userId, ownerPackage, maxPx);
-        if (key != null && !sFailed.mayTry(key, SystemClock.uptimeMillis())) {
-            return loadNoWait(context, icon, userId, ownerPackage, maxPx, null);
-        }
-        final Drawable drawable = onImageThread(ownerPackage,
-                () -> loadHere(context, icon, userId, ownerPackage, maxPx));
-        if (key != null) {
-            if (drawable != null) {
-                sFailed.succeeded(key);
+        final ImageThreads.Task task = ImageThreads.execute(ownerPackage, () -> {
+            Drawable made = null;
+            try {
+                made = loadHere(context, icon, userId, ownerPackage, maxPx);
+            } catch (Throwable e) {
+                Log.w(TAG, "icon not made: " + e);
+            }
+            if (made != null) {
+                sMaking.succeeded(key);
+                if (onMade != null) {
+                    sMain.post(onMade);
+                }
             } else {
-                sFailed.failed(key, SystemClock.uptimeMillis());
+                sMaking.failed(key, SystemClock.uptimeMillis());
             }
+        });
+        if (task == null) {
+            sMaking.failed(key, SystemClock.uptimeMillis());
         }
-        return drawable;
     }
 
     /**
-     * Like {@link #load}, as an Icon that never needs a decode of the app's bytes when it is loaded later: pixels as
-     * they are, a URI or data icon as a bitmap icon from the VM, an app resource icon as a copy that loads through the
-     * image gate (its images made). Null when it cannot be made. For callers that keep an Icon (the media pipeline).
+     * {@code icon} as an Icon that never needs a decode of the app's bytes when it is loaded later, without waiting:
+     * pixels as they are, a URI or data icon as a bitmap icon the VM made before, an app resource icon as a copy that
+     * loads through the image gate (its images made). Null while it is being made: {@code onMade} runs on the main
+     * thread once it is. For callers that keep an Icon (the media pipeline).
      */
-    public static Icon safeIcon(Context context, Icon icon, int userId, String ownerPackage, int maxPx) {
+    public static Icon safeIconNoWait(Context context, Icon icon, int userId, String ownerPackage, int maxPx,
+            Runnable onMade) {
         if (icon == null || !needsWork(icon)) {
             return icon;
         }
-        final boolean main = Looper.myLooper() == Looper.getMainLooper();
         if (icon.getType() == Icon.TYPE_RESOURCE) {
-            if (!main) {
-                onImageThread(ownerPackage, () -> {
-                    final ImageBudget budget = NotificationImageGate.budgetFor(ownerPackage);
-                    try {
-                        return AppIcons.loadOnImageThread(context, icon, userId, ownerPackage, budget);
-                    } finally {
-                        NotificationImageGate.settle(ownerPackage, budget, false);
-                    }
-                });
-            }
-            return AppIcons.forViewOrNull(context, icon, userId, ownerPackage, null);
+            return AppIcons.forViewOrNull(context, icon, userId, ownerPackage, onMade);
         }
         final Context user = userContext(context, userId);
         if (user == null) {
             return null;
         }
         final Icon cached = VmIcons.cachedSafeIcon(icon, user, ownerPackage, maxPx, maxPx);
-        if (cached != null || main) {
-            return cached;
+        if (cached == null) {
+            makeLater(context, user, icon, userId, ownerPackage, maxPx, onMade);
         }
-        return onImageThread(ownerPackage, () -> {
-            final ImageBudget budget = NotificationImageGate.budgetFor(ownerPackage);
-            try {
-                return budget.expired() ? null : VmIcons.toSafeIcon(icon, user, ownerPackage, maxPx,
-                        VmDecode.deadlineIn(budget.remainingMs()));
-            } finally {
-                NotificationImageGate.settle(ownerPackage, budget, false);
-            }
-        });
+        return cached;
     }
 
     /**
-     * Like {@link #load}, without waiting: {@code onLoaded} gets the drawable, or null, on {@code executor}.
+     * {@code icon} made on an image thread: {@code onLoaded} gets the drawable, or null, on {@code executor}. For
+     * callers that suspend until it is there.
      */
     public static void loadAsync(Context context, Icon icon, int userId, String ownerPackage, int maxPx,
             Executor executor, Consumer<Drawable> onLoaded) {
@@ -230,7 +191,7 @@ public final class ForeignIcons {
             executor.execute(() -> onLoaded.accept(null));
             return;
         }
-        ImageThreads.execute(ownerPackage, () -> {
+        final ImageThreads.Task task = ImageThreads.execute(ownerPackage, () -> {
             Drawable drawable = null;
             try {
                 drawable = loadHere(context, icon, userId, ownerPackage, maxPx);
@@ -240,20 +201,9 @@ public final class ForeignIcons {
             final Drawable result = drawable;
             executor.execute(() -> onLoaded.accept(result));
         });
-    }
-
-    /**
-     * A context whose resources, and every package context made from it, load an app's bitmap files through an image
-     * gate that asks the VM on any thread but the main thread, within one image budget from now, charged to
-     * {@code ownerPackage}. For code that loads another app's drawables by ID on a background thread of its own (mode
-     * icons). On the main thread such files are empty unless made before.
-     */
-    public static Context gatedContext(Context context, String ownerPackage, int userId) {
-        final android.util.DisplayMetrics metrics = context.getResources().getDisplayMetrics();
-        final AppResourceImages gate = new AppResourceImages(context, ownerPackage, userId, new ImageBudget(),
-                Math.max(1, Math.min(metrics.widthPixels, metrics.heightPixels)),
-                Math.max(1, Math.min(metrics.widthPixels, metrics.heightPixels)), true);
-        return VmImageContext.wrap(context, gate);
+        if (task == null) {
+            executor.execute(() -> onLoaded.accept(null));
+        }
     }
 
     /**
@@ -323,7 +273,7 @@ public final class ForeignIcons {
     public static void shortcutIconAsync(Context context, LauncherApps launcherApps, ShortcutInfo shortcut,
             int maxPx, Executor executor, Consumer<Icon> onLoaded) {
         final String owner = shortcut == null ? "" : shortcut.getPackage();
-        ImageThreads.execute(owner, () -> {
+        final ImageThreads.Task task = ImageThreads.execute(owner, () -> {
             Icon icon = null;
             try {
                 icon = shortcutIcon(context, launcherApps, shortcut, maxPx, true);
@@ -333,19 +283,22 @@ public final class ForeignIcons {
             final Icon result = icon;
             executor.execute(() -> onLoaded.accept(result));
         });
+        if (task == null) {
+            executor.execute(() -> onLoaded.accept(null));
+        }
     }
 
     /**
-     * {@link #shortcutIcon} as a drawable, for a worker thread of its own that may wait (bubbles, the people widget).
-     * Null when it cannot be made.
+     * {@link #shortcutIcon} as a drawable, never waiting: what was made before (the shortcut's icon, then its images),
+     * the rest made in the background for the next time. Null while it is being made.
      */
-    public static Drawable shortcutDrawable(Context context, LauncherApps launcherApps, ShortcutInfo shortcut,
+    public static Drawable shortcutDrawableNoWait(Context context, LauncherApps launcherApps, ShortcutInfo shortcut,
             int maxPx) {
-        final Icon icon = shortcutIcon(context, launcherApps, shortcut, maxPx, true);
+        final Icon icon = shortcutIcon(context, launcherApps, shortcut, maxPx, false);
         if (icon == null) {
             return null;
         }
-        return load(context, icon, shortcut.getUserId(), shortcut.getPackage(), maxPx);
+        return loadNoWait(context, icon, shortcut.getUserId(), shortcut.getPackage(), maxPx, null);
     }
 
     private static Bitmap decodeShortcutFile(Context context, LauncherApps launcherApps, ShortcutInfo shortcut,
@@ -381,7 +334,7 @@ public final class ForeignIcons {
         if (key == null || !sMaking.start(key, SystemClock.uptimeMillis())) {
             return null;
         }
-        ImageThreads.execute(owner, () -> {
+        final ImageThreads.Task task = ImageThreads.execute(owner, () -> {
             T made = null;
             try {
                 made = work.get();
@@ -394,16 +347,10 @@ public final class ForeignIcons {
                 sMaking.failed(key, SystemClock.uptimeMillis());
             }
         });
-        return null;
-    }
-
-    // The key a failed wait is remembered by: per user, owner and image.
-    private static String failKey(Context context, Icon icon, int userId, String ownerPackage, int maxPx) {
-        if (icon.getType() == Icon.TYPE_RESOURCE) {
-            return "res:" + userId + ':' + ownerPackage + ':' + icon.getResPackage() + ':' + icon.getResId();
+        if (task == null) {
+            sMaking.failed(key, SystemClock.uptimeMillis());
         }
-        final Context user = userContext(context, userId);
-        return user == null ? null : VmIcons.cacheKey(icon, user, ownerPackage, maxPx + "x" + maxPx);
+        return null;
     }
 
     // On an image thread: the icon made within the app's quota.
@@ -443,6 +390,9 @@ public final class ForeignIcons {
                 result.complete(null);
             }
         });
+        if (task == null) {
+            return null;
+        }
         try {
             return result.get(WAIT_MS, TimeUnit.MILLISECONDS);
         } catch (TimeoutException | ExecutionException e) {

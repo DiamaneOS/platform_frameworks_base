@@ -131,11 +131,14 @@ final class WallpaperVmSanitizer {
     }
 
     /**
-     * Makes {@code source} clean in the VM, scaled to fit {@code maxWidth} x {@code maxHeight} (the service scales by
-     * any factor, down to its pixel limit). Call on a worker thread: it waits for the VM. Never deletes
+     * Makes {@code source} clean in the VM at display size: scaled so that {@code crop} (the crop hints, in the
+     * original's stored pixels, the whole image when null or empty) just covers a display of {@code displayWidth} x
+     * {@code displayHeight} in either orientation, never larger than the original (the service scales by any factor,
+     * down to its pixel limit). The crop Android makes from it under its lock is then cheap. The original stays beside
+     * it as the app gave it, never decoded on Android. Call on a worker thread: it waits for the VM. Never deletes
      * {@code source}: on any failure it stays as it is and is simply not decoded.
      */
-    Outcome sanitize(File source, int maxWidth, int maxHeight) {
+    Outcome sanitize(File source, int displayWidth, int displayHeight, Rect crop) {
         if (!source.isFile()) {
             return new Outcome(Result.REJECTED);
         }
@@ -147,8 +150,10 @@ final class WallpaperVmSanitizer {
         try {
             original = VmDecode.probeFile(mContext, source, "", VmDecode.PRIORITY_USER_WAITING,
                     VmDecode.NO_DEADLINE);
-            decoded = VmDecode.decodeFile(mContext, source, "", VmDecode.PRIORITY_USER_WAITING, maxWidth,
-                    maxHeight, VmDecode.NO_DEADLINE);
+            final int side = boxSide(original.getWidth(), original.getHeight(), displayWidth, displayHeight,
+                    crop);
+            decoded = VmDecode.decodeFile(mContext, source, "", VmDecode.PRIORITY_USER_WAITING, side, side,
+                    VmDecode.NO_DEADLINE);
         } catch (VmDecode.UnavailableException e) {
             Slog.w(TAG, "VM not available for " + source.getName() + ": " + e.getMessage());
             return new Outcome(Result.UNAVAILABLE);
@@ -200,6 +205,43 @@ final class WallpaperVmSanitizer {
             tmp.delete();
             bitmap.recycle();
         }
+    }
+
+    /**
+     * The side of the square box asked of the VM: the original's longest side scaled so that {@code crop} covers the
+     * display in either orientation (the turn the file asks for is only known after the decode), never above the
+     * original and within the contract's limit. A square box keeps the picture's shape whatever the turn.
+     */
+    static int boxSide(int width, int height, int displayWidth, int displayHeight, Rect crop) {
+        if (width <= 0 || height <= 0) {
+            return Math.max(1, Math.min(Math.max(displayWidth, displayHeight), VmDecode.MAX_BOX));
+        }
+        final Rect c = crop == null ? new Rect() : new Rect(crop);
+        if (c.isEmpty() || !c.intersect(0, 0, width, height) || c.isEmpty()) {
+            c.set(0, 0, width, height);
+        }
+        final double cw = c.width();
+        final double ch = c.height();
+        final double scale = Math.min(1.0, Math.max(
+                Math.max(displayWidth / cw, displayHeight / ch),
+                Math.max(displayWidth / ch, displayHeight / cw)));
+        final long side = (long) Math.ceil(Math.max(width, height) * scale);
+        return (int) Math.max(1, Math.min(side, VmDecode.MAX_BOX));
+    }
+
+    /** All crop hints of {@code wallpaper} together, in the original's stored pixels, or null when it has none. */
+    static Rect cropUnion(WallpaperData wallpaper) {
+        final Rect union = new Rect();
+        if (wallpaper.cropHint != null && !wallpaper.cropHint.isEmpty()) {
+            union.union(wallpaper.cropHint);
+        }
+        for (int i = 0; wallpaper.mCropHints != null && i < wallpaper.mCropHints.size(); i++) {
+            final Rect r = wallpaper.mCropHints.valueAt(i);
+            if (r != null && !r.isEmpty()) {
+                union.union(r);
+            }
+        }
+        return union.isEmpty() ? null : union;
     }
 
     /**

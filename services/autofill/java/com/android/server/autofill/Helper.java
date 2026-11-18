@@ -63,8 +63,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-import de.diamaneos.decode.client.NoImageViews;
-
 public final class Helper {
 
     private static final String TAG = "AutofillHelper";
@@ -119,15 +117,6 @@ public final class Helper {
      * TODO(b/280116881): remove this method once support_multi_user_multi_display is enabled.
      */
     @RequiresPermission(INTERACT_ACROSS_USERS)
-    /**
-     * DiamaneOS: the context to apply an autofill service's views with: {@link #getUserContext}, with resources whose
-     * bitmap files of apps outside the system image come out empty (nothing of the service's images is decoded in the
-     * system server, and nothing waits for the VM on its threads).
-     */
-    public static Context userContextForViews(Context context) {
-        return NoImageViews.context(getUserContext(context));
-    }
-
     public static Context getUserContext(Context context) {
         int userId = ActivityManager.getCurrentUser();
         Context c = context.createContextAsUser(UserHandle.of(userId), /* flags= */ 0);
@@ -162,15 +151,8 @@ public final class Helper {
             Slog.w(TAG,
                     "sanitizeRemoteView() user: " + userId
                     + " tried accessing resource that does not belong to them");
-            return null;
         }
-        // DiamaneOS: the service's URI and data images are never decoded in the system server: a copy with empty
-        // images instead (apply it with a context from userContextForViews). Null when the views cannot be checked.
-        final RemoteViews withoutImages = NoImageViews.withoutImages(rView);
-        if (withoutImages == null) {
-            Slog.w(TAG, "sanitizeRemoteView(): views that cannot be checked are not shown");
-        }
-        return withoutImages;
+        return (ok ? rView : null);
     }
 
     /**

@@ -292,12 +292,9 @@ public class PolicyWarningUIController {
                         final CharSequence displayName =
                                 a11yServiceInfo.getResolveInfo().serviceInfo.loadLabel(
                                         mContext.getPackageManager());
-                        final Drawable drawable = a11yServiceInfo.getResolveInfo().loadIcon(
-                                mContext.getPackageManager());
-                        final int size = mContext.getResources().getDimensionPixelSize(
-                                android.R.dimen.app_icon_size);
-                        sendNotification(userId, componentName, displayName,
-                                ImageUtils.buildScaledBitmap(drawable, size, size));
+                        // DiamaneOS: the service's icon is not loaded here, that would decode its image files
+                        // natively in the system server. The warning shows without it.
+                        sendNotification(userId, componentName, displayName, null);
                         return true;
                     }
                     break;

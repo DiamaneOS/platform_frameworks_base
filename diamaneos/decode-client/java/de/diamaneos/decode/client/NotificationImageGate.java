@@ -115,6 +115,13 @@ public final class NotificationImageGate {
     private final ImageBudget mBudget;
     private final AppResourceImages mResources;
     private final RemoteViewsImages.Images mLayoutImages = new LayoutImages();
+    // A widget's views: the same, and a collection the app's service fills later is refused.
+    private final RemoteViewsImages.Images mWidgetImages = new LayoutImages() {
+        @Override
+        public boolean refusesServiceCollections() {
+            return true;
+        }
+    };
     private Context mAppContext; // the gated context of the posting app, once made
     private boolean mLayoutsAllowed;
     private boolean mStrip; // remove every app image, decode nothing
@@ -127,7 +134,7 @@ public final class NotificationImageGate {
     private int mLayoutResourceIcons;
     private int mPrewarmDrawables;
     private int mPrewarmLayouts;
-    private int mPeopleIcons;
+    private final java.util.Set<String> mPeopleIconKeys = new java.util.HashSet<>();
 
     private NotificationImageGate(Context context, String ownerPackage, int userId, int iconPx, int pictureWidth,
             int pictureHeight, ImageBudget budget, boolean reserved, AppResourceImages previous) {
@@ -220,9 +227,8 @@ public final class NotificationImageGate {
      * The lane for {@code n} posted by {@code ownerPackage} ({@code uid}) for {@code userId}. Cheap: reads the
      * notification and what is known about its icons, loads nothing. NONE when no app image needs an image thread:
      * pixels, framework icons and app resource icons known to name no bitmap file of the app. URGENT only for what
-     * the app cannot claim for itself: a system process, a call or alarm of an app on the system image, or a call
-     * style of a foreground service whose app telecom reports in a self-managed call. {@code context} is SystemUI's
-     * (its configuration picks the resources).
+     * the app cannot claim for itself: a system process, or a call or alarm of an app on the system image.
+     * {@code context} is SystemUI's (its configuration picks the resources).
      */
     public static Lane lane(Context context, Notification n, String ownerPackage, int uid, int userId) {
         try {
@@ -237,34 +243,18 @@ public final class NotificationImageGate {
         return isUrgent(context, n, ownerPackage, uid, userId) ? Lane.URGENT : Lane.NORMAL;
     }
 
-    // Only what an app cannot claim for itself. A full-screen intent no longer counts: on this build any app that
-    // lists USE_FULL_SCREEN_INTENT holds it, and an old target SDK needs nothing. A system process, a call or an alarm
-    // of an app on the system image (the phone, the clock), or a call style of a foreground service whose app
-    // telecom reports in a call it manages itself.
+    // Only what an app cannot claim for itself: a system process, or a call or an alarm of an app on the system
+    // image (the phone, the clock). Nothing an app can set or a normal permission can give counts: not a category,
+    // a call person, a full-screen intent (on this build any app that lists USE_FULL_SCREEN_INTENT holds it), a
+    // foreground service, or a self-managed call (MANAGE_OWN_CALLS is a normal permission). No binder call here.
     private static boolean isUrgent(Context context, Notification n, String ownerPackage, int uid, int userId) {
         if (UserHandle.getAppId(uid) < Process.FIRST_APPLICATION_UID) {
             return true;
         }
-        final boolean callStyle = n.isStyle(Notification.CallStyle.class);
-        final boolean callOrAlarm = callStyle || Notification.CATEGORY_CALL.equals(n.category)
+        final boolean callOrAlarm = n.isStyle(Notification.CallStyle.class)
+                || Notification.CATEGORY_CALL.equals(n.category)
                 || Notification.CATEGORY_ALARM.equals(n.category);
-        if (!callOrAlarm) {
-            return false;
-        }
-        if (isSystemImageApp(n)) {
-            return true;
-        }
-        if (!callStyle || (n.flags & Notification.FLAG_FOREGROUND_SERVICE) == 0) {
-            return false;
-        }
-        try {
-            final android.telecom.TelecomManager telecom =
-                    context.getSystemService(android.telecom.TelecomManager.class);
-            return telecom != null && userId >= 0
-                    && telecom.isInSelfManagedCall(ownerPackage, UserHandle.of(userId));
-        } catch (Throwable e) {
-            return false;
-        }
+        return callOrAlarm && isSystemImageApp(n);
     }
 
     // The posting app is on the system image, as the notification service recorded it in the notification.
@@ -490,6 +480,26 @@ public final class NotificationImageGate {
             mLayoutsAllowed = false;
             return packageContext;
         }
+    }
+
+    /**
+     * A checked copy of {@code views} (a widget's), its images re-made like a notification's custom layout, or null
+     * when it cannot be checked. Call {@link #packageContext} first. On an image thread the VM is asked.
+     */
+    public RemoteViews layoutCopy(RemoteViews views) {
+        if (views == null) {
+            return null;
+        }
+        final RemoteViews copy = views.clone();
+        return mLayoutsAllowed && RemoteViewsImages.convert(copy, mWidgetImages) ? copy : null;
+    }
+
+    /** Makes ahead, on an image thread, the app resource images {@code views} (a {@link #layoutCopy}) will load. */
+    public void prewarmViews(RemoteViews views, Context packageContext) {
+        if (!mLayoutsAllowed || mStrip || views == null || !decodes()) {
+            return;
+        }
+        prewarm(views, packageContext, new java.util.HashSet<>());
     }
 
     /** What this notification spent, for tests and logs. */
@@ -883,13 +893,32 @@ public final class NotificationImageGate {
         if (person == null || !needsGate(person.getIcon())) {
             return person;
         }
-        // At most MAX_PEOPLE_ICONS people and senders keep an app image: past that, the person shows without one.
-        final Icon icon = ++mPeopleIcons > MAX_PEOPLE_ICONS ? null : safe(person.getIcon(), mIconPx);
-        return person.toBuilder().setIcon(icon).build();
+        // At most MAX_PEOPLE_ICONS different images of people and senders: past that, a person with another one shows
+        // without it. The same sender in many messages counts once.
+        if (mPeopleIconKeys.add(personIconKey(person.getIcon())) && mPeopleIconKeys.size() > MAX_PEOPLE_ICONS) {
+            return person.toBuilder().setIcon(null).build();
+        }
+        return person.toBuilder().setIcon(safe(person.getIcon(), mIconPx)).build();
     }
 
     private Icon safe(Icon icon, int px) {
         return safe(icon, px, px);
+    }
+
+    // What makes two people's images the same image: the resource, the URI, or the bytes.
+    private String personIconKey(Icon icon) {
+        switch (icon.getType()) {
+            case Icon.TYPE_RESOURCE:
+                return "r:" + icon.getResPackage() + ':' + icon.getResId();
+            case Icon.TYPE_URI:
+            case Icon.TYPE_URI_ADAPTIVE_BITMAP:
+                return "u:" + icon.getUri();
+            case Icon.TYPE_DATA:
+                final String key = VmIcons.cacheKey(icon, mContext, mOwner, "p");
+                return key != null ? key : "d:" + System.identityHashCode(icon);
+            default:
+                return "o:" + System.identityHashCode(icon);
+        }
     }
 
     // An icon of the standard fields: a URI or data icon decoded in the VM within the notification's time, an app
@@ -961,7 +990,7 @@ public final class NotificationImageGate {
     }
 
     /** The images inside the app's layouts: every one counted against the layout caps. */
-    private final class LayoutImages implements RemoteViewsImages.Images {
+    private class LayoutImages implements RemoteViewsImages.Images {
         @Override
         public boolean needsWork(Icon icon) {
             if (icon == null) {

@@ -231,6 +231,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
+import de.diamaneos.decode.client.NoImageViews;
+
 /**
  * A session for a given activity.
  *
@@ -5653,7 +5655,20 @@ final class Session
         final Drawable serviceIcon;
         synchronized (this.mService.mLock) {
             serviceLabel = mService.getServiceLabelLocked();
-            serviceIcon = mService.getServiceIconLocked();
+            // DiamaneOS: the service's icon without decoding its image files here (a vector or a file of the
+            // system image), else a blank one.
+            final ServiceInfo serviceInfo = mService.getServiceInfo();
+            final long token = Binder.clearCallingIdentity();
+            Drawable icon = null;
+            try {
+                icon = serviceInfo == null ? null : NoImageViews.packageDrawable(
+                        mService.getMaster().getContext(), mService.getServicePackageName(),
+                        mService.getUserId(), serviceInfo.getIconResource());
+            } finally {
+                Binder.restoreCallingIdentity(token);
+            }
+            serviceIcon = icon != null ? icon
+                    : new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT);
         }
         if (serviceLabel == null || serviceIcon == null) {
             wtf(null, "onFillReady(): no service label or icon");
@@ -5957,25 +5972,23 @@ final class Session
     @GuardedBy("mLock")
     private Drawable getServiceIcon(FillResponse response) {
         Drawable serviceIcon = null;
-        // Try to get the custom Icon, if one was passed through FillResponse
-        int iconResourceId = response.getIconResourceId();
-        if (iconResourceId != 0) {
-            long token = Binder.clearCallingIdentity();
-            try {
-                serviceIcon =
-                        mService.getMaster()
-                                .getContext()
-                                .getPackageManager()
-                                .getDrawable(
-                                        mService.getServicePackageName(), iconResourceId, null);
-            } finally {
-                Binder.restoreCallingIdentity(token);
+        // DiamaneOS: the service's icons are loaded without decoding its image files in the system server: a vector
+        // (or a file of the system image) shows, a bitmap file of the service gives no icon.
+        final Context context = mService.getMaster().getContext();
+        final String servicePackage = mService.getServicePackageName();
+        long token = Binder.clearCallingIdentity();
+        try {
+            // Try to get the custom Icon, if one was passed through FillResponse
+            serviceIcon = NoImageViews.packageDrawable(context, servicePackage,
+                    mService.getUserId(), response.getIconResourceId());
+            // Custom icon wasn't fetched, use the default service icon instead
+            final ServiceInfo serviceInfo = mService.getServiceInfo();
+            if (serviceIcon == null && serviceInfo != null) {
+                serviceIcon = NoImageViews.packageDrawable(context, servicePackage,
+                        mService.getUserId(), serviceInfo.getIconResource());
             }
-        }
-
-        // Custom icon wasn't fetched, use the default package icon instead
-        if (serviceIcon == null) {
-            serviceIcon = mService.getServiceIconLocked();
+        } finally {
+            Binder.restoreCallingIdentity(token);
         }
 
         return serviceIcon;

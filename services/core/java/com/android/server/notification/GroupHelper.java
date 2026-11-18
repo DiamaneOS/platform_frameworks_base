@@ -359,25 +359,10 @@ public class GroupHelper {
      */
     @NonNull
     Icon getMonochromeAppIcon(@NonNull final String pkg) {
-        Icon monochromeIcon = null;
-        final int fallbackIconResId = R.drawable.ic_notification_summary_auto;
-        try {
-            final Drawable appIcon = mPackageManager.getApplicationIcon(pkg);
-            if (appIcon instanceof AdaptiveIconDrawable) {
-                if (((AdaptiveIconDrawable) appIcon).getMonochrome() != null) {
-                    monochromeIcon = Icon.createWithResourceAdaptiveDrawable(pkg,
-                            ((AdaptiveIconDrawable) appIcon).getSourceDrawableResId(), true,
-                            -2.0f * AdaptiveIconDrawable.getExtraInsetFraction());
-                }
-            }
-        } catch (NameNotFoundException e) {
-            Slog.e(TAG, "Failed to getApplicationIcon() in getMonochromeAppIcon()", e);
-        }
-        if (monochromeIcon != null) {
-            return monochromeIcon;
-        } else {
-            return Icon.createWithResource(mContext, fallbackIconResId);
-        }
+        // DiamaneOS: the system server decodes nothing an app supplies. Loading the app's launcher icon here would
+        // decode its image files natively, at a moment the app chooses, under the notification lock. The generic
+        // summary icon is used instead.
+        return Icon.createWithResource(mContext, R.drawable.ic_notification_summary_auto);
     }
 
     /**

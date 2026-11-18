@@ -481,6 +481,12 @@ constructor(
                 }
                 else -> imageTask = ImageThreads.execute(sbn.packageName, run)
             }
+            if (lane != NotificationImageGate.Lane.NONE && imageTask == null) {
+                // Too many image tasks of this app are waiting: inflated at once, with only the images made
+                // before (nothing waits for the VM on the inflation thread).
+                urgentImages = false
+                executeOnExecutor(inflationExecutor)
+            }
         }
 
         /**

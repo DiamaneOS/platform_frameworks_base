@@ -203,13 +203,15 @@ private fun getCustomAction(
     @UserIdInt userId: Int,
 ): MediaAction {
     return MediaAction(
-        // The media app's resource: through an image gate, its bitmap files decoded in the protected VM.
-        ForeignIcons.load(
+        // The media app's resource: through an image gate, its bitmap files decoded in the protected VM on an image
+        // thread. Nothing waits here: what is not made yet shows from the next update of the session.
+        ForeignIcons.loadNoWait(
             context,
             Icon.createWithResource(packageName, customAction.icon),
             userId,
             packageName,
             ACTION_ICON_MAX_PX,
+            /* onMade= */ null,
         ),
         { controller.transportControls.sendCustomAction(customAction, customAction.extras) },
         customAction.name,
@@ -277,8 +279,10 @@ fun createActionsFromNotification(
 
             // The original notification's action icon: pixels as they are, URI and data icons decoded in the
             // protected VM, the app's resources through an image gate. Never decoded here.
+            // Nothing waits here: an icon not made yet is made on an image thread, then the notification is loaded
+            // again (MediaIconReload).
             val mediaActionIcon =
-                ForeignIcons.load(
+                ForeignIcons.loadNoWait(
                     context,
                     when (action.getIcon().type) {
                             Icon.TYPE_RESOURCE ->
@@ -289,7 +293,9 @@ fun createActionsFromNotification(
                     sbn.normalizedUserId,
                     sbn.packageName,
                     ACTION_ICON_MAX_PX,
-                )
+                ) {
+                    MediaIconReload.reload(sbn)
+                }
 
             val mediaAction =
                 MediaNotificationAction(
@@ -359,3 +365,21 @@ private fun sendPendingIntent(intent: PendingIntent): Boolean {
 
 /** The most a media action icon of an app is decoded to. */
 private const val ACTION_ICON_MAX_PX = 256
+
+/**
+ * Asks the media pipeline to load a media notification again once an icon of it (an action icon, the app icon, the
+ * artwork) was made on an image thread: nothing in the pipeline waits for one.
+ */
+object MediaIconReload {
+    private val listeners =
+        java.util.concurrent.CopyOnWriteArrayList<(android.service.notification.StatusBarNotification) -> Unit>()
+
+    /** Called with the notification whose icon was made, on the main thread. */
+    fun addListener(listener: (android.service.notification.StatusBarNotification) -> Unit) {
+        listeners += listener
+    }
+
+    fun reload(sbn: android.service.notification.StatusBarNotification) {
+        listeners.forEach { it(sbn) }
+    }
+}

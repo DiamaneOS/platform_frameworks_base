@@ -185,6 +185,7 @@ class MediaDataProcessor(
         }
 
     override fun start() {
+        MediaIconReload.addListener { reloadForIcon(it) }
         if (!SceneContainerFlag.isEnabled && !MediaControlsInComposeFlag.isEnabled) {
             return
         }
@@ -210,6 +211,7 @@ class MediaDataProcessor(
     }
 
     fun onNotificationAdded(key: String, sbn: StatusBarNotification) {
+        latestSbn[key] = sbn
         if (useQsMediaPlayer && isMediaNotification(sbn)) {
             var isNewlyActiveEntry = false
             var isConvertingToActive = false
@@ -528,10 +530,24 @@ class MediaDataProcessor(
     /**
      * The media notification's small icon or large icon (the original's, as the loader reads them) as an Icon that
      * never needs a decode of the app's bytes in SystemUI: pixels as they are, URI and data icons decoded in the
-     * protected VM, the app's resources through an image gate. This background thread may wait for the image thread.
+     * protected VM, the app's resources through an image gate. Nothing waits here: an icon not made yet is made on an
+     * image thread, and the notification is loaded again then.
      */
     private fun safeMediaIcon(icon: Icon?, sbn: StatusBarNotification, px: Int): Icon? =
-        ForeignIcons.safeIcon(context, icon, sbn.normalizedUserId, sbn.packageName, px)
+        ForeignIcons.safeIconNoWait(context, icon, sbn.normalizedUserId, sbn.packageName, px) {
+            MediaIconReload.reload(sbn)
+        }
+
+    // The last notification seen per key: a reload after an icon was made is done only while it is still current.
+    private val latestSbn = java.util.concurrent.ConcurrentHashMap<String, StatusBarNotification>()
+
+    private fun reloadForIcon(sbn: StatusBarNotification) {
+        foregroundExecutor.execute {
+            if (latestSbn[sbn.key] === sbn) {
+                onNotificationAdded(sbn.key, sbn)
+            }
+        }
+    }
 
     private fun artworkPx(): Int =
         context.resources.displayMetrics.let { minOf(it.widthPixels, it.heightPixels) }.coerceAtLeast(1)
@@ -673,6 +689,7 @@ class MediaDataProcessor(
         }
 
     fun onNotificationRemoved(key: String) {
+        latestSbn.remove(key)
         Assert.isMainThread()
         val removed = mediaDataRepository.removeMediaEntry(key) ?: return
         if (keyguardUpdateMonitor.isUserInLockdown(removed.userId)) {

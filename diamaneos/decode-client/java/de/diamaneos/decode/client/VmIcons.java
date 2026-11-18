@@ -251,7 +251,14 @@ public final class VmIcons {
                 cachePut(key, bitmap);
             }
             return bitmap;
-        } catch (VmDecode.UnavailableException | VmDecode.RejectedException e) {
+        } catch (VmDecode.RejectedException e) {
+            // Refused by the VM (broken, unsupported, hostile): not worth asking again.
+            if (key != null) {
+                sRejected.put(key, Boolean.TRUE);
+            }
+            Log.w(TAG, "icon not decoded, placeholder shown: " + e.getMessage());
+            return null;
+        } catch (VmDecode.UnavailableException e) {
             Log.w(TAG, "icon not decoded, placeholder shown: " + e.getMessage());
             return null;
         }
@@ -313,9 +320,23 @@ public final class VmIcons {
             return null;
         }
         final String key = cacheKey(icon, context, ownerPackage, maxWidth + "x" + maxHeight);
-        final Bitmap bitmap = key == null ? null : sCache.get(key);
+        Bitmap bitmap = key == null ? null : sCache.get(key);
+        if (bitmap == null && icon.getType() != Icon.TYPE_DATA) {
+            // A URI decode of the window just before is still good: no flicker when a rebuild crosses a window.
+            final String previous = uriKey(icon, context, ownerPackage, maxWidth + "x" + maxHeight,
+                    SystemClock.uptimeMillis() / URI_CACHE_MS - 1);
+            bitmap = sCache.get(previous);
+        }
         return bitmap == null ? null
                 : iconLike(icon, bitmap, icon.getType() == Icon.TYPE_URI_ADAPTIVE_BITMAP);
+    }
+
+    // URI and data icons the VM refused, by cache key: not asked for again (retries skip them).
+    private static final LruCache<String, Boolean> sRejected = new LruCache<>(256);
+
+    /** True when the VM refused the image behind {@code key} (a broken or unsupported file). */
+    static boolean wasRejected(String key) {
+        return key != null && sRejected.get(key) != null;
     }
 
     // URI icons by user, owner and URI (as SystemUI's own image caches do), data icons by a hash of their bytes.
@@ -333,8 +354,11 @@ public final class VmIcons {
                 return null;
             }
         }
-        // The content behind a URI can change: a decode is reused for at most URI_CACHE_MS.
-        return "uri:" + context.getUserId() + ':' + ownerPackage + ':' + icon.getUri() + ':' + box + ":t"
-                + SystemClock.uptimeMillis() / URI_CACHE_MS;
+        // The content behind a URI can change: a decode is reused for at most two windows of URI_CACHE_MS.
+        return uriKey(icon, context, ownerPackage, box, SystemClock.uptimeMillis() / URI_CACHE_MS);
+    }
+
+    private static String uriKey(Icon icon, Context context, String ownerPackage, String box, long window) {
+        return "uri:" + context.getUserId() + ':' + ownerPackage + ':' + icon.getUri() + ':' + box + ":t" + window;
     }
 }

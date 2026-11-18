@@ -99,7 +99,14 @@ public final class ImageThreads {
         return Thread.currentThread() instanceof ImageThread;
     }
 
-    /** Runs {@code task} on a normal image thread, after the earlier tasks of {@code owner}. */
+    /** Tasks one app may have waiting in a lane, and all apps together: past that, a new task is refused. */
+    public static final int MAX_QUEUED_PER_OWNER = 32;
+    public static final int MAX_QUEUED = 256;
+
+    /**
+     * Runs {@code task} on a normal image thread, after the earlier tasks of {@code owner}. Null when the task is
+     * refused because too many are waiting (for that app, or for all): the caller goes on without the image thread.
+     */
     public static Task execute(String owner, Runnable task) {
         return NORMAL.add(owner, task);
     }
@@ -115,6 +122,7 @@ public final class ImageThreads {
         private final int mThreads;
         private int mStarted; // guarded by this
         private int mIdle; // guarded by this
+        private int mQueued; // tasks waiting, guarded by this
         // Pending work per app, in the order the apps first asked.
         private final Map<String, ArrayDeque<Task>> mQueues = new LinkedHashMap<>(); // guarded by this
         private final Set<String> mRunning = new HashSet<>(); // guarded by this
@@ -128,7 +136,13 @@ public final class ImageThreads {
             final Task task = new Task(this, owner == null ? "" : owner, runnable);
             int start = -1;
             synchronized (this) {
+                final ArrayDeque<Task> queue = mQueues.get(task.mOwner);
+                if ((queue != null && queue.size() >= MAX_QUEUED_PER_OWNER) || mQueued >= MAX_QUEUED) {
+                    Log.w(TAG, "too many image tasks waiting, refused for " + task.mOwner);
+                    return null;
+                }
                 mQueues.computeIfAbsent(task.mOwner, k -> new ArrayDeque<>()).add(task);
+                mQueued++;
                 if (mIdle == 0 && mStarted < mThreads) {
                     start = mStarted++;
                 } else {
@@ -144,8 +158,8 @@ public final class ImageThreads {
 
         synchronized void remove(Task task) {
             final ArrayDeque<Task> queue = mQueues.get(task.mOwner);
-            if (queue != null) {
-                queue.remove(task);
+            if (queue != null && queue.remove(task)) {
+                mQueued--;
             }
         }
 
@@ -167,6 +181,7 @@ public final class ImageThreads {
                     }
                     final ArrayDeque<Task> queue = entry.getValue();
                     final Task task = queue.poll();
+                    mQueued--;
                     mRunning.add(owner);
                     // The app goes to the back of the line.
                     it.remove();

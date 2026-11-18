@@ -450,8 +450,13 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
                 // A newer image replaced this one: its own task handles it.
                 return;
             }
-            final int[] box = vmBox();
-            final WallpaperVmSanitizer.Outcome outcome = mVmSanitizer.sanitize(source, box[0], box[1]);
+            final Point display = largestDisplaySize();
+            final Rect crop;
+            synchronized (mLock) {
+                crop = wallpaper == null ? null : WallpaperVmSanitizer.cropUnion(wallpaper);
+            }
+            final WallpaperVmSanitizer.Outcome outcome =
+                    mVmSanitizer.sanitize(source, display.x, display.y, crop);
             switch (outcome.result) {
                 case CLEAN:
                     if (outcome.remade && wallpaper != null) {
@@ -483,15 +488,24 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
     }
 
     /**
-     * The box asked of the VM for a wallpaper: twice the longest side of the default display (room for crops and
-     * parallax), within the contract's limits. The service scales by any factor and keeps to its pixel limit.
+     * The largest size the default display can have (all its sizes, a fold's inner and outer screen included): the VM
+     * makes the clean copy just big enough to cover it, so the crop that follows under the lock is cheap.
      */
-    private int[] vmBox() {
-        final android.view.DisplayInfo info =
-                mWallpaperDisplayHelper.getDisplayInfo(android.view.Display.DEFAULT_DISPLAY);
-        int side = info == null ? 4096 : 2 * Math.max(info.logicalWidth, info.logicalHeight);
-        side = Math.max(1, Math.min(side, de.diamaneos.decode.client.VmDecode.MAX_BOX));
-        return new int[] {side, side};
+    private Point largestDisplaySize() {
+        final SparseArray<Point> sizes = mWallpaperDisplayHelper.getDefaultDisplaySizes();
+        Point largest = null;
+        for (int i = 0; sizes != null && i < sizes.size(); i++) {
+            final Point size = sizes.valueAt(i);
+            if (largest == null || (long) size.x * size.y > (long) largest.x * largest.y) {
+                largest = size;
+            }
+        }
+        if (largest == null) {
+            final android.view.DisplayInfo info =
+                    mWallpaperDisplayHelper.getDisplayInfo(android.view.Display.DEFAULT_DISPLAY);
+            largest = info == null ? new Point(2048, 2048) : new Point(info.logicalWidth, info.logicalHeight);
+        }
+        return new Point(Math.max(1, largest.x), Math.max(1, largest.y));
     }
 
     /**

@@ -103,8 +103,9 @@ public class CrossDeviceCall {
                     .getApplicationInfoAsUser(mCallingAppPackageName,
                             PackageManager.ApplicationInfoFlags.of(0), mUserId);
             mCallingAppName = packageManager.getApplicationLabel(applicationInfo).toString();
-            mCallingAppIcon = BitmapUtils.renderDrawableToByteArray(
-                    packageManager.getApplicationIcon(applicationInfo));
+            // DiamaneOS: the app's icon is not loaded here: that would decode its image files natively in the
+            // system server. The companion device gets no icon for the app.
+            mCallingAppIcon = null;
         } catch (PackageManager.NameNotFoundException e) {
             Slog.e(TAG, "Could not get application info for package " + mCallingAppPackageName, e);
         }

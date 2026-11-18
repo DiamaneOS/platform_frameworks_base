@@ -28,6 +28,7 @@ import android.app.Notification;
 import android.app.Person;
 import android.content.Context;
 import android.content.ContextWrapper;
+import android.content.Intent;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
@@ -912,6 +913,105 @@ public class RemoteViewsImagesDeviceTest {
             assertEquals("android", onMain(() -> AppIcons.forView(mContext, data, mContext.getUserId(),
                     mPackage, null)).getResPackage());
         }
+    }
+
+    @Test
+    public void noImageViews_linksGoToTheCallersContext_andNothingThrows() {
+        final List<Intent> started = new ArrayList<>();
+        final Context base = new ContextWrapper(mContext) {
+            @Override
+            public void startActivity(Intent intent) {
+                started.add(intent);
+                throw new android.util.AndroidRuntimeException("no new-task flag");
+            }
+        };
+        final Context context = NoImageViews.context(base);
+        // A tapped link (URLSpan) starts an activity on the view's context: the caller's wrapper gets it, and its
+        // exception does not reach the touch handling.
+        context.startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://example.org")));
+        assertEquals(1, started.size());
+        // System services come from the caller's own context.
+        assertSame(base.getSystemService(android.view.WindowManager.class),
+                context.getSystemService(android.view.WindowManager.class));
+    }
+
+    @Test
+    public void noImageViews_stripInPlace_andPackageDrawables() {
+        final RemoteViews views = new RemoteViews(mPackage, R.layout.vm_test_probe);
+        views.setImageViewIcon(R.id.vm_probe, oracleIcon(4444));
+        assertTrue(NoImageViews.stripInPlace(views, null));
+        assertTrue(RemoteViewsImages.icons(views).stream().allMatch(
+                i -> i.getType() == Icon.TYPE_BITMAP && i.getBitmap().getWidth() == 1));
+        // Views that cannot be checked: refused.
+        final RemoteViews other = new RemoteViews(mPackage, R.layout.vm_test_probe);
+        final Bundle data = new Bundle();
+        data.putCharSequence(Notification.EXTRA_TITLE, "t");
+        other.setBundle(R.id.vm_probe, "setSomethingElse", data);
+        assertFalse(NoImageViews.stripInPlace(views, other));
+        // A vector of an app loads, its PNG does not.
+        assertNotNull(NoImageViews.packageDrawable(mContext, mPackage, mContext.getUserId(),
+                R.drawable.vm_test_vector));
+        assertNull(NoImageViews.packageDrawable(mContext, mPackage, mContext.getUserId(), R.drawable.vm_test_red));
+    }
+
+    @Test
+    public void imageThreads_refusePastTheQueueCapPerApp() throws Exception {
+        final CountDownLatch release = new CountDownLatch(1);
+        final List<ImageThreads.Task> tasks = new ArrayList<>();
+        try {
+            tasks.add(ImageThreads.execute("app.queue", () -> {
+                try {
+                    release.await(10, TimeUnit.SECONDS);
+                } catch (InterruptedException ignored) {
+                    // Ends the task.
+                }
+            }));
+            Thread.sleep(200);
+            for (int i = 0; i < ImageThreads.MAX_QUEUED_PER_OWNER; i++) {
+                assertNotNull(ImageThreads.execute("app.queue", () -> { }));
+            }
+            assertNull(ImageThreads.execute("app.queue", () -> { }));
+            // Another app is not refused.
+            final ImageThreads.Task other = ImageThreads.execute("app.other.queue", () -> { });
+            assertNotNull(other);
+        } finally {
+            release.countDown();
+        }
+    }
+
+    @Test
+    public void widgetImages_checkedCopy_serviceCollectionsRefused() throws Exception {
+        final WidgetImages widget = onMain(() -> new WidgetImages(mContext));
+        widget.setApp(mPackage, mContext.getUserId());
+        final RemoteViews views = new RemoteViews(mPackage, R.layout.vm_test_probe);
+        views.setImageViewIcon(R.id.vm_probe, oracleIcon(4545));
+        final CountDownLatch done = new CountDownLatch(1);
+        final AtomicReference<RemoteViews> checked = new AtomicReference<>();
+        widget.prepare(views, Runnable::run, v -> {
+            checked.set(v);
+            done.countDown();
+        });
+        assertTrue(done.await(10, TimeUnit.SECONDS));
+        assertNotNull(checked.get());
+        for (Icon icon : RemoteViewsImages.icons(checked.get())) {
+            // Pixels from the VM, or empty without it: never the app's bytes.
+            assertEquals(Icon.TYPE_BITMAP, icon.getType());
+        }
+        // The original is not changed.
+        assertEquals(Icon.TYPE_DATA, RemoteViewsImages.icons(views).get(0).getType());
+        // A list filled later by the app's service would be applied unchecked: not shown.
+        final RemoteViews list = new RemoteViews(mPackage, R.layout.vm_test_probe);
+        list.setRemoteAdapter(R.id.vm_probe, new Intent("x").setPackage(mPackage));
+        final CountDownLatch refused = new CountDownLatch(1);
+        final AtomicReference<RemoteViews> listChecked = new AtomicReference<>(views);
+        widget.prepare(list, Runnable::run, v -> {
+            listChecked.set(v);
+            refused.countDown();
+        });
+        assertTrue(refused.await(10, TimeUnit.SECONDS));
+        assertNull(listChecked.get());
+        // The host context keeps the caller's theme and resources.
+        assertSame(mContext.getTheme(), widget.context().getTheme());
     }
 
     @Test

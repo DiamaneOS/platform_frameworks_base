@@ -416,7 +416,9 @@ public class BubbleViewInfoTask {
                 // decoded in the protected VM, never here. The bubble's own icon holds only pixels or framework
                 // icons (see Bubble).
                 if (info.shortcutInfo != null) {
-                    bubbleDrawable = ForeignIcons.shortcutDrawable(c,
+                    // Made on an image thread, this shared thread does not wait for it: until then the bubble
+                    // shows the app icon.
+                    bubbleDrawable = ForeignIcons.shortcutDrawableNoWait(c,
                             c.getSystemService(LauncherApps.class), info.shortcutInfo,
                             ForeignIcons.shortcutPx(c));
                 } else if (b.getIcon() != null) {

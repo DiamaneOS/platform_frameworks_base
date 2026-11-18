@@ -356,14 +356,20 @@ constructor(
         val size = context.resources.getDimensionPixelSize(R.dimen.min_clickable_item_size)
         // TODO(b/360196209): check customAction.icon field to use platform icons
         if (customAction.iconResId != 0) {
-            // The media app's resource: through an image gate, its bitmap files decoded in the protected VM.
-            return ForeignIcons.load(
-                context,
-                Icon.createWithResource(packageName, customAction.iconResId),
-                context.userId,
-                packageName,
-                size,
-            )
+            // The media app's resource: through an image gate, its bitmap files decoded in the protected VM on an
+            // image thread. This coroutine suspends, no thread waits.
+            return suspendCancellableCoroutine<Drawable?> { cont ->
+                ForeignIcons.loadAsync(
+                    context,
+                    Icon.createWithResource(packageName, customAction.iconResId),
+                    context.userId,
+                    packageName,
+                    size,
+                    { it.run() },
+                ) {
+                    cont.resume(it)
+                }
+            }
         }
 
         if (customAction.iconUri != null) {
@@ -384,13 +390,15 @@ constructor(
         val size = context.resources.getDimensionPixelSize(R.dimen.min_clickable_item_size)
         // TODO(b/360196209): check customAction.icon field to use platform icons
         if (customAction.iconResId != 0) {
-            // The media app's resource: through an image gate, its bitmap files decoded in the protected VM.
-            return ForeignIcons.load(
+            // The media app's resource: through an image gate, its bitmap files decoded in the protected VM on an
+            // image thread. Nothing waits here: what is not made yet shows from the next update.
+            return ForeignIcons.loadNoWait(
                 context,
                 Icon.createWithResource(packageName, customAction.iconResId),
                 context.userId,
                 packageName,
                 size,
+                /* onMade= */ null,
             )
         }
 

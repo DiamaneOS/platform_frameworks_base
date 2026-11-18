@@ -428,7 +428,9 @@ final class SaveUi {
         writeLog(MetricsEvent.AUTOFILL_SAVE_CUSTOM_DESCRIPTION);
         // DiamaneOS: the service's views are applied with resources whose app bitmap files come out empty.
         final Context viewContext = NoImageViews.context(context);
-        final RemoteViews template = Helper.sanitizeRemoteView(customDescription.getPresentation());
+        // DiamaneOS: a copy without the service's URI and data images (null when it cannot be checked).
+        final RemoteViews template = NoImageViews.withoutImages(
+                Helper.sanitizeRemoteView(customDescription.getPresentation()));
         if (template == null) {
             Slog.w(TAG, "No remote view on custom description");
             return false;
@@ -491,8 +493,8 @@ final class SaveUi {
                     }
                     final BatchUpdates batchUpdates = pair.second;
                     // First apply the updates...
-                    final RemoteViews templateUpdates =
-                            Helper.sanitizeRemoteView(batchUpdates.getUpdates());
+                    final RemoteViews templateUpdates = NoImageViews.withoutImages(
+                            Helper.sanitizeRemoteView(batchUpdates.getUpdates()));
                     if (templateUpdates != null) {
                         if (sDebug) Slog.d(TAG, "Applying template updates for batch update #" + i);
                         templateUpdates.reapply(viewContext, customSubtitleView);

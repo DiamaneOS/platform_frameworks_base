@@ -756,8 +756,9 @@ public class PeopleSpaceWidgetManager implements Dumpable {
         if (label != null) {
             updatedTile.setUserName(label);
         }
-        // The shortcut's icon file, URI or resource is decoded in the protected VM, never here.
-        Icon icon = PeopleSpaceTile.convertDrawableToIcon(ForeignIcons.shortcutDrawable(mContext,
+        // The shortcut's icon file, URI or resource is decoded in the protected VM on an image thread, never here.
+        // This shared thread does not wait for it: until it is made the tile keeps the icon it has.
+        Icon icon = PeopleSpaceTile.convertDrawableToIcon(ForeignIcons.shortcutDrawableNoWait(mContext,
                 mLauncherApps, info, ForeignIcons.shortcutPx(mContext)));
         if (icon != null) {
             updatedTile.setUserIcon(icon);

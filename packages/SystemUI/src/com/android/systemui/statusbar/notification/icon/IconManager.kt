@@ -151,8 +151,11 @@ constructor(
     // avatar can be a sender's or the shortcut's icon).
     private fun usesAppResourceIcon(entry: NotificationEntry): Boolean {
         val n = entry.sbn.notification
+        // URI and data icons are decoded at a size from the density: rebuilt on a change too.
         return AppIcons.isAppResource(n.smallIcon) ||
             AppIcons.isAppResource(n.getLargeIcon()) ||
+            VmIcons.needsVm(n.smallIcon) ||
+            VmIcons.needsVm(n.getLargeIcon()) ||
             entry.ranking.conversationShortcutInfo != null ||
             n.extras.containsKey(Notification.EXTRA_MESSAGES)
     }
@@ -165,6 +168,8 @@ constructor(
 
             override fun onEntryCleanUp(entry: NotificationEntry) {
                 entry.removeOnSensitivityChangedListener(sensitivityListener)
+                // Icon retries still to come for it are dropped (they would keep the entry).
+                AppIcons.cancelRetries(entry.key)
             }
 
             override fun onRankingApplied() {
@@ -521,7 +526,7 @@ constructor(
      * until an image thread has made its image, after which the entry's icons are built again.
      */
     private fun appIcon(icon: Icon, entry: NotificationEntry): Icon =
-        AppIcons.forView(shadeContext, icon, entry.sbn.normalizedUserId, entry.sbn.packageName) {
+        AppIcons.forView(shadeContext, icon, entry.sbn.normalizedUserId, entry.sbn.packageName, entry.key) {
             if (notifCollection.getEntry(entry.key) === entry) {
                 updateIconsSafe(entry)
             }
@@ -626,7 +631,11 @@ constructor(
     ): Boolean {
         val usedInSensitiveContext =
             iconView === entry.icons.shelfIcon || iconView === entry.icons.aodIcon
-        val isSmallIcon = iconDescriptor.icon.equals(entry.sbn.notification.smallIcon)
+        // The descriptor holds the icon as AppIcons gave it (a gated copy, or the same pixels): compared by content.
+        val smallIcon = entry.sbn.notification.smallIcon
+        val isSmallIcon =
+            iconDescriptor.icon === smallIcon ||
+                (smallIcon != null && iconDescriptor.icon?.sameAs(smallIcon) == true)
         return isImportantConversation(entry) &&
             !isSmallIcon &&
             (!usedInSensitiveContext || !entry.isSensitive.value)

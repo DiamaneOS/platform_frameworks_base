@@ -626,12 +626,9 @@ public class NotificationShellCmd extends ShellCommand {
                     if (pictureAsIcon == null) {
                         throw new IllegalArgumentException("bad picture spec: " + pictureSpec);
                     }
-                    final Drawable d = pictureAsIcon.loadDrawable(context);
-                    if (d instanceof BitmapDrawable) {
-                        bigPictureStyle.bigPicture(((BitmapDrawable) d).getBitmap());
-                    } else {
-                        throw new IllegalArgumentException("not a bitmap: " + pictureSpec);
-                    }
+                    // DiamaneOS: handed to the notification as an Icon, never decoded in the system server.
+                    // SystemUI decodes it in the protected VM (file paths are not opened there).
+                    bigPictureStyle.bigPicture(pictureAsIcon);
                     break;
                 case "--line":
                     if (inboxStyle == null) {

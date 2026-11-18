@@ -114,8 +114,8 @@ constructor(
         var failedToLoad = false
         // The tile's icon and its default icon (from the tile app's manifest) are made without decoding the app's
         // bytes here: URI and data icons in the protected VM, the app's resources through an image gate, on an image
-        // thread. This shared thread never waits: what is not made yet shows from the tile's next update. A URI the
-        // app may not read is refused as before.
+        // thread. This shared thread never waits: once an icon is made the tile's data is read again
+        // (CustomTileIconsMade) and it shows. A URI the app may not read is refused as before.
         val drawable: Drawable? =
             try {
                 icon
@@ -129,8 +129,9 @@ constructor(
                             userContext.userId,
                             packageName,
                             TILE_ICON_MAX_PX,
-                            /* onMade= */ null,
-                        )
+                        ) {
+                            CustomTileIconsMade.made(packageName)
+                        }
                     }
             } catch (e: Exception) {
                 failedToLoad = true
@@ -143,8 +144,9 @@ constructor(
                         userContext.userId,
                         packageName,
                         TILE_ICON_MAX_PX,
-                        /* onMade= */ null,
-                    )
+                    ) {
+                        CustomTileIconsMade.made(packageName)
+                    }
                 }
         return IconResult(
             drawable?.constantState?.newDrawable()?.let {
@@ -159,4 +161,22 @@ constructor(
     private companion object {
         const val TILE_ICON_MAX_PX = 256
     }
+}
+
+/** Tells the custom tiles of an app that one of its icons was made on an image thread, so they map again. */
+object CustomTileIconsMade {
+    private val made =
+        kotlinx.coroutines.flow.MutableSharedFlow<String>(
+            extraBufferCapacity = 16,
+            onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST,
+        )
+
+    fun made(packageName: String) {
+        made.tryEmit(packageName)
+    }
+
+    fun madeFor(packageName: String): kotlinx.coroutines.flow.Flow<Unit> =
+        kotlinx.coroutines.flow.flow {
+            made.collect { if (it == packageName) emit(Unit) }
+        }
 }

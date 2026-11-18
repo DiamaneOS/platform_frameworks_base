@@ -129,20 +129,35 @@ public final class AppIcons {
      * (pixels, the framework's) come back as they are. {@code context} is SystemUI's.
      */
     public static Icon forView(Context context, Icon icon, int userId, String ownerPackage, Runnable onMade) {
+        return forView(context, icon, userId, ownerPackage, null, onMade);
+    }
+
+    /**
+     * {@link #forView} for a caller that names what the icon is shown for ({@code tag}, a notification's key): a
+     * retry still waiting for it is dropped by {@link #cancelRetries}.
+     */
+    public static Icon forView(Context context, Icon icon, int userId, String ownerPackage, String tag,
+            Runnable onMade) {
         if (icon == null) {
             return null;
         }
-        final Icon shown = forViewOrNull(context, icon, userId, ownerPackage, onMade);
+        final Icon shown = forViewOrNull(context, icon, userId, ownerPackage, tag, onMade);
         return shown != null ? shown : neutral();
     }
 
     /** {@link #forView}, with null where it would give the neutral icon (the caller has a better fallback). */
     public static Icon forViewOrNull(Context context, Icon icon, int userId, String ownerPackage, Runnable onMade) {
+        return forViewOrNull(context, icon, userId, ownerPackage, null, onMade);
+    }
+
+    /** {@link #forView} with {@code tag}, and null where it would give the neutral icon. */
+    public static Icon forViewOrNull(Context context, Icon icon, int userId, String ownerPackage, String tag,
+            Runnable onMade) {
         if (icon == null) {
             return null;
         }
         if (VmIcons.needsVm(icon)) {
-            return vmIcon(context, icon, userId, ownerPackage, onMade);
+            return vmIcon(context, icon, userId, ownerPackage, tag, onMade);
         }
         if (!isAppResource(icon)) {
             return icon;
@@ -158,7 +173,7 @@ public final class AppIcons {
         }
         final String retryKey = gated.key + ':' + gated.configKey + ':' + icon.getResId();
         if (sRetry.start(retryKey, SystemClock.uptimeMillis())) {
-            make(context, gated, copy, ownerPackage, retryKey, onMade);
+            make(context, gated, copy, ownerPackage, retryKey, tag, onMade);
         }
         return null;
     }
@@ -169,7 +184,8 @@ public final class AppIcons {
     }
 
     // A URI or data icon: what the VM made of it, else null while an image thread makes it.
-    private static Icon vmIcon(Context context, Icon icon, int userId, String ownerPackage, Runnable onMade) {
+    private static Icon vmIcon(Context context, Icon icon, int userId, String ownerPackage, String tag,
+            Runnable onMade) {
         final Context user = userContext(context, userId);
         if (user == null) {
             return null;
@@ -181,30 +197,57 @@ public final class AppIcons {
         }
         final String key = VmIcons.cacheKey(icon, user, ownerPackage, px + "x" + px);
         if (key != null && sRetry.start(key, SystemClock.uptimeMillis())) {
-            makeVm(user, icon, ownerPackage, px, key, onMade);
+            makeVm(user, icon, ownerPackage, px, key, tag, onMade);
         }
         return null;
     }
 
     // Decodes a URI or data icon in the VM on an image thread, charged to the app, into the shared cache.
-    private static void makeVm(Context user, Icon icon, String ownerPackage, int px, String key, Runnable onMade) {
-        ImageThreads.execute(ownerPackage, () -> {
+    private static void makeVm(Context user, Icon icon, String ownerPackage, int px, String key, String tag,
+            Runnable onMade) {
+        final ImageThreads.Task task = ImageThreads.execute(ownerPackage, () -> {
             final ImageBudget budget = NotificationImageGate.budgetFor(ownerPackage);
+            final boolean hadTime = !budget.expired();
             boolean made = false;
             try {
-                made = !budget.expired() && VmIcons.toSafeIcon(icon, user, ownerPackage, px, px,
+                made = hadTime && VmIcons.toSafeIcon(icon, user, ownerPackage, px, px,
                         VmDecode.deadlineIn(budget.remainingMs())) != null;
             } catch (Throwable e) {
                 Log.w(TAG, "icon not made: " + e);
             } finally {
                 NotificationImageGate.settle(ownerPackage, budget, false);
             }
-            finished(key, made, onMade, () -> makeVm(user, icon, ownerPackage, px, key, onMade));
+            // Tried again only when the VM was not there: never for an image it refused, nor while the app has no
+            // time left (its next post tries again).
+            finished(key, made, hadTime && !VmIcons.wasRejected(key), ownerPackage, tag, onMade);
         });
+        if (task == null) {
+            sRetry.failed(key, SystemClock.uptimeMillis());
+        }
     }
 
-    // After a try: tell the caller, or schedule the next try after the backoff's wait.
-    private static void finished(String key, boolean made, Runnable onMade, Runnable again) {
+    // A retry still to come: only the key, the caller's tag and its callback. No icon bytes, no image work: when it
+    // is due, the caller builds its icons again from the notification as it is then, which asks again.
+    private static final class Pending {
+        final String owner;
+        final String tag;
+        final Runnable onMade;
+
+        Pending(String owner, String tag, Runnable onMade) {
+            this.owner = owner;
+            this.tag = tag;
+            this.onMade = onMade;
+        }
+    }
+
+    // Retries due later, oldest first, at most MAX_PENDING in all and MAX_PENDING_PER_OWNER per app. Main thread.
+    private static final LinkedHashMap<String, Pending> sPending = new LinkedHashMap<>();
+    private static final int MAX_PENDING = 64;
+    private static final int MAX_PENDING_PER_OWNER = 8;
+
+    // After a try: tell the caller, or plan a retry after the backoff's wait.
+    private static void finished(String key, boolean made, boolean retry, String owner, String tag,
+            Runnable onMade) {
         if (made) {
             sRetry.succeeded(key);
             if (onMade != null) {
@@ -213,14 +256,47 @@ public final class AppIcons {
             return;
         }
         final long wait = sRetry.failed(key, SystemClock.uptimeMillis());
-        if (sRetry.failures(key) > MAX_RETRIES) {
+        if (!retry || onMade == null || sRetry.failures(key) > MAX_RETRIES) {
             return;
         }
-        sMain.postDelayed(() -> {
-            if (sRetry.start(key, SystemClock.uptimeMillis())) {
-                again.run();
+        sMain.post(() -> {
+            addPending(key, new Pending(owner == null ? "" : owner, tag, onMade));
+            sMain.postDelayed(() -> {
+                final Pending due = sPending.remove(key);
+                if (due != null) {
+                    due.onMade.run();
+                }
+            }, wait);
+        });
+    }
+
+    private static void addPending(String key, Pending pending) {
+        sPending.remove(key);
+        int sameOwner = 0;
+        String oldestOfOwner = null;
+        for (Map.Entry<String, Pending> e : sPending.entrySet()) {
+            if (e.getValue().owner.equals(pending.owner)) {
+                if (oldestOfOwner == null) {
+                    oldestOfOwner = e.getKey();
+                }
+                sameOwner++;
             }
-        }, wait);
+        }
+        if (sameOwner >= MAX_PENDING_PER_OWNER && oldestOfOwner != null) {
+            sPending.remove(oldestOfOwner);
+        }
+        if (sPending.size() >= MAX_PENDING) {
+            sPending.remove(sPending.keySet().iterator().next());
+        }
+        sPending.put(key, pending);
+    }
+
+    /** Drops the retries still to come for {@code tag} (a notification that was removed). Main thread. */
+    public static void cancelRetries(String tag) {
+        if (tag == null) {
+            return;
+        }
+        sPending.values().removeIf(p -> tag.equals(p.tag));
     }
 
     private static Context userContext(Context context, int userId) {
@@ -282,9 +358,10 @@ public final class AppIcons {
     // Makes the icon's images on an image thread, charged to the app, then tells the caller. A failure is tried again
     // later, after a growing wait.
     private static void make(Context context, Gated gated, Icon copy, String ownerPackage, String retryKey,
-            Runnable onMade) {
-        ImageThreads.execute(ownerPackage, () -> {
+            String tag, Runnable onMade) {
+        final ImageThreads.Task task = ImageThreads.execute(ownerPackage, () -> {
             final ImageBudget budget = NotificationImageGate.budgetFor(ownerPackage);
+            final boolean hadTime = !budget.expired();
             boolean made = false;
             try {
                 startRound(context, gated, budget);
@@ -294,8 +371,11 @@ public final class AppIcons {
             } finally {
                 NotificationImageGate.settle(ownerPackage, budget, false);
             }
-            finished(retryKey, made, onMade, () -> make(context, gated, copy, ownerPackage, retryKey, onMade));
+            finished(retryKey, made, hadTime, ownerPackage, tag, onMade);
         });
+        if (task == null) {
+            sRetry.failed(retryKey, SystemClock.uptimeMillis());
+        }
     }
 
     private static void startRound(Context context, Gated gated, ImageBudget budget) {
