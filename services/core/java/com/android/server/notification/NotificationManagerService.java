@@ -477,6 +477,8 @@ import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
+import de.diamaneos.decode.client.StoredIcons;
+
 /** @hide */
 public class NotificationManagerService extends SystemService {
     public static final String TAG = "NotificationService";
@@ -938,7 +940,13 @@ public class NotificationManagerService extends SystemService {
                 // We don't want to store the heavy bits of the notification in the archive,
                 // but other clients in the system process might be using the object, so we
                 // store a (lightened) copy.
-                mBuffer.addLast(new Pair<>(sbn.cloneLight(), reason));
+                // DiamaneOS: with no data or URI icon either (Settings reads the archive and decodes what it
+                // gets): the app's own icon instead.
+                StatusBarNotification stored = StoredIcons.forSystemReaders(sbn);
+                if (stored == sbn) {
+                    stored = sbn.cloneLight();
+                }
+                mBuffer.addLast(new Pair<>(stored, reason));
             }
         }
 
@@ -4281,7 +4289,12 @@ public class NotificationManagerService extends SystemService {
                             .setPostedTimeMs(System.currentTimeMillis())
                             .setTitle(r.getNotification().getHistoryTitle(getContext()))
                             .setText(r.getNotification().getHistoryText(getContext()))
-                            .setIcon(r.getNotification().getSmallIcon());
+                            // DiamaneOS: the history (read by Settings, kept on disk) keeps only
+                            // icons that need no decode of the app's bytes: the app's own icon in
+                            // place of a data or URI icon.
+                            .setIcon(StoredIcons.forSystemReaders(
+                                    r.getNotification().getSmallIcon(), r.getSbn().getPackageName(),
+                                    StoredIcons.appInfoOf(r.getNotification())));
                     mHistoryManager.addNotification(builder.build());
                 }
             } finally {
@@ -5960,7 +5973,9 @@ public class NotificationManagerService extends SystemService {
                     for (int i = 0; i < N; i++) {
                         final StatusBarNotification sbn = mNotificationList.get(i).getSbn();
                         if (currentUsers.contains(sbn.getUserId())) {
-                            tmp.add(sbn);
+                            // DiamaneOS: for system callers outside the listeners (the Settings
+                            // notification log), no data or URI icon: the app's own icon instead.
+                            tmp.add(StoredIcons.forSystemReaders(sbn));
                         }
                     }
                 }
