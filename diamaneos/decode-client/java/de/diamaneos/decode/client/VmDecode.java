@@ -166,6 +166,18 @@ public final class VmDecode {
         return decode(context, fd, ownerPackage, priority, maxWidth, maxHeight, NO_DEADLINE).bitmap;
     }
 
+    /**
+     * The tag of the line that says an image was made in the VM (or taken from what the VM made before): debug level,
+     * only when log.tag.VmDecodeMade is DEBUG, so phone checks can tell a working VM path from a placeholder.
+     */
+    public static final String MADE_TAG = "VmDecodeMade";
+
+    static void madeLine(String what) {
+        if (Log.isLoggable(MADE_TAG, Log.DEBUG)) {
+            Log.d(MADE_TAG, what);
+        }
+    }
+
     /** {@link #decodeBitmap}, also giving the turn applied, and with an optional deadline ({@link #deadlineIn}). */
     public static Decoded decode(Context context, ParcelFileDescriptor fd, String ownerPackage, int priority,
             int maxWidth, int maxHeight, long deadline) throws UnavailableException, RejectedException {
@@ -181,7 +193,10 @@ public final class VmDecode {
             }
             checkStatus(thumbnail.status);
             try {
-                return toDecoded(service, thumbnail, maxWidth, maxHeight);
+                final Decoded decoded = toDecoded(service, thumbnail, maxWidth, maxHeight);
+                madeLine("made " + decoded.bitmap.getWidth() + "x" + decoded.bitmap.getHeight() + " in the VM for "
+                        + request.ownerPackage);
+                return decoded;
             } finally {
                 try {
                     service.release(thumbnail.handle);

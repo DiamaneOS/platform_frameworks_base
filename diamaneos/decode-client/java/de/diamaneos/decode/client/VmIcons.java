@@ -56,7 +56,11 @@ public final class VmIcons {
     }
 
     static Bitmap cacheGet(String key) {
-        return sCache.get(key);
+        final Bitmap bitmap = sCache.get(key);
+        if (bitmap != null) {
+            VmDecode.madeLine("kept " + bitmap.getWidth() + "x" + bitmap.getHeight() + " made in the VM before");
+        }
+        return bitmap;
     }
 
     static void cachePut(String key, Bitmap bitmap) {
@@ -268,7 +272,7 @@ public final class VmIcons {
         }
         final String key = cacheKey(icon, context, ownerPackage, maxWidth + "x" + maxHeight);
         if (key != null) {
-            final Bitmap cached = sCache.get(key);
+            final Bitmap cached = cacheGet(key);
             if (cached != null) {
                 return cached;
             }
@@ -365,12 +369,12 @@ public final class VmIcons {
             return null;
         }
         final String key = cacheKey(icon, context, ownerPackage, maxWidth + "x" + maxHeight);
-        Bitmap bitmap = key == null ? null : sCache.get(key);
+        Bitmap bitmap = key == null ? null : cacheGet(key);
         if (bitmap == null && icon.getType() != Icon.TYPE_DATA) {
             // A URI decode of the window just before is still good: no flicker when a rebuild crosses a window.
             final String previous = uriKey(icon, context, ownerPackage, maxWidth + "x" + maxHeight,
                     SystemClock.uptimeMillis() / URI_CACHE_MS - 1);
-            bitmap = sCache.get(previous);
+            bitmap = cacheGet(previous);
         }
         return bitmap == null ? null
                 : iconLike(icon, bitmap, icon.getType() == Icon.TYPE_URI_ADAPTIVE_BITMAP);
