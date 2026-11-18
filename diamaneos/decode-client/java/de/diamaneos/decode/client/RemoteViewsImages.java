@@ -560,7 +560,7 @@ final class RemoteViewsImages {
                         mUnsafe = "messages inside a message";
                         return null;
                     }
-                    final Bundle[] messages = in.getParcelableArray(key, Bundle.class);
+                    final Bundle[] messages = NotificationImageGate.messageBundles(in, key);
                     if (messages != null) {
                         if (messages.length > MAX_MESSAGES) {
                             mUnsafe = "too many messages";

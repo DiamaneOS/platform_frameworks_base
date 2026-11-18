@@ -804,8 +804,34 @@ public final class NotificationImageGate {
         return person != null && needsGate(person.getIcon());
     }
 
+    /**
+     * The message bundles under {@code key}, or null when there are none. A notification arrives through a parcel,
+     * where the array comes back as a Parcelable[] (never a Bundle[]): it is read as Parcelable, the way the
+     * notification templates read it, and each element that is a Bundle is taken on its own (anything else is left
+     * out, one element at a time).
+     */
+    static Bundle[] messageBundles(Bundle extras, String key) {
+        final android.os.Parcelable[] array = extras.getParcelableArray(key, android.os.Parcelable.class);
+        if (array == null) {
+            return null;
+        }
+        int n = 0;
+        final Bundle[] bundles = new Bundle[array.length];
+        for (android.os.Parcelable element : array) {
+            if (element instanceof Bundle) {
+                bundles[n++] = (Bundle) element;
+            }
+        }
+        return n == bundles.length ? bundles : java.util.Arrays.copyOf(bundles, n);
+    }
+
     private static boolean sendersNeedVm(Bundle extras, String key) {
-        final Bundle[] messages = extras.getParcelableArray(key, Bundle.class);
+        final Bundle[] messages;
+        try {
+            messages = messageBundles(extras, key);
+        } catch (RuntimeException e) {
+            return true; // not readable: the sanitizer looks at it and drops only what cannot be read
+        }
         if (messages == null) {
             return false;
         }
@@ -908,9 +934,11 @@ public final class NotificationImageGate {
 
     // The message bundles are shared with the original after Notification.clone, so they are copied, not changed.
     private void sanitizeMessages(Bundle extras, String key) {
+        // Each message on its own: its text, sender name, time and image link stay. Only the sender's picture is
+        // made again (through the VM, or left out), and only what cannot be read is dropped.
         final Bundle[] messages;
         try {
-            messages = extras.getParcelableArray(key, Bundle.class);
+            messages = messageBundles(extras, key);
         } catch (RuntimeException e) {
             Log.w(TAG, "notification messages not readable, removed: " + key);
             extras.remove(key);
@@ -921,9 +949,6 @@ public final class NotificationImageGate {
         }
         final Bundle[] copies = new Bundle[messages.length];
         for (int i = 0; i < messages.length; i++) {
-            if (messages[i] == null) {
-                continue;
-            }
             final Bundle copy = new Bundle(messages[i]);
             try {
                 final Person sender = copy.getParcelable(KEY_SENDER_PERSON, Person.class);
@@ -931,6 +956,7 @@ public final class NotificationImageGate {
                     copy.putParcelable(KEY_SENDER_PERSON, safe(sender));
                 }
             } catch (RuntimeException e) {
+                Log.w(TAG, "message sender not readable, the message stays without it");
                 copy.remove(KEY_SENDER_PERSON);
             }
             copies[i] = copy;
