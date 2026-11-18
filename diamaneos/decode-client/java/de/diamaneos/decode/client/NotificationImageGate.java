@@ -516,6 +516,17 @@ public final class NotificationImageGate {
     }
 
     /**
+     * URIs of the layouts are opened only when {@code packageName} ({@code uid}) may read them itself, as
+     * {@code userId}, and only URIs of that user. For a notification's layouts too: the notification service checks
+     * what {@code Notification.visitUris} reports, which leaves out the people of a layout's Bundle.
+     */
+    public void checkUrisAs(int uid, String packageName, int userId) {
+        final android.app.IUriGrantsManager grants = android.app.UriGrantsManager.getService();
+        setUriCheck(uri -> android.content.ContentProvider.getUserIdFromUri(uri, userId) == userId
+                && ForeignIcons.uriGranted(Icon.createWithContentUri(uri), grants, uid, packageName, userId));
+    }
+
+    /**
      * {@code icon}, a URI, data or app resource icon of the app's views, as pixels made within this gate's caps (in
      * the VM on an image thread, else only what was made before), or an empty icon. Call {@link #packageContext}
      * first.

@@ -47,8 +47,11 @@ import java.util.Set;
 public final class ImageThreads {
     private static final String TAG = "VmDecode";
 
-    private static final Lane NORMAL = new Lane("VmImages-", 3);
-    private static final Lane URGENT = new Lane("VmImagesUrgent-", 2);
+    // Heads-up rows and the status bar wait for these threads, so they are not background threads: the urgent lane
+    // runs at the default priority, the normal lane a little above background.
+    private static final Lane NORMAL = new Lane("VmImages-", 3,
+            Process.THREAD_PRIORITY_BACKGROUND + Process.THREAD_PRIORITY_MORE_FAVORABLE * 3);
+    private static final Lane URGENT = new Lane("VmImagesUrgent-", 2, Process.THREAD_PRIORITY_DEFAULT);
 
     private ImageThreads() {
     }
@@ -85,7 +88,7 @@ public final class ImageThreads {
 
         @Override
         public void run() {
-            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
+            Process.setThreadPriority(mLane.mPriority);
             while (true) {
                 final Task task = mLane.take();
                 try {
@@ -154,9 +157,12 @@ public final class ImageThreads {
         private final Map<String, ArrayDeque<Task>> mQueues = new LinkedHashMap<>(); // guarded by this
         private final Set<String> mRunning = new HashSet<>(); // guarded by this
 
-        Lane(String name, int threads) {
+        final int mPriority;
+
+        Lane(String name, int threads, int priority) {
             mName = name;
             mThreads = threads;
+            mPriority = priority;
         }
 
         Task add(String owner, Runnable runnable, Runnable onDropped) {
@@ -210,7 +216,8 @@ public final class ImageThreads {
                 new ImageThread(this, mName + start).start();
             }
             if (dropped != null && dropped.mOnDropped != null) {
-                sMain.post(dropped.mOnDropped);
+                final Runnable droppedCallback = dropped.mOnDropped;
+                sMain.post(() -> Waiters.runSafely(droppedCallback));
             }
             return task;
         }

@@ -87,7 +87,16 @@ public final class AppResourceImages implements ImageFileGate {
     private final boolean mAnyWorker;
     private final Object mLock = new Object();
     private BooleanSupplier mCancelled; // guarded by mLock
-    private final Map<String, Resources> mOtherPackages = new HashMap<>(); // guarded by mLock
+    // Gated resources of other packages the app names, the most recently used MAX_OTHER_PACKAGES of them: an app that
+    // names many packages does not make SystemUI keep a Resources object (an open APK) for each.
+    private static final int MAX_OTHER_PACKAGES = 16;
+    private final Map<String, Resources> mOtherPackages =
+            new java.util.LinkedHashMap<String, Resources>(MAX_OTHER_PACKAGES, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, Resources> eldest) {
+                    return size() > MAX_OTHER_PACKAGES;
+                }
+            }; // guarded by mLock
     private ImageBudget mBudget; // guarded by mLock
     private int mMaxWidth; // guarded by mLock
     private int mMaxHeight; // guarded by mLock

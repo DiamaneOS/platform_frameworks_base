@@ -67,9 +67,9 @@ constructor(
 
     override suspend fun onActivated() {
         withContext(backgroundDispatcher) {
-            // The icon the requesting app passed, of any type: its URI grant is checked as before, then it is made
-            // without decoding the app's bytes here (URI and data icons in the protected VM, the app's resources
-            // through an image gate).
+            // DiamaneOS: the icon the requesting app passed, of any type: its URI grant is checked as before, then it
+            // is made without decoding the app's bytes here (URI and data icons in the protected VM, the app's
+            // resources through an image gate).
             val icon = tileData.icon
             if (
                 icon != null &&
@@ -105,6 +105,6 @@ constructor(
 
     companion object {
         private val defaultIcon: QSTile.Icon = ResourceIcon.get(R.drawable.android)
-        private const val TILE_ICON_MAX_PX = 256
+        private const val TILE_ICON_MAX_PX = 256 // DiamaneOS
     }
 }

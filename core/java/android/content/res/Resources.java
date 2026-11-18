@@ -1458,7 +1458,7 @@ public class Resources {
         }
         // Whoever opens a raw file here decodes it (<bitmap>, <nine-patch>, ImageDecoder): files of an APK outside
         // the system image are handed out as an image made from pixels decoded elsewhere.
-        final String apkPath = mResourcesImpl.apkPathForCookie(value.assetCookie);
+        final String apkPath = ImageFileGates.apkPathForCookie(mResourcesImpl.getAssets(), value.assetCookie);
         return gate.decodesHere(apkPath) ? in : gate.openImage(this, value, apkPath, in);
     }
 

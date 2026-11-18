@@ -17,9 +17,6 @@
 package com.android.systemui.statusbar.policy.domain.interactor
 
 import android.content.Context
-import android.graphics.drawable.AdaptiveIconDrawable
-import android.graphics.drawable.Drawable
-import android.graphics.drawable.InsetDrawable
 import android.media.AudioManager
 import android.provider.Settings
 import android.provider.Settings.Secure.ZEN_DURATION_FOREVER
@@ -53,12 +50,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlin.coroutines.resume
-import de.diamaneos.decode.client.ForeignIcons
-
-/** The most an app's mode icon is decoded to. */
-private const val MODE_ICON_MAX_PX = 256
 
 /**
  * An interactor that performs business logic related to the status and configuration of Zen Mode
@@ -202,38 +193,7 @@ constructor(
     }
 
     suspend fun getModeIcon(mode: ZenMode): Icon.Loaded {
-        // A mode's icon can be a drawable of the app that made the rule. That one never goes through the loader
-        // (which would decode the app's image files natively, and keep whatever it got): it is made on an image
-        // thread, charged to that app, its bitmap files decoded in the protected VM, and this coroutine suspends.
-        // When it cannot be made, the generic mode icon shows, and the next time it is asked for again.
-        val appPackage = mode.iconKey.resPackage
-        if (!appPackage.isNullOrEmpty()) {
-            val icon = android.graphics.drawable.Icon.createWithResource(appPackage, mode.iconKey.resId)
-            // What was made before, else made now on an image thread.
-            val appIcon =
-                ForeignIcons.loadNoWait(context, icon, context.userId, appPackage, MODE_ICON_MAX_PX, null)
-                    ?: suspendCancellableCoroutine<Drawable?> { cont ->
-                        ForeignIcons.loadAsync(
-                            context,
-                            icon,
-                            context.userId,
-                            appPackage,
-                            MODE_ICON_MAX_PX,
-                            { it.run() },
-                        ) {
-                            cont.resume(it)
-                        }
-                    }
-            val shown = appIcon?.let { monochromeIfPresent(it) }
-                ?: context.getDrawable(com.android.internal.R.drawable.ic_zen_mode_type_other)!!
-            return Icon.Loaded(
-                drawable = shown.mutate(),
-                contentDescription = ContentDescription.Loaded(mode.name),
-                packageName = if (appIcon != null) appPackage else "android",
-                resId = if (appIcon != null) mode.iconKey.resId else
-                    com.android.internal.R.drawable.ic_zen_mode_type_other,
-            )
-        }
+        ZenModeAppIcons.load(context, mode)?.let { return it } // DiamaneOS: an app's icon, decoded in the VM
         val zenIcon = iconLoader.getIcon(context, mode).await()
         val drawable = zenIcon.drawable
         // Return a copy of the icon, to prevent callers from making changes that will be reflected
@@ -245,16 +205,6 @@ constructor(
             packageName = zenIcon.key.resPackage,
             resId = zenIcon.key.resId,
         )
-    }
-
-    // As the mode icon loader does for an app's icon: its monochrome layer when it has one.
-    private fun monochromeIfPresent(icon: Drawable): Drawable {
-        if (icon is AdaptiveIconDrawable) {
-            icon.monochrome?.let {
-                return InsetDrawable(it, -2.0f * AdaptiveIconDrawable.getExtraInsetFraction())
-            }
-        }
-        return icon
     }
 
     fun activateMode(zenMode: ZenMode) {

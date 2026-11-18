@@ -49,6 +49,7 @@ import com.android.systemui.statusbar.notification.promoted.shared.model.Promote
 import com.android.systemui.statusbar.notification.promoted.shared.model.PromotedNotificationContentModel.Style
 import com.android.systemui.statusbar.notification.promoted.shared.model.PromotedNotificationContentModel.When
 import com.android.systemui.statusbar.notification.promoted.shared.model.PromotedNotificationContentModels
+import com.android.systemui.statusbar.notification.row.NotificationRowImages
 import com.android.systemui.statusbar.notification.row.icon.NotificationIconStyleProvider
 import com.android.systemui.statusbar.notification.row.shared.ImageModel
 import com.android.systemui.statusbar.notification.row.shared.ImageModelProvider
@@ -61,10 +62,6 @@ import com.android.systemui.util.time.SystemClock
 import javax.inject.Inject
 
 interface PromotedNotificationContentExtractor {
-    /**
-     * [sourceNotification]: the notification the row's views are made from (the copy whose app images were checked
-     * on an image thread), read instead of the entry's own. Null reads the entry's.
-     */
     @WorkerThread
     fun extractContent(
         entry: NotificationEntry,
@@ -73,7 +70,6 @@ interface PromotedNotificationContentExtractor {
         imageModelProvider: ImageModelProvider,
         packageContext: Context,
         systemUiContext: Context,
-        sourceNotification: Notification? = null,
     ): PromotedNotificationContentModels?
 }
 
@@ -95,10 +91,9 @@ constructor(
         imageModelProvider: ImageModelProvider,
         packageContext: Context,
         systemUiContext: Context,
-        sourceNotification: Notification?,
     ): PromotedNotificationContentModels? {
-        // The checked copy: its icons are pixels or go through the image gate, never another app's bytes.
-        val notification = sourceNotification ?: entry.sbn.notification
+        // DiamaneOS: the checked copy (NotificationRowImages), never the app's own icons.
+        val notification = NotificationRowImages.sourceOf(entry.sbn.notification, systemUiContext)
         if (notification == null) {
             if (LOG_NOT_EXTRACTED) {
                 logger.logExtractionFailed(entry, "entry.sbn.notification is null")
@@ -115,7 +110,6 @@ constructor(
             extractPrivateContent(
                 key = entry.key,
                 sbn = entry.sbn,
-                notification = notification,
                 recoveredBuilder = recoveredBuilder,
                 lastAudiblyAlertedMs = entry.lastAudiblyAlertedMs,
                 imageModelProvider = imageModelProvider,
@@ -214,13 +208,14 @@ constructor(
     private fun extractPrivateContent(
         key: String,
         sbn: StatusBarNotification,
-        notification: Notification,
         recoveredBuilder: Notification.Builder,
         lastAudiblyAlertedMs: Long,
         imageModelProvider: ImageModelProvider,
         packageContext: Context,
         systemUiContext: Context,
     ): PromotedNotificationContentModel {
+        // DiamaneOS: the checked copy (NotificationRowImages), never the app's own icons.
+        val notification = NotificationRowImages.sourceOf(sbn.notification, systemUiContext)
         val contentBuilder = PromotedNotificationContentModel.Builder(key)
         // TODO: Pitch a fit if style is unsupported or mandatory fields are missing once
         // FLAG_PROMOTED_ONGOING is set reliably and we're not testing status bar chips.

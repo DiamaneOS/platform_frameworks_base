@@ -376,19 +376,19 @@ interface SmartActionInflater {
     ): Button
 }
 
-private const val ICON_TASK_TIMEOUT_MS = 2000L
+private const val ICON_TASK_TIMEOUT_MS = 2000L // DiamaneOS
 private val iconTaskThreadPool = ThreadPoolExecutor(0, 25, 1, TimeUnit.MINUTES, SynchronousQueue())
 
 fun loadIconDrawableWithTimeout(icon: Icon, packageContext: Context, targetSize: Int): Drawable? {
-    if (!VmIcons.needsVm(icon)) {
+    if (!VmIcons.needsVm(icon)) { // DiamaneOS
         return icon.loadDrawable(packageContext)
     }
     val bitmapTask = FutureTask {
         val bitmap: Bitmap?
         val durationMillis = measureTimeMillis {
-            // Decoded in the protected VM, never in SystemUI.
+            // DiamaneOS: decoded in the protected VM, never in SystemUI.
             bitmap =
-                VmIcons.decode(
+                VmIcons.decode( // DiamaneOS
                     icon,
                     packageContext,
                     packageContext.packageName,

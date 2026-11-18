@@ -123,7 +123,16 @@ public final class LateImages {
         if (resId == 0 || packageName == null) {
             return null;
         }
-        final String cacheKey = userId + ":" + packageName + ":" + resId + ":"
+        final String apk;
+        try {
+            // The APK path is in the key: an update of the app gives a new path, so its new icon is not hidden by
+            // the old one in the cache.
+            apk = context.getPackageManager().getApplicationInfoAsUser(packageName, 0, userId).sourceDir;
+        } catch (Exception e) {
+            Log.w(TAG, "drawable of " + packageName + " not loaded: " + e);
+            return null;
+        }
+        final String cacheKey = userId + ":" + packageName + ":" + apk + ":" + resId + ":"
                 + AppIcons.configKey(context.getResources().getConfiguration());
         final Drawable.ConstantState made = sMadeIcons.get(cacheKey);
         if (made != null) {

@@ -2197,6 +2197,9 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
                     automationNotificationBackgroundProvider) {
         mEntryAdapter = entryAdapter;
         mIsBundle = entryAdapter instanceof BundleEntryAdapter;
+        // DiamaneOS: the row's inline images are charged to the posting app.
+        mImageResolver.setOwner(entryAdapter == null || entryAdapter.getSbn() == null ? null
+                : entryAdapter.getSbn().getPackageName());
         if (isBundle()) {
             // Initial dimensions for the roundable state are set upon construction, which means
             // we need to re-calculate at the point when we know whether this row is a bundle.

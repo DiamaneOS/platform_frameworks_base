@@ -50,6 +50,24 @@ public class OwnerPixelsTest {
     }
 
     @Test
+    public void totalCap_severalAppsCannotFillIt_eachKeepsItsShare() {
+        final OwnerPixels pool = new OwnerPixels(100, 200);
+        final Object h = new Object();
+        // Two apps fill the total between them.
+        assertTrue(pool.add("a", h, 100));
+        assertTrue(pool.add("b", h, 100));
+        assertEquals(200, pool.total());
+        // A third app is not shut out: it gets up to its share (200 / 3).
+        assertTrue(pool.add("c", h, 60));
+        assertFalse(pool.add("c", h, 10));
+        // The first two get nothing more past the total.
+        assertFalse(pool.add("a", new Object(), 1));
+        // Giving back makes room again.
+        pool.release("b", h);
+        assertTrue(pool.add("a", new Object(), 0) && pool.total() == 160);
+    }
+
+    @Test
     public void forgottenHoldersDropOut() throws Exception {
         final OwnerPixels pool = new OwnerPixels(100);
         Object gone = new Object();

@@ -33,6 +33,7 @@ import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.widget.ImageResolver;
 import com.android.internal.widget.MessagingMessage;
 
+import de.diamaneos.decode.client.ImageThreads;
 import de.diamaneos.decode.client.VmDecode;
 
 import java.util.HashSet;
@@ -64,6 +65,25 @@ public class NotificationInlineImageResolver implements ImageResolver {
     // max allowed bitmap height, in pixels
     @VisibleForTesting
     protected int mMaxImageHeight;
+    // DiamaneOS: the posting app, which the row's images are charged to (unknown until the row has its entry).
+    private volatile String mOwner = VmDecode.unknownOwner("inline");
+
+    /** DiamaneOS: the posting app of the row: its images are charged to it, in its lane. */
+    public void setOwner(String ownerPackage) {
+        mOwner = ownerPackage == null || ownerPackage.isEmpty() ? VmDecode.unknownOwner("inline") : ownerPackage;
+    }
+
+    /** DiamaneOS: runs the cache's preload on an image thread of the posting app (the VM is waited for there). */
+    java.util.concurrent.Executor preloadExecutor() {
+        final String owner = mOwner;
+        return task -> {
+            // Gave way in a full image lane, or no room: run where no VM is waited for (the load comes back empty).
+            if (ImageThreads.execute(owner, task, () -> android.os.AsyncTask.THREAD_POOL_EXECUTOR.execute(task))
+                    == null) {
+                android.os.AsyncTask.THREAD_POOL_EXECUTOR.execute(task);
+            }
+        };
+    }
 
     /**
      * Constructor.
@@ -127,9 +147,13 @@ public class NotificationInlineImageResolver implements ImageResolver {
     Drawable resolveImage(Uri uri) {
         // Images from apps are decoded in the protected VM, never in SystemUI. A failure leaves the message without
         // its image.
+        if (!ImageThreads.isImageThread()) {
+            // The VM is waited for only on the image threads (the cache's preload runs there, charged to the app).
+            return null;
+        }
         try {
-            // The owner is the URI's provider: this resolver does not know the posting app.
-            final Bitmap bitmap = VmDecode.decodeUri(mContext, mContext.getContentResolver(), uri, "",
+            // Charged to the posting app (setOwner), in its own lane.
+            final Bitmap bitmap = VmDecode.decodeUri(mContext, mContext.getContentResolver(), uri, mOwner,
                     VmDecode.PRIORITY_USER_WAITING, Math.max(1, mMaxImageWidth),
                     Math.max(1, mMaxImageHeight), VmDecode.deadlineIn(VM_DEADLINE_MS));
             return new BitmapDrawable(mContext.getResources(), bitmap);

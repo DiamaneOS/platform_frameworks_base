@@ -50,6 +50,11 @@ public final class VmIcons {
     private VmIcons() {
     }
 
+    /** Empties the decoded icon cache (memory is low). */
+    static void trim() {
+        sCache.evictAll();
+    }
+
     static Bitmap cacheGet(String key) {
         return sCache.get(key);
     }
@@ -253,6 +258,10 @@ public final class VmIcons {
         if (!needsVm(icon) || maxWidth < 1 || maxHeight < 1) {
             return null;
         }
+        if (icon.getType() != Icon.TYPE_DATA && String.valueOf(icon.getUri()).length() > MAX_URI_CHARS) {
+            Log.w(TAG, "icon URI too long, not opened");
+            return null;
+        }
         if (Looper.myLooper() == Looper.getMainLooper()) {
             Log.w(TAG, "icon decode on the main thread refused, placeholder shown");
             return null;
@@ -420,6 +429,32 @@ public final class VmIcons {
     }
 
     private static String uriKey(Icon icon, Context context, String ownerPackage, String box, long window) {
-        return "uri:" + context.getUserId() + ':' + ownerPackage + ':' + icon.getUri() + ':' + box + ":t" + window;
+        return "uri:" + context.getUserId() + ':' + ownerPackage + ':' + bounded(String.valueOf(icon.getUri())) + ':'
+                + box + ":t" + window;
+    }
+
+    /** URIs longer than this are not opened: no image needs one, and its key would hold a lot of memory. */
+    static final int MAX_URI_CHARS = 2048;
+    private static final int MAX_KEY_PART_CHARS = 200;
+
+    /**
+     * {@code part} of a key as it is when short, else a SHA-256 of it: keys of caches, retries and waiters stay small
+     * however long the URI or shortcut id an app chose.
+     */
+    static String bounded(String part) {
+        if (part == null || part.length() <= MAX_KEY_PART_CHARS) {
+            return part;
+        }
+        try {
+            final MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            final byte[] hash = digest.digest(part.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            final StringBuilder hex = new StringBuilder("sha256-");
+            for (byte b : hash) {
+                hex.append(Character.forDigit((b >> 4) & 0xf, 16)).append(Character.forDigit(b & 0xf, 16));
+            }
+            return hex.toString();
+        } catch (NoSuchAlgorithmException e) {
+            return part.substring(0, MAX_KEY_PART_CHARS);
+        }
     }
 }

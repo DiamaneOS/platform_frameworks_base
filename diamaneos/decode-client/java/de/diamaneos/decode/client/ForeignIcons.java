@@ -225,8 +225,8 @@ public final class ForeignIcons {
         final boolean wait = mayWait && Looper.myLooper() != Looper.getMainLooper();
         try {
             if (shortcut.hasIconFile()) {
-                final String key = "shortcut:" + shortcut.getUserId() + ':' + owner + ':' + shortcut.getId() + ':'
-                        + shortcut.getLastChangedTimestamp() + ':' + maxPx;
+                final String key = "shortcut:" + shortcut.getUserId() + ':' + owner + ':'
+                        + VmIcons.bounded(shortcut.getId()) + ':' + shortcut.getLastChangedTimestamp() + ':' + maxPx;
                 Bitmap bitmap = VmIcons.cacheGet(key);
                 if (bitmap == null) {
                     final Supplier<Bitmap> work =
@@ -365,7 +365,7 @@ public final class ForeignIcons {
             } else if (made != null) {
                 sMaking.succeeded(key);
                 for (Waiters.Waiter w : waiters) {
-                    sMain.post(w.onMade);
+                    sMain.post(() -> Waiters.runSafely(w.onMade));
                 }
             } else {
                 sMaking.failed(key, SystemClock.uptimeMillis());
@@ -374,13 +374,7 @@ public final class ForeignIcons {
             // Gave way to another app's task: its askers are told after the backoff's wait, so they ask again.
             final java.util.List<Waiters.Waiter> waiters = sWaiters.take(key);
             final long wait = sMaking.failed(key, SystemClock.uptimeMillis());
-            sMain.postDelayed(() -> {
-                for (Waiters.Waiter w : waiters) {
-                    if (sWaiters.live(w)) {
-                        w.onMade.run();
-                    }
-                }
-            }, wait);
+            sMain.postDelayed(() -> sWaiters.tell(waiters), wait);
         });
         if (task == null) {
             sWaiters.take(key);
@@ -458,12 +452,6 @@ public final class ForeignIcons {
         if (evicted.isEmpty()) {
             return;
         }
-        sMain.postDelayed(() -> {
-            for (Waiters.Waiter w : evicted) {
-                if (sWaiters.live(w)) {
-                    w.onMade.run();
-                }
-            }
-        }, Waiters.EVICTED_RETRY_MS);
+        sMain.postDelayed(() -> sWaiters.tell(evicted), Waiters.EVICTED_RETRY_MS);
     }
 }

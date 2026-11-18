@@ -18,6 +18,9 @@
     package="de.diamaneos.decode.client.tests">
     <!-- PostTimeDeviceTest posts a notification as an app. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- WallpaperVmDeviceTest sets a wallpaper and reads back whether its crop was made. -->
+    <uses-permission android:name="android.permission.SET_WALLPAPER" />
+    <uses-permission android:name="android.permission.READ_WALLPAPER_INTERNAL" />
     <application />
     <instrumentation
         android:name="androidx.test.runner.AndroidJUnitRunner"

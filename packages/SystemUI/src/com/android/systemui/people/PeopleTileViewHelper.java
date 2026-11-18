@@ -46,6 +46,7 @@ import android.app.people.PeopleSpaceTile;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
+import android.graphics.ImageDecoder;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
 import android.graphics.text.LineBreaker;
@@ -75,7 +76,6 @@ import androidx.core.math.MathUtils;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.systemui.people.data.model.PeopleTileModel;
 import com.android.systemui.people.widget.LaunchConversationActivity;
-import com.android.systemui.people.widget.PeopleSpaceWidgetManager;
 import com.android.systemui.people.widget.PeopleSpaceWidgetProvider;
 import com.android.systemui.people.widget.PeopleTileKey;
 import com.android.systemui.res.R;
@@ -95,8 +95,6 @@ import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-
-import de.diamaneos.decode.client.ForeignIcons;
 
 /** Variables and functions that is related to Emoji. */
 class EmojiHelper {
@@ -766,23 +764,32 @@ public class PeopleTileViewHelper {
     }
 
      Drawable resolveImage(Uri uri, Context context) throws IOException {
-        // DiamaneOS: the image the conversation's app named is decoded in the protected VM on an image thread,
-        // charged to that app, never in this process, at most as big as the tile shows it. This shared thread does
-        // not wait for it: until it is made the tile says that there is a new image, as when an image cannot load,
-        // and then the tiles are drawn again.
-        final int widthInPx = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, mWidth,
+        // DiamaneOS: decoded in the protected VM, never here (PeopleTileImages).
+        return PeopleTileImages.resolve(context, uri, mTile.getPackageName(), mWidth, mHeight);
+    }
+
+    private static int getPowerOfTwoForSampleRatio(double ratio) {
+        final int k = Integer.highestOneBit((int) Math.floor(ratio));
+        return Math.max(1, k);
+    }
+
+    private void onHeaderDecoded(ImageDecoder decoder, ImageDecoder.ImageInfo info,
+            ImageDecoder.Source source) {
+        int widthInPx = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, mWidth,
                 mContext.getResources().getDisplayMetrics());
-        final int heightInPx = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, mHeight,
+        int heightInPx = (int) TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, mHeight,
                 mContext.getResources().getDisplayMetrics());
-        final int maxPx = Math.max(1, Math.min(Math.max(widthInPx, heightInPx),
-                (int) (1.5 * Math.min(widthInPx, heightInPx))));
-        final Drawable drawable = ForeignIcons.loadNoWait(context, Icon.createWithContentUri(uri),
-                context.getUserId(), mTile.getPackageName(), maxPx,
-                PeopleSpaceWidgetManager::onTileImageMade);
-        if (drawable == null) {
-            throw new IOException("image not decoded");
+        int maxIconSizeInPx = Math.max(widthInPx, heightInPx);
+        int minDimen = (int) (1.5 * Math.min(widthInPx, heightInPx));
+        if (minDimen < maxIconSizeInPx) {
+            maxIconSizeInPx = minDimen;
         }
-        return drawable;
+        final Size size = info.getSize();
+        final int originalSize = Math.max(size.getHeight(), size.getWidth());
+        final double ratio = (originalSize > maxIconSizeInPx)
+                ? originalSize * 1f / maxIconSizeInPx
+                : 1.0;
+        decoder.setTargetSampleSize(getPowerOfTwoForSampleRatio(ratio));
     }
 
     private void setContentDescriptionForNotificationTextContent(RemoteViews views,

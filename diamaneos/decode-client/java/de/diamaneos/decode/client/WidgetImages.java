@@ -194,10 +194,7 @@ public final class WidgetImages {
             final ApplicationInfo ai = mHost.getPackageManager().getApplicationInfoAsUser(owner, 0, userId);
             // URIs in the update, list items included, are opened only when the widget's app may read them itself,
             // as its user. SystemUI's own access is never lent to them.
-            final android.app.IUriGrantsManager grants = android.app.UriGrantsManager.getService();
-            imageGate.setUriCheck(uri -> android.content.ContentProvider.getUserIdFromUri(uri, userId) == userId
-                    && ForeignIcons.uriGranted(android.graphics.drawable.Icon.createWithContentUri(uri), grants,
-                            ai.uid, owner, userId));
+            imageGate.checkUrisAs(ai.uid, owner, userId);
             final Context gated = imageGate.packageContext(
                     mHost.createApplicationContext(ai, Context.CONTEXT_RESTRICTED));
             final RemoteViews checked = imageGate.layoutCopy(views);

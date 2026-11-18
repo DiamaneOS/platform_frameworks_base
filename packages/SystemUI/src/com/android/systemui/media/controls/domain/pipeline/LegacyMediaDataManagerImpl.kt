@@ -71,8 +71,6 @@ import javax.inject.Inject
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.withContext
-import de.diamaneos.decode.client.AppIcons
-import de.diamaneos.decode.client.ForeignIcons
 
 private const val TAG = "MediaDataManager"
 private const val DEBUG = true
@@ -219,10 +217,13 @@ class LegacyMediaDataManagerImpl(
             }
         }
 
+    // DiamaneOS: app images of media, never decoded here (MediaIconSafety).
+    private val iconSafety =
+        MediaIconSafety(context, foregroundExecutor) { key, sbn -> onNotificationAdded(key, sbn) }
+
     init {
         dumpManager.registerNormalDumpable(TAG, this)
-        MediaIconReload.addListener { reloadForIcon(it) }
-        MediaIconReload.addPackageListener { reloadForPackage(it) }
+        iconSafety.start() // DiamaneOS
 
         // Initialize the internal processing pipeline. The listeners at the front of the pipeline
         // are set as internal listeners so that they receive events. From there, events are
@@ -267,8 +268,7 @@ class LegacyMediaDataManagerImpl(
     }
 
     override fun onNotificationAdded(key: String, sbn: StatusBarNotification) {
-        // Only media notifications are kept for a reload after an icon was made.
-        if (isMediaNotification(sbn)) latestSbn[key] = sbn else latestSbn.remove(key)
+        iconSafety.onAdded(key, sbn, isMediaNotification(sbn)) // DiamaneOS
         if (useQsMediaPlayer && isMediaNotification(sbn)) {
             var isNewlyActiveEntry = false
             var isConvertingToActive = false
@@ -376,36 +376,6 @@ class LegacyMediaDataManagerImpl(
         }
     }
 
-    /**
-     * The media notification's small icon or large icon (the original's, as the loader reads them) as an Icon that
-     * never needs a decode of the app's bytes in SystemUI: pixels as they are, URI and data icons decoded in the
-     * protected VM, the app's resources through an image gate. Nothing waits here: an icon not made yet is made on an
-     * image thread, and the notification is loaded again then.
-     */
-    private fun safeMediaIcon(icon: Icon?, sbn: StatusBarNotification, px: Int): Icon? =
-        ForeignIcons.safeIconNoWait(context, icon, sbn.normalizedUserId, sbn.packageName, px) {
-            MediaIconReload.reload(sbn)
-        }
-
-    // The last media notification seen per key, loaded again once an icon of it was made.
-    private val latestSbn = java.util.concurrent.ConcurrentHashMap<String, StatusBarNotification>()
-
-    // Every notification of the key that asked is told: the latest one of the key is loaded again (a media app
-    // re-posts its notification, so an older object asked for the icon).
-    private fun reloadForIcon(sbn: StatusBarNotification) {
-        foregroundExecutor.execute { latestSbn[sbn.key]?.let { onNotificationAdded(it.key, it) } }
-    }
-
-    // An icon of a media session of the package was made: its notifications are loaded again.
-    private fun reloadForPackage(packageName: String) {
-        foregroundExecutor.execute {
-            latestSbn.values.filter { it.packageName == packageName }.forEach { onNotificationAdded(it.key, it) }
-        }
-    }
-
-    private fun artworkPx(): Int =
-        context.resources.displayMetrics.let { minOf(it.widthPixels, it.heightPixels) }.coerceAtLeast(1)
-
     private suspend fun loadMediaDataWithLoader(
         key: String,
         sbn: StatusBarNotification,
@@ -434,10 +404,10 @@ class LegacyMediaDataManagerImpl(
                     userId = sbn.normalizedUserId,
                     initialized = true,
                     app = result.appName,
-                    appIcon = safeMediaIcon(result.appIcon, sbn, AppIcons.iconPx(context)),
+                    appIcon = iconSafety.appIcon(result.appIcon, sbn), // DiamaneOS
                     artist = result.artist,
                     song = result.song,
-                    artwork = safeMediaIcon(result.artworkIcon, sbn, artworkPx()),
+                    artwork = iconSafety.artwork(result.artworkIcon, sbn), // DiamaneOS
                     actions = result.actionIcons,
                     actionsToShowInCompact = result.actionsToShowInCompact,
                     semanticActions = result.semanticActions,
@@ -739,7 +709,7 @@ class LegacyMediaDataManagerImpl(
         }
 
     override fun onNotificationRemoved(key: String) {
-        latestSbn.remove(key)
+        iconSafety.onRemoved(key) // DiamaneOS
         Assert.isMainThread()
         val removed = mediaEntries.remove(key) ?: return
         if (keyguardUpdateMonitor.isUserInLockdown(removed.userId)) {

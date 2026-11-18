@@ -123,7 +123,11 @@ public final class VmDecode {
     // pread(), which can block for good on a FUSE file served by an app (a StorageManager proxy): such a thread is
     // left behind and counted against the owner, and an owner with too many of them gets no new copies.
     private static final int MAX_STUCK_PER_OWNER = 2;
+    // Past MAX_STUCK in all, only owners that already hold a stuck thread are turned away: an owner with none still
+    // gets its opens, so a few apps with hung providers cannot switch URI images off for everyone. MAX_STUCK_THREADS
+    // is the real ceiling on threads left behind.
     private static final int MAX_STUCK = 16;
+    private static final int MAX_STUCK_THREADS = 64;
     private static final Object sStuckLock = new Object();
     private static final java.util.Map<String, Integer> sStuck = new java.util.HashMap<>(); // guarded by sStuckLock
     private static int sStuckTotal; // guarded by sStuckLock
@@ -321,11 +325,32 @@ public final class VmDecode {
 
     // The package that supplied the bytes: the caller's word, else the URI's provider. Never the calling process
     // itself, so one app's images do not share a lane with everything the system decodes.
+    /**
+     * The owner to pass for a request whose app SystemUI does not know (a loader, the clipboard): its lane is the
+     * feature's own and the URI's provider, never the lane of an app that posts, nor one shared by every caller.
+     */
+    public static String unknownOwner(String feature) {
+        return "?" + (feature == null ? "" : feature);
+    }
+
+    /** True for an owner made by {@link #unknownOwner} (or none): not an app of its own. */
+    static boolean isUnknownOwner(String owner) {
+        return owner == null || owner.isEmpty() || owner.startsWith("?");
+    }
+
     private static String owner(Context context, Uri uri, String ownerPackage) {
+        if (ownerPackage != null && ownerPackage.startsWith("?")) {
+            return ownerPackage + ":" + providerOf(context, uri);
+        }
         if (ownerPackage != null && !ownerPackage.isEmpty()
                 && !ownerPackage.equals(android.app.ActivityThread.currentPackageName())) {
             return ownerPackage;
         }
+        return "?:" + providerOf(context, uri);
+    }
+
+    // The package of the URI's provider, or "".
+    private static String providerOf(Context context, Uri uri) {
         if (ContentResolver.SCHEME_CONTENT.equals(uri.getScheme()) && uri.getAuthority() != null) {
             try {
                 final ProviderInfo provider = context.getPackageManager().resolveContentProvider(
@@ -365,7 +390,7 @@ public final class VmDecode {
         }
         final String lane = owner == null ? "" : owner;
         synchronized (sStuckLock) {
-            if (sStuck.getOrDefault(lane, 0) >= MAX_STUCK_PER_OWNER || sStuckTotal >= MAX_STUCK) {
+            if (tooManyStuckLocked(lane)) {
                 throw new UnavailableException("too many opens or reads that never returned for " + lane);
             }
         }
@@ -385,6 +410,8 @@ public final class VmDecode {
         private Throwable mError; // guarded by sStuckLock
         private boolean mDone; // guarded by sStuckLock
         private boolean mAbandoned; // guarded by sStuckLock
+        // Cancelled at the deadline: a provider that honours it lets the open (and this thread) go.
+        private final android.os.CancellationSignal mCancel = new android.os.CancellationSignal();
 
         Opener(ContentResolver resolver, Uri uri, int maxWidth, int maxHeight, String owner) {
             super("VmDecodeOpen");
@@ -401,7 +428,7 @@ public final class VmDecode {
             AssetFileDescriptor result = null;
             Throwable error = null;
             try {
-                result = openImage(mResolver, mUri, mMaxWidth, mMaxHeight);
+                result = openImage(mResolver, mUri, mMaxWidth, mMaxHeight, mCancel);
             } catch (Throwable t) {
                 error = t;
             }
@@ -434,6 +461,7 @@ public final class VmDecode {
                 if (!mDone) {
                     mAbandoned = true;
                     countStuckLocked(mOwner);
+                    mCancel.cancel();
                     throw new UnavailableException("the provider did not open the image in time");
                 }
             }
@@ -448,6 +476,12 @@ public final class VmDecode {
             }
             return mResult;
         }
+    }
+
+    private static boolean tooManyStuckLocked(String owner) {
+        final int own = sStuck.getOrDefault(owner, 0);
+        return own >= MAX_STUCK_PER_OWNER || (own > 0 && sStuckTotal >= MAX_STUCK)
+                || sStuckTotal >= MAX_STUCK_THREADS;
     }
 
     private static void countStuckLocked(String owner) {
@@ -465,8 +499,8 @@ public final class VmDecode {
         sStuckTotal--;
     }
 
-    private static AssetFileDescriptor openImage(ContentResolver resolver, Uri uri, int maxWidth, int maxHeight)
-            throws FileNotFoundException {
+    private static AssetFileDescriptor openImage(ContentResolver resolver, Uri uri, int maxWidth, int maxHeight,
+            android.os.CancellationSignal cancel) throws FileNotFoundException {
         final String scheme = uri.getScheme();
         if (!ContentResolver.SCHEME_CONTENT.equals(scheme)
                 && !ContentResolver.SCHEME_ANDROID_RESOURCE.equals(scheme)) {
@@ -480,9 +514,9 @@ public final class VmDecode {
                 opts = new Bundle();
                 opts.putParcelable(ContentResolver.EXTRA_SIZE, new Point(maxWidth, maxHeight));
             }
-            return resolver.openTypedAssetFileDescriptor(uri, "image/*", opts, null);
+            return resolver.openTypedAssetFileDescriptor(uri, "image/*", opts, cancel);
         }
-        return resolver.openAssetFileDescriptor(uri, "r");
+        return resolver.openAssetFileDescriptor(uri, "r", cancel);
     }
 
     private static DecodeRequest request(ParcelFileDescriptor fd, String ownerPackage, int priority) {
@@ -610,8 +644,7 @@ public final class VmDecode {
 
     private static Pumper startPump(String owner, ParcelFileDescriptor source, Pump pump) throws IOException {
         synchronized (sStuckLock) {
-            if (sStuck.getOrDefault(owner == null ? "" : owner, 0) >= MAX_STUCK_PER_OWNER
-                    || sStuckTotal >= MAX_STUCK) {
+            if (tooManyStuckLocked(owner == null ? "" : owner)) {
                 closeQuietly(source);
                 throw new IOException("too many reads that never returned for " + owner);
             }

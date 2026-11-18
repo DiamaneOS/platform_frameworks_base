@@ -191,7 +191,7 @@ final class DecodeClient {
                 } finally {
                     releaseSlot(lane);
                     if (state.getAndSet(1) == 2) {
-                        stuckEnded(bound.generation);
+                        stuckEnded(bound.generation, lane);
                     }
                 }
             });
@@ -227,11 +227,11 @@ final class DecodeClient {
             // starting is slow, not wedged). Only the binding the call was made on is ever dropped. A call that only
             // waited in the queue ends that call.
             if (started.get()) {
-                final int stuck = state.compareAndSet(0, 2) ? stuckStarted(bound.generation) : 0;
+                final int stuck = state.compareAndSet(0, 2) ? stuckStarted(bound.generation, lane) : 0;
                 boolean suspect = false;
                 if (callTimeout >= defaultCallTimeout) {
                     suspect = true;
-                } else if (callTimeout >= WEDGE_MIN_DEADLINE_MS && !lane.isEmpty()) {
+                } else if (callTimeout >= WEDGE_MIN_DEADLINE_MS && !VmDecode.isUnknownOwner(lane)) {
                     synchronized (mLock) {
                         if (mWarm && bound.generation == mGeneration) {
                             final long now = SystemClock.uptimeMillis();
@@ -245,8 +245,11 @@ final class DecodeClient {
                     }
                 }
                 if (stuck >= MAX_THREADS - 1) {
-                    Log.w(TAG, "decode calls stuck in the service, binding dropped");
-                    dropWedged(bound.generation);
+                    // The owners whose calls are stuck are turned away first, and the VM itself is asked: only when
+                    // it does not answer is the binding dropped for everyone.
+                    Log.w(TAG, "decode calls stuck in the service, their owners are turned away for a while");
+                    backOffStuckOwners(bound.generation);
+                    checkHealth(bound);
                 } else if (suspect) {
                     checkHealth(bound);
                 }
@@ -275,20 +278,46 @@ final class DecodeClient {
     private int mStuckGeneration = -1;
     private int mStuckCalls;
 
-    private int stuckStarted(int generation) {
+    private int stuckStarted(int generation, String owner) {
         synchronized (mLock) {
             if (mStuckGeneration != generation) {
                 mStuckGeneration = generation;
                 mStuckCalls = 0;
+                mStuckOwners.clear();
             }
+            mStuckOwners.merge(owner, 1, Integer::sum);
             return ++mStuckCalls;
         }
     }
 
-    private void stuckEnded(int generation) {
+    private void backOffStuckOwners(int generation) {
+        final java.util.List<String> owners;
+        synchronized (mLock) {
+            if (mStuckGeneration != generation) {
+                return;
+            }
+            owners = new java.util.ArrayList<>(mStuckOwners.keySet());
+        }
+        final long until = SystemClock.uptimeMillis() + BACK_OFF_MS;
+        synchronized (mOwnerCalls) {
+            for (String owner : owners) {
+                if (!owner.isEmpty()) {
+                    mBackedOff.put(owner, until);
+                }
+            }
+        }
+    }
+
+    private void stuckEnded(int generation, String owner) {
         synchronized (mLock) {
             if (mStuckGeneration == generation && mStuckCalls > 0) {
                 mStuckCalls--;
+                final int left = mStuckOwners.getOrDefault(owner, 1) - 1;
+                if (left <= 0) {
+                    mStuckOwners.remove(owner);
+                } else {
+                    mStuckOwners.put(owner, left);
+                }
             }
         }
     }
@@ -408,16 +437,38 @@ final class DecodeClient {
         return png;
     }
 
+    // An owner with nothing in flight always finds a call thread: the others may fill all but the last one. An
+    // owner that held up calls of this binding until the binding looked wedged is turned away for a while.
     private void claimSlot(String lane) throws VmDecode.UnavailableException {
         synchronized (mOwnerCalls) {
+            final Long backedOff = mBackedOff.get(lane);
+            if (backedOff != null) {
+                if (SystemClock.uptimeMillis() < backedOff) {
+                    throw new VmDecode.UnavailableException("decodes of " + lane + " held the service up, later");
+                }
+                mBackedOff.remove(lane);
+            }
             final int n = mOwnerCalls.getOrDefault(lane, 0);
-            final int max = lane.isEmpty() ? MAX_CALLS_UNKNOWN_OWNER : MAX_CALLS_PER_OWNER;
+            final int max = VmDecode.isUnknownOwner(lane) ? MAX_CALLS_UNKNOWN_OWNER : MAX_CALLS_PER_OWNER;
             if (n >= max) {
                 throw new VmDecode.UnavailableException("too many decodes in flight for " + lane);
+            }
+            int total = 0;
+            for (int calls : mOwnerCalls.values()) {
+                total += calls;
+            }
+            if (n > 0 && total >= MAX_THREADS - 1) {
+                throw new VmDecode.UnavailableException("the last call thread is kept for others than " + lane);
             }
             mOwnerCalls.put(lane, n + 1);
         }
     }
+
+    // Owners turned away until a time (uptime), guarded by mOwnerCalls.
+    private final Map<String, Long> mBackedOff = new HashMap<>();
+    private static final long BACK_OFF_MS = 30_000;
+    // The owners of the calls stuck in the current binding, guarded by mLock.
+    private final Map<String, Integer> mStuckOwners = new HashMap<>();
 
     private void releaseSlot(String lane) {
         synchronized (mOwnerCalls) {

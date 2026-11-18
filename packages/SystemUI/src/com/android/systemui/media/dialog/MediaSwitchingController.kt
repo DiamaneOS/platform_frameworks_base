@@ -549,8 +549,8 @@ constructor(
                 if (icon == null) {
                     break
                 }
-                // As the status bar shows it: an app resource icon through the image gate (an image already made),
-                // never the original with plain resources. Not made yet: the app's own icon instead.
+                // DiamaneOS: as the status bar shows it: an app resource icon through the image gate (an image already
+                // made), never the original with plain resources. Not made yet: the app's own icon instead.
                 return AppIcons.forViewOrNull(
                         mContext,
                         icon,
@@ -575,8 +575,8 @@ constructor(
                 if (icon == null) {
                     break
                 }
-                // Pixels as they are, an app resource icon through the image gate (made already), anything else
-                // (a URI an app named) is not decoded here: no large icon.
+                // DiamaneOS: pixels as they are, an app resource icon through the image gate (made already), anything
+                // else (a URI an app named) is not decoded here: no large icon.
                 val shown =
                     AppIcons.forViewOrNull(
                         mContext,

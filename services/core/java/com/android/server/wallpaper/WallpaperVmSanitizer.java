@@ -107,8 +107,13 @@ final class WallpaperVmSanitizer {
     }
 
     private final Context mContext;
-    // Sources this class moved into place: their MOVED_TO events are its own, not a new image.
-    private final Set<String> mOwnMoves = ConcurrentHashMap.newKeySet();
+    // Sources this class moved into place, with the time of the move: their MOVED_TO events are its own, not a new
+    // image. An entry older than OWN_MOVE_MS is not trusted any more (its event never came), so a later genuine move
+    // (a restore) is never swallowed by it.
+    private final Map<String, Long> mOwnMoves = new ConcurrentHashMap<>();
+    private static final long OWN_MOVE_MS = 30_000;
+    // The clean list of a directory, kept while the list file stays the same: (path, length, time) to hashes.
+    private static final Map<String, Object[]> sListCache = new HashMap<>();
 
     // Hash of a source by path, valid while its length and modification time stay the same.
     private static final Map<String, String[]> sHashCache = new HashMap<>();
@@ -119,7 +124,8 @@ final class WallpaperVmSanitizer {
 
     /** True when the MOVED_TO event for {@code path} in the wallpaper directory was this class renaming a file. */
     boolean consumeOwnMove(File dir, String path) {
-        return mOwnMoves.remove(new File(dir, path).getPath());
+        final Long at = mOwnMoves.remove(new File(dir, path).getPath());
+        return at != null && android.os.SystemClock.uptimeMillis() - at <= OWN_MOVE_MS;
     }
 
     /** True when {@code source} is a clean file made by this class (also after a move to another name). */
@@ -177,29 +183,26 @@ final class WallpaperVmSanitizer {
                 throw new IOException("hash failed");
             }
             addToList(dir, hash, source);
-            // Keep the original beside it (never decoded here), then move the clean file into place.
-            Os.rename(source.getPath(), originalOf(source).getPath());
-            mOwnMoves.add(source.getPath());
+            // Keep a copy of the original beside it (bytes only, never decoded here), then put the clean file in
+            // place with one rename: the source is never missing, whatever happens in between.
+            final File kept = originalOf(source);
+            java.nio.file.Files.copy(source.toPath(), kept.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            mOwnMoves.put(source.getPath(), android.os.SystemClock.uptimeMillis());
             Os.rename(tmp.getPath(), source.getPath());
             SELinux.restorecon(source);
+            // The hash just made is the source's now: no second pass over the file under the service's lock.
+            synchronized (sHashCache) {
+                sHashCache.put(source.getPath(), new String[] {source.length() + ":" + source.lastModified(), hash});
+            }
             Slog.i(TAG, "Wallpaper " + source.getName() + " re-made from pixels decoded in the VM: "
                     + original.getWidth() + "x" + original.getHeight() + " turned " + decoded.rotation + " to "
                     + bitmap.getWidth() + "x" + bitmap.getHeight());
             return new Outcome(Result.CLEAN, true, original.getWidth(), original.getHeight(), decoded.rotation,
                     bitmap.getWidth(), bitmap.getHeight());
         } catch (IOException | ErrnoException e) {
+            // The source is still the original: the rename is the last step and either happened or did not.
             mOwnMoves.remove(source.getPath());
-            // If the original was moved aside but the clean file did not follow, put the original back.
-            final File kept = originalOf(source);
-            if (!source.exists() && kept.exists()) {
-                try {
-                    mOwnMoves.add(source.getPath());
-                    Os.rename(kept.getPath(), source.getPath());
-                } catch (ErrnoException restore) {
-                    mOwnMoves.remove(source.getPath());
-                    Slog.e(TAG, "Could not put the original wallpaper back", restore);
-                }
-            }
             Slog.w(TAG, "Could not store the clean wallpaper " + source.getName(), e);
             return new Outcome(Result.UNAVAILABLE);
         } finally {
@@ -286,9 +289,27 @@ final class WallpaperVmSanitizer {
         }
     }
 
+    // The hashes of the list file, read again only when the file changed (it is read under the service's lock).
     private static Set<String> readList(File dir) {
-        final Set<String> hashes = new HashSet<>();
         final File list = new File(dir, CLEAN_LIST);
+        final String stamp = list.length() + ":" + list.lastModified();
+        synchronized (sListCache) {
+            final Object[] cached = sListCache.get(list.getPath());
+            if (cached != null && cached[0].equals(stamp)) {
+                @SuppressWarnings("unchecked")
+                final Set<String> hashes = (Set<String>) cached[1];
+                return new HashSet<>(hashes);
+            }
+        }
+        final Set<String> hashes = readListFile(list);
+        synchronized (sListCache) {
+            sListCache.put(list.getPath(), new Object[] {stamp, new HashSet<>(hashes)});
+        }
+        return hashes;
+    }
+
+    private static Set<String> readListFile(File list) {
+        final Set<String> hashes = new HashSet<>();
         if (!list.isFile()) {
             return hashes;
         }

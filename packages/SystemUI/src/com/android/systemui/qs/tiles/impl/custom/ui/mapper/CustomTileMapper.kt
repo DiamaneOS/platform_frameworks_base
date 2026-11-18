@@ -31,7 +31,6 @@ import com.android.systemui.qs.tiles.base.shared.model.QSTileState
 import com.android.systemui.qs.tiles.base.ui.model.QSTileDataToStateMapper
 import com.android.systemui.qs.tiles.impl.custom.domain.model.CustomTileDataModel
 import com.android.systemui.shade.ShadeDisplayAware
-import de.diamaneos.decode.client.ForeignIcons
 import javax.inject.Inject
 
 @SysUISingleton
@@ -112,42 +111,14 @@ constructor(
         defaultIcon: android.graphics.drawable.Icon?,
     ): IconResult {
         var failedToLoad = false
-        // The tile's icon and its default icon (from the tile app's manifest) are made without decoding the app's
-        // bytes here: URI and data icons in the protected VM, the app's resources through an image gate, on an image
-        // thread. This shared thread never waits: once an icon is made the tile's data is read again
-        // (CustomTileIconsMade) and it shows. A URI the app may not read is refused as before.
         val drawable: Drawable? =
             try {
-                icon
-                    ?.takeIf {
-                        ForeignIcons.uriGranted(it, uriGrantsManager, callingAppUid, packageName)
-                    }
-                    ?.let {
-                        ForeignIcons.loadNoWait(
-                            userContext,
-                            it,
-                            userContext.userId,
-                            packageName,
-                            TILE_ICON_MAX_PX,
-                        ) {
-                            CustomTileIconsMade.made(packageName)
-                        }
-                    }
+                // DiamaneOS: made in the VM or through an image gate, never waited for (CustomTileIcons).
+                CustomTileIcons.load(userContext, icon, uriGrantsManager, callingAppUid, packageName)
             } catch (e: Exception) {
                 failedToLoad = true
                 null
-            }
-                ?: defaultIcon?.let {
-                    ForeignIcons.loadNoWait(
-                        userContext,
-                        it,
-                        userContext.userId,
-                        packageName,
-                        TILE_ICON_MAX_PX,
-                    ) {
-                        CustomTileIconsMade.made(packageName)
-                    }
-                }
+            } ?: CustomTileIcons.load(userContext, defaultIcon, packageName) // DiamaneOS
         return IconResult(
             drawable?.constantState?.newDrawable()?.let {
                 Icon.Loaded(it, contentDescription = null)
@@ -157,26 +128,4 @@ constructor(
     }
 
     class IconResult(val icon: Icon?, val failedToLoad: Boolean)
-
-    private companion object {
-        const val TILE_ICON_MAX_PX = 256
-    }
-}
-
-/** Tells the custom tiles of an app that one of its icons was made on an image thread, so they map again. */
-object CustomTileIconsMade {
-    private val made =
-        kotlinx.coroutines.flow.MutableSharedFlow<String>(
-            extraBufferCapacity = 16,
-            onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST,
-        )
-
-    fun made(packageName: String) {
-        made.tryEmit(packageName)
-    }
-
-    fun madeFor(packageName: String): kotlinx.coroutines.flow.Flow<Unit> =
-        kotlinx.coroutines.flow.flow {
-            made.collect { if (it == packageName) emit(Unit) }
-        }
 }

@@ -92,8 +92,15 @@ constructor(
         val subtype = model.selectedSubtype
         val subtypeIcon =
             subtype?.icon?.let { icon ->
-                android.graphics.drawable.Icon.createWithResource(icon.packageName, icon.resId)
-                    .loadDrawable(context)
+                // DiamaneOS: the input method's image files are decoded in the protected VM, never here.
+                de.diamaneos.decode.client.ForeignIcons.loadNoWait(
+                        context,
+                        android.graphics.drawable.Icon.createWithResource(icon.packageName, icon.resId),
+                        context.userId,
+                        icon.packageName,
+                        de.diamaneos.decode.client.AppIcons.iconPx(context),
+                        null,
+                    )
                     ?.asIcon(resId = icon.resId, resPackage = icon.packageName)
             }
 

@@ -64,6 +64,7 @@ import android.widget.LinearLayout;
 import com.android.internal.protolog.ProtoLog;
 import com.android.wm.shell.R;
 import com.android.wm.shell.common.ShellExecutor;
+import com.android.wm.shell.common.pip.PipActionIcons;
 import com.android.wm.shell.common.pip.PipUiEventLogger;
 import com.android.wm.shell.common.pip.PipUtils;
 import com.android.wm.shell.protolog.ShellProtoLogGroup;
@@ -75,27 +76,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-import de.diamaneos.decode.client.ForeignIcons;
-
 /**
  * Translucent window that gets started on top of a task in PIP to allow the user to control it.
  */
 public class PipMenuView extends FrameLayout {
 
-    // DiamaneOS: the most an action icon is decoded to.
-    private static final int ACTION_ICON_MAX_PX = 256;
-    // DiamaneOS: counts updates of the action views, so a late icon never lands on a newer action.
-    private int mActionIconGeneration;
-
-    // DiamaneOS: the package that created the action's intent, as the system records it, or "" when unknown.
-    private static String creatorOf(RemoteAction action) {
-        try {
-            final String creator = action.getActionIntent().getCreatorPackage();
-            return creator != null ? creator : "";
-        } catch (RuntimeException e) {
-            return "";
-        }
-    }
+    // DiamaneOS: action icons are never decoded here (PipActionIcons).
+    private final PipActionIcons mActionIcons = new PipActionIcons();
 
     private static final String TAG = "PipMenuView";
 
@@ -475,8 +462,7 @@ public class PipMenuView extends FrameLayout {
                 }
 
                 // Recreate the layout
-                // DiamaneOS: icons that come back after a newer update of the actions are dropped.
-                final int generation = ++mActionIconGeneration;
+                final int iconUpdate = mActionIcons.newUpdate(); // DiamaneOS
                 final boolean isLandscapePip = stackBounds != null
                         && (stackBounds.width() > stackBounds.height());
                 for (int i = 0; i < mActions.size(); i++) {
@@ -492,19 +478,13 @@ public class PipMenuView extends FrameLayout {
                         actionView.setImageDrawable(null);
                     } else {
                         // TODO: Check if the action drawable has changed before we reload it
-                        // DiamaneOS: the app's icon is never decoded here. Pixels and framework icons load as they
-                        // are, data icons in the protected VM, the app's resources through an image gate (their
-                        // bitmap files decoded in the VM), made on an image thread for the app.
-                        // The work is charged to the app that made the action (its intent's creator, as the
-                        // system records it), never to a package an icon names.
-                        final Icon actionIcon = action.getIcon();
-                        ForeignIcons.loadAsync(mContextForUser, actionIcon, mContextForUser.getUserId(),
-                                creatorOf(action), ACTION_ICON_MAX_PX, mMainHandler::post, d -> {
-                                    if (d != null && generation == mActionIconGeneration) {
-                                        d.setTint(Color.WHITE);
-                                        actionView.setImageDrawable(d);
-                                    }
-                                });
+                        // DiamaneOS: through PipActionIcons, the app's image decoded in the VM.
+                        mActionIcons.load(mContextForUser, action, mMainHandler, iconUpdate, d -> {
+                            if (d != null) {
+                                d.setTint(Color.WHITE);
+                                actionView.setImageDrawable(d);
+                            }
+                        });
                     }
                     actionView.setCustomCloseBackgroundVisibility(
                             isCloseAction ? View.VISIBLE : View.GONE);

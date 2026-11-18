@@ -16,16 +16,11 @@
 
 package com.android.systemui.statusbar.notification.icon
 
-import de.diamaneos.decode.client.AppIcons
-import de.diamaneos.decode.client.ForeignIcons
-import de.diamaneos.decode.client.VmIcons
 import android.app.Notification
 import android.app.Notification.MessagingStyle
 import android.app.Person
-import android.content.ComponentCallbacks
 import android.content.Context
 import android.content.pm.LauncherApps
-import android.content.res.Configuration
 import android.graphics.drawable.Icon
 import android.os.Build
 import android.os.Bundle
@@ -54,8 +49,6 @@ import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.withContext
-import kotlin.coroutines.resume
-import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
  * Inflates and updates icons associated with notifications
@@ -106,58 +99,12 @@ constructor(
         onIconUpdateRequiredListeners -= listener
     }
 
-    // The configuration the app resource icons were last built for.
-    private var iconConfiguration: Configuration? = null
+    // DiamaneOS: app images of these icons, decoded in the VM (NotificationAppIcons).
+    private val appIcons = NotificationAppIcons(shadeContext, notifCollection, ::updateIconsSafe)
 
     fun attach() {
         notifCollection.addCollectionListener(entryListener)
-        // An app's resource icons are loaded through resources behind an image gate in the current configuration.
-        // After a change that can pick other resource files (dark mode, rotation, density, locale) the icons that
-        // are app resources are built again, and an image not made yet shows the neutral icon until an image thread
-        // has made it. Window-only changes (bounds, a fold, split screen) rebuild nothing.
-        iconConfiguration = Configuration(shadeContext.resources.configuration)
-        shadeContext.registerComponentCallbacks(
-            object : ComponentCallbacks {
-                override fun onConfigurationChanged(newConfig: Configuration) {
-                    if (!AppIcons.resourceConfigChanged(iconConfiguration, newConfig)) {
-                        return
-                    }
-                    iconConfiguration = Configuration(newConfig)
-                    val entries = notifCollection.allNotifs.filter { usesAppResourceIcon(it) }
-                    // The gated resources of the new configuration are made off the main thread first. The icons
-                    // shown stay until they are ready, then the entries are built again.
-                    val wanted =
-                        entries.flatMap { entry ->
-                            listOfNotNull(entry.sbn.notification.smallIcon, entry.sbn.notification.getLargeIcon())
-                                .map {
-                                    AppIcons.Wanted(entry.sbn.normalizedUserId, entry.sbn.packageName, it)
-                                }
-                        }
-                    AppIcons.prepare(shadeContext, wanted) {
-                        entries.forEach {
-                            if (notifCollection.getEntry(it.key) === it) {
-                                updateIconsSafe(it)
-                            }
-                        }
-                    }
-                }
-
-                @Deprecated("Deprecated in Java") override fun onLowMemory() {}
-            }
-        )
-    }
-
-    // An entry whose icons may be app resources: its small or large icon is one, or it shows a conversation (the
-    // avatar can be a sender's or the shortcut's icon).
-    private fun usesAppResourceIcon(entry: NotificationEntry): Boolean {
-        val n = entry.sbn.notification
-        // URI and data icons are decoded at a size from the density: rebuilt on a change too.
-        return AppIcons.isAppResource(n.smallIcon) ||
-            AppIcons.isAppResource(n.getLargeIcon()) ||
-            VmIcons.needsVm(n.smallIcon) ||
-            VmIcons.needsVm(n.getLargeIcon()) ||
-            entry.ranking.conversationShortcutInfo != null ||
-            n.extras.containsKey(Notification.EXTRA_MESSAGES)
+        appIcons.attach() // DiamaneOS
     }
 
     private val entryListener =
@@ -168,8 +115,7 @@ constructor(
 
             override fun onEntryCleanUp(entry: NotificationEntry) {
                 entry.removeOnSensitivityChangedListener(sensitivityListener)
-                // Icon retries still to come for it are dropped (they would keep the entry).
-                AppIcons.cancelRetries(entry.key)
+                appIcons.onEntryCleanUp(entry) // DiamaneOS
             }
 
             override fun onRankingApplied() {
@@ -496,7 +442,7 @@ constructor(
         return StatusBarIcon(
             entry.sbn.user,
             entry.sbn.packageName,
-            /* icon = */ appIcon(this, entry),
+            /* icon = */ appIcons.forView(this, entry), // DiamaneOS: app images decoded in the VM
             n.iconLevel,
             n.number,
             iconBuilder.getIconContentDescription(n),
@@ -512,7 +458,7 @@ constructor(
         return StatusBarIcon(
             context.user,
             context.packageName,
-            /* icon = */ withoutVmIcon(this),
+            /* icon = */ NotificationAppIcons.withoutVmIcon(this), // DiamaneOS
             0,
             0,
             context.getString(entry.bundleRepository.titleText),
@@ -520,37 +466,14 @@ constructor(
         )
     }
 
-    /**
-     * The icon these views load on the main thread: a URI or data icon becomes the neutral icon, and an app resource
-     * icon loads through resources behind an image gate (its bitmap files decoded in the VM), or is the neutral icon
-     * until an image thread has made its image, after which the entry's icons are built again.
-     */
-    private fun appIcon(icon: Icon, entry: NotificationEntry): Icon =
-        AppIcons.forView(shadeContext, icon, entry.sbn.normalizedUserId, entry.sbn.packageName, entry.key) {
-            if (notifCollection.getEntry(entry.key) === entry) {
-                updateIconsSafe(entry)
-            }
-        } ?: withoutVmIcon(icon)
-
     private suspend fun getLauncherShortcutIconForPeopleAvatar(entry: NotificationEntry) =
         withContext(bgCoroutineContext) {
             var icon: Icon? = null
             val shortcut = entry.ranking.conversationShortcutInfo
             if (shortcut != null) {
                 try {
-                    // A file or URI icon is decoded in the protected VM on an image thread (this shared thread
-                    // does not wait for it), a resource icon goes through appIcon.
-                    icon = suspendCancellableCoroutine<Icon?> { cont ->
-                        ForeignIcons.shortcutIconAsync(
-                            shadeContext,
-                            launcherApps,
-                            shortcut,
-                            ForeignIcons.shortcutPx(shadeContext),
-                            { it.run() },
-                        ) {
-                            cont.resume(it)
-                        }
-                    }
+                    // DiamaneOS: a file or URI icon is decoded in the VM (NotificationAppIcons).
+                    icon = appIcons.shortcutIcon(launcherApps, shortcut)
                 } catch (e: Exception) {
                     Log.e(
                         TAG,
@@ -631,11 +554,9 @@ constructor(
     ): Boolean {
         val usedInSensitiveContext =
             iconView === entry.icons.shelfIcon || iconView === entry.icons.aodIcon
-        // The descriptor holds the icon as AppIcons gave it (a gated copy, or the same pixels): compared by content.
-        val smallIcon = entry.sbn.notification.smallIcon
+        // DiamaneOS: the descriptor holds the icon as NotificationAppIcons gave it, compared by content.
         val isSmallIcon =
-            iconDescriptor.icon === smallIcon ||
-                (smallIcon != null && iconDescriptor.icon?.sameAs(smallIcon) == true)
+            NotificationAppIcons.isSmallIcon(iconDescriptor.icon, entry.sbn.notification.smallIcon)
         return isImportantConversation(entry) &&
             !isSmallIcon &&
             (!usedInSensitiveContext || !entry.isSensitive.value)
@@ -670,11 +591,3 @@ interface ConversationIconManager {
      */
     fun setUnimportantConversations(keys: Collection<String>)
 }
-
-/**
- * Status bar, shelf, always-on display and heads-up icons are drawn from these descriptors on the main thread, where
- * nothing may be decoded in the VM. An icon made of another app's compressed image bytes (a URI or createWithData)
- * becomes a neutral system icon. The notification row itself shows the image, decoded in the VM.
- */
-private fun withoutVmIcon(icon: Icon): Icon =
-    VmIcons.withoutVmIcon(icon, Icon.createWithResource("android", android.R.drawable.ic_dialog_info))

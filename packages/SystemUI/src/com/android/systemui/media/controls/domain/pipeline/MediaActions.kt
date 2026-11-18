@@ -203,14 +203,14 @@ private fun getCustomAction(
     @UserIdInt userId: Int,
 ): MediaAction {
     return MediaAction(
-        // The media app's resource: through an image gate, its bitmap files decoded in the protected VM on an image
-        // thread. Nothing waits here: once it is made, the app's media notifications are loaded again.
+        // DiamaneOS: the media app's resource: through an image gate, its bitmap files decoded in the protected VM on
+        // an image thread. Nothing waits here: once it is made, the app's media notifications are loaded again.
         ForeignIcons.loadNoWait(
             context,
             Icon.createWithResource(packageName, customAction.icon),
             userId,
             packageName,
-            ACTION_ICON_MAX_PX,
+            MediaIconReload.ACTION_ICON_MAX_PX,
             MediaIconReload.reloaderFor(packageName),
         ),
         { controller.transportControls.sendCustomAction(customAction, customAction.extras) },
@@ -277,12 +277,12 @@ fun createActionsFromNotification(
                     )
                     .defaultColor
 
-            // The original notification's action icon: pixels as they are, URI and data icons decoded in the
+            // DiamaneOS: the original notification's action icon: pixels as they are, URI and data icons decoded in the
             // protected VM, the app's resources through an image gate. Never decoded here.
             // Nothing waits here: an icon not made yet is made on an image thread, then the notification is loaded
             // again (MediaIconReload).
             val mediaActionIcon =
-                ForeignIcons.loadNoWait(
+                ForeignIcons.loadNoWait( // DiamaneOS
                     context,
                     when (action.getIcon().type) {
                             Icon.TYPE_RESOURCE ->
@@ -292,7 +292,7 @@ fun createActionsFromNotification(
                         .setTint(themeText),
                     sbn.normalizedUserId,
                     sbn.packageName,
-                    ACTION_ICON_MAX_PX,
+                    MediaIconReload.ACTION_ICON_MAX_PX,
                 ) {
                     MediaIconReload.reload(sbn)
                 }
@@ -363,46 +363,3 @@ private fun sendPendingIntent(intent: PendingIntent): Boolean {
     }
 }
 
-/** The most a media action icon of an app is decoded to. */
-private const val ACTION_ICON_MAX_PX = 256
-
-/**
- * Asks the media pipeline to load a media notification again once an icon of it (an action icon, the app icon, the
- * artwork) was made on an image thread: nothing in the pipeline waits for one.
- */
-object MediaIconReload {
-    private val listeners =
-        java.util.concurrent.CopyOnWriteArrayList<(android.service.notification.StatusBarNotification) -> Unit>()
-
-    /** Called with the notification whose icon was made, on the main thread. */
-    fun addListener(listener: (android.service.notification.StatusBarNotification) -> Unit) {
-        listeners += listener
-    }
-
-    fun reload(sbn: android.service.notification.StatusBarNotification) {
-        listeners.forEach { it(sbn) }
-    }
-
-    private val packageListeners = java.util.concurrent.CopyOnWriteArrayList<(String) -> Unit>()
-
-    /** Called with the package whose media session icon was made, on the main thread. */
-    fun addPackageListener(listener: (String) -> Unit) {
-        packageListeners += listener
-    }
-
-    /** An icon of a media session of [packageName] (not of a notification) was made. */
-    fun reloadPackage(packageName: String) {
-        packageListeners.forEach { it(packageName) }
-    }
-
-    private val reloaders = java.util.concurrent.ConcurrentHashMap<String, Runnable>()
-
-    /**
-     * The one callback per package for its session icons: an icon asked for by many actions tells it once, and one
-     * reload of the package follows. At most 64 packages are kept.
-     */
-    fun reloaderFor(packageName: String): Runnable {
-        if (reloaders.size > 64) reloaders.clear()
-        return reloaders.getOrPut(packageName) { Runnable { reloadPackage(packageName) } }
-    }
-}

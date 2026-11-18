@@ -20,6 +20,7 @@ import android.content.pm.ApplicationInfo;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.graphics.drawable.Drawable;
+import android.graphics.Bitmap;
 import android.graphics.drawable.Icon;
 import android.os.Handler;
 import android.os.Looper;
@@ -103,6 +104,14 @@ public final class AppIcons {
     }
 
     /**
+     * What a view shows while an app's image is still being made: nothing (a transparent icon, made here and not
+     * decoded), so no other glyph flashes in the status bar, shelf or always-on display before the real icon.
+     */
+    public static Icon placeholder() {
+        return Icon.createWithBitmap(Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888));
+    }
+
+    /**
      * The parts of {@code config} that can make an app's resources pick another file: night mode and UI type,
      * orientation, density, locales, layout direction and screen layout, screen sizes, mobile network codes, input
      * qualifiers, color mode, grammatical gender and overlays. Not the window bounds or the font scale.
@@ -146,7 +155,7 @@ public final class AppIcons {
             return null;
         }
         final Icon shown = forViewOrNull(context, icon, userId, ownerPackage, tag, onMade);
-        return shown != null ? shown : neutral();
+        return shown != null ? shown : placeholder();
     }
 
     /** {@link #forView}, with null where it would give the neutral icon (the caller has a better fallback). */
@@ -191,6 +200,7 @@ public final class AppIcons {
     // A URI or data icon: what the VM made of it, else null while an image thread makes it.
     private static Icon vmIcon(Context context, Icon icon, int userId, String ownerPackage, String tag,
             Runnable onMade) {
+        ImageMemory.watch(context);
         final Context user = userContext(context, userId);
         if (user == null) {
             return null;
@@ -310,11 +320,7 @@ public final class AppIcons {
 
     // Main thread: the callbacks of the waiters still wanted.
     private static void tell(List<Waiters.Waiter> waiters) {
-        for (Waiters.Waiter w : waiters) {
-            if (sWaiters.live(w)) {
-                w.onMade.run();
-            }
-        }
+        sWaiters.tell(waiters);
     }
 
     private static void addPending(String key, Pending pending) {
@@ -477,8 +483,16 @@ public final class AppIcons {
         return pkg == null || pkg.isEmpty() ? ownerPackage : pkg;
     }
 
+    /** Lets go of the gated resources kept for later (memory is low): icons on screen keep theirs. */
+    static void trim() {
+        synchronized (sLock) {
+            sGated.clear();
+        }
+    }
+
     // The gated resources of a package for a user, for the posting app, in SystemUI's current configuration.
     private static Gated gated(Context context, int userId, String pkg, String ownerPackage) {
+        ImageMemory.watch(context);
         final String configKey = configKey(context.getResources().getConfiguration());
         final String owner = ownerPackage == null ? "" : ownerPackage;
         // The posting app is part of the key: its gate charges that app, never another one.
@@ -515,12 +529,6 @@ public final class AppIcons {
         if (evicted.isEmpty()) {
             return;
         }
-        sMain.postDelayed(() -> {
-            for (Waiters.Waiter w : evicted) {
-                if (sWaiters.live(w)) {
-                    w.onMade.run();
-                }
-            }
-        }, Waiters.EVICTED_RETRY_MS);
+        sMain.postDelayed(() -> sWaiters.tell(evicted), Waiters.EVICTED_RETRY_MS);
     }
 }

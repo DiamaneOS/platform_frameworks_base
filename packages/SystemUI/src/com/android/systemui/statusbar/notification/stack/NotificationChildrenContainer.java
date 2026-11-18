@@ -566,12 +566,12 @@ public class NotificationChildrenContainer extends ViewGroup
         }
         if (mIsMinimized) {
             if (builder == null) {
-                // On the main thread nothing is decoded or inflated for the header's images: the small icon is
-                // what the status bar shows (an image already made, or the neutral icon), every other app image is
-                // left out without being loaded, and custom layouts are not looked at. Anything that fails gives
-                // the copy with every app image removed.
+                // DiamaneOS: on the main thread nothing is decoded or inflated for the header's images: the small icon
+                // is what the status bar shows (an image already made, or the neutral icon), every other app image is
+                // left out without being loaded, and custom layouts are not looked at. Anything that fails gives the
+                // copy with every app image removed.
                 builder = Notification.Builder.recoverBuilder(getContext(),
-                        NotificationImageGate.headerCopy(getContext(), notification.getNotification(),
+                        NotificationImageGate.headerCopy(getContext(), notification.getNotification(), // DiamaneOS
                                 notification.getPackageName(), notification.getNormalizedUserId()));
             }
             header = builder.makeLowPriorityContentView(true /* useRegularSubtext */);

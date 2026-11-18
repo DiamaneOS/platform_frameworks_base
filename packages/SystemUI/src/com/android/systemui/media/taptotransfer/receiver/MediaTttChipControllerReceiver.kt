@@ -182,12 +182,12 @@ constructor(
             return
         }
 
-        // The sending app's icon is never decoded here: data and URI icons in the protected VM, an app's resources
-        // through an image gate, made on an image thread and charged to the route's app (never to a package an icon
-        // names). The listener runs on the main handler, it updates the UI.
+        // DiamaneOS: the sending app's icon is never decoded here: data and URI icons in the protected VM, an app's
+        // resources through an image gate, made on an image thread and charged to the route's app (never to a package
+        // an icon names). The listener runs on the main handler, it updates the UI.
         ForeignIcons.loadAsync(
             context,
-            appIcon,
+            appIcon, // DiamaneOS
             context.userId,
             routeInfo.clientPackageName ?: "",
             APP_ICON_MAX_PX,
@@ -201,7 +201,7 @@ constructor(
                     id = routeInfo.id,
                     instanceId = instanceId,
                 )
-            )
+            ) // DiamaneOS
         }
     }
 
@@ -361,7 +361,7 @@ constructor(
 
     companion object {
         private const val ICON_TRANSLATION_ANIM_DURATION = 500L
-        private const val APP_ICON_MAX_PX = 256
+        private const val APP_ICON_MAX_PX = 256 // DiamaneOS
         private const val ICON_BOUNCE_ANIM_DURATION = 750L
         private const val ICON_TRANSLATION_SUCCEEDED_DURATION = 167L
         private const val BOUNCE_TRANSLATION_RATIO = 0.15f

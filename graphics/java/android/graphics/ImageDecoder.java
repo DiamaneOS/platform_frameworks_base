@@ -526,7 +526,7 @@ public final class ImageDecoder implements AutoCloseable {
             }
 
             if (!(is instanceof AssetInputStream)) {
-                // Resources that hand out images made elsewhere (see android.content.res.ImageFileGate).
+                // DiamaneOS: resources that hand out images made elsewhere (see android.content.res.ImageFileGate).
                 return createFromStream(is, true, preferAnimation, this);
             }
             return createFromAsset((AssetInputStream) is, preferAnimation, this);

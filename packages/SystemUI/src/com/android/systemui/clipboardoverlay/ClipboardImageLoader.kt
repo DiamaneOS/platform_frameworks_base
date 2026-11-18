@@ -45,7 +45,7 @@ constructor(
 ) {
     private val TAG: String = "ClipboardImageLoader"
 
-    suspend fun load(uri: Uri, timeoutMs: Long = 3000) =
+    suspend fun load(uri: Uri, timeoutMs: Long = 3000) = // DiamaneOS
         withTimeoutOrNull(timeoutMs) {
             withContext(bgDispatcher) {
                 try {
@@ -53,13 +53,13 @@ constructor(
                     val resolver =
                         if (clipboardOverlayMultiuser()) userTracker.userContentResolver
                         else context.contentResolver
-                    // Decoded in the protected VM, never in SystemUI.
-                    // Charged to the URI's provider, the app that holds the image.
+                    // DiamaneOS: decoded in the protected VM, never in SystemUI, in the clipboard's own lane per
+                    // provider.
                     VmDecode.decodeUri(
                         context,
                         resolver,
                         uri,
-                        "",
+                        VmDecode.unknownOwner("clipboard"),
                         VmDecode.PRIORITY_USER_WAITING,
                         size,
                         size * 4,

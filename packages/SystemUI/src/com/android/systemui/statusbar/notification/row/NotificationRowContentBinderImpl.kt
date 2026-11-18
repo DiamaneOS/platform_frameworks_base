@@ -15,12 +15,6 @@
  */
 package com.android.systemui.statusbar.notification.row
 
-import de.diamaneos.decode.client.AppResourceImages
-import de.diamaneos.decode.client.ForeignIcons
-import de.diamaneos.decode.client.ImageBudget
-import de.diamaneos.decode.client.ImageThreads
-import de.diamaneos.decode.client.NotificationImageGate
-import java.util.concurrent.atomic.AtomicBoolean
 import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.Notification.EXTRA_SUMMARIZED_CONTENT
@@ -28,7 +22,6 @@ import android.app.Notification.MessagingStyle
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ApplicationInfo
-import android.content.pm.LauncherApps
 import android.content.pm.PackageManager
 import android.content.res.Resources
 import android.os.AsyncTask
@@ -87,8 +80,6 @@ import com.android.systemui.statusbar.policy.InflatedSmartReplyState
 import com.android.systemui.statusbar.policy.InflatedSmartReplyViewHolder
 import com.android.systemui.statusbar.policy.SmartReplyStateInflater
 import com.android.systemui.util.Assert
-import java.util.Collections
-import java.util.WeakHashMap
 import java.util.concurrent.Executor
 import javax.inject.Inject
 
@@ -160,10 +151,9 @@ constructor(
                 logger,
             )
         if (inflateSynchronously) {
-            task.prepareImages()
             task.onPostExecute(task.doInBackground())
         } else {
-            task.startImages()
+            task.startWithImages() // DiamaneOS: the app's images first (NotificationRowImages)
         }
     }
 
@@ -194,8 +184,6 @@ constructor(
                 conversationProcessor = conversationProcessor,
                 promotedNotificationContentExtractor = promotedNotificationContentExtractor,
                 logger = logger,
-                // A test hook without the image threads: the copy with every app image removed.
-                sourceNotification = NotificationImageGate.strippedCopy(row.context, entry.sbn.notification),
             )
         inflateSmartReplyViews(
             result,
@@ -428,156 +416,26 @@ constructor(
             }
         }
 
-        // Made by prepareImages before the task runs: the checked copy and the context to apply it with.
-        @Volatile private var checkedNotification: Notification? = null
-        @Volatile private var gatedPackageContext: Context? = null
-        @Volatile private var imageTask: ImageThreads.Task? = null
-        @Volatile private var urgentImages = false
-        // Set by abort. The row's image gate keeps only this flag, never the task: the task holds the row, and the
-        // gate lives in a map keyed by the row, which must be able to forget it.
-        private val imagesCancelled = AtomicBoolean()
-        // The budget of this task's images: given back to the app's pixel pool when the task is aborted.
-        @Volatile private var imageBudget: ImageBudget? = null
+        // DiamaneOS: the row's images, made in the protected VM before the views (NotificationRowImages).
+        val images = NotificationRowImages(context, entry, row)
 
-        /**
-         * Starts the task. The app's images wait for the protected VM on an image thread (one task per app at a
-         * time, apps take turns), never on the inflation thread every notification shares. Calls, alarms and other
-         * urgent notifications use the urgent image threads, which normal image work never holds up, and a
-         * notification with no app image goes to the inflation thread at once.
-         */
-        fun startImages() {
-            val sbn = entry.sbn
-            val run = Runnable {
-                if (isCancelled) {
-                    return@Runnable
-                }
-                // The whole time of the image work is charged to the app (reserved before, settled after).
-                prepareImages()
-                if (!isCancelled) {
-                    try {
-                        executeOnExecutor(inflationExecutor)
-                    } catch (e: IllegalStateException) {
-                        Log.w(TAG, "inflation task not started: ${e.message}")
-                    }
-                }
+        fun startWithImages() =
+            images.start({ isCancelled }, { updateApplicationInfo(entry.sbn) }) {
+                if (!isCancelled && status == AsyncTask.Status.PENDING) executeOnExecutor(inflationExecutor)
             }
-            var lane =
-                NotificationImageGate.lane(
-                    context,
-                    sbn.notification,
-                    sbn.packageName,
-                    sbn.uid,
-                    sbn.normalizedUserId,
-                )
-            if (lane == NotificationImageGate.Lane.NONE && entry.ranking.conversationShortcutInfo != null) {
-                // The conversation's shortcut icon is made on an image thread too.
-                lane = NotificationImageGate.Lane.NORMAL
-            }
-            // A task that gave way to another app's (the lane was full and this app had the most waiting) is
-            // inflated at once, like a refused one.
-            val dropped = Runnable {
-                if (!isCancelled && status == AsyncTask.Status.PENDING) {
-                    urgentImages = false
-                    executeOnExecutor(inflationExecutor)
-                }
-            }
-            when (lane) {
-                NotificationImageGate.Lane.NONE -> executeOnExecutor(inflationExecutor)
-                NotificationImageGate.Lane.URGENT -> {
-                    urgentImages = true
-                    imageTask = ImageThreads.executeUrgent(sbn.packageName, run, dropped)
-                }
-                else -> imageTask = ImageThreads.execute(sbn.packageName, run, dropped)
-            }
-            if (lane != NotificationImageGate.Lane.NONE && imageTask == null) {
-                // The image threads are full and this app has the most waiting: inflated at once, with only the
-                // images made before (nothing waits for the VM on the inflation thread).
-                urgentImages = false
-                executeOnExecutor(inflationExecutor)
-            }
-        }
 
-        /**
-         * Every app image in the notification is decoded in the protected VM first (or removed), so the framework's
-         * own image loading never sees another app's compressed bytes. The app's own layouts are applied with
-         * resources that decode its bitmap files in the VM too, and their images are made here ahead of the
-         * inflation. Runs on an image thread (elsewhere nothing is decoded). If converting fails, every app image
-         * is removed and the notification still shows.
-         */
-        fun prepareImages() {
+        private fun doInBackgroundInternal(): InflationProgress {
             val sbn: StatusBarNotification = entry.sbn
             // Ensure the ApplicationInfo is updated before a builder is recovered.
             updateApplicationInfo(sbn)
-            val packageContext = sbn.getPackageContext(context)
-            var imageGate: NotificationImageGate? = null
-            try {
-                val metrics = context.resources.displayMetrics
-                val gate =
-                    NotificationImageGate.forNotification(
-                        context,
-                        sbn.packageName,
-                        sbn.normalizedUserId,
-                        (VM_ICON_DP * metrics.density).toInt().coerceAtLeast(1),
-                        minOf(metrics.widthPixels, metrics.heightPixels).coerceAtLeast(1),
-                        (VM_PICTURE_DP * metrics.density).toInt().coerceAtLeast(1),
-                        rowImages[row],
-                    )
-                imageGate = gate
-                imageBudget = gate.budget()
-                // The row's views keep its gate: each inflation starts a new round of it with a fresh budget.
-                rowImages[row] = gate.resourceImages()
-                // A cancelled task (a newer update, a removed notification) stops its image work.
-                gate.setCancelled(imagesCancelled)
-                val gated = gate.packageContext(packageContext)
-                val copy = gate.sanitizedCopy(sbn.notification)
-                gate.prewarm(copy, gated)
-                if (ImageThreads.isImageThread()) {
-                    // The conversation's shortcut icon is decoded here, the inflation finds it made.
-                    entry.ranking.conversationShortcutInfo?.let {
-                        ForeignIcons.shortcutIcon(
-                            context,
-                            context.getSystemService(LauncherApps::class.java),
-                            it,
-                            ForeignIcons.shortcutPx(context),
-                            /* mayWait= */ true,
-                        )
-                    }
-                }
-                gatedPackageContext = gated
-                checkedNotification = copy
-            } catch (e: Throwable) {
-                // Any Error too (a stack overflow, out of memory): it costs the images, not the notification.
-                strip(e, packageContext)
-            } finally {
-                // What the image work took is settled with the app's quota.
-                imageGate?.finish(urgentImages)
-            }
-        }
-
-        private fun strip(e: Throwable, packageContext: Context) {
-            Log.e(TAG, "cannot convert notification images, showing it without them", e)
-            try {
-                checkedNotification = NotificationImageGate.strippedCopy(context, entry.sbn.notification)
-                gatedPackageContext = packageContext
-            } catch (e2: Throwable) {
-                // Only if that fails too is the notification not shown.
-                Log.e(TAG, "cannot remove notification images", e2)
-                checkedNotification = null
-            }
-        }
-
-        private fun doInBackgroundInternal(): InflationProgress {
-            if (checkedNotification == null) {
-                prepareImages()
-            }
-            val checked =
-                checkedNotification ?: throw InflationException("notification images could not be removed")
+            // DiamaneOS: built from the checked copy, never from the app's own notification.
+            val checked = images.checked() ?: throw InflationException("notification images could not be removed")
             val recoveredBuilder = Notification.Builder.recoverBuilder(context, checked)
             // In some tests, we want to replace the static badge logic with a fake.
             if (userProfileBadgeProvider != null) {
                 recoveredBuilder.setUserProfileBadgeProvider(userProfileBadgeProvider)
             }
-            var packageContext: Context = gatedPackageContext!!
+            var packageContext: Context = images.packageContext() // DiamaneOS: through the image gate
             if (recoveredBuilder.usesTemplate()) {
                 // For all of our templates, we want it to be RTL
                 packageContext = RtlEnabledContext(packageContext)
@@ -596,7 +454,6 @@ constructor(
                     conversationProcessor = conversationProcessor,
                     promotedNotificationContentExtractor = promotedNotificationContentExtractor,
                     logger = logger,
-                    sourceNotification = checked,
                 )
             logger.logAsyncTaskProgress(
                 row.loggingKey,
@@ -698,11 +555,7 @@ constructor(
 
         override fun abort() {
             logger.logAsyncTaskProgress(entry.logKey, "cancelling inflate")
-            // Image work not started yet is dropped. Running image work stops at its next check (see setCancelled).
-            imagesCancelled.set(true)
-            // Its pixels no longer count against the app (a removed notification, or a newer update's round).
-            imageBudget?.release()
-            imageTask?.cancel()
+            images.abort() // DiamaneOS
             cancel(/* mayInterruptIfRunning= */ true)
             if (cancellationSignal != null) {
                 logger.logAsyncTaskProgress(entry.logKey, "cancelling apply")
@@ -738,10 +591,6 @@ constructor(
 
         companion object {
             private const val IMG_PRELOAD_TIMEOUT_MS = 1000L
-
-            // The image gate of each row, kept with its views (they hold the resources it is set on).
-            private val rowImages: MutableMap<ExpandableNotificationRow, AppResourceImages> =
-                Collections.synchronizedMap(WeakHashMap())
         }
     }
 
@@ -840,8 +689,6 @@ constructor(
             conversationProcessor: ConversationNotificationProcessor,
             promotedNotificationContentExtractor: PromotedNotificationContentExtractor,
             logger: NotificationRowContentBinderLogger,
-            // The notification the views are made from: the checked copy (see prepareImages).
-            sourceNotification: Notification,
         ): InflationProgress {
             val rowImageInflater =
                 RowImageInflater.newInstance(
@@ -861,7 +708,6 @@ constructor(
                         imageModelProvider,
                         packageContext,
                         systemUiContext,
-                        sourceNotification,
                     )
                     .also {
                         logger.logAsyncTaskProgress(
@@ -889,14 +735,14 @@ constructor(
                     notifLayoutInflaterFactoryProvider = notifLayoutInflaterFactoryProvider,
                     headsUpStyleProvider = headsUpStyleProvider,
                     logger = logger,
-                    sourceNotification = sourceNotification,
                 )
 
             val singleLineViewModel =
                 if (reInflateFlags and FLAG_CONTENT_VIEW_SINGLE_LINE != 0) {
                     logger.logAsyncTaskProgress(entry.logKey, "inflating single line view model")
                     SingleLineViewInflater.inflateSingleLineViewModel(
-                        notification = sourceNotification,
+                        // DiamaneOS: the checked copy (NotificationRowImages).
+                        notification = NotificationRowImages.sourceOf(entry.sbn.notification, systemUiContext),
                         messagingStyle = messagingStyle,
                         metricStyle = metricStyle,
                         builder = builder,
@@ -915,7 +761,8 @@ constructor(
                     )
                     if (bindParams.redactionType == REDACTION_TYPE_OTP) {
                         SingleLineViewInflater.inflateSingleLineViewModel(
-                            notification = sourceNotification,
+                            // DiamaneOS: the checked copy (NotificationRowImages).
+                            notification = NotificationRowImages.sourceOf(entry.sbn.notification, systemUiContext),
                             messagingStyle = messagingStyle,
                             metricStyle = metricStyle,
                             builder = builder,
@@ -1002,7 +849,6 @@ constructor(
             notifLayoutInflaterFactoryProvider: NotifLayoutInflaterFactory.Provider,
             headsUpStyleProvider: HeadsUpStyleProvider,
             logger: NotificationRowContentBinderLogger,
-            sourceNotification: Notification,
         ): NewRemoteViews {
             return TraceUtils.trace("NotificationContentInflater.createRemoteViews") {
                 val contracted =
@@ -1033,9 +879,9 @@ constructor(
                     if (reInflateFlags and FLAG_CONTENT_VIEW_PUBLIC != 0) {
                         logger.logAsyncTaskProgress(row.loggingKey, "creating public remote view")
                         if (bindParams.redactionType == REDACTION_TYPE_OTP) {
-                            // From the checked copy: its icons hold no app image to decode.
                             createSensitiveContentMessageNotification(
-                                    sourceNotification,
+                                    // DiamaneOS: the checked copy (NotificationRowImages).
+                                    NotificationRowImages.sourceOf(entry.sbn.notification, systemUiContext),
                                     builder.style,
                                     systemUiContext,
                                     packageContext,
@@ -1908,9 +1754,3 @@ constructor(
         fun isAnyActive(): Boolean = remoteViews.isNotEmpty()
     }
 }
-
-/** Icons and people decoded in the VM for a notification's views are bounded to this size. */
-private const val VM_ICON_DP = 128
-
-/** The big picture, and the images of an app's own layouts, are decoded at most this high, not at screen size. */
-private const val VM_PICTURE_DP = 320

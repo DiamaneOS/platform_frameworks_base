@@ -412,141 +412,13 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
 
         @Override
         public void onEvent(int event, String path) {
-            if (path == null) {
+            // DiamaneOS: an image an app wrote is made clean in the protected VM first (WallpaperVmController).
+            if (path != null && mVmController.onEvent(event, path, mWallpaperDir, mWallpaperFile,
+                    mWallpaperLockFile, this::dataForEvent, () -> updateWallpapers(event, path))) {
                 return;
             }
-            if (event == MOVED_TO && mVmSanitizer.consumeOwnMove(mWallpaperDir, path)) {
-                // The clean copy from the VM moved into place: the task that made it goes on with the update.
-                return;
-            }
-            final File changedFile = new File(mWallpaperDir, path);
-            final boolean lock = mWallpaperLockFile.equals(changedFile);
-            final boolean imageWritten = (event == CLOSE_WRITE || event == MOVED_TO)
-                    && (lock || mWallpaperFile.equals(changedFile));
-            if (!imageWritten) {
-                updateWallpapers(event, path);
-                return;
-            }
-            // An image from an app: decoded in the VM first, never in this process. Until that works the default
-            // wallpaper shows (the crop of an image that is not clean is never made) and the image is kept.
-            final Runnable update = () -> updateWallpapers(event, path);
-            cleanThen(changedFile, dataForEvent(lock), 0, stampOf(changedFile), update, update);
+            if (path != null) updateWallpapers(event, path);
         }
-    }
-
-    /**
-     * Makes {@code source} a clean copy in the VM, carries {@code wallpaper}'s crop hints over, then runs
-     * {@code onClean}. When the first try fails, runs {@code onFirstFailure} (which shows the default wallpaper:
-     * nothing decodes a source that is not clean). While the VM is unavailable it tries again, the last delay
-     * repeating, until the file changes. An image the VM refuses is kept and not tried again until the next boot or
-     * user switch. The source is never deleted here.
-     */
-    private void cleanThen(File source, WallpaperData wallpaper, int attempt, long[] stamp, Runnable onClean,
-            Runnable onFirstFailure) {
-        final long delay = attempt == 0 ? 0
-                : VM_RETRY_DELAYS_MS[Math.min(attempt, VM_RETRY_DELAYS_MS.length) - 1];
-        mVmHandler.postDelayed(() -> {
-            if (!java.util.Arrays.equals(stamp, stampOf(source))) {
-                // A newer image replaced this one: its own task handles it.
-                return;
-            }
-            final Point display = largestDisplaySize();
-            final java.util.List<int[]> crops;
-            synchronized (mLock) {
-                crops = wallpaper == null ? null : WallpaperVmSanitizer.cropHints(wallpaper);
-            }
-            final WallpaperVmSanitizer.Outcome outcome =
-                    mVmSanitizer.sanitize(source, display.x, display.y, crops);
-            switch (outcome.result) {
-                case CLEAN:
-                    if (outcome.remade && wallpaper != null) {
-                        synchronized (mLock) {
-                            WallpaperVmSanitizer.mapCropHints(wallpaper, outcome);
-                        }
-                    }
-                    onClean.run();
-                    break;
-                case UNAVAILABLE:
-                    if (attempt == 0) {
-                        onFirstFailure.run();
-                    }
-                    cleanThen(source, wallpaper, attempt + 1, stamp, onClean, onFirstFailure);
-                    break;
-                default:
-                    Slog.w(TAG, "Wallpaper image " + source.getName()
-                            + " was not decoded in the VM, kept, default shown");
-                    if (attempt == 0) {
-                        onFirstFailure.run();
-                    }
-                    break;
-            }
-        }, delay);
-    }
-
-    private static long[] stampOf(File file) {
-        return new long[] {file.length(), file.lastModified()};
-    }
-
-    /**
-     * The size to cover on the default display: the largest short side and the largest long side over all its sizes
-     * (a fold's inner and cover screens included). The VM makes the clean copy just big enough for it, so the crop
-     * that follows under the lock is cheap. Other displays are cropped from that copy too.
-     */
-    private Point largestDisplaySize() {
-        final SparseArray<Point> sizes = mWallpaperDisplayHelper.getDefaultDisplaySizes();
-        final java.util.List<int[]> all = new java.util.ArrayList<>();
-        for (int i = 0; sizes != null && i < sizes.size(); i++) {
-            final Point size = sizes.valueAt(i);
-            all.add(new int[] {size.x, size.y});
-        }
-        if (all.isEmpty()) {
-            final android.view.DisplayInfo info =
-                    mWallpaperDisplayHelper.getDisplayInfo(android.view.Display.DEFAULT_DISPLAY);
-            all.add(info == null ? new int[] {2048, 2048} : new int[] {info.logicalWidth, info.logicalHeight});
-        }
-        final int[] largest = de.diamaneos.decode.client.WallpaperBox.largest(all);
-        return new Point(Math.max(1, largest[0]), Math.max(1, largest[1]));
-    }
-
-    /**
-     * A static wallpaper stored before images were decoded in the VM (or restored or moved without it): its crop is
-     * removed right away, so nothing decodes it, and the VM re-makes it in the background. Until then the default
-     * wallpaper shows.
-     */
-    private void migrateIfNeededLocked(WallpaperData wallpaper) {
-        if (wallpaper == null || !wallpaper.sourceExists()) {
-            return;
-        }
-        final File source = wallpaper.getWallpaperFile();
-        if (WallpaperVmSanitizer.isClean(source)) {
-            return;
-        }
-        // Hide the crop made from the old source: the default shows until the VM has re-made it. The source stays.
-        wallpaper.getCropFile().delete();
-        if (!mVmMigrating.add(source.getPath())) {
-            return;
-        }
-        Slog.i(TAG, "Wallpaper " + source.getName() + " is not a clean copy from the VM yet, hidden until it is");
-        cleanThen(source, wallpaper, 0, stampOf(source), () -> {
-            mVmMigrating.remove(source.getPath());
-            synchronized (mLock) {
-                mWallpaperCropper.generateCrop(wallpaper);
-                // The crop hints now refer to the clean file: store them.
-                saveSettingsLocked(wallpaper.userId);
-                final boolean isImage = WallpaperData.NO_COMPONENT.equals(wallpaper.getComponent())
-                        || mImageWallpaper.equals(wallpaper.getComponent());
-                if (wallpaper.cropExists() && isImage) {
-                    wallpaper.mBindSource = BindSource.SET_STATIC;
-                    bindWallpaperDescriptionLocked(new WallpaperDescription.Builder()
-                            .setComponent(mImageWallpaper).build(), /* force= */ true,
-                            /* fromUser= */ false, wallpaper, null);
-                }
-                notifyCallbacksLocked(wallpaper);
-            }
-        }, () -> {
-            // The default shows already (no crop). The task keeps trying while the VM is unavailable. A refused
-            // image stays listed here, so it is tried again only after the next boot.
-        });
     }
 
     /*
@@ -742,18 +614,24 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
     @VisibleForTesting
     final WallpaperDisplayHelper mWallpaperDisplayHelper;
     final WallpaperCropper mWallpaperCropper;
+    // DiamaneOS: app images decoded in the protected VM before anything here decodes them.
+    private final WallpaperVmController mVmController;
 
-    /**
-     * Images that apps set are decoded in the protected VM of the decode service and stored as clean PNGs before
-     * anything in this process or SystemUI decodes them (see WallpaperVmSanitizer). Its own thread, because a call
-     * waits for the VM.
-     */
-    private final WallpaperVmSanitizer mVmSanitizer;
-    private final Handler mVmHandler;
-    private static final long[] VM_RETRY_DELAYS_MS =
-            {5_000, 15_000, 30_000, 60_000, 120_000, 300_000, 600_000};
-    // Stored wallpapers waiting for the VM, by source path, so a second check does not queue them twice.
-    private final java.util.Set<String> mVmMigrating = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    // DiamaneOS: the source of wallpaper became a clean copy from the VM after the default was shown for it: crop it,
+    // store the crop hints that now refer to the clean file, bind the image wallpaper again and tell the callbacks.
+    private void showCleanWallpaperLocked(WallpaperData wallpaper) {
+        mWallpaperCropper.generateCrop(wallpaper);
+        saveSettingsLocked(wallpaper.userId);
+        final boolean isImage = WallpaperData.NO_COMPONENT.equals(wallpaper.getComponent())
+                || mImageWallpaper.equals(wallpaper.getComponent());
+        if (wallpaper.cropExists() && isImage) {
+            wallpaper.mBindSource = BindSource.SET_STATIC;
+            bindWallpaperDescriptionLocked(new WallpaperDescription.Builder()
+                    .setComponent(mImageWallpaper).build(), /* force= */ true,
+                    /* fromUser= */ false, wallpaper, null);
+        }
+        notifyCallbacksLocked(wallpaper);
+    }
 
     private AtomicBoolean mHasSetWallpaper = new AtomicBoolean(false);
 
@@ -1668,11 +1546,8 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
         mWallpaperDisplayHelper = new WallpaperDisplayHelper(
                 displayManager, windowManager, mWindowManagerInternal, mContext.getResources());
         mWallpaperCropper = new WallpaperCropper(mWallpaperDisplayHelper);
-        mVmSanitizer = new WallpaperVmSanitizer(mContext);
-        final ServiceThread vmThread = new ServiceThread("WallpaperVm",
-                android.os.Process.THREAD_PRIORITY_BACKGROUND, true /* allowIo */);
-        vmThread.start();
-        mVmHandler = vmThread.getThreadHandler();
+        mVmController = new WallpaperVmController(mContext, mLock, mWallpaperDisplayHelper,
+                this::showCleanWallpaperLocked); // DiamaneOS
         mActivityManager = mContext.getSystemService(ActivityManager.class);
 
         if (mContext.getResources().getBoolean(
@@ -1815,10 +1690,10 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
         boolean isImageComponent =
                 WallpaperData.NO_COMPONENT.equals(wallpaper.getComponent())
                         || mImageWallpaper.equals(wallpaper.getComponent());
-        if (isImageComponent && wallpaper.sourceExists()
-                && !WallpaperVmSanitizer.isClean(wallpaper.getWallpaperFile())) {
+        if (isImageComponent && WallpaperVmController.needsVm(wallpaper)) {
+            // DiamaneOS: not a clean copy from the VM yet: hidden until it is.
             synchronized (mLock) {
-                migrateIfNeededLocked(wallpaper);
+                mVmController.migrateIfNeededLocked(wallpaper);
             }
         } else if (isImageComponent) {
             // No crop file? Make sure we've finished the processing sequence if necessary
@@ -1953,8 +1828,7 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
         boolean cropExists = wallpaper.cropExists();
         if (sourceExists) wallpaper.getWallpaperFile().delete();
         if (cropExists) wallpaper.getCropFile().delete();
-        // The original kept beside a clean wallpaper goes with it.
-        WallpaperVmSanitizer.originalOf(wallpaper.getWallpaperFile()).delete();
+        WallpaperVmController.onCleared(wallpaper); // DiamaneOS
         WallpaperUtils.clearDefaultWallpaperCrops();
 
         return sourceExists || cropExists;
@@ -2049,9 +1923,10 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
                                 ? systemWallpaper
                                 : getWallpaperSafeLocked(userId, FLAG_LOCK);
 
-                migrateIfNeededLocked(systemWallpaper);
+                // DiamaneOS: stored wallpapers that are not clean copies from the VM are hidden until they are.
+                mVmController.migrateIfNeededLocked(systemWallpaper);
                 if (lockWallpaper != systemWallpaper) {
-                    migrateIfNeededLocked(lockWallpaper);
+                    mVmController.migrateIfNeededLocked(lockWallpaper);
                 }
 
                 // Not started watching yet, in case wallpaper data was loaded for other reasons.

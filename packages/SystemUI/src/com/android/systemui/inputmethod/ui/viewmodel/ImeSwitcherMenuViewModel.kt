@@ -263,11 +263,19 @@ constructor(
 
                 val icon =
                     if (item.subtypeIconResId != 0 && !item.imePackageName.isNullOrEmpty()) {
-                        android.graphics.drawable.Icon.createWithResource(
+                        // DiamaneOS: the input method's image files are decoded in the protected VM, never here
+                        // (made on an image thread, shown from the next time the menu opens).
+                        de.diamaneos.decode.client.ForeignIcons.loadNoWait(
+                                context,
+                                android.graphics.drawable.Icon.createWithResource(
+                                    item.imePackageName,
+                                    item.subtypeIconResId,
+                                ),
+                                context.userId,
                                 item.imePackageName,
-                                item.subtypeIconResId,
+                                de.diamaneos.decode.client.AppIcons.iconPx(context),
+                                null,
                             )
-                            .loadDrawable(context)
                             ?.asIcon()
                     } else {
                         null

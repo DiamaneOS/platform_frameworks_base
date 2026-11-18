@@ -206,6 +206,27 @@ final class Waiters {
     }
 
     /** False for a waiter whose tag was cancelled after it was added: its callback is not run. */
+    /** Main thread: runs the callbacks of the waiters still wanted, each guarded (see {@link #runSafely}). */
+    void tell(List<Waiter> waiters) {
+        for (Waiter w : waiters) {
+            if (live(w)) {
+                runSafely(w.onMade);
+            }
+        }
+    }
+
+    /**
+     * Runs a caller's callback on the main thread so that one which throws ends neither the loop it is in nor
+     * SystemUI: it is logged and the next one runs.
+     */
+    static void runSafely(Runnable callback) {
+        try {
+            callback.run();
+        } catch (RuntimeException e) {
+            android.util.Log.e("VmImages", "image callback failed", e);
+        }
+    }
+
     synchronized boolean live(Waiter w) {
         if (w.tag == null) {
             return true;

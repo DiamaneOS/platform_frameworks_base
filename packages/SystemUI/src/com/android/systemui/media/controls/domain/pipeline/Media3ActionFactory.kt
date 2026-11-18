@@ -356,8 +356,8 @@ constructor(
         val size = context.resources.getDimensionPixelSize(R.dimen.min_clickable_item_size)
         // TODO(b/360196209): check customAction.icon field to use platform icons
         if (customAction.iconResId != 0) {
-            // The media app's resource: through an image gate, its bitmap files decoded in the protected VM on an
-            // image thread. This coroutine suspends, no thread waits.
+            // DiamaneOS: the media app's resource: through an image gate, its bitmap files decoded in the protected VM
+            // on an image thread. This coroutine suspends, no thread waits.
             return suspendCancellableCoroutine<Drawable?> { cont ->
                 ForeignIcons.loadAsync(
                     context,
@@ -390,8 +390,8 @@ constructor(
         val size = context.resources.getDimensionPixelSize(R.dimen.min_clickable_item_size)
         // TODO(b/360196209): check customAction.icon field to use platform icons
         if (customAction.iconResId != 0) {
-            // The media app's resource: through an image gate, its bitmap files decoded in the protected VM on an
-            // image thread. Nothing waits here: once it is made, the app's media notifications are loaded again.
+            // DiamaneOS: the media app's resource: through an image gate, its bitmap files decoded in the protected VM
+            // on an image thread. Nothing waits here: once it is made, the app's media notifications are loaded again.
             return ForeignIcons.loadNoWait(
                 context,
                 Icon.createWithResource(packageName, customAction.iconResId),

@@ -450,6 +450,7 @@ public class CustomTile extends QSTileImpl<State> implements TileChangeListener,
         return getState().label;
     }
 
+    // DiamaneOS
     /**
      * A tile icon from the tile's app: a URI, createWithData bytes or a bitmap file in the app's APK is decoded in the
      * protected VM, never here. Null (the unavailable state) when that fails or on the main thread.
@@ -479,7 +480,7 @@ public class CustomTile extends QSTileImpl<State> implements TileChangeListener,
             final android.graphics.drawable.Icon tileIcon = mTile.getIcon();
             if (tileIcon.getType() == android.graphics.drawable.Icon.TYPE_URI
                     || tileIcon.getType() == android.graphics.drawable.Icon.TYPE_URI_ADAPTIVE_BITMAP) {
-                // The tile's app must be allowed to read the URI, as before.
+                // DiamaneOS: the tile's app must be allowed to read the URI, as before.
                 mIUriGrantsManager.checkGrantUriPermission_ignoreNonSystem(
                         mServiceUid,
                         mComponent.getPackageName(),
@@ -497,7 +498,7 @@ public class CustomTile extends QSTileImpl<State> implements TileChangeListener,
         if (drawable != null) {
             drawableF = drawable;
         } else if (mDefaultIcon != null) {
-            drawableF = loadTileIcon(mDefaultIcon);
+            drawableF = loadTileIcon(mDefaultIcon); // DiamaneOS
         } else {
             drawableF = null;
         }

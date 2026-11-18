@@ -72,7 +72,8 @@ constructor(
             else Notification.MessagingStyle.CONVERSATION_TYPE_LEGACY
         entry.ranking.conversationShortcutInfo?.let { shortcutInfo ->
             logger.logAsyncTaskProgress(entry.logKey, "getting shortcut icon")
-            // Decoded in the protected VM on an image thread before this inflation. Here only what was made then.
+            // DiamaneOS: decoded in the protected VM on an image thread before this inflation. Here only what was made
+            // then.
             messagingStyle.shortcutIcon =
                 ForeignIcons.shortcutIcon(
                     context,
