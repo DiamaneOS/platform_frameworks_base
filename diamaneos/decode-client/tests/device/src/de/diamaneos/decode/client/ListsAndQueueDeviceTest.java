@@ -133,10 +133,15 @@ public class ListsAndQueueDeviceTest {
     // views with a list in the form real widgets send it: the action names an entry of the collection cache, whose
     // items are items. Null when that cannot be made here.
     private RemoteViews cacheForm(RemoteCollectionItemsHolder holder) {
+        return cacheForm(mPackage, holder);
+    }
+
+    // The same for package pkg (also for VmPathDeviceTest).
+    static RemoteViews cacheForm(String pkg, RemoteCollectionItemsHolder holder) {
         try {
-            final RemoteViews views = new RemoteViews(mPackage, R.layout.vm_test_probe);
+            final RemoteViews views = new RemoteViews(pkg, R.layout.vm_test_probe);
             // With the flag on this is the list action with a service intent and no items.
-            views.setRemoteAdapter(R.id.vm_probe, new Intent("x").setPackage(mPackage));
+            views.setRemoteAdapter(R.id.vm_probe, new Intent("x").setPackage(pkg));
             final Field actionsField = RemoteViews.class.getDeclaredField("mActions");
             actionsField.setAccessible(true);
             final List<?> actions = (List<?>) actionsField.get(views);
@@ -172,7 +177,7 @@ public class ListsAndQueueDeviceTest {
         }
     }
 
-    private static final class RemoteCollectionItemsHolder {
+    static final class RemoteCollectionItemsHolder {
         final RemoteViews.RemoteCollectionItems items;
 
         RemoteCollectionItemsHolder(RemoteViews item) {

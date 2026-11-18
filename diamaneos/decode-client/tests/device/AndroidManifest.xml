@@ -24,6 +24,9 @@
     <!-- ListsAndQueueDeviceTest checks URI access as SystemUI does: the platform answers that check only for a
          caller that may act across users. -->
     <uses-permission android:name="android.permission.INTERACT_ACROSS_USERS_FULL" />
+    <!-- VmPathDeviceTest reaches the decode service: the permission is the platform's signature, and the service
+         takes this package as a caller on debuggable builds only. -->
+    <uses-permission android:name="de.diamaneos.sanitizer.permission.DECODE" />
     <application>
         <!-- Counts opens, so a test sees whether a URI was opened at all. -->
         <provider

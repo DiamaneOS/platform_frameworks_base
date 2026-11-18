@@ -52,7 +52,8 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * Images that show before they are made (an autofill service's views in the system server), the items of a widget's
  * list checked with its update, the fair image queue, and every asker told when an image is made. Runs with or without
- * the decode service: without it images stay empty, and the checks hold either way.
+ * the decode service: without it images stay empty, and the checks hold either way. What needs the VM itself is in
+ * {@link VmPathDeviceTest}, which fails when the service cannot be reached.
  */
 @RunWith(AndroidJUnit4.class)
 public class LateAndListImagesDeviceTest {

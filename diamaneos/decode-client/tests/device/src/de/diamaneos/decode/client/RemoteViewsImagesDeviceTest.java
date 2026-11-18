@@ -77,7 +77,8 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * An app's own notification layouts: their images are re-made from pixels decoded in the VM, nothing of the app is
  * decoded on Android, and the layout stays. Runs with or without the decode service: with it images are real, without
- * it they are empty, and the checks hold either way.
+ * it they are empty, and the checks hold either way. What needs the VM itself is in {@link VmPathDeviceTest}, which
+ * fails when the service cannot be reached.
  *
  * <p>Checks that do not rely on the converter's own view of the layout: {@link ProbeView} keeps what the framework's
  * apply code hands it, and a native-decode oracle: the app images here are valid 7 x 3 PNGs, so with no time for the
@@ -902,7 +903,7 @@ public class RemoteViewsImagesDeviceTest {
     }
 
     @Test
-    public void appIcons_dataSmallIcon_placeholderThenDecodedInTheVm() throws Exception {
+    public void appIcons_dataSmallIcon_placeholderFirst_neverDecodedHere() throws Exception {
         // The status bar, shelf and always-on display show the original notification's small icon. A data icon is
         // never decoded on the main thread: the placeholder, then the VM's pixels once an image thread made them.
         // The caller is told when the image is made, and also when it is time to ask again (the VM was not there):
