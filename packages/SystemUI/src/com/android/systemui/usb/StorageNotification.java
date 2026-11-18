@@ -343,8 +343,11 @@ public class StorageNotification implements CoreStartable {
                 notif = onVolumeChecking(vol);
                 break;
             case VolumeInfo.STATE_MOUNTED:
-            case VolumeInfo.STATE_MOUNTED_READ_ONLY:
                 notif = onVolumeMounted(vol);
+                break;
+            case VolumeInfo.STATE_MOUNTED_READ_ONLY:
+                // DiamaneOS: only a card the filesystem VM served read-only gets this state (vold fs-in-vm).
+                notif = onVolumeMountedReadOnly(vol);
                 break;
             case VolumeInfo.STATE_FORMATTING:
                 notif = onVolumeFormatting(vol);
@@ -515,6 +518,7 @@ public class StorageNotification implements CoreStartable {
         }
         return buildNotificationBuilder(vol, mContext.getString(title),
                 mContext.getString(R.string.ext_media_unopenable_notification_message))
+                .setContentIntent(buildVolumeSettingsPendingIntent(vol))
                 .setCategory(Notification.CATEGORY_ERROR)
                 .build();
     }
@@ -535,7 +539,29 @@ public class StorageNotification implements CoreStartable {
         }
         return buildNotificationBuilder(vol, mContext.getString(title),
                 mContext.getString(R.string.ext_media_not_written_back_notification_message))
+                .setContentIntent(buildVolumeSettingsPendingIntent(vol))
                 .setCategory(Notification.CATEGORY_ERROR)
+                .build();
+    }
+
+    /**
+     * DiamaneOS: the card is mounted read-only because its check did not finish in time or its filesystem has an
+     * error. It stays readable. Tapping opens its storage page.
+     */
+    private Notification onVolumeMountedReadOnly(VolumeInfo vol) {
+        final DiskInfo disk = vol.getDisk();
+        final int title;
+        if (disk != null && disk.isSd()) {
+            title = R.string.ext_media_read_only_notification_title_sd;
+        } else if (disk != null && disk.isUsb()) {
+            title = R.string.ext_media_read_only_notification_title_usb;
+        } else {
+            title = R.string.ext_media_read_only_notification_title;
+        }
+        return buildNotificationBuilder(vol, mContext.getString(title),
+                mContext.getString(R.string.ext_media_read_only_notification_message))
+                .setContentIntent(buildVolumeSettingsPendingIntent(vol))
+                .setCategory(Notification.CATEGORY_STATUS)
                 .build();
     }
 

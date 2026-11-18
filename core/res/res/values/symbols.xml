@@ -3282,6 +3282,10 @@
   <java-symbol type="string" name="ext_media_not_written_back_notification_title_usb" />
   <java-symbol type="string" name="ext_media_not_written_back_notification_message" />
   <java-symbol type="string" name="ext_media_unopenable_notification_message" />
+  <java-symbol type="string" name="ext_media_read_only_notification_title" />
+  <java-symbol type="string" name="ext_media_read_only_notification_title_sd" />
+  <java-symbol type="string" name="ext_media_read_only_notification_title_usb" />
+  <java-symbol type="string" name="ext_media_read_only_notification_message" />
   <java-symbol type="string" name="ext_media_unopenable_notification_title" />
   <java-symbol type="string" name="ext_media_unopenable_notification_title_sd" />
   <java-symbol type="string" name="ext_media_unopenable_notification_title_usb" />

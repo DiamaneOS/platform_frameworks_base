@@ -4300,6 +4300,14 @@
     <string name="ext_media_not_written_back_notification_title">Not all changes reached this storage device</string>
     <!-- DiamaneOS: notification text for the titles above. [CHAR LIMIT=NONE] -->
     <string name="ext_media_not_written_back_notification_message">Files changed last may be incomplete. Check them on a computer.</string>
+    <!-- DiamaneOS: notification title when a card is mounted read-only because it needs a check. [CHAR LIMIT=NONE] -->
+    <string name="ext_media_read_only_notification_title_sd">This SD card is read-only</string>
+    <!-- DiamaneOS: the same for a USB drive. [CHAR LIMIT=NONE] -->
+    <string name="ext_media_read_only_notification_title_usb">This USB drive is read-only</string>
+    <!-- DiamaneOS: the same for other storage devices. [CHAR LIMIT=NONE] -->
+    <string name="ext_media_read_only_notification_title">This storage device is read-only</string>
+    <!-- DiamaneOS: notification text for the titles above. [CHAR LIMIT=NONE] -->
+    <string name="ext_media_read_only_notification_message">Its files can be read. It needs a check on a computer before it can be written to.</string>
     <!-- DiamaneOS: notification text when the filesystem VM could not open a card. [CHAR LIMIT=NONE] -->
     <string name="ext_media_unopenable_notification_message">Use a computer to check it.</string>
     <!-- DiamaneOS: storage status for the same. [CHAR LIMIT=NONE] -->
