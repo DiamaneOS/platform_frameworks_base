@@ -33,6 +33,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import de.diamaneos.decode.client.StoredIcons;
+
 /**
  * Notification history reader/writer for Protocol Buffer format
  */
@@ -201,10 +203,11 @@ final class NotificationHistoryProtoHelper {
                     break;
                 case ProtoInputStream.NO_MORE_FIELDS:
                     if (iconType == Icon.TYPE_DATA) {
-
+                        // DiamaneOS: an app's bytes stored before are never handed to the history's
+                        // readers (Settings decodes what it gets): the generic app icon instead.
                         if (imageByteData != null) {
-                            notification.setIcon(Icon.createWithData(
-                                    imageByteData, imageByteDataOffset, imageByteDataLength));
+                            notification.setIcon(StoredIcons.forSystemReaders(Icon.createWithData(
+                                    imageByteData, imageByteDataOffset, imageByteDataLength), pkg, null));
                         }
                     } else if (iconType == Icon.TYPE_RESOURCE) {
                         if (imageResourceId != Resources.ID_NULL) {
@@ -216,7 +219,8 @@ final class NotificationHistoryProtoHelper {
                         }
                     } else if (iconType == Icon.TYPE_URI) {
                         if (imageUri != null) {
-                            notification.setIcon(Icon.createWithContentUri(imageUri));
+                            notification.setIcon(StoredIcons.forSystemReaders(
+                                    Icon.createWithContentUri(imageUri), pkg, null));
                         }
                     } else if (iconType == Icon.TYPE_BITMAP) {
                         // TODO: read file from disk
@@ -226,7 +230,14 @@ final class NotificationHistoryProtoHelper {
         }
     }
 
-    private static void writeIcon(ProtoOutputStream proto, HistoricalNotification notification) {
+    private static void writeIcon(ProtoOutputStream proto, HistoricalNotification original) {
+        // DiamaneOS: no data or URI icon is written (the history only takes the others already).
+        final HistoricalNotification notification = StoredIcons.needsNoAppBytes(original.getIcon())
+                ? original
+                : new HistoricalNotification.Builder()
+                        .setPackage(original.getPackage())
+                        .setIcon(StoredIcons.forSystemReaders(original.getIcon(), original.getPackage(), null))
+                        .build();
         final long token = proto.start(Notification.ICON);
 
         proto.write(Notification.Icon.IMAGE_TYPE, notification.getIcon().getType());
