@@ -43,11 +43,26 @@ public final class VmIcons {
     private static final LruCache<String, Bitmap> sCache = new LruCache<String, Bitmap>(16 * 1024 * 1024) {
         @Override
         protected int sizeOf(String key, Bitmap value) {
-            return value.getAllocationByteCount();
+            return (int) Math.min(Integer.MAX_VALUE, pixels(value) * 4);
         }
     };
 
     private VmIcons() {
+    }
+
+    /**
+     * What {@code bitmap} holds, in pixels of 4 bytes, for the caps and the cache: its own pixels and those of an
+     * Ultra HDR gain map it carries.
+     */
+    static long pixels(Bitmap bitmap) {
+        long pixels = (long) bitmap.getWidth() * bitmap.getHeight();
+        if (bitmap.hasGainmap() && bitmap.getGainmap() != null) {
+            final Bitmap gain = bitmap.getGainmap().getGainmapContents();
+            if (gain != null) {
+                pixels += (gain.getAllocationByteCount() + 3L) / 4;
+            }
+        }
+        return pixels;
     }
 
     /** Empties the decoded icon cache (memory is low). */
@@ -65,7 +80,7 @@ public final class VmIcons {
 
     static void cachePut(String key, Bitmap bitmap) {
         // One image may take at most a quarter of the cache, so it cannot flush the others.
-        if (bitmap.getAllocationByteCount() <= MAX_CACHE_ENTRY_BYTES) {
+        if (pixels(bitmap) * 4 <= MAX_CACHE_ENTRY_BYTES) {
             sCache.put(key, bitmap);
         } else {
             sNotKept.get()[0]++;
@@ -114,6 +129,10 @@ public final class VmIcons {
         final Bitmap copy = bitmap.copy(bitmap.getConfig(), false);
         if (copy == null) {
             return bitmap;
+        }
+        // The copy keeps the colour space. The Ultra HDR gain map goes with it too.
+        if (bitmap.hasGainmap() && !copy.hasGainmap()) {
+            copy.setGainmap(bitmap.getGainmap());
         }
         bitmap.recycle();
         return copy;

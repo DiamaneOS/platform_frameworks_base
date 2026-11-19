@@ -1043,8 +1043,7 @@ public final class NotificationImageGate {
         }
         final Icon made = VmIcons.toSafeIcon(icon, user, mOwner, maxWidth, maxHeight, VmDecode.deadlineIn(left));
         // The pixels count against what the app holds across its notifications.
-        if (made != null && made.getBitmap() != null && !mBudget.chargePool(
-                (long) made.getBitmap().getWidth() * made.getBitmap().getHeight())) {
+        if (made != null && made.getBitmap() != null && !mBudget.chargePool(VmIcons.pixels(made.getBitmap()))) {
             Log.w(TAG, "the app holds too many image pixels, image left out");
             return null;
         }
@@ -1158,8 +1157,7 @@ public final class NotificationImageGate {
                 return null;
             }
             final Bitmap bitmap = cached.getBitmap();
-            if (admission == ImageBudget.Admission.NEW
-                    && !mBudget.charge(key, (long) bitmap.getWidth() * bitmap.getHeight())) {
+            if (admission == ImageBudget.Admission.NEW && !mBudget.charge(key, VmIcons.pixels(bitmap))) {
                 return null;
             }
             return cached;
@@ -1186,7 +1184,12 @@ public final class NotificationImageGate {
         }
         if (admission == ImageBudget.Admission.NEW) {
             final Bitmap bitmap = safe == null ? null : safe.getBitmap();
-            mBudget.refund(boxPixels - (bitmap == null ? 0 : (long) bitmap.getWidth() * bitmap.getHeight()));
+            final long pixels = bitmap == null ? 0 : VmIcons.pixels(bitmap);
+            if (pixels > boxPixels && !mBudget.chargePool(pixels - boxPixels)) {
+                // The gain map took it past what the app may hold: the image is left out.
+                return null;
+            }
+            mBudget.refund(boxPixels - pixels);
         }
         return safe;
     }
@@ -1227,8 +1230,7 @@ public final class NotificationImageGate {
                 return null;
             }
             bitmap = draw(drawable);
-            if (admission == ImageBudget.Admission.NEW
-                    && !mBudget.charge(key, (long) bitmap.getWidth() * bitmap.getHeight())) {
+            if (admission == ImageBudget.Admission.NEW && !mBudget.charge(key, VmIcons.pixels(bitmap))) {
                 return null;
             }
         }

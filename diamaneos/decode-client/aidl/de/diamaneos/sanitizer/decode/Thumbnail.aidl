@@ -37,4 +37,27 @@ parcelable Thumbnail {
 
     /** For readStripe and release. Valid until release or IDecodeService.HANDLE_TIMEOUT_MILLIS. */
     long handle;
+
+    /**
+     * The pixels' colour space, IDecodeService.COLOR_SPACE_*: the file's own when it is sRGB or Display P3, as
+     * Android's decode keeps it, otherwise the nearest of the two that holds its gamut. The caller builds its Bitmap
+     * in it. Last, so a caller built before it reads sRGB.
+     */
+    int colorSpace;
+
+    /**
+     * Ultra HDR: the gain map's size, both 0 when there is none. At most the image's size, read through
+     * IDecodeService.readGainmapStripe in stripes of gainmapStripeRows rows of gainmapWidth * 4 bytes of RGBA, alpha
+     * 255. The caller attaches it to the Bitmap as an android.graphics.Gainmap, turned with the image.
+     */
+    int gainmapWidth;
+    int gainmapHeight;
+    int gainmapStripeRows;
+
+    /**
+     * The gain map's parameters as android.graphics.Gainmap takes them: ratio min (3), ratio max (3), gamma (3),
+     * epsilon SDR (3), epsilon HDR (3), then the display ratio of SDR and of full HDR. IDecodeService.GAINMAP_PARAMS
+     * values, or empty without a gain map.
+     */
+    float[] gainmapParams;
 }

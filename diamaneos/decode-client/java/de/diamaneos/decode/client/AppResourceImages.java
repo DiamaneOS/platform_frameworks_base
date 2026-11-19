@@ -336,7 +336,7 @@ public final class AppResourceImages implements ImageFileGate {
             return new ByteArrayInputStream(emptyPng());
         }
         byte[] png = encode(made.bitmap);
-        if (png != null && made.chunk != null) {
+        if (png != null && made.chunk != null && !made.bitmap.hasGainmap()) {
             png = NinePatchChunk.insertChunk(png, "npTc", made.chunk.toFileFormat());
             final byte[] insets = made.chunk.insetsFileFormat();
             if (png != null && insets != null) {
@@ -489,7 +489,7 @@ public final class AppResourceImages implements ImageFileGate {
     }
 
     private static long pixels(Bitmap bitmap) {
-        return (long) bitmap.getWidth() * bitmap.getHeight();
+        return VmIcons.pixels(bitmap); // an Ultra HDR gain map counts too
     }
 
     private static Made cached(String key) {
@@ -576,9 +576,16 @@ public final class AppResourceImages implements ImageFileGate {
     }
 
     // A PNG this process writes from checked pixels, for callers that decode a stream themselves.
-    private static byte[] encode(Bitmap bitmap) {
+    /**
+     * A made image as the bytes a {@code <bitmap>} or a stream decoder gets. A PNG, whose encoder writes the colour
+     * profile of any colour space other than sRGB (Display P3 stays Display P3). An Ultra HDR photo, which a PNG cannot
+     * carry with its gain map, as a JPEG at full quality with the gain map (such photos have no transparency).
+     */
+    static byte[] encode(Bitmap bitmap) {
         final ByteArrayOutputStream out = new ByteArrayOutputStream();
-        return bitmap.compress(Bitmap.CompressFormat.PNG, 100, out) ? out.toByteArray() : null;
+        final Bitmap.CompressFormat format = bitmap.hasGainmap()
+                ? Bitmap.CompressFormat.JPEG : Bitmap.CompressFormat.PNG;
+        return bitmap.compress(format, 100, out) ? out.toByteArray() : null;
     }
 
     private static byte[] emptyPng() {

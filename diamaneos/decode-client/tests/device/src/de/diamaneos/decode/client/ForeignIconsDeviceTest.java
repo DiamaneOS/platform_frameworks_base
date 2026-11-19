@@ -16,6 +16,7 @@
 
 package de.diamaneos.decode.client;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
@@ -75,6 +76,36 @@ public class ForeignIconsDeviceTest {
                 Icon.createWithContentUri(Uri.parse("content://de.diamaneos.decode.client.tests.none/a.png"))));
         assertNull(ForeignIcons.pixelsOnly(mContext, Icon.createWithResource(mPackage, R.drawable.vm_test_red)));
         assertNull(ForeignIcons.pixelsOnly(mContext, null));
+    }
+
+    @Test
+    public void streamImage_keepsDisplayP3() {
+        // What a <bitmap> in an app's XML gets of an image the VM made: the colour space survives the stream.
+        final Bitmap p3 = Bitmap.createBitmap(4, 3, Bitmap.Config.ARGB_8888, true,
+                android.graphics.ColorSpace.get(android.graphics.ColorSpace.Named.DISPLAY_P3));
+        p3.eraseColor(0xff00ff00);
+        final byte[] bytes = AppResourceImages.encode(p3);
+        assertNotNull(bytes);
+        final Bitmap back = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+        assertNotNull(back);
+        assertEquals(android.graphics.ColorSpace.get(android.graphics.ColorSpace.Named.DISPLAY_P3),
+                back.getColorSpace());
+    }
+
+    @Test
+    public void streamImage_keepsTheGainmap() {
+        // An Ultra HDR photo the VM made keeps its gain map through the stream, and the caps count it.
+        final Bitmap photo = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888);
+        photo.eraseColor(0xff336699);
+        final Bitmap gain = Bitmap.createBitmap(4, 4, Bitmap.Config.ALPHA_8);
+        gain.eraseColor(0x80000000);
+        photo.setGainmap(new android.graphics.Gainmap(gain));
+        assertEquals(64 + 4, VmIcons.pixels(photo));
+        final byte[] bytes = AppResourceImages.encode(photo);
+        assertNotNull(bytes);
+        final Bitmap back = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+        assertNotNull(back);
+        assertTrue("the gain map was lost on the way", back.hasGainmap());
     }
 
     @Test

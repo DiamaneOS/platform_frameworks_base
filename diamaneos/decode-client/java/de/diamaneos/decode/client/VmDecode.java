@@ -612,8 +612,28 @@ public final class VmDecode {
                 throw new RejectedException(e.getMessage());
             }
         }
-        final Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+        // In the file's colour space, as Android's decode gives it: sRGB or Display P3 (Thumbnail.colorSpace).
+        final Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888, true,
+                DecodeChecks.colorSpaceOf(thumbnail));
         bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(frame));
+        // Ultra HDR: the gain map, every stripe checked, attached as Android's decode attaches it. A rotation below
+        // turns it with the image (Bitmap.createBitmap transforms the gain map too).
+        if (thumbnail.gainmapWidth > 0) {
+            final int gainRowBytes = thumbnail.gainmapWidth * 4;
+            final byte[] gain = new byte[gainRowBytes * thumbnail.gainmapHeight];
+            final int gainStripes = (thumbnail.gainmapHeight + thumbnail.gainmapStripeRows - 1)
+                    / thumbnail.gainmapStripeRows;
+            for (int i = 0; i < gainStripes; i++) {
+                final byte[] stripe = service.readGainmapStripe(thumbnail.handle, i);
+                final String bad = DecodeChecks.checkGainmap(thumbnail, i, stripe);
+                if (bad != null) {
+                    bitmap.recycle();
+                    throw new RejectedException("gain map stripe " + i + " breaks the contract: " + bad);
+                }
+                System.arraycopy(stripe, 0, gain, i * thumbnail.gainmapStripeRows * gainRowBytes, stripe.length);
+            }
+            bitmap.setGainmap(DecodeChecks.gainmapOf(thumbnail, gain));
+        }
         Bitmap result = bitmap;
         if (thumbnail.rotation != 0) {
             final Matrix matrix = new Matrix();
