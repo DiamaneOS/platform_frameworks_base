@@ -332,6 +332,13 @@ public final class AutoFillUI {
                     }
                 }
             });
+            // DiamaneOS: measured again once the service's images are made (AutofillViews.whenFilled).
+            final FillUi shown = mFillUi;
+            mServiceViews.whenFilled(response, () -> {
+                if (mFillUi == shown) {
+                    shown.onImagesFilled();
+                }
+            });
         }, () -> {
             mFillUi = null;
             hideFillUiUiThread(callback, true);

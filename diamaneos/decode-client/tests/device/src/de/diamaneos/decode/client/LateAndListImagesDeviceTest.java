@@ -135,6 +135,35 @@ public class LateAndListImagesDeviceTest {
         assertEquals(Icon.TYPE_BITMAP, RemoteViewsImages.icons(later).get(0).getType());
     }
 
+    // An autofill service's layout with a <bitmap> element, shown before its files are made, and told when they are.
+    static Drawable xmlBitmapOfALateLayout(Context context, String pkg) throws Exception {
+        final LateImages late = new LateImages(context, pkg, context.getUserId(), new Handler(Looper.getMainLooper()));
+        final RemoteViews views = new RemoteViews(pkg, R.layout.vm_test_layout);
+        assertTrue(late.prepareInPlace(views));
+        final Context shown = late.context(context);
+        final android.view.View root = onWorker(() -> views.apply(shown, new android.widget.FrameLayout(context)));
+        final Drawable xml = ((android.widget.ImageView) root.findViewById(R.id.vm_src_bitmap_xml)).getDrawable();
+        assertNotNull(xml);
+        final CountDownLatch told = new CountDownLatch(1);
+        late.whenFilled(told::countDown);
+        late.start();
+        assertTrue("the UI was not told the images are filled in", told.await(30, TimeUnit.SECONDS));
+        return xml;
+    }
+
+    @Test
+    public void lateImages_xmlBitmap_loadsAgainOnceMade_andTheUiIsTold() throws Exception {
+        final Drawable xml = xmlBitmapOfALateLayout(mContext, mPackage);
+        // Before the fill the <bitmap> got an empty file: it waits (or, made before by another test, it is the VM's
+        // pixels already). Never the app's file decoded here.
+        if (xml instanceof DrawableWrapper) {
+            final Drawable now = ((DrawableWrapper) xml).getDrawable();
+            assertTrue(String.valueOf(now), now == null || now instanceof BitmapDrawable);
+        } else {
+            assertTrue(String.valueOf(xml), xml instanceof BitmapDrawable);
+        }
+    }
+
     @Test
     public void lateImages_packageDrawable_bitmapIconIsNeverNull() throws Exception {
         // A PNG icon of a package (an autofill service's): shown at once, empty, then filled in. Never null, so the

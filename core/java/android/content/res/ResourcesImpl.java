@@ -1158,7 +1158,8 @@ public class ResourcesImpl {
         }
         Trace.traceEnd(Trace.TRACE_TAG_RESOURCES);
 
-        return dr;
+        // DiamaneOS: an XML drawable whose image files fill in later loads again then (ImageFileGate).
+        return gate != null ? gate.onXmlDrawableLoaded(wrapper, value, id, density, dr) : dr;
     }
 
     private Drawable loadColorOrXmlDrawable(@NonNull Resources wrapper, @NonNull TypedValue value,

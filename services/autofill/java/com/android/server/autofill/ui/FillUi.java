@@ -446,6 +446,16 @@ final class FillUi {
         mCallback.requestShowFillUi(mContentWidth, mContentHeight, mWindowPresenter);
     }
 
+    // DiamaneOS: the datasets' images were made after the list was measured: measure again and show at the new size.
+    void onImagesFilled() {
+        if (mDestroyed || mWindow == null) {
+            return;
+        }
+        if (updateContentSize()) {
+            requestShowFillUi();
+        }
+    }
+
     /**
      * Creates a remoteview interceptor used to block clicks or other interactions.
      */

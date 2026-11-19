@@ -76,6 +76,17 @@ public final class AutofillViews {
     }
 
     /**
+     * Runs {@code listener} on the showing thread once the images of {@code response} are filled in, so a UI measured
+     * before can measure again. Nothing when the response has no images being made.
+     */
+    public void whenFilled(FillResponse response, Runnable listener) {
+        final LateImages images = mLateImages.get(response);
+        if (images != null) {
+            images.whenFilled(listener);
+        }
+    }
+
+    /**
      * {@code ui}, which builds an autofill UI, so that one that throws (its views cannot be checked, or cannot be
      * applied) shows nothing and {@code onFailure} cleans up: the system server keeps running.
      */

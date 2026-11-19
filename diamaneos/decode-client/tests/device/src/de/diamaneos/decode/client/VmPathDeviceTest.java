@@ -222,6 +222,19 @@ public class VmPathDeviceTest {
     }
 
     @Test
+    public void autofillXmlBitmap_filledInFromTheVm() throws Exception {
+        // <bitmap android:src="@drawable/vm_test_green"/> (a 6 x 4 PNG of this APK) in a layout shown before its files
+        // were made: once they are, the drawable loads again with the VM's pixels.
+        final Drawable xml = LateAndListImagesDeviceTest.xmlBitmapOfALateLayout(mContext, mPackage);
+        final Drawable shown = xml instanceof android.graphics.drawable.DrawableWrapper
+                ? ((android.graphics.drawable.DrawableWrapper) xml).getDrawable() : xml;
+        assertTrue("not filled in from the VM: " + shown, shown instanceof BitmapDrawable);
+        final Bitmap bitmap = ((BitmapDrawable) shown).getBitmap();
+        assertEquals(6, bitmap.getWidth());
+        assertEquals(4, bitmap.getHeight());
+    }
+
+    @Test
     public void appIcons_dataSmallIcon_madeAfterAskingAgain() throws Exception {
         // The status bar asks, gets the placeholder, is told, asks again: with the VM there it gets the image.
         final Icon data = pngIcon(0x00ffff);

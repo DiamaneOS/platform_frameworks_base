@@ -67,6 +67,17 @@ public interface ImageFileGate {
     Drawable onXmlDrawableFailed(@NonNull Resources res, @NonNull TypedValue value, @NonNull Exception e);
 
     /**
+     * An XML drawable {@code id} of such an APK was made: the drawable to hand out. A gate whose images fill in
+     * later may wrap it, so that it loads again once an image file inside it ({@code <bitmap>}, {@code <nine-patch>})
+     * is made. By default the drawable itself.
+     */
+    @NonNull
+    default Drawable onXmlDrawableLoaded(@NonNull Resources res, @NonNull TypedValue value, int id, int density,
+            @NonNull Drawable drawable) {
+        return drawable;
+    }
+
+    /**
      * Resources of {@code packageName} behind this same gate, for a resource Icon of that package loaded with a
      * context whose resources have this gate (see {@code Icon}). Null when they cannot be made: the icon is then not
      * loaded, never loaded with plain resources.

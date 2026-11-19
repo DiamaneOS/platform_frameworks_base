@@ -80,6 +80,7 @@ public final class LateImages {
     private final List<RemoteViews> mViews = new ArrayList<>(); // copies for the image thread, guarded by mLock
     private final List<Integer> mResources = new ArrayList<>(); // guarded by mLock
     private final List<Waiting> mWaiting = new ArrayList<>(); // guarded by mLock
+    private final List<Runnable> mFilledListeners = new ArrayList<>(); // guarded by mLock
     private boolean mStarted; // guarded by mLock
     private boolean mDone; // guarded by mLock
     private AppResourceImages mWorkerGate; // the image thread's gate, until the fill, guarded by mLock
@@ -337,7 +338,9 @@ public final class LateImages {
         }
         for (Waiting w : waiting) {
             try {
-                if (w.mKey != null) {
+                if (w.mXmlId != 0) {
+                    w.fill(w.reloaded());
+                } else if (w.mKey != null) {
                     w.fill(worker != null ? worker.madeDrawable(w.mRes, w.mKey)
                             : AppResourceImages.cachedDrawable(w.mRes, w.mKey));
                 } else {
@@ -346,6 +349,43 @@ public final class LateImages {
             } catch (RuntimeException e) {
                 Log.w(TAG, "image not filled in, it stays empty: " + e);
             }
+        }
+        final List<Runnable> listeners;
+        synchronized (mLock) {
+            listeners = new ArrayList<>(mFilledListeners);
+            mFilledListeners.clear();
+        }
+        for (Runnable r : listeners) {
+            Waiters.runSafely(r);
+        }
+    }
+
+    /**
+     * Runs {@code listener} on the showing thread once the images are filled in (at once, there, when they are
+     * already): a UI measured before can measure again.
+     */
+    public void whenFilled(Runnable listener) {
+        synchronized (mLock) {
+            if (!mDone) {
+                mFilledListeners.add(listener);
+                return;
+            }
+        }
+        mShowing.post(() -> Waiters.runSafely(listener));
+    }
+
+    /**
+     * For the gate: an XML drawable of the app that got an empty image file, as a drawable that shows it now and
+     * loads it again once the files are made ({@code <bitmap>} and {@code <nine-patch>} elements).
+     */
+    Drawable waitingXml(Resources res, int id, int density, Drawable shown) {
+        synchronized (mLock) {
+            if (id == 0 || mDone || mWaiting.size() >= MAX_WAITING) {
+                return shown;
+            }
+            final Waiting waiting = new Waiting(res, id, density, shown);
+            mWaiting.add(waiting);
+            return waiting;
         }
     }
 
@@ -494,11 +534,42 @@ public final class LateImages {
         private boolean mFiltered;
         private int mAlpha = 255;
 
+        // An XML drawable of the app that loads again once its files are made (0: not one).
+        final int mXmlId;
+        final int mXmlDensity;
+        private Resources.Theme mTheme;
+
         Waiting(int index, Resources res, String key) {
             super(null);
             mIndex = index;
             mRes = res;
             mKey = key;
+            mXmlId = 0;
+            mXmlDensity = 0;
+        }
+
+        Waiting(Resources res, int xmlId, int density, Drawable shown) {
+            super(shown);
+            mIndex = -1;
+            mRes = res;
+            mKey = null;
+            mXmlId = xmlId;
+            mXmlDensity = density;
+        }
+
+        @Override
+        public void applyTheme(Resources.Theme theme) {
+            mTheme = theme;
+            super.applyTheme(theme);
+        }
+
+        // The XML drawable loaded again, now that its files are made (from the cache), or null.
+        Drawable reloaded() {
+            try {
+                return mRes.getDrawableForDensity(mXmlId, mXmlDensity, mTheme);
+            } catch (RuntimeException e) {
+                return null;
+            }
         }
 
         void fill(Drawable made) {

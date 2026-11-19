@@ -168,6 +168,22 @@ public final class AppResourceImages implements ImageFileGate {
         mLate = late;
     }
 
+    // Per thread: image files handed out to an XML drawable as streams before they were made (late gates only), since
+    // the last XML drawable that took them.
+    private static final ThreadLocal<int[]> sLateStreams = ThreadLocal.withInitial(() -> new int[1]);
+
+    @Override
+    public Drawable onXmlDrawableLoaded(Resources res, TypedValue value, int id, int density, Drawable drawable) {
+        final int[] late = sLateStreams.get();
+        final LateImages images = mLate;
+        if (late[0] == 0 || images == null) {
+            return drawable;
+        }
+        late[0] = 0;
+        // A <bitmap> or <nine-patch> inside it got an empty image: it loads again once the files are made.
+        return images.waitingXml(res, id, density, drawable);
+    }
+
     /** While {@code cancelled} answers true, the VM is not asked: the work is no longer wanted. */
     public void setCancelled(BooleanSupplier cancelled) {
         synchronized (mLock) {
@@ -314,6 +330,9 @@ public final class AppResourceImages implements ImageFileGate {
             }
         }
         if (made == null) {
+            if (mLate != null) {
+                sLateStreams.get()[0]++;
+            }
             return new ByteArrayInputStream(emptyPng());
         }
         byte[] png = encode(made.bitmap);
