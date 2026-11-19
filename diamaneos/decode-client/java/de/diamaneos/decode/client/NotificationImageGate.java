@@ -805,6 +805,27 @@ public final class NotificationImageGate {
     }
 
     /**
+     * The extra a notice the system posts for an app (the overlay-window notification, the accessibility warning) holds
+     * the app's user in, so its icon (a reference to the app's resource) loads from that user's package.
+     */
+    public static final String EXTRA_IMAGE_USER = "de.diamaneos.imageUser";
+
+    /**
+     * The user whose packages and URIs the images of {@code sbn} name: the notification's own, or for a notice the
+     * system itself posted, the app's user it names in {@link #EXTRA_IMAGE_USER}. Never taken from an app.
+     */
+    public static int imageUserOf(android.service.notification.StatusBarNotification sbn) {
+        if (android.os.UserHandle.getAppId(sbn.getUid()) == android.os.Process.SYSTEM_UID
+                && sbn.getNotification().extras != null) {
+            final int user = sbn.getNotification().extras.getInt(EXTRA_IMAGE_USER, -1);
+            if (user >= 0) {
+                return user;
+            }
+        }
+        return sbn.getNormalizedUserId();
+    }
+
+    /**
      * The message bundles under {@code key}, or null when there are none. A notification arrives through a parcel,
      * where the array comes back as a Parcelable[] (never a Bundle[]): it is read as Parcelable, the way the
      * notification templates read it, and each element that is a Bundle is taken on its own (anything else is left

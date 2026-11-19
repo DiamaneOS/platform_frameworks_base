@@ -359,6 +359,8 @@ public class PolicyWarningUIController {
                                     serviceComponentName));
             if (icon != null) {
                 notificationBuilder.setLargeIcon(icon);
+                // DiamaneOS: the service's user, so SystemUI loads the icon from the right user's package.
+                notificationBuilder.getExtras().putInt("de.diamaneos.imageUser", userId);
             }
             mNotificationManager.notify(serviceComponentName.flattenToShortString(),
                     NOTE_A11Y_VIEW_AND_CONTROL_ACCESS,

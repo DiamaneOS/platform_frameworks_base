@@ -118,7 +118,8 @@ class NotificationRowImages(
                 NotificationImageGate.forNotification(
                     context,
                     sbn.packageName,
-                    sbn.normalizedUserId,
+                    // A system notice names the app's user for its icon (overlay window, accessibility).
+                    NotificationImageGate.imageUserOf(sbn),
                     (VM_ICON_DP * metrics.density).toInt().coerceAtLeast(1),
                     minOf(metrics.widthPixels, metrics.heightPixels).coerceAtLeast(1),
                     (VM_PICTURE_DP * metrics.density).toInt().coerceAtLeast(1),

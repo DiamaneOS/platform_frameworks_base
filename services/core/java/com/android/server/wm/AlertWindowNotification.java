@@ -130,6 +130,8 @@ class AlertWindowNotification {
         // its image gate, the files decoded in the protected VM.
         if (aInfo != null && aInfo.icon != 0) {
             builder.setLargeIcon(Icon.createWithResource(mPackageName, aInfo.icon));
+            // DiamaneOS: the app's user, so SystemUI loads the icon from the right user's package.
+            builder.getExtras().putInt("de.diamaneos.imageUser", mUserId);
         }
 
         mNotificationManager.notify(mNotificationTag, NOTIFICATION_ID, builder.build());

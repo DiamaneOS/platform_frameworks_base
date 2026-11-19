@@ -27,6 +27,7 @@ import com.android.systemui.statusbar.notification.collection.NotificationEntry
 import com.android.systemui.statusbar.notification.collection.notifcollection.CommonNotifCollection
 import de.diamaneos.decode.client.AppIcons
 import de.diamaneos.decode.client.ForeignIcons
+import de.diamaneos.decode.client.NotificationImageGate
 import de.diamaneos.decode.client.VmIcons
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -66,7 +67,13 @@ internal class NotificationAppIcons(
                     val wanted =
                         entries.flatMap { entry ->
                             listOfNotNull(entry.sbn.notification.smallIcon, entry.sbn.notification.getLargeIcon())
-                                .map { AppIcons.Wanted(entry.sbn.normalizedUserId, entry.sbn.packageName, it) }
+                                .map {
+                                    AppIcons.Wanted(
+                                        NotificationImageGate.imageUserOf(entry.sbn),
+                                        entry.sbn.packageName,
+                                        it,
+                                    )
+                                }
                         }
                     AppIcons.prepare(shadeContext, wanted) { entries.forEach { rebuildIfCurrent(it) } }
                 }
@@ -84,7 +91,8 @@ internal class NotificationAppIcons(
      * until an image thread has made it, after which the entry's icons are built again.
      */
     fun forView(icon: Icon, entry: NotificationEntry): Icon =
-        AppIcons.forView(shadeContext, icon, entry.sbn.normalizedUserId, entry.sbn.packageName, entry.key) {
+        AppIcons.forView(shadeContext, icon, NotificationImageGate.imageUserOf(entry.sbn), entry.sbn.packageName,
+            entry.key) {
             rebuildIfCurrent(entry)
         } ?: withoutVmIcon(icon)
 
