@@ -686,8 +686,12 @@ public class SplashscreenContentDrawer {
                 final int iconDpi = TallySplashScreen.iconDpi(densityDpi, mFinalIconSize,
                         mDefaultIconSize);
                 Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, "getIcon");
-                iconDrawable = mHighResIconProvider.getIcon(mActivityInfo, densityDpi, iconDpi);
+                // DiamaneOS: the app icon from clean copies made in the VM, none until they are made.
+                iconDrawable = SplashImages.appIcon(shellContext, mContext, mActivityInfo, iconDpi);
                 Trace.traceEnd(TRACE_TAG_WINDOW_MANAGER);
+                if (iconDrawable == null) {
+                    return fillViewWithIcon(0, null, mUiThreadInitTask);
+                }
                 mFinalIconDrawables = new Drawable[] {TallySplashScreen.makeKeycap(shellContext,
                         iconDrawable, iconDpi, mFinalIconSize, mSplashscreenWorkerHandler,
                         mActivityInfo.packageName,
@@ -698,9 +702,13 @@ public class SplashscreenContentDrawer {
                 final int scaledIconDpi =
                         (int) (0.5f + iconScale * densityDpi * mNoBackgroundScale);
                 Trace.traceBegin(TRACE_TAG_WINDOW_MANAGER, "getIcon");
-                iconDrawable = mHighResIconProvider.getIcon(
-                        mActivityInfo, densityDpi, scaledIconDpi);
+                // DiamaneOS: the app icon from clean copies made in the VM, none until they are made.
+                iconDrawable = SplashImages.appIcon(SplashscreenContentDrawer.this.mContext,
+                        mContext, mActivityInfo, scaledIconDpi);
                 Trace.traceEnd(TRACE_TAG_WINDOW_MANAGER);
+                if (iconDrawable == null) {
+                    return fillViewWithIcon(0, null, mUiThreadInitTask);
+                }
                 if (!processAdaptiveIcon(iconDrawable)) {
                     ProtoLog.v(ShellProtoLogGroup.WM_SHELL_STARTING_WINDOW,
                             "The icon is not an AdaptiveIconDrawable");

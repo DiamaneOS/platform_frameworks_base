@@ -60,6 +60,8 @@ import java.util.function.Supplier;
  * <li>A drawable with an image file that has no clean copy yet is not used ({@link #complete}): the splash shows
  * without it (the app icon instead of the splash icon, no branding, the default background colour), and
  * {@link #end} has the copies made in the VM in the background for the next start.
+ * <li>The app icon the splash shows when the app names no splash icon (the Tally keycap) comes from clean copies the
+ * same way ({@link #appIcon}). While it has none, the splash shows without an icon.
  * <li>When an app is installed or updated, the copies for its launcher activities are made right away, in both
  * night modes ({@link #watchPackages}).
  * </ul>
@@ -87,8 +89,10 @@ public final class SplashImages {
         com.android.internal.R.styleable.Window_windowSplashscreenContent,
     };
 
-    // Per thread: images a splash could not take since begin().
-    private static final ThreadLocal<int[]> sMissed = ThreadLocal.withInitial(() -> new int[1]);
+    // Per thread: images a splash could not take since begin(), and the app icon it asked for (resource, density).
+    private static final ThreadLocal<int[]> sMissed = ThreadLocal.withInitial(() -> new int[3]);
+    // The density the last splash loaded an app icon at, for the copies made at install. 0 until a splash asked.
+    private static volatile int sIconDpi;
 
     private static final Object sLock = new Object();
     private static Handler sWorker; // guarded by sLock
@@ -121,7 +125,51 @@ public final class SplashImages {
 
     /** Starts a splash on this thread. */
     public static void begin() {
-        sMissed.get()[0] = 0;
+        final int[] state = sMissed.get();
+        state[0] = 0;
+        state[1] = 0;
+        state[2] = 0;
+    }
+
+    /**
+     * The icon of {@code ai} at {@code iconDpi} from the app's resources behind the splash gate, as the launcher icon
+     * loader loads it (the activity's icon, else the application's, else Android's default), or null while an image
+     * file in it has no clean copy (the splash then shows no icon, and the copy is made for the next start).
+     * {@code splashContext} is the context {@link #gate} gave, else one is made for the app here.
+     */
+    public static Drawable appIcon(Context shellContext, Context splashContext, ActivityInfo ai, int iconDpi) {
+        final int iconRes = ai.getIconResource();
+        if (iconRes == 0) {
+            return android.content.res.Resources.getSystem().getDrawableForDensity(
+                    android.R.drawable.sym_def_app_icon, iconDpi, null);
+        }
+        Context context = splashContext;
+        if (!(context instanceof VmImageContext)) {
+            try {
+                context = gate(shellContext, shellContext.createPackageContextAsUser(ai.packageName,
+                        Context.CONTEXT_RESTRICTED, UserHandle.getUserHandleForUid(ai.applicationInfo.uid)),
+                        ai.packageName, UserHandle.getUserId(ai.applicationInfo.uid));
+            } catch (PackageManager.NameNotFoundException e) {
+                context = null;
+            }
+            if (context == null) {
+                sMissed.get()[0]++;
+                return null;
+            }
+        }
+        final int[] state = sMissed.get();
+        state[1] = iconRes;
+        state[2] = iconDpi;
+        sIconDpi = iconDpi;
+        final android.content.res.Resources res = context.getResources();
+        return complete(() -> {
+            try {
+                return res.getDrawableForDensity(iconRes, iconDpi, null);
+            } catch (android.content.res.Resources.NotFoundException e) {
+                return android.content.res.Resources.getSystem().getDrawableForDensity(
+                        android.R.drawable.sym_def_app_icon, iconDpi, null);
+            }
+        });
     }
 
     /**
@@ -152,8 +200,9 @@ public final class SplashImages {
         if (!missed()) {
             return;
         }
+        final int[] state = sMissed.get();
         final Request request = new Request(packageName, userId, splashContext.getThemeResId(),
-                new Configuration(splashContext.getResources().getConfiguration()));
+                new Configuration(splashContext.getResources().getConfiguration()), state[1], state[2]);
         enqueue(shellContext, request);
     }
 
@@ -214,6 +263,9 @@ public final class SplashImages {
             // The activity's own theme then.
         }
         final Configuration base = shellContext.getResources().getConfiguration();
+        // The splash loads app icons a little above the display's density: the one the last splash used, else about
+        // what the Tally keycap asks for (any density in the same bucket picks the same files).
+        final int iconDpi = sIconDpi != 0 ? sIconDpi : Math.round(base.densityDpi * 1.25f);
         for (ResolveInfo info : activities) {
             final ActivityInfo ai = info.activityInfo;
             if (ai == null || !packageName.equals(ai.packageName)) {
@@ -225,25 +277,31 @@ public final class SplashImages {
             for (int night : new int[] {Configuration.UI_MODE_NIGHT_NO, Configuration.UI_MODE_NIGHT_YES}) {
                 final Configuration config = new Configuration(base);
                 config.uiMode = (config.uiMode & ~Configuration.UI_MODE_NIGHT_MASK) | night;
-                enqueue(shellContext, new Request(packageName, userId, theme, config));
+                enqueue(shellContext, new Request(packageName, userId, theme, config, ai.getIconResource(),
+                        iconDpi));
             }
         }
     }
 
-    /** One make: an app's theme in one configuration. */
+    /** One make: an app's theme in one configuration, and its icon at a density (none when 0). */
     static final class Request {
         final String packageName;
         final int userId;
         final int theme;
         final Configuration config;
+        final int iconRes;
+        final int iconDpi;
         final String key;
 
-        Request(String packageName, int userId, int theme, Configuration config) {
+        Request(String packageName, int userId, int theme, Configuration config, int iconRes, int iconDpi) {
             this.packageName = packageName;
             this.userId = userId;
             this.theme = theme;
             this.config = config;
-            this.key = packageName + '/' + userId + '/' + Integer.toHexString(theme) + '/' + config.hashCode();
+            this.iconRes = iconRes;
+            this.iconDpi = iconDpi;
+            this.key = packageName + '/' + userId + '/' + Integer.toHexString(theme) + '/' + config.hashCode()
+                    + '/' + Integer.toHexString(iconRes) + '/' + iconDpi;
         }
     }
 
@@ -309,18 +367,30 @@ public final class SplashImages {
         try {
             final Context context = VmImageContext.wrap(
                     packageContext.createConfigurationContext(request.config), gate);
-            context.setTheme(request.theme);
-            final TypedArray a = context.obtainStyledAttributes(com.android.internal.R.styleable.Window);
             try {
-                for (int attr : IMAGE_ATTRS) {
-                    try {
-                        a.getDrawable(attr);
-                    } catch (RuntimeException e) {
-                        // Not set, not a drawable, or broken: nothing to make.
+                context.setTheme(request.theme);
+                final TypedArray a = context.obtainStyledAttributes(com.android.internal.R.styleable.Window);
+                try {
+                    for (int attr : IMAGE_ATTRS) {
+                        try {
+                            a.getDrawable(attr);
+                        } catch (RuntimeException e) {
+                            // Not set, not a drawable, or broken: nothing to make.
+                        }
                     }
+                } finally {
+                    a.recycle();
                 }
-            } finally {
-                a.recycle();
+            } catch (RuntimeException e) {
+                // A theme that does not resolve: the icon is still made.
+                Log.w(TAG, "splash theme of " + request.packageName + " not read: " + e);
+            }
+            if (request.iconRes != 0 && request.iconDpi > 0) {
+                try {
+                    context.getResources().getDrawableForDensity(request.iconRes, request.iconDpi, null);
+                } catch (RuntimeException e) {
+                    // No such icon: the splash shows Android's default one.
+                }
             }
             if (VmDecode.madeLogging()) {
                 VmDecode.madeLine("splash images of " + request.packageName + ": " + gate.files().size()

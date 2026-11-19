@@ -25,6 +25,8 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assume.assumeTrue;
 
 import android.content.Context;
+import android.content.pm.ActivityInfo;
+import android.content.pm.ApplicationInfo;
 import android.content.res.Configuration;
 import android.content.res.TypedArray;
 import android.graphics.Bitmap;
@@ -202,7 +204,8 @@ public class SplashImagesDeviceTest {
         assumeTrue("needs the decode VM (debuggable build)", vmReachable());
         final Configuration config = new Configuration(mContext.getResources().getConfiguration());
         onThread(() -> {
-            SplashImages.make(mContext, new SplashImages.Request(mPackage, mUser, R.style.VmTestSplash, config));
+            SplashImages.make(mContext, new SplashImages.Request(mPackage, mUser, R.style.VmTestSplash, config,
+                    0, 0));
             return null;
         });
         final File dir = new File(mContext.createDeviceProtectedStorageContext().getFilesDir(), "clean-images");
@@ -228,6 +231,69 @@ public class SplashImagesDeviceTest {
         assertNotNull("branding from its copy", result[1]);
         assertNotNull("background from its copies", result[2]);
         assertFalse("nothing missed", (Boolean) result[3]);
+    }
+
+    // An activity of this test APK whose icon is its red PNG.
+    private ActivityInfo redIconActivity() {
+        final ActivityInfo ai = new ActivityInfo();
+        ai.packageName = mPackage;
+        ai.name = "de.diamaneos.decode.client.SplashTestActivity";
+        ai.applicationInfo = mContext.getApplicationInfo();
+        ai.icon = R.drawable.vm_test_red;
+        return ai;
+    }
+
+    /** The splash's app icon without its copy: none at once (an empty splash), never the VM. */
+    @Test
+    public void appIcon_noCopy_none() throws Exception {
+        final Context context = splashContext(R.style.VmTestSplash);
+        final Object[] result = onThread(() -> {
+            SplashImages.begin();
+            final Drawable icon = SplashImages.appIcon(mContext, context, redIconActivity(), 480);
+            return new Object[] {icon, SplashImages.missed()};
+        });
+        assertNull("no icon without its copy", result[0]);
+        assertTrue("missed", (Boolean) result[1]);
+    }
+
+    /** An activity without an icon gets Android's default icon, which is no app image. */
+    @Test
+    public void appIcon_none_isTheDefault() throws Exception {
+        final ActivityInfo ai = redIconActivity();
+        ai.icon = 0;
+        final ApplicationInfo app = new ApplicationInfo(mContext.getApplicationInfo());
+        app.icon = 0;
+        ai.applicationInfo = app;
+        final Context context = splashContext(R.style.VmTestSplash);
+        final Object[] result = onThread(() -> {
+            SplashImages.begin();
+            return new Object[] {SplashImages.appIcon(mContext, context, ai, 480), SplashImages.missed()};
+        });
+        assertNotNull(result[0]);
+        assertFalse((Boolean) result[1]);
+    }
+
+    /** With the VM: the make keeps the icon's copy and the next splash shows it. Skipped without the VM. */
+    @Test
+    public void appIcon_madeInTheVm_thenTaken() throws Exception {
+        assumeTrue("needs the decode VM (debuggable build)", vmReachable());
+        final Configuration config = new Configuration(mContext.getResources().getConfiguration());
+        onThread(() -> {
+            SplashImages.make(mContext, new SplashImages.Request(mPackage, mUser, R.style.VmTestSplashVector,
+                    config, R.drawable.vm_test_red, 480));
+            return null;
+        });
+        VmIcons.trim();
+        final Context context = splashContext(R.style.VmTestSplashVector);
+        final Object[] result = onThread(() -> {
+            SplashImages.begin();
+            final Drawable icon = SplashImages.appIcon(mContext, context, redIconActivity(), 480);
+            return new Object[] {icon, SplashImages.missed()};
+        });
+        assertTrue("icon from its copy", result[0] instanceof BitmapDrawable);
+        final Bitmap icon = ((BitmapDrawable) result[0]).getBitmap();
+        assertEquals(0xffff0000, icon.getPixel(icon.getWidth() / 2, icon.getHeight() / 2));
+        assertFalse("nothing missed", (Boolean) result[1]);
     }
 
     private boolean vmReachable() {
