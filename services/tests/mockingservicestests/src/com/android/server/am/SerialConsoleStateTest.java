@@ -53,7 +53,7 @@ public class SerialConsoleStateTest {
 
     @Test
     public void linux618LayoutIsRead() throws IOException {
-        // /proc/consoles of 2026110600 on the FP6, nbcon slot after boot.
+        // /proc/consoles of a device on Linux 6.18, nbcon slot after boot.
         assertFalse(enabled("ramoops-1 -W- (EC  p a)\n"
                 + "ttynull0 --- (E      ) 236:0\n"));
         assertTrue(enabled("ttyMSM0 -W- (E   p a) 246:0\n"));

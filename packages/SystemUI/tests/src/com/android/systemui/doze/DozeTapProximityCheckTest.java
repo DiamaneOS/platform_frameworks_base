@@ -219,7 +219,7 @@ public class DozeTapProximityCheckTest extends SysuiTestCase {
 
     @Test
     public void reading_wideRangeSensor_zeroIsNearAndTheFarReadingIsFar() {
-        // The FP6's sensor reports 0 covered and 131.6 clear, below a range limit of 200.
+        // A device whose sensor reports 0 covered and 131.6 clear, below a range limit of 200.
         when(mSensor.getMaximumRange()).thenReturn(200f);
         mCheck.setListening(true);
 

@@ -91,10 +91,9 @@ public class UsbPortSecurityHooks {
         }
 
         switch (initialMode) {
-            // DiamaneOS: on Pixels first-stage init starts user builds with the port off, so
-            // GrapheneOS sets no state for Off at boot. The FP6's boot cut (vendor init, user
-            // builds only) needs the charger firmware to be up and can miss the charger input, so
-            // Off is applied at boot as well.
+            // DiamaneOS: GrapheneOS sets no state for Off at boot and relies on first-stage init
+            // to start user builds with the port off. A device whose early boot cut can miss the
+            // port needs Off applied again, so Off is applied at boot on every device.
             case UsbPortSecurity.MODE_ALL_PORTS_DISABLED:
                 Slog.d(TAG, "USB-C port Off at boot");
                 setSecurityStateForAllPortsInner(ctx, PortSecurityState.PORTS_DISABLED);
@@ -135,10 +134,9 @@ public class UsbPortSecurityHooks {
                 Slog.d(TAG, "PortChangeReceiver: " + intent + ", extras " + intent.getExtras().deepCopy());
                 UsbPortStatus portStatus = intent.getParcelableExtra(UsbManager.EXTRA_PORT_STATUS,
                         UsbPortStatus.class);
-                // DiamaneOS: a port can report a change without a status, for example while
-                // the Fairphone 6's charger firmware (which runs the Type-C port) restarts with
-                // its signal processor. Treat it as a disconnect, the stricter branch, instead
-                // of crashing system_server.
+                // DiamaneOS: a port can report a change without a status, for example from a
+                // port controller whose firmware restarts. Treat it as a disconnect, the stricter
+                // branch, instead of crashing system_server.
                 if (portStatus != null && portStatus.isConnected()) {
                     ++usbConnectEventCount;
                     Slog.d(TAG, "usbConnectEventCount: " + usbConnectEventCount);

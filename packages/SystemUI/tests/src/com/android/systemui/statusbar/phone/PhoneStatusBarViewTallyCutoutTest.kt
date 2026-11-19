@@ -97,9 +97,9 @@ class PhoneStatusBarViewTallyCutoutTest : SysuiTestCase() {
     @Test
     fun tally_unevenInsets_sidesMeetTheCutoutsEdges() {
         assumeTrue(TallyShell.isEnabled)
-        // The insets Tally gives the FP6: the rounded corner's 24 dp at the start, the privacy
-        // dot's 32 dp at the end.
-        attachFp6Like(Insets.of(/* left= */ 72, /* top= */ 0, /* right= */ 96, /* bottom= */ 0))
+        // The insets Tally gives a device whose rounded corner takes 24 dp at the start, with
+        // the privacy dot's 32 dp at the end.
+        attachWithCutout(Insets.of(/* left= */ 72, /* top= */ 0, /* right= */ 96, /* bottom= */ 0))
 
         // The start side keeps stock's 444 px (148 dp), up to the cutout's left edge. The end
         // side starts at its right edge and takes the rest.
@@ -119,7 +119,7 @@ class PhoneStatusBarViewTallyCutoutTest : SysuiTestCase() {
         contents.layoutDirection = View.LAYOUT_DIRECTION_RTL
         assumeTrue(view.layoutDirection == View.LAYOUT_DIRECTION_RTL)
         // In RTL the privacy dot, and its 32 dp, are at the left.
-        attachFp6Like(Insets.of(/* left= */ 96, /* top= */ 0, /* right= */ 72, /* bottom= */ 0))
+        attachWithCutout(Insets.of(/* left= */ 96, /* top= */ 0, /* right= */ 72, /* bottom= */ 0))
 
         // The end side, now at the left, ends at the cutout's left edge. The start side keeps
         // stock's 444 px from its right edge.
@@ -133,9 +133,9 @@ class PhoneStatusBarViewTallyCutoutTest : SysuiTestCase() {
     @Test
     fun tally_cutoutSpaceGone_sidesShareTheContentAsInStock() {
         assumeTrue(TallyShell.isEnabled)
-        attachFp6Like(Insets.of(/* left= */ 72, /* top= */ 0, /* right= */ 96, /* bottom= */ 0))
+        attachWithCutout(Insets.of(/* left= */ 72, /* top= */ 0, /* right= */ 96, /* bottom= */ 0))
 
-        // As on rotating to landscape, where the FP6's cutout is not at the top.
+        // As on rotating to landscape, where the cutout is not at the top.
         view.setHasCornerCutoutFetcher { true }
         view.requestLayout()
         view.measure(exactly(1116), exactly(144))
@@ -150,7 +150,7 @@ class PhoneStatusBarViewTallyCutoutTest : SysuiTestCase() {
     fun tally_insetsReapplied_paddingAndSidesFollowThem() {
         assumeTrue(TallyShell.isEnabled)
         var insets = Insets.of(/* left= */ 72, /* top= */ 0, /* right= */ 96, /* bottom= */ 0)
-        attachFp6Like { insets }
+        attachWithCutout { insets }
 
         // As after a layout direction change: the privacy dot's room is on the other side.
         insets = Insets.of(/* left= */ 96, /* top= */ 0, /* right= */ 72, /* bottom= */ 0)
@@ -207,14 +207,14 @@ class PhoneStatusBarViewTallyCutoutTest : SysuiTestCase() {
     private val cutoutSpace: View
         get() = view.requireViewById(R.id.cutout_space_view)
 
-    private fun attachFp6Like(insets: Insets) = attachFp6Like { insets }
+    private fun attachWithCutout(insets: Insets) = attachWithCutout { insets }
 
     /**
-     * Attaches, measures and lays out the view on an FP6-like display at density 3: 1116 px wide,
+     * Attaches, measures and lays out the view on a display at density 3: 1116 px wide,
      * with a 60 px cutout at the top centre, and the insets the fetcher gives. The content's
      * padding is 12 px at the start and 6 px at the end, so that the two can be told apart.
      */
-    private fun attachFp6Like(insets: () -> Insets) {
+    private fun attachWithCutout(insets: () -> Insets) {
         val cutout =
             DisplayCutout(Insets.of(0, 110, 0, 0), null, Rect(528, 0, 588, 110), null, null)
         whenever(view.rootWindowInsets)
