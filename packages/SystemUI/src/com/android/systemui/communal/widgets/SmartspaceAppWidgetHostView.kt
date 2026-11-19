@@ -25,7 +25,12 @@ import com.android.systemui.animation.LaunchableViewDelegate
 import de.diamaneos.decode.client.NoImageViews
 
 /** AppWidgetHostView that displays in communal hub to show smartspace content. */
-class SmartspaceAppWidgetHostView(context: Context) : AppWidgetHostView(context), LaunchableView {
+class SmartspaceAppWidgetHostView private constructor(context: Context, private val noImages: Context?) :
+    AppWidgetHostView(noImages ?: context), LaunchableView {
+    // DiamaneOS: built on a context whose package contexts give every bitmap file of another app empty
+    // (NoImageViews), so a timer layout's own images are never decoded here either. Without it nothing shows.
+    constructor(context: Context) : this(context, noImageContext(context))
+
     private val launchableViewDelegate =
         LaunchableViewDelegate(this, superSetVisibility = { super.setVisibility(it) })
 
@@ -36,13 +41,22 @@ class SmartspaceAppWidgetHostView(context: Context) : AppWidgetHostView(context)
 
     // DiamaneOS: the hub's smartspace timers come from the smartspace service, which no build of ours connects (no
     // hub data plugin is bound, so CommunalSmartspaceController never opens a session). Should one ever be bound,
-    // the images the views carry (icons, links, bitmaps) are left out here, never decoded.
+    // the images the views carry (icons, links, bitmaps) are left out, and their layout's image files are empty.
     override fun updateAppWidget(remoteViews: RemoteViews?) {
-        super.updateAppWidget(remoteViews?.let { NoImageViews.withoutImages(it) })
+        super.updateAppWidget(if (noImages == null) null else remoteViews?.let { NoImageViews.withoutImages(it) })
     }
 
     override fun setShouldBlockVisibilityChanges(block: Boolean) =
         launchableViewDelegate.setShouldBlockVisibilityChanges(block)
 
     override fun setVisibility(visibility: Int) = launchableViewDelegate.setVisibility(visibility)
+
+    private companion object {
+        fun noImageContext(context: Context): Context? =
+            try {
+                NoImageViews.context(context)
+            } catch (e: RuntimeException) {
+                null
+            }
+    }
 }
