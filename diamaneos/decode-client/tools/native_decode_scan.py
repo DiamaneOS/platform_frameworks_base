@@ -32,14 +32,15 @@ import sys
 
 PATTERN = (r'BitmapFactory\.decode|ImageDecoder\.(createSource|decode)|Drawable\.createFrom|loadThumbnail\(|'
            r'\.loadDrawable(AsUser|Async)?\(|getApplicationIcon\(|\.loadIcon\(|loadUnbadgedIcon\(|'
-           r'getActivityIcon\(|getShortcutIconDrawable\(|getShortcutIcon\(')
+           r'getActivityIcon\(|getShortcutIconDrawable\(|getShortcutIcon\(|'
+           # Views and layouts handed a link or an Icon decode it themselves, and plain resources or a context of
+           # another package decode that package's image files: where an app's image would load outside the gate.
+           r'setImageURI\(|setImageIcon\(|setImageViewUri\(|setImageViewIcon\(|'
+           r'getResourcesForApplication(AsUser)?\(|createPackageContext(AsUser)?\(|createApplicationContext\(')
 PATHS = [
     'packages/SystemUI/src',
     'libs/WindowManager/Shell/src',
-    'services/core/java/com/android/server/notification',
-    'services/core/java/com/android/server/wallpaper',
-    'services/core/java/com/android/server/wm',
-    'services/core/java/com/android/server/infra',
+    'services/core/java/com/android/server',
     'services/autofill',
     'services/companion',
     'services/accessibility',
