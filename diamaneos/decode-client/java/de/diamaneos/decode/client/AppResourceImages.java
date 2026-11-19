@@ -68,6 +68,8 @@ import java.util.function.BooleanSupplier;
 public final class AppResourceImages implements ImageFileGate {
     private static final String TAG = "VmDecode";
     private static final int MAX_FILE_BYTES = 8 * 1024 * 1024;
+    /** How the cache key of an app's image file starts (see {@link #key}), followed by the APK's path. */
+    static final String KEY_PREFIX = "rfile:";
 
     // The nine-patch data (or NO_CHUNK) of a cached file, by the same key as its bitmap in VmIcons' cache.
     private static final Object NO_CHUNK = new Object();
@@ -103,6 +105,8 @@ public final class AppResourceImages implements ImageFileGate {
     private Map<String, Made> mRound = new HashMap<>(); // guarded by mLock
     private final Set<String> mFiles = new LinkedHashSet<>(); // guarded by mLock
     private volatile LateImages mLate; // files not made yet wait for it, see setLate
+    private volatile CleanImageStore mStore; // made files kept on disk too, see setStore
+    private volatile int mPriority = VmDecode.PRIORITY_USER_WAITING;
 
     /**
      * A gate for SystemUI: {@code context} is SystemUI's own (it binds the decode service), {@code ownerPackage} the
@@ -182,6 +186,20 @@ public final class AppResourceImages implements ImageFileGate {
         late[0] = 0;
         // A <bitmap> or <nine-patch> inside it got an empty image: it loads again once the files are made.
         return images.waitingXml(res, id, density, drawable);
+    }
+
+    /**
+     * Files this gate makes are kept in {@code store} as well, and a file the memory cache does not hold is looked
+     * for there before the VM is asked (or, off the threads that may ask, before it is left empty). For images whose
+     * clean copies are made ahead of time, such as the splash screen's.
+     */
+    public void setStore(CleanImageStore store) {
+        mStore = store;
+    }
+
+    /** The VM priority of this gate's decodes: {@link VmDecode#PRIORITY_BACKGROUND} for work nobody waits for. */
+    public void setPriority(int priority) {
+        mPriority = priority;
     }
 
     /** While {@code cancelled} answers true, the VM is not asked: the work is no longer wanted. */
@@ -415,8 +433,8 @@ public final class AppResourceImages implements ImageFileGate {
             }
         }
         if (!vmAllowedHere()) {
-            // Not a thread that may wait for the VM: what is cached, else empty (never charged here).
-            final Made hit = key == null ? null : cached(key);
+            // Not a thread that may wait for the VM: what is cached or stored, else empty (never charged here).
+            final Made hit = key == null ? null : cachedOrStored(key);
             return hit != null ? hit : missing();
         }
         final ImageBudget.Admission admission = budget.admit(roundKey);
@@ -431,7 +449,12 @@ public final class AppResourceImages implements ImageFileGate {
             sMisses.get()[2]++;
             return missing();
         }
-        Made made = key == null ? null : cached(key);
+        Made made = key == null ? null : cachedOrStored(key);
+        final CleanImageStore store = mStore;
+        if (made != null && store != null) {
+            // Made before for another gate and only held in memory: kept on disk too.
+            store.saveIfMissing(key, made.bitmap, made.chunk);
+        }
         if (made != null) {
             if (admission == ImageBudget.Admission.NEW && !budget.charge(roundKey, pixels(made.bitmap))) {
                 return missing();
@@ -477,6 +500,9 @@ public final class AppResourceImages implements ImageFileGate {
         if (key != null) {
             VmIcons.cachePut(key, made.bitmap);
             sChunks.put(key, made.chunk != null ? made.chunk : NO_CHUNK);
+            if (store != null) {
+                store.save(key, made.bitmap, made.chunk);
+            }
         }
         return keep(roundKey, made);
     }
@@ -490,6 +516,22 @@ public final class AppResourceImages implements ImageFileGate {
 
     private static long pixels(Bitmap bitmap) {
         return (long) bitmap.getWidth() * bitmap.getHeight();
+    }
+
+    // What the memory cache holds, else the clean copy the store keeps (then cached in memory too).
+    private Made cachedOrStored(String key) {
+        final Made hit = cached(key);
+        final CleanImageStore store = mStore;
+        if (hit != null || store == null) {
+            return hit;
+        }
+        final CleanImageStore.Entry entry = store.load(key);
+        if (entry == null) {
+            return null;
+        }
+        VmIcons.cachePut(key, entry.bitmap);
+        sChunks.put(key, entry.chunk != null ? entry.chunk : NO_CHUNK);
+        return new Made(entry.bitmap, entry.chunk);
     }
 
     private static Made cached(String key) {
@@ -511,7 +553,7 @@ public final class AppResourceImages implements ImageFileGate {
         try {
             budget.countVmCall();
             bitmap = VmDecode.decodeBytes(mContext, bytes, 0, bytes.length, mOwner,
-                    VmDecode.PRIORITY_USER_WAITING, plan.boxWidth, plan.boxHeight, VmDecode.deadlineIn(left));
+                    mPriority, plan.boxWidth, plan.boxHeight, VmDecode.deadlineIn(left));
         } catch (VmDecode.RejectedException e) {
             // Refused by the VM: not asked for again, and its icon is not tried again.
             if (key != null) {
@@ -541,7 +583,7 @@ public final class AppResourceImages implements ImageFileGate {
             return null;
         }
         final File apk = new File(apkPath);
-        return "rfile:" + apkPath + ':' + apk.lastModified() + ':' + apk.length() + ':' + file + ':' + density
+        return KEY_PREFIX + apkPath + ':' + apk.lastModified() + ':' + apk.length() + ':' + file + ':' + density
                 + ':' + maxWidth + 'x' + maxHeight;
     }
 

@@ -58,6 +58,8 @@ import com.android.internal.util.ContrastColorUtil;
 import com.android.wm.shell.common.ShellExecutor;
 import com.android.wm.shell.protolog.ShellProtoLogGroup;
 
+import de.diamaneos.decode.client.SplashImages;
+
 import java.util.function.Supplier;
 
 /**
@@ -250,11 +252,15 @@ class SplashscreenWindowCreator extends AbsSplashWindowCreator {
         final int userId = taskInfo.userId;
         final Context windowContext;
         try {
-            windowContext = mContext.createPackageContextAsUser(
-                    packageName, Context.CONTEXT_RESTRICTED, UserHandle.of(userId));
+            // DiamaneOS: the app's image files only from clean copies made in the VM.
+            windowContext = SplashImages.gate(mContext, mContext.createPackageContextAsUser(
+                    packageName, Context.CONTEXT_RESTRICTED, UserHandle.of(userId)), packageName, userId);
         } catch (PackageManager.NameNotFoundException e) {
             Slog.w(TAG, "Failed creating package context with package name "
                     + packageName + " for user " + taskInfo.userId, e);
+            return Color.TRANSPARENT;
+        }
+        if (windowContext == null) { // DiamaneOS
             return Color.TRANSPARENT;
         }
         try {

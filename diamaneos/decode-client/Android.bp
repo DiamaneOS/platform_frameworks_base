@@ -73,13 +73,15 @@ java_library {
 }
 
 // The reply checks, the nine-patch chunk reader, the decode plan, the system image paths, the image caps, the per-app
-// quota and pixel pool, the retry waits and the wallpaper box are plain Java, tested on the host.
+// quota and pixel pool, the retry waits, the wallpaper box and the clean copy file format are plain Java, tested on
+// the host.
 java_test_host {
     name: "diamaneos-decode-client-tests",
     srcs: [
         "tests/src/**/*.java",
         "java/de/diamaneos/decode/client/Backoff.java",
         "java/de/diamaneos/decode/client/CallPool.java",
+        "java/de/diamaneos/decode/client/CleanImageFile.java",
         "java/de/diamaneos/decode/client/ImageBudget.java",
         "java/de/diamaneos/decode/client/ImagePlan.java",
         "java/de/diamaneos/decode/client/NinePatchChunk.java",

@@ -1,7 +1,7 @@
 # Allowlist of native-decode call sites for native_decode_scan.py (one line per file):
 #   <calls> <path> | <why they are fine>
 # "left open" lines are the launcher icons the package manager loads (the clean icon cache topic of the design
-# note), the Shell's splash screens and broadcast radio station images (design note): every other image an app hands
+# note) and broadcast radio station images (design note): every other image an app hands
 # over at run time goes through the VM or an image gate. Lines without an image ("no image") are package contexts
 # and resources used for strings, ids or settings, which the scan lists because they could load an image. A rebase that adds a call fails the scan until the
 # call is converted or its line is justified here.
@@ -13,8 +13,8 @@
 1 libs/WindowManager/Shell/src/com/android/wm/shell/pip/phone/PipMenuView.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image (the action icons go through PipActionIcons)
 3 libs/WindowManager/Shell/src/com/android/wm/shell/pip/tv/TvPipNotificationController.java | TV only, launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)
 1 libs/WindowManager/Shell/src/com/android/wm/shell/pip2/phone/PipMenuView.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image (the action icons go through PipActionIcons)
-2 libs/WindowManager/Shell/src/com/android/wm/shell/startingsurface/SplashscreenContentDrawer.java | left open: the app's splash screen images, decoded in the Shell (starting windows, design note)
-1 libs/WindowManager/Shell/src/com/android/wm/shell/startingsurface/SplashscreenWindowCreator.java | left open: the app's splash screen images, decoded in the Shell (starting windows, design note)
+2 libs/WindowManager/Shell/src/com/android/wm/shell/startingsurface/SplashscreenContentDrawer.java | the app's package context behind the splash gate (image files only from clean copies made in the VM, SplashImages), and the launcher icon through the package manager (left open, the clean icon cache topic of the design note)
+1 libs/WindowManager/Shell/src/com/android/wm/shell/startingsurface/SplashscreenWindowCreator.java | the app's package context behind the splash gate (image files only from clean copies made in the VM, SplashImages)
 1 packages/SystemUI/src/com/android/keyguard/KeyguardSliceView.java | slices of SystemUI's own KeyguardSliceProvider
 1 packages/SystemUI/src/com/android/systemui/DessertCaseView.java | SystemUI's own resources or files, nothing an app hands over
 1 packages/SystemUI/src/com/android/systemui/accessibility/hearingaid/HearingDevicesToolItemParser.java | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)

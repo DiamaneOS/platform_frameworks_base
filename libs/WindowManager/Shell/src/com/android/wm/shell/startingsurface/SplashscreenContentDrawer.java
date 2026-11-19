@@ -86,6 +86,8 @@ import com.android.wm.shell.sysui.ShellController;
 import com.android.wm.shell.sysui.UserChangeListener;
 import com.android.wm.shell.tally.TallyWmShell;
 
+import de.diamaneos.decode.client.SplashImages;
+
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.IntPredicate;
@@ -162,6 +164,8 @@ public class SplashscreenContentDrawer {
         shellSplashscreenWorkerThread.start();
         mSplashscreenWorkerHandler = shellSplashscreenWorkerThread.getThreadHandler();
         mColorCache = new ColorCache(mContext, mSplashscreenWorkerHandler);
+        // DiamaneOS: the clean copies of an app's splash images are made when it is installed or updated.
+        SplashImages.watchPackages(mContext);
         mCanUseAppIconForSplashScreen = context.getResources().getBoolean(
                 com.android.wm.shell.R.bool.config_canUseAppIconForSplashScreen);
         if (android.view.accessibility.Flags.forceInvertColor()) {
@@ -221,6 +225,12 @@ public class SplashscreenContentDrawer {
             try {
                 context = context.createPackageContextAsUser(activityInfo.packageName,
                         CONTEXT_RESTRICTED, UserHandle.of(taskInfo.userId));
+                // DiamaneOS: the app's image files only from clean copies made in the VM.
+                context = SplashImages.gate(initContext, context, activityInfo.packageName,
+                        taskInfo.userId);
+                if (context == null) {
+                    return null;
+                }
                 context.setTheme(theme);
             } catch (PackageManager.NameNotFoundException e) {
                 Slog.w(TAG, "Failed creating package context with package name "
@@ -395,7 +405,9 @@ public class SplashscreenContentDrawer {
             themeBGDrawable = new ColorDrawable(attrs.mWindowBgColor);
         } else if (attrs.mWindowBgResId != 0) {
             try {
-                themeBGDrawable = context.getDrawable(attrs.mWindowBgResId);
+                // DiamaneOS: not used while an image file in it has no clean copy.
+                themeBGDrawable = SplashImages.complete(
+                        () -> context.getDrawable(attrs.mWindowBgResId));
             } catch (Resources.NotFoundException e) {
                 Slog.w(TAG, "Unable get drawable from resource", e);
             }
@@ -438,11 +450,12 @@ public class SplashscreenContentDrawer {
         final int resId = safeReturnAttrDefault((def) ->
                 a.getResourceId(R.styleable.Window_windowSplashscreenContent, def), 0);
         a.recycle();
+        // DiamaneOS: not used while an image file in it has no clean copy.
         if (resId != 0) {
-            return context.getDrawable(resId);
+            return SplashImages.complete(() -> context.getDrawable(resId));
         }
         if (attrs.mWindowBgResId != 0) {
-            return context.getDrawable(attrs.mWindowBgResId);
+            return SplashImages.complete(() -> context.getDrawable(attrs.mWindowBgResId));
         }
         return null;
     }
@@ -471,6 +484,7 @@ public class SplashscreenContentDrawer {
             @StartingWindowType int suggestType, Consumer<Runnable> uiThreadInitConsumer) {
         updateDensity();
 
+        SplashImages.begin(); // DiamaneOS
         getWindowAttrs(context, mTmpAttrs);
         mLastPackageContextConfigHash = context.getResources().getConfiguration().hashCode();
 
@@ -485,14 +499,22 @@ public class SplashscreenContentDrawer {
         final int themeBGColor = legacyDrawable != null
                 ? getBGColorFromCache(ai, () -> estimateWindowBGColor(legacyDrawable))
                 : getBGColorFromCache(ai, () -> peekWindowBGColor(context, mTmpAttrs));
+        if (SplashImages.missed()) {
+            // DiamaneOS: a colour estimated without the app's background image is not kept.
+            mColorCache.mColorMap.remove(ai.packageName);
+        }
 
-        return new SplashViewBuilder(context, ai)
+        final SplashScreenView view = new SplashViewBuilder(context, ai)
                 .setWindowBGColor(themeBGColor)
                 .overlayDrawable(legacyDrawable)
                 .chooseStyle(splashType)
                 .setUiThreadInitConsumer(uiThreadInitConsumer)
                 .setAllowHandleSolidColor(info.allowHandleSolidColorSplashScreen())
                 .build();
+        // DiamaneOS: images left out are made in the VM in the background, for the next start.
+        SplashImages.end(mContext, context, ai.packageName,
+                UserHandle.getUserId(ai.applicationInfo.uid));
+        return view;
     }
 
     private boolean canUseIcon(StartingWindowInfo info) {
@@ -526,10 +548,12 @@ public class SplashscreenContentDrawer {
         attrs.mWindowBgColor = safeReturnAttrDefault((def) -> typedArray.getColor(
                 R.styleable.Window_windowSplashScreenBackground, def),
                 Color.TRANSPARENT);
-        attrs.mSplashScreenIcon = safeReturnAttrDefault((def) -> typedArray.getDrawable(
-                R.styleable.Window_windowSplashScreenAnimatedIcon), null);
-        attrs.mBrandingImage = safeReturnAttrDefault((def) -> typedArray.getDrawable(
-                R.styleable.Window_windowSplashScreenBrandingImage), null);
+        // DiamaneOS: the splash icon and branding image are left out while an image file in them has no
+        // clean copy (the app icon shows instead of the splash icon).
+        attrs.mSplashScreenIcon = SplashImages.complete(() -> safeReturnAttrDefault((def) ->
+                typedArray.getDrawable(R.styleable.Window_windowSplashScreenAnimatedIcon), null));
+        attrs.mBrandingImage = SplashImages.complete(() -> safeReturnAttrDefault((def) ->
+                typedArray.getDrawable(R.styleable.Window_windowSplashScreenBrandingImage), null));
         attrs.mIconBgColor = safeReturnAttrDefault((def) -> typedArray.getColor(
                 R.styleable.Window_windowSplashScreenIconBackgroundColor, def),
                 Color.TRANSPARENT);
