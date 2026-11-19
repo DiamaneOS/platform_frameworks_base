@@ -249,10 +249,17 @@ public class KeyguardStatusBarView extends RelativeLayout {
             // If we have no keyguard switcher, the screen width is under 600dp. In this case,
             // we only show the multi-user switch if it's enabled through UserManager as well as
             // by the user.
+            final int oldAvatarVisibility = mMultiUserAvatar.getVisibility();
             if (mIsUserSwitcherEnabled) {
                 mMultiUserAvatar.setVisibility(View.VISIBLE);
             } else {
                 mMultiUserAvatar.setVisibility(View.GONE);
+            }
+            // DiamaneOS: this also runs inside the shade's layout pass, where ViewRootImpl discards
+            // the layout request of a view that turns GONE. The icon area asks too, or the system
+            // icons keep the avatar's space.
+            if (mMultiUserAvatar.getVisibility() != oldAvatarVisibility) {
+                mStatusIconArea.requestLayout();
             }
         }
     }
