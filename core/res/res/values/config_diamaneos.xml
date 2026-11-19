@@ -31,4 +31,10 @@
     <string-array name="config_networkPermissionFixedOffPackages" translatable="false">
     </string-array>
     <java-symbol type="array" name="config_networkPermissionFixedOffPackages" />
+
+    <!-- The lowest display refresh rate while a camera app previews, in Hz, from 30 (AOSP's floor)
+         to 60. A device whose display idles at 30 Hz during preview, so that touch response halves
+         and the preview judders, raises it. -->
+    <integer name="config_cameraPreviewMinRefreshRate">30</integer>
+    <java-symbol type="integer" name="config_cameraPreviewMinRefreshRate" />
 </resources>

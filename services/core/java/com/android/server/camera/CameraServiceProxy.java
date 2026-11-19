@@ -223,11 +223,13 @@ public class CameraServiceProxy extends SystemService
     // Must be equal to number of CameraStreamProto in CameraActionEvent
     private static final int MAX_STREAM_STATISTICS = 5;
 
-    // DiamaneOS: 60, not 30. With a 30 Hz floor the display idles at 30 Hz while
-    // a camera app previews, which halves UI and touch response and judders the
-    // preview. 60 gives every camera app the range [60, 60].
-    private static final float MIN_PREVIEW_FPS = 60.0f;
+    private static final float MIN_PREVIEW_FPS = 30.0f;
     private static final float MAX_PREVIEW_FPS = 60.0f;
+
+    // DiamaneOS: the device's floor (config_cameraPreviewMinRefreshRate), from 30 to 60. A device
+    // whose display idles at 30 Hz while a camera app previews, which halves UI and touch response
+    // and judders the preview, raises it.
+    private final float mMinPreviewFps;
 
     private final Context mContext;
     private final ServiceThread mHandlerThread;
@@ -1099,6 +1101,8 @@ public class CameraServiceProxy extends SystemService
         mHandler = new Handler(mHandlerThread.getLooper(), this);
 
         mNotifyNfc = SystemProperties.getInt(NFC_NOTIFICATION_PROP, 0) > 0;
+        mMinPreviewFps = Math.min(MAX_PREVIEW_FPS, Math.max(MIN_PREVIEW_FPS,
+                context.getResources().getInteger(R.integer.config_cameraPreviewMinRefreshRate)));
         if (DEBUG) {
             Slogf.v(TAG, "Notify NFC behavior is %s", (mNotifyNfc ? "active" : "disabled"));
         }
@@ -1532,7 +1536,7 @@ public class CameraServiceProxy extends SystemService
 
     private float getMinFps(CameraSessionStats cameraState) {
         float maxFps = cameraState.getMaxPreviewFps();
-        return Math.max(Math.min(maxFps, MAX_PREVIEW_FPS), MIN_PREVIEW_FPS);
+        return Math.max(Math.min(maxFps, MAX_PREVIEW_FPS), mMinPreviewFps);
     }
 
     @VisibleForTesting
