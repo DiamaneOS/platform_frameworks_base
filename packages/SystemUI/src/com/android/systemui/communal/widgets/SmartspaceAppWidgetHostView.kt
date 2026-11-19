@@ -19,8 +19,10 @@ package com.android.systemui.communal.widgets
 import android.appwidget.AppWidgetHostView
 import android.appwidget.AppWidgetProviderInfo
 import android.content.Context
+import android.widget.RemoteViews
 import com.android.systemui.animation.LaunchableView
 import com.android.systemui.animation.LaunchableViewDelegate
+import de.diamaneos.decode.client.NoImageViews
 
 /** AppWidgetHostView that displays in communal hub to show smartspace content. */
 class SmartspaceAppWidgetHostView(context: Context) : AppWidgetHostView(context), LaunchableView {
@@ -30,6 +32,13 @@ class SmartspaceAppWidgetHostView(context: Context) : AppWidgetHostView(context)
     override fun setAppWidget(appWidgetId: Int, info: AppWidgetProviderInfo?) {
         super.setAppWidget(appWidgetId, info)
         setPadding(0, 0, 0, 0)
+    }
+
+    // DiamaneOS: the hub's smartspace timers come from the smartspace service, which no build of ours connects (no
+    // hub data plugin is bound, so CommunalSmartspaceController never opens a session). Should one ever be bound,
+    // the images the views carry (icons, links, bitmaps) are left out here, never decoded.
+    override fun updateAppWidget(remoteViews: RemoteViews?) {
+        super.updateAppWidget(remoteViews?.let { NoImageViews.withoutImages(it) })
     }
 
     override fun setShouldBlockVisibilityChanges(block: Boolean) =
