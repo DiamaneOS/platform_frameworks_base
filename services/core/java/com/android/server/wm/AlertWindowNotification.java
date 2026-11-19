@@ -131,7 +131,8 @@ class AlertWindowNotification {
         if (aInfo != null && aInfo.icon != 0) {
             builder.setLargeIcon(Icon.createWithResource(mPackageName, aInfo.icon));
             // DiamaneOS: the app's user, so SystemUI loads the icon from the right user's package.
-            builder.getExtras().putInt("de.diamaneos.imageUser", mUserId);
+            builder.getExtras().putInt(
+                    de.diamaneos.decode.client.NotificationImageGate.EXTRA_IMAGE_USER, mUserId);
         }
 
         mNotificationManager.notify(mNotificationTag, NOTIFICATION_ID, builder.build());

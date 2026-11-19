@@ -173,9 +173,21 @@ public final class VmDecode {
     public static final String MADE_TAG = "VmDecodeMade";
 
     static void madeLine(String what) {
-        if (Log.isLoggable(MADE_TAG, Log.DEBUG)) {
-            Log.d(MADE_TAG, what);
+        Log.d(MADE_TAG, what);
+    }
+
+    // Whether the success line is on, asked of the log at most once a second (the callers are hot paths).
+    private static volatile long sMadeCheckedAt = -1_000_000L;
+    private static volatile boolean sMadeOn;
+
+    /** True when the success line is on: callers build its text only then. */
+    static boolean madeLogging() {
+        final long now = SystemClock.uptimeMillis();
+        if (now - sMadeCheckedAt > 1000) {
+            sMadeOn = Log.isLoggable(MADE_TAG, Log.DEBUG);
+            sMadeCheckedAt = now;
         }
+        return sMadeOn;
     }
 
     /** {@link #decodeBitmap}, also giving the turn applied, and with an optional deadline ({@link #deadlineIn}). */
@@ -194,8 +206,10 @@ public final class VmDecode {
             checkStatus(thumbnail.status);
             try {
                 final Decoded decoded = toDecoded(service, thumbnail, maxWidth, maxHeight);
-                madeLine("made " + decoded.bitmap.getWidth() + "x" + decoded.bitmap.getHeight() + " in the VM for "
-                        + request.ownerPackage);
+                if (madeLogging()) {
+                    madeLine("made " + decoded.bitmap.getWidth() + "x" + decoded.bitmap.getHeight()
+                            + " in the VM for " + request.ownerPackage);
+                }
                 return decoded;
             } finally {
                 try {

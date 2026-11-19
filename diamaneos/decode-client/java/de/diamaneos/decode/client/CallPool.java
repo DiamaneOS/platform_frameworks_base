@@ -76,6 +76,16 @@ final class CallPool {
         return task;
     }
 
+    /** Drops {@code future}, a call of this pool that has not started, from its queue (no-op once it runs). */
+    void cancel(Future<?> future) {
+        if (future instanceof Runnable) {
+            mApps.remove((Runnable) future);
+            if (mSystem != null) {
+                mSystem.remove((Runnable) future);
+            }
+        }
+    }
+
     /** A call and the lane it is charged to. */
     static final class OwnedTask<T> extends FutureTask<T> {
         final String lane;

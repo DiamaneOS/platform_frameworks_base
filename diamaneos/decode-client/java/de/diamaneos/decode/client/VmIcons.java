@@ -57,7 +57,7 @@ public final class VmIcons {
 
     static Bitmap cacheGet(String key) {
         final Bitmap bitmap = sCache.get(key);
-        if (bitmap != null) {
+        if (bitmap != null && VmDecode.madeLogging()) {
             VmDecode.madeLine("kept " + bitmap.getWidth() + "x" + bitmap.getHeight() + " made in the VM before");
         }
         return bitmap;

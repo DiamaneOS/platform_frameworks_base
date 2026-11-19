@@ -184,7 +184,7 @@ public class NavBarTuner extends TunerPreferenceFragment {
             SpannableStringBuilder builder = new SpannableStringBuilder();
             // DiamaneOS: a package's resource through the image gate, the neutral icon until made.
             Drawable d = de.diamaneos.decode.client.ForeignIcons.loadOrNeutral(getContext(),
-                    Icon.createWithResource(pkg, id), getContext().getUserId(), pkg, size, null);
+                    Icon.createWithResource(pkg, id), getContext().getUserId(), pkg, size, null).mutate();
             d.setTint(Color.BLACK);
             d.setBounds(0, 0, size, size);
             ImageSpan span = new ImageSpan(d, ImageSpan.ALIGN_BASELINE);

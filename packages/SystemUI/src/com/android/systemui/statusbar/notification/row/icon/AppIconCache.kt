@@ -58,10 +58,7 @@ class AppIconCache(systemClock: SystemClock) : Dumpable {
         stamp: String = "",
     ): String = "$packageName|${userHandle?.identifier}|$instanceKey|$stamp"
 
-    private fun isCurrent(key: String): Boolean {
-        val parts = key.split('|')
-        return parts.size < 4 || stamps.isCurrent(parts[0], parts[1], parts.subList(3, parts.size).joinToString("|"))
-    }
+    private fun isCurrent(key: String): Boolean = stamps.isCurrent(key)
 
     private fun getPackageFromKey(key: String): String = key.substringBefore('|')
 
@@ -85,10 +82,12 @@ class AppIconCache(systemClock: SystemClock) : Dumpable {
     ): Drawable {
         stamps.note(packageName, "${userHandle?.identifier}", stamp) // DiamaneOS
         val drawableCacheKey = createKey(packageName, userHandle, drawableInstanceKey, stamp)
+        stamps.keyMade(drawableCacheKey, packageName, "${userHandle?.identifier}", stamp) // DiamaneOS
         val drawable =
             drawableCache.getOrFetch(drawableCacheKey) {
                 val bitmapInfoCacheKey =
                     createKey(packageName, userHandle, instanceKey = "SHARED", stamp = stamp)
+                stamps.keyMade(bitmapInfoCacheKey, packageName, "${userHandle?.identifier}", stamp)
                 val bitmapInfo =
                     bitmapInfoCache.getOrFetch(bitmapInfoCacheKey) { fetchBitmapInfo() }
                 createDrawable(bitmapInfo)

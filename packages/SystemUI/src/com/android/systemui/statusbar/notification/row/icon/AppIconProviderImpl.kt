@@ -255,7 +255,8 @@ constructor(
             createDrawable = {
                 it.createIconDrawable(themed = true, outlined = Flags.aodNotifIconOutline())
             },
-            stamp = appIconStamp(sysuiContext, packageName, userHandle), // DiamaneOS
+            // DiamaneOS: shared by all users, so stamped without the per-user enabled state.
+            stamp = appIconStamp(sysuiContext, packageName, userHandle, perUser = false),
         ) {
             fetchAppIconBitmapInfo(skeletonIconFactory, packageName, userHandle)
         }

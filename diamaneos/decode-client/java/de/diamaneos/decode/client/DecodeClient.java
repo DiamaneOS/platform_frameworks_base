@@ -217,6 +217,7 @@ final class DecodeClient {
                 releaseSlot(lane); // never started: only the queue was slow
             }
             future.cancel(true);
+            mPool.cancel(future); // its place in the fair queue goes too
             // A missed deadline alone says nothing about the service: a hostile image may simply be slow. The binding
             // is dropped when the service cannot serve: most of the call threads are stuck in calls of this binding
             // past their deadlines, or the VM itself does not answer a probe of a tiny image of our own (checkHealth,
@@ -261,6 +262,7 @@ final class DecodeClient {
                 releaseSlot(lane);
             }
             future.cancel(true);
+            mPool.cancel(future); // its place in the fair queue goes too
             Thread.currentThread().interrupt();
             throw new VmDecode.UnavailableException("interrupted", e);
         } catch (ExecutionException e) {
