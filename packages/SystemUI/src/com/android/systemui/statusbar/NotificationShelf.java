@@ -25,9 +25,11 @@ import android.content.Context;
 import android.content.res.Configuration;
 import android.content.res.Resources;
 import android.graphics.Rect;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.AttributeSet;
 import android.util.IndentingPrintWriter;
+import android.util.Log;
 import android.util.MathUtils;
 import android.view.View;
 import android.view.ViewGroup;
@@ -77,6 +79,9 @@ public class NotificationShelf extends ActivatableNotificationView {
 
     private static final int TAG_CONTINUOUS_CLIPPING = R.id.continuous_clipping_tag;
     private static final String TAG = "NotificationShelf";
+    /** Tally: logs of the lock look's amount, background and icon colours, debuggable builds only. */
+    private static final String TALLY_TAG = "TallyShelf";
+    private static final boolean TALLY_DEBUG = Build.IS_DEBUGGABLE;
 
     // More extreme version of SLOW_OUT_LINEAR_IN which keeps the icon nearly invisible until after
     // the next icon has translated out of the way, to avoid overlapping.
@@ -114,6 +119,23 @@ public class NotificationShelf extends ActivatableNotificationView {
     private NotificationRoundnessManager mRoundnessManager;
     /** Tally: how far the shelf is its icons alone, 1 on the lock screen, 0 in the shade. */
     private float mTallyLockAmount;
+    /**
+     * Tally: the lock look follows the lock state and the pull to the shade, which can change without a new
+     * layout pass of the stack (after the unlock and relock, at a wake, after a touch). Before each frame the
+     * amount is computed again, and the shelf's appearance is redone only when it changed.
+     */
+    private final ViewTreeObserver.OnPreDrawListener mTallyLockGuard = () -> {
+        if (TallyShell.isEnabled() && mAmbientState != null && mShowNotificationShelf
+                && Math.abs(tallyLockAmountNow() - mTallyLockAmount) > 0.001f) {
+            if (TALLY_DEBUG) {
+                Log.d(TALLY_TAG, "lock amount stale: " + mTallyLockAmount + " -> " + tallyLockAmountNow()
+                        + " state=" + mAmbientState.isOnKeyguard()
+                        + " toShade=" + mAmbientState.getFractionToShade());
+            }
+            updateAppearance();
+        }
+        return true;
+    };
     private boolean mTallyLightWallpaper;
     private int mTallyLockInk;
     private boolean mTallyLockInkValid;
@@ -186,6 +208,18 @@ public class NotificationShelf extends ActivatableNotificationView {
     protected void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         updateResources();
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        getViewTreeObserver().addOnPreDrawListener(mTallyLockGuard);
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        getViewTreeObserver().removeOnPreDrawListener(mTallyLockGuard);
+        super.onDetachedFromWindow();
     }
 
     @Override
@@ -1006,6 +1040,10 @@ public class NotificationShelf extends ActivatableNotificationView {
             shelfColor = NotificationUtils.interpolateColors(shelfColor, tallyLockInk(),
                     mTallyLockAmount);
         }
+        if (TALLY_DEBUG && iconState.iconColor != shelfColor) {
+            Log.d(TALLY_TAG, "icon colour " + Integer.toHexString(shelfColor) + " amount=" + mTallyLockAmount
+                    + " appear=" + iconState.iconAppearAmount + " row=" + System.identityHashCode(row));
+        }
         iconState.iconColor = shelfColor;
     }
 
@@ -1023,6 +1061,9 @@ public class NotificationShelf extends ActivatableNotificationView {
 
     private void setHideBackground(boolean hideBackground) {
         if (mHideBackground != hideBackground) {
+            if (TALLY_DEBUG) {
+                Log.d(TALLY_TAG, "hide background " + hideBackground + " amount=" + mTallyLockAmount);
+            }
             mHideBackground = hideBackground;
             updateOutline();
         }
@@ -1034,14 +1075,18 @@ public class NotificationShelf extends ActivatableNotificationView {
      * key. The card fades in as the shade is pulled down.
      */
     private void updateTallyLockAmount() {
+        mTallyLockAmount = tallyLockAmountNow();
+        mBackgroundNormal.setAlpha(1f - mTallyLockAmount);
+    }
+
+    private float tallyLockAmountNow() {
         final boolean onLockscreen = SceneContainerFlag.isEnabled()
                 ? mAmbientState.isCurrentSceneLockscreen()
                 : mAmbientState.isOnKeyguard();
         final float toShade = SceneContainerFlag.isEnabled()
                 ? Interpolators.STANDARD.getInterpolation(mAmbientState.getLStoShadeProgress())
                 : Interpolators.STANDARD.getInterpolation(mAmbientState.getFractionToShade());
-        mTallyLockAmount = onLockscreen ? 1f - MathUtils.constrain(toShade, 0f, 1f) : 0f;
-        mBackgroundNormal.setAlpha(1f - mTallyLockAmount);
+        return onLockscreen ? 1f - MathUtils.constrain(toShade, 0f, 1f) : 0f;
     }
 
     /** Tally: whether the lock wallpaper calls for dark ink (TallyLockInk). */
