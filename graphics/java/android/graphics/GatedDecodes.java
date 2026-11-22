@@ -194,35 +194,41 @@ final class GatedDecodes {
                         opts != null && opts.inBitmap != null, hdrFormat)
                 : peakBytes(storedPixels, (long) width * height, finalBytesPerPixel(opts))
                         + (hdrFormat ? GateGainmaps.extraBytes(width, height) : 0)));
-        Bitmap bitmap = large ? GateLargePixels.decode(op, bytes, 0, 0, info.width, info.height,
-                storedSample, width, height, 0, false, requestedColor)
-                : exactly(stored(op, bytes, info.width, info.height, storedSample), width, height);
-        // DiamaneOS: regions carry stored base pixels, the whole-image reply supplies the checked gain map.
+        Bitmap bitmap = null;
+        Bitmap result = null;
         try {
-            if (hdrFormat) GateGainmaps.attach(op, bytes, bitmap, true);
-        } catch (DecodeGate.Failure e) {
-            bitmap.recycle();
-            throw e;
+            bitmap = large ? GateLargePixels.decode(op, bytes, 0, 0, info.width, info.height,
+                    storedSample, width, height, 0, false, requestedColor)
+                    : exactly(stored(op, bytes, info.width, info.height, storedSample), width, height);
+            // DiamaneOS: regions carry stored base pixels, the whole-image reply supplies the checked gain map.
+            try {
+                if (hdrFormat) GateGainmaps.attach(op, bytes, bitmap, true);
+            } catch (DecodeGate.Failure e) {
+                bitmap.recycle();
+                throw e;
+            }
+            markOpaque(bitmap, info.mimeType);
+            bitmap = GateImageSettings.convert(bitmap, requestedColor,
+                    opts != null && opts.inPreferredConfig == Bitmap.Config.RGBA_F16
+                            ? Bitmap.Config.RGBA_F16 : bitmap.getConfig());
+            if (opts != null && !opts.inPremultiplied) {
+                bitmap = unpremultiplied(bitmap);
+            }
+            bitmap = configured(bitmap, opts, bytes);
+            if (bitmap == null) {
+                return null; // The reused bitmap could not take it: BitmapFactory says so.
+            }
+            if (outPadding != null) {
+                outPadding.set(-1, -1, -1, -1);
+            }
+            if (opts != null) {
+                opts.outConfig = bitmap.getConfig();
+                opts.outColorSpace = bitmap.getColorSpace();
+            }
+            return result = bitmap;
+        } finally {
+            DecodeMemory.recycle(bitmap, result);
         }
-        markOpaque(bitmap, info.mimeType);
-        bitmap = GateImageSettings.convert(bitmap, requestedColor,
-                opts != null && opts.inPreferredConfig == Bitmap.Config.RGBA_F16
-                        ? Bitmap.Config.RGBA_F16 : bitmap.getConfig());
-        if (opts != null && !opts.inPremultiplied) {
-            bitmap = unpremultiplied(bitmap);
-        }
-        bitmap = configured(bitmap, opts, bytes);
-        if (bitmap == null) {
-            return null; // The reused bitmap could not take it: BitmapFactory says so.
-        }
-        if (outPadding != null) {
-            outPadding.set(-1, -1, -1, -1);
-        }
-        if (opts != null) {
-            opts.outConfig = bitmap.getConfig();
-            opts.outColorSpace = bitmap.getColorSpace();
-        }
-        return bitmap;
     }
 
     // The VM's sample size for the stored pixels of a BitmapFactory decode: the caller's (at most the VM's largest),
@@ -448,8 +454,11 @@ final class GatedDecodes {
         }
         reused.eraseColor(Color.TRANSPARENT);
         final Canvas canvas = new Canvas(reused);
-        canvas.drawBitmap(bitmap, 0, 0, null);
-        canvas.setBitmap(null);
+        try {
+            canvas.drawBitmap(bitmap, 0, 0, null);
+        } finally {
+            canvas.setBitmap(null);
+        }
         // DiamaneOS: a reused output receives this image's map after its previous map was cleared.
         reused.setGainmap(bitmap.getGainmap());
         return reused;
@@ -758,6 +767,8 @@ final class GatedDecodes {
             int allocator, boolean unpremultiplied, boolean alphaMask, @Nullable PostProcessor postProcessor,
             ImageDecoder.Source source, @Nullable ColorSpace colorSpace, boolean conserveMemory)
             throws ImageDecoder.DecodeException {
+        Bitmap bitmap = null;
+        Bitmap result = null;
         try {
             if ((long) width * height > MAX_OUTPUT_PIXELS) {
                 throw DecodeGate.failed(true, "larger than the gate makes");
@@ -770,7 +781,6 @@ final class GatedDecodes {
                     : GateLargePixels.peakBytes(width, height, 4,
                             allocator == ImageDecoder.ALLOCATOR_HARDWARE,
                             "image/jpeg".equals(header.mimeType))));
-            Bitmap bitmap;
             if ((long) width * height <= DecodeGate.MAX_VM_PIXELS) {
                 final DecodeGate.Decoded decoded = DecodeGate.decode(header.op, header.bytes, box, box);
                 bitmap = exactly(decoded.bitmap, width, height);
@@ -818,7 +828,7 @@ final class GatedDecodes {
             if (mask) {
                 final Bitmap alpha = greyAsAlpha(bitmap, mutable);
                 if (alpha != null) {
-                    return alpha;
+                    return result = alpha;
                 }
             }
             bitmap = GateImageSettings.convert(bitmap, colorSpace,
@@ -835,30 +845,32 @@ final class GatedDecodes {
                 bitmap = small;
             }
             if (mutable) {
-                if (bitmap.isMutable()) return bitmap;
+                if (bitmap.isMutable()) return result = bitmap;
                 final Bitmap copy = GatePixels.copy(bitmap, bitmap.getConfig(), true);
                 DecodeMemory.recycle(bitmap, copy);
-                return copy;
+                return result = copy;
             }
             if (allocator == ImageDecoder.ALLOCATOR_HARDWARE) {
                 final Bitmap hardware = GatePixels.copy(bitmap, Bitmap.Config.HARDWARE, false);
                 DecodeMemory.recycle(bitmap, hardware);
-                return hardware;
+                return result = hardware;
             } else if (allocator == ImageDecoder.ALLOCATOR_DEFAULT && !unpremultiplied) {
                 final Bitmap hardware = GatePixels.preferredHardware(bitmap);
                 if (hardware != null) {
                     DecodeMemory.recycle(bitmap, hardware);
-                    return hardware;
+                    return result = hardware;
                 }
             } else if (allocator == ImageDecoder.ALLOCATOR_SHARED_MEMORY) {
                 final Bitmap immutable = immutable(bitmap);
                 final Bitmap shared = GatePixels.shared(immutable);
                 DecodeMemory.recycle(immutable, shared);
-                return shared;
+                return result = shared;
             }
-            return immutable(bitmap);
+            return result = immutable(bitmap);
         } catch (DecodeGate.Failure e) {
             throw decodeException(e, source);
+        } finally {
+            DecodeMemory.recycle(bitmap, result);
         }
     }
 
