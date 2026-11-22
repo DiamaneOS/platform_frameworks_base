@@ -5,6 +5,7 @@ import static org.junit.Assert.*;
 
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.BlendMode;
 import android.graphics.Color;
 import android.graphics.ColorSpace;
 import android.graphics.DecodeGate;
@@ -117,5 +118,35 @@ public class GateSettingsDeviceTest {
 
     @Test public void aPostprocessorRetainsItsAlphaCapableStorage() throws Exception {
         compareImageDecoder(true, true, null);
+    }
+
+    @Test public void postprocessingPreservesExtendedPixelValues() throws Exception {
+        final byte[] png = png();
+        Bitmap stock = null;
+        Bitmap gated = null;
+        try {
+            for (boolean enabled : new boolean[] {false, true}) {
+                mode(enabled);
+                final ColorSpace linear = ColorSpace.get(ColorSpace.Named.LINEAR_EXTENDED_SRGB);
+                final Bitmap bitmap = ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(png)),
+                        (decoder, info, source) -> {
+                            decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
+                            decoder.setTargetColorSpace(linear);
+                            decoder.setPostProcessor(canvas -> {
+                                canvas.drawColor(Color.pack(2.0f, 0.25f, 0.5f, 1.0f, linear), BlendMode.SRC);
+                                return PixelFormat.OPAQUE;
+                            });
+                        });
+                assertNotNull(bitmap);
+                if (enabled) gated = bitmap;
+                else stock = bitmap;
+                assertEquals(Bitmap.Config.RGBA_F16, bitmap.getConfig());
+                assertTrue("extended pixels were clamped", bitmap.getColor(0, 0).red() > 1.5f);
+            }
+            sameColour(stock, gated);
+        } finally {
+            if (stock != null) stock.recycle();
+            if (gated != null) gated.recycle();
+        }
     }
 }

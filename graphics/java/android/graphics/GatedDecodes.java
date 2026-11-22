@@ -893,20 +893,36 @@ final class GatedDecodes {
     // Draws the post-processor's work on a mutable copy and takes its pixel format, as the decoders do: UNKNOWN keeps
     // the alpha, TRANSLUCENT and OPAQUE set it, anything else is an IllegalArgumentException.
     private static Bitmap postProcessed(Bitmap bitmap, PostProcessor postProcessor) throws DecodeGate.Failure {
-        final Bitmap drawn = bitmap.isMutable() && bitmap.getConfig() == Bitmap.Config.ARGB_8888 ? bitmap
-                : GatePixels.copy(bitmap, Bitmap.Config.ARGB_8888, true);
-        DecodeMemory.recycle(bitmap, drawn);
-        final Canvas canvas = new Canvas(drawn);
-        final int format = postProcessor.onPostProcess(canvas);
-        canvas.setBitmap(null);
-        if (format == PixelFormat.OPAQUE) {
-            drawn.setHasAlpha(false);
-        } else if (format == PixelFormat.TRANSLUCENT) {
-            drawn.setHasAlpha(true);
-        } else if (format != PixelFormat.UNKNOWN) {
-            throw new IllegalArgumentException("invalid return from postProcess: " + format);
+        Bitmap drawn = null;
+        boolean complete = false;
+        try {
+            final Bitmap.Config config = bitmap.getConfig() == Bitmap.Config.RGBA_F16
+                    ? Bitmap.Config.RGBA_F16 : Bitmap.Config.ARGB_8888;
+            drawn = bitmap.isMutable() && bitmap.getConfig() == config ? bitmap
+                    : GatePixels.copy(bitmap, config, true);
+            DecodeMemory.recycle(bitmap, drawn);
+            final Canvas canvas = new Canvas(drawn);
+            final int format;
+            try {
+                format = postProcessor.onPostProcess(canvas);
+            } finally {
+                canvas.setBitmap(null);
+            }
+            if (format == PixelFormat.OPAQUE) {
+                drawn.setHasAlpha(false);
+            } else if (format == PixelFormat.TRANSLUCENT) {
+                drawn.setHasAlpha(true);
+            } else if (format != PixelFormat.UNKNOWN) {
+                throw new IllegalArgumentException("invalid return from postProcess: " + format);
+            }
+            complete = true;
+            return drawn;
+        } finally {
+            if (!complete) {
+                DecodeMemory.recycle(drawn, null);
+                DecodeMemory.recycle(bitmap, null);
+            }
         }
-        return drawn;
     }
 
     // Whether the codec samples the stored image to exactly width x height (upright), as SkAndroidCodec's
