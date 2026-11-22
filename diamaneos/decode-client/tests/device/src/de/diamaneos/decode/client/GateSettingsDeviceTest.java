@@ -8,7 +8,6 @@ import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.ColorSpace;
 import android.graphics.DecodeGate;
-import android.graphics.DecodeMemory;
 import android.graphics.ImageDecoder;
 import android.graphics.PixelFormat;
 import java.io.ByteArrayOutputStream;
@@ -71,8 +70,8 @@ public class GateSettingsDeviceTest {
             }
             sameColour(stock, gated);
         } finally {
-            DecodeMemory.recycle(stock, null);
-            DecodeMemory.recycle(gated, null);
+            if (stock != null) stock.recycle();
+            if (gated != null) gated.recycle();
         }
     }
 
@@ -107,8 +106,8 @@ public class GateSettingsDeviceTest {
             assertEquals(stock.getAllocationByteCount(), gated.getAllocationByteCount());
             sameColour(stock, gated);
         } finally {
-            DecodeMemory.recycle(stock, null);
-            DecodeMemory.recycle(gated, null);
+            if (stock != null) stock.recycle();
+            if (gated != null) gated.recycle();
         }
     }
 
