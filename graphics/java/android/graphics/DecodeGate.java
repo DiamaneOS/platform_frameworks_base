@@ -710,7 +710,7 @@ public final class DecodeGate {
             this.animated = animated;
             this.rotation = rotation;
             this.mirrored = mirrored;
-            this.colorSpace = de.diamaneos.sanitizer.decode.DecodeChecks.colorSpaceOf(colorSpace);
+            this.colorSpace = GateColorSpaces.of(colorSpace);
         }
     }
 
@@ -884,7 +884,7 @@ public final class DecodeGate {
         if (width < 1 || height < 1 || width > MAX_BOX || height > MAX_BOX || !quarterTurn(rotation)) {
             throw failed(false, "bad probe reply");
         }
-        if (!de.diamaneos.sanitizer.decode.DecodeChecks.isColorSpace(colorSpace)) {
+        if (!GateColorSpaces.isValid(colorSpace)) {
             throw failed(false, "bad probe colour space");
         }
         return new Info(width, height, mimeTypeOf(r.getInt(EXTRA_FORMAT), bytes.head()),

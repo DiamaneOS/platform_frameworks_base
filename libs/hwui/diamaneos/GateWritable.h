@@ -34,7 +34,7 @@ inline bool writeBufferPixels(AHardwareBuffer* buffer, Bitmap& source, int left,
     if (AHardwareBuffer_lock(buffer, AHARDWAREBUFFER_USAGE_CPU_WRITE_OFTEN, -1, nullptr, &address) != 0) return false;
     const auto info = pixels.info().makeColorType(kRGBA_8888_SkColorType).makeAlphaType(kPremul_SkAlphaType);
     const bool copied = address != nullptr && pixels.readPixels(info,
-            static_cast<uint8_t*>(address) + offset, static_cast<size_t>(rowBytes));
+            static_cast<uint8_t*>(address) + offset, static_cast<size_t>(rowBytes), 0, 0);
     const int unlocked = AHardwareBuffer_unlock(buffer, nullptr);
     return copied && unlocked == 0;
 }
