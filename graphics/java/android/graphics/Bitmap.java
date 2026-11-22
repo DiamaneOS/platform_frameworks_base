@@ -2794,6 +2794,23 @@ public final class Bitmap implements Parcelable {
     }
 
     private static native long nativeHardwareAllocationBytes(long bitmapPtr);
+    // DiamaneOS: fill exclusively held hardware storage with checked raw bitmap stripes.
+    static long writableAllocationBytes(int width, int height) {
+        return nativeWritableAllocationBytes(null, width, height);
+    }
+
+    static long writableAllocationBytes(HardwareBuffer buffer) {
+        return nativeWritableAllocationBytes(buffer, 0, 0);
+    }
+
+    static boolean writeHardwarePixels(HardwareBuffer buffer, Bitmap source, int left, int top, long reserved) {
+        source.checkRecycled("Cannot upload recycled pixels");
+        return nativeWriteHardwarePixels(source.mNativePtr, buffer, left, top, reserved);
+    }
+
+    private static native long nativeWritableAllocationBytes(HardwareBuffer buffer, int width, int height);
+    private static native boolean nativeWriteHardwarePixels(long bitmapPtr, HardwareBuffer buffer,
+            int left, int top, long reserved);
     private static native Bitmap nativeCopyAshmem(long nativeSrcBitmap);
     private static native Bitmap nativeCopyAshmemConfig(long nativeSrcBitmap, int nativeConfig);
     private static native int nativeGetAshmemFD(long nativeBitmap);
