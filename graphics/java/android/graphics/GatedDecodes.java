@@ -942,12 +942,17 @@ final class GatedDecodes {
             @Nullable PostProcessor postProcessor, ImageDecoder.Source source, @Nullable ColorSpace colorSpace)
             throws ImageDecoder.DecodeException {
         GateImageSettings.validateColorSpace(colorSpace);
+        Bitmap atlas = null;
+        Bitmap current = null;
+        Bitmap[] frames = null;
+        boolean transferred = false;
         try {
             // The frames come at most as the service's frame limit (MAX_ANIMATION_BYTES): the answer, its copy and
             // the frames cut from it, and with a post-processor the frames drawn at their size.
             header.op.checkFit(header.bytes.reserved() + 3 * MAX_ANIMATION_BYTES
                     + (postProcessor != null ? MAX_ANIMATION_BYTES : 0));
             final DecodeGate.Frames f = DecodeGate.frames(header.op, header.bytes, width, height);
+            atlas = f.frames;
             Rect r = null;
             if (crop != null) {
                 r = new Rect(crop);
@@ -959,31 +964,47 @@ final class GatedDecodes {
             if (drawn && (long) f.count * width * height * 4 > MAX_ANIMATION_BYTES) {
                 throw DecodeGate.failed(true, "animation larger than the gate makes");
             }
-            final Bitmap[] frames = new Bitmap[f.count];
+            frames = new Bitmap[f.count];
             for (int i = 0; i < f.count; i++) {
-                Bitmap frame = GatePixels.crop(f.frames, 0, i * f.height, f.width, f.height);
-                frame = GateImageSettings.convert(frame, colorSpace,
-                        GateImageSettings.config(frame, colorSpace, false, true, true));
+                current = GatePixels.crop(f.frames, 0, i * f.height, f.width, f.height);
+                current = GateImageSettings.convert(current, colorSpace,
+                        GateImageSettings.config(current, colorSpace, false, true, true));
                 if (drawn) {
-                    frame = exactly(frame, width, height);
-                    final Bitmap sized = frame.isMutable() ? frame
-                            : GatePixels.copy(frame, frame.getConfig(), true);
-                    DecodeMemory.recycle(frame, sized);
-                    final Canvas canvas = new Canvas(sized);
-                    postProcessor.onPostProcess(canvas);
-                    canvas.setBitmap(null);
-                    frame = sized;
+                    current = exactly(current, width, height);
+                    if (!current.isMutable()) {
+                        final Bitmap previous = current;
+                        current = GatePixels.copy(previous, previous.getConfig(), true);
+                        DecodeMemory.recycle(previous, current);
+                    }
+                    final Canvas canvas = new Canvas(current);
+                    try {
+                        postProcessor.onPostProcess(canvas);
+                    } finally {
+                        canvas.setBitmap(null);
+                    }
                 }
-                frames[i] = immutable(frame);
+                frames[i] = immutable(current);
+                current = null;
             }
-            if (frames[0] != f.frames) {
-                f.frames.recycle();
-            }
-            return new GatedAnimation(frames, width, height, r, f.durations, f.loops);
+            final GatedAnimation result = new GatedAnimation(frames, width, height, r, f.durations, f.loops);
+            transferred = true;
+            return result;
         } catch (DecodeGate.Failure e) {
             throw decodeException(e, source);
         } catch (OutOfMemoryError e) {
             throw decodeException(DecodeGate.failed(false, "no memory for the frames"), source);
+        } finally {
+            if (!transferred) {
+                DecodeMemory.recycle(current, null);
+                if (frames != null) {
+                    for (Bitmap frame : frames) DecodeMemory.recycle(frame, null);
+                }
+            }
+            boolean keepsAtlas = false;
+            if (transferred) {
+                for (Bitmap frame : frames) keepsAtlas |= frame == atlas;
+            }
+            if (!keepsAtlas) DecodeMemory.recycle(atlas, null);
         }
     }
 

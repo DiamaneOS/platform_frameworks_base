@@ -7,6 +7,7 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.ColorSpace;
 import android.graphics.DecodeGate;
+import android.graphics.DecodeMemory;
 import android.graphics.ImageDecoder;
 import android.graphics.Movie;
 import android.graphics.drawable.Animatable2;
@@ -20,7 +21,11 @@ import androidx.test.platform.app.InstrumentationRegistry;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.lang.ref.WeakReference;
+import java.lang.reflect.Field;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -93,6 +98,48 @@ public class GateAnimationDeviceTest {
                 drawable.isRunning());
         drawable.setVisible(true, true);
         assertEquals(stockRunning, drawable.isRunning());
+    private static Object field(Class<?> type, Object target, String name) throws Exception {
+        final Field field = type.getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(target);
+    }
+
+    private static Set<Bitmap> chargedBitmaps() throws Exception {
+        final Set<Bitmap> bitmaps = Collections.newSetFromMap(new IdentityHashMap<>());
+        final Object lock = field(DecodeMemory.class, null, "sLock");
+        synchronized (lock) {
+            final Iterable<?> pixels = (Iterable<?>) field(DecodeMemory.class, null, "sPixels");
+            for (Object held : pixels) {
+                final Object bitmap = ((WeakReference<?>) field(held.getClass(), held, "identity")).get();
+                final DecodeMemory.Reservation memory =
+                        (DecodeMemory.Reservation) field(held.getClass(), held, "memory");
+                if (bitmap instanceof Bitmap && memory.bytes() > 0) bitmaps.add((Bitmap) bitmap);
+            }
+        }
+        return bitmaps;
+    }
+
+    @Test public void aThrowingPostprocessorReleasesAllUnpublishedFrames() throws Exception {
+        final Set<Bitmap> before = chargedBitmaps();
+        final IllegalStateException failure = new IllegalStateException("animation postprocessor failed");
+        final AtomicInteger calls = new AtomicInteger();
+        try {
+            ImageDecoder.decodeDrawable(ImageDecoder.createSource(
+                    ByteBuffer.wrap(fixture(R.raw.vm_animation_compat_gif))), (decoder, info, source) ->
+                    decoder.setPostProcessor(canvas -> {
+                        if (calls.incrementAndGet() == 2) throw failure;
+                        return android.graphics.PixelFormat.OPAQUE;
+                    }));
+            fail("postprocessor failure was swallowed");
+        } catch (IllegalStateException expected) {
+            assertSame(failure, expected);
+        } finally {
+            DecodeGate.resetForTest();
+        }
+        assertEquals(2, calls.get());
+        final Set<Bitmap> remaining = chargedBitmaps();
+        remaining.removeAll(before);
+        assertTrue("unpublished working bitmaps remain charged: " + remaining.size(), remaining.isEmpty());
     }
 
     @Test public void staticDecodeRejectsInvalidTargetColorSpaces() throws Exception {
