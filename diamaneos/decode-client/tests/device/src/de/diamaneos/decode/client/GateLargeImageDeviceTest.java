@@ -7,13 +7,26 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.BitmapRegionDecoder;
 import android.graphics.DecodeGate;
+import android.graphics.DecodeMemory;
+import android.graphics.HardwareRenderer;
 import android.graphics.ImageDecoder;
+import android.graphics.Paint;
+import android.graphics.PixelFormat;
 import android.graphics.Rect;
+import android.graphics.RenderNode;
+import android.hardware.HardwareBuffer;
+import android.media.Image;
+import android.media.ImageReader;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import androidx.test.platform.app.InstrumentationRegistry;
 import java.io.File;
 import java.io.FileInputStream;
 import java.security.MessageDigest;
+import java.nio.ByteBuffer;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.After;
 import org.junit.Assume;
 import org.junit.Before;
@@ -98,6 +111,97 @@ public class GateLargeImageDeviceTest {
                     + " allocation=" + bitmap.getAllocationByteCount());
         } finally {
             bitmap.recycle();
+        }
+    }
+
+    @Test public void hardwareImageDecoderKeepsTheFullUprightResolution() throws Exception {
+        final int[] upright = new int[2];
+        DecodeGate.setForcedForTest(false);
+        final Bitmap reference = ImageDecoder.decodeBitmap(ImageDecoder.createSource(file),
+                (decoder, info, source) -> {
+                    upright[0] = info.getSize().getWidth();
+                    upright[1] = info.getSize().getHeight();
+                    decoder.setTargetSize(1, 1);
+                    decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
+                });
+        reference.recycle();
+        DecodeGate.setForcedForTest(true);
+        final Bitmap bitmap = ImageDecoder.decodeBitmap(ImageDecoder.createSource(file),
+                (decoder, info, source) -> decoder.setAllocator(ImageDecoder.ALLOCATOR_HARDWARE));
+        try {
+            assertEquals(upright[0], bitmap.getWidth());
+            assertEquals(upright[1], bitmap.getHeight());
+            assertEquals(Bitmap.Config.HARDWARE, bitmap.getConfig());
+            assertFalse(bitmap.isMutable());
+            assertTrue(DecodeMemory.held() <= DecodeMemory.MAX_BYTES);
+            Log.i("LargeImageProof", "hardware decoder pixels=" + (long) bitmap.getWidth() * bitmap.getHeight()
+                    + " allocation=" + bitmap.getAllocationByteCount());
+        } finally { bitmap.recycle(); }
+    }
+
+    @Test public void hardwareFactoryRendersTheStockZoomWithoutAFullReadback() throws Exception {
+        final Rect zoom = new Rect((width - 256) / 2, (height - 256) / 2,
+                (width - 256) / 2 + 256, (height - 256) / 2 + 256);
+        Bitmap stock = null, hardware = null;
+        try {
+            DecodeGate.setForcedForTest(false);
+            final BitmapRegionDecoder reference = BitmapRegionDecoder.newInstance(file.getPath(), false);
+            try { stock = reference.decodeRegion(zoom, new BitmapFactory.Options()); }
+            finally { reference.recycle(); }
+            assertNotNull(stock);
+            DecodeGate.setForcedForTest(true);
+            final BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inPreferredConfig = Bitmap.Config.HARDWARE;
+            hardware = BitmapFactory.decodeFile(file.getPath(), options);
+            assertNotNull(hardware);
+            assertEquals(Bitmap.Config.HARDWARE, hardware.getConfig());
+            assertEquals(width, hardware.getWidth());
+            assertEquals(height, hardware.getHeight());
+            final long error = renderedZoomError(hardware, stock, zoom);
+            assertTrue("hardware zoom pixels differ from stock: " + error, error <= 144L * 256 * 256 * 3);
+            assertTrue(DecodeMemory.held() <= DecodeMemory.MAX_BYTES);
+            Log.i("LargeImageProof", "hardware zoom=256x256 squared-error=" + error);
+        } finally {
+            if (stock != null) stock.recycle();
+            if (hardware != null) hardware.recycle();
+        }
+    }
+
+    private static long renderedZoomError(Bitmap bitmap, Bitmap reference, Rect zoom) throws Exception {
+        final CountDownLatch available = new CountDownLatch(1);
+        final RenderNode node = new RenderNode("GateHardwareZoom");
+        node.setPosition(0, 0, 256, 256);
+        final android.graphics.RecordingCanvas canvas = node.beginRecording(256, 256);
+        canvas.drawBitmap(bitmap, zoom, new Rect(0, 0, 256, 256), new Paint());
+        node.endRecording();
+        final HardwareRenderer renderer = new HardwareRenderer();
+        try (ImageReader reader = ImageReader.newInstance(256, 256, PixelFormat.RGBA_8888, 2,
+                HardwareBuffer.USAGE_CPU_READ_OFTEN | HardwareBuffer.USAGE_GPU_COLOR_OUTPUT)) {
+            reader.setOnImageAvailableListener(source -> available.countDown(), new Handler(Looper.getMainLooper()));
+            renderer.setSurface(reader.getSurface());
+            renderer.setContentRoot(node);
+            renderer.setOpaque(true);
+            renderer.createRenderRequest().setWaitForPresent(true).syncAndDraw();
+            assertTrue("hardware zoom was not presented", available.await(10, TimeUnit.SECONDS));
+            try (Image image = reader.acquireLatestImage()) {
+                assertNotNull(image);
+                final Image.Plane plane = image.getPlanes()[0];
+                final ByteBuffer pixels = plane.getBuffer();
+                long difference = 0;
+                for (int y = 0; y < 256; y++) for (int x = 0; x < 256; x++) {
+                    final int wanted = reference.getPixel(x, y);
+                    final int offset = y * plane.getRowStride() + x * plane.getPixelStride();
+                    for (int channel = 0; channel < 3; channel++) {
+                        final int delta = ((wanted >>> (16 - channel * 8)) & 255)
+                                - (pixels.get(offset + channel) & 255);
+                        difference += (long) delta * delta;
+                    }
+                }
+                return difference;
+            }
+        } finally {
+            renderer.destroy();
+            node.discardDisplayList();
         }
     }
 
