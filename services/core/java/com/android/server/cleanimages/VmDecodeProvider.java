@@ -425,7 +425,7 @@ public final class VmDecodeProvider extends ContentProvider {
         }
         final boolean probe = DecodeGate.METHOD_PROBE.equals(method) || DecodeGate.METHOD_HEADER.equals(method);
         final boolean frames = DecodeGate.METHOD_FRAMES.equals(method);
-        final boolean region = DecodeGate.METHOD_REGION.equals(method);
+        final boolean region = DecodeGate.METHOD_REGION.equals(method) || DecodeGate.METHOD_REGION_WIDE.equals(method);
         final ParcelFileDescriptor given = extras.getParcelable(DecodeGate.EXTRA_FD, ParcelFileDescriptor.class);
         if (!probe && !frames && !region && !DecodeGate.METHOD_DECODE.equals(method)) {
             closeQuietly(given);
@@ -755,6 +755,8 @@ public final class VmDecodeProvider extends ContentProvider {
                     reply.putInt(DecodeGate.EXTRA_FORMAT, info.format);
                     reply.putBoolean(DecodeGate.EXTRA_ANIMATED, info.animated);
                     reply.putInt(DecodeGate.EXTRA_COLOR_SPACE, info.colorSpace);
+                    reply.putInt(DecodeGate.EXTRA_BIT_DEPTH, info.bitDepth);
+                    reply.putBoolean(DecodeGate.EXTRA_HAS_ALPHA, info.hasAlpha);
                     if (DecodeGate.METHOD_HEADER.equals(method) && (info.format == IDecodeService.FORMAT_JPEG
                             || info.format == IDecodeService.FORMAT_HEIF
                             || info.format == IDecodeService.FORMAT_AVIF)) {
@@ -765,9 +767,11 @@ public final class VmDecodeProvider extends ContentProvider {
                         reply.putInt(DecodeGate.EXTRA_ROTATION, tiny.rotation);
                         reply.putBoolean(DecodeGate.EXTRA_MIRROR, tiny.mirrored);
                     }
-                } else if (DecodeGate.METHOD_REGION.equals(method)) {
+                } else if (DecodeGate.METHOD_REGION.equals(method) || DecodeGate.METHOD_REGION_WIDE.equals(method)) {
                     reply.putParcelable(DecodeGate.EXTRA_BITMAP, VmDecode.decodeRegion(getContext(), fd, lane,
                             ownerUser, VmDecode.PRIORITY_USER_WAITING, regionLeft, regionTop, width, height, sample,
+                            DecodeGate.METHOD_REGION_WIDE.equals(method) ? IDecodeService.PIXEL_FORMAT_RGBA_F16
+                                    : IDecodeService.PIXEL_FORMAT_RGBA_8888,
                             VmDecode.deadlineIn(left)));
                     reply.putInt(DecodeGate.EXTRA_ROTATION, 0);
                 } else if (DecodeGate.METHOD_FRAMES.equals(method)) {

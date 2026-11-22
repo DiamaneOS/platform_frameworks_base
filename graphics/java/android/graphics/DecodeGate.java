@@ -99,6 +99,7 @@ public final class DecodeGate {
      * pixels, EXTRA_SAMPLE the sample size. EXTRA_BITMAP comes back, never turned.
      */
     public static final String METHOD_REGION = "region";
+    public static final String METHOD_REGION_WIDE = "region-f16";
     public static final String EXTRA_LEFT = "left";
     public static final String EXTRA_TOP = "top";
     public static final String EXTRA_SAMPLE = "sample";
@@ -138,6 +139,8 @@ public final class DecodeGate {
     /** Probe: IDecodeService.FORMAT_* and whether the image is animated. */
     public static final String EXTRA_FORMAT = "format";
     public static final String EXTRA_COLOR_SPACE = "colorSpace";
+    public static final String EXTRA_BIT_DEPTH = "bitDepth";
+    public static final String EXTRA_HAS_ALPHA = "hasAlpha";
     public static final String EXTRA_ANIMATED = "animated";
     /** Frames: their count, times in milliseconds, and how often they play (0: forever). */
     public static final String EXTRA_FRAME_COUNT = "frameCount";
@@ -697,6 +700,8 @@ public final class DecodeGate {
         final int rotation;
         final boolean mirrored;
         final ColorSpace colorSpace;
+        final int bitDepth;
+        final boolean hasAlpha;
 
         Info(int width, int height, String mimeType, boolean animated, int rotation, boolean mirrored) {
             this(width, height, mimeType, animated, rotation, mirrored, 0);
@@ -704,6 +709,13 @@ public final class DecodeGate {
 
         Info(int width, int height, String mimeType, boolean animated, int rotation, boolean mirrored,
                 int colorSpace) {
+            this(width, height, mimeType, animated, rotation, mirrored, colorSpace, 8, true);
+        }
+
+        Info(int width, int height, String mimeType, boolean animated, int rotation, boolean mirrored,
+                int colorSpace, int bitDepth, boolean hasAlpha) {
+            this.bitDepth = bitDepth;
+            this.hasAlpha = hasAlpha;
             this.width = width;
             this.height = height;
             this.mimeType = mimeType;
@@ -881,6 +893,8 @@ public final class DecodeGate {
         final int height = r.getInt(EXTRA_HEIGHT);
         final int rotation = r.getInt(EXTRA_ROTATION);
         final int colorSpace = r.getInt(EXTRA_COLOR_SPACE);
+        final int bitDepth = r.getInt(EXTRA_BIT_DEPTH, 8);
+        if (!GateColorSpaces.isBitDepth(bitDepth)) throw failed(false, "bad source depth");
         if (width < 1 || height < 1 || width > MAX_BOX || height > MAX_BOX || !quarterTurn(rotation)) {
             throw failed(false, "bad probe reply");
         }
@@ -888,7 +902,7 @@ public final class DecodeGate {
             throw failed(false, "bad probe colour space");
         }
         return new Info(width, height, mimeTypeOf(r.getInt(EXTRA_FORMAT), bytes.head()),
-                r.getBoolean(EXTRA_ANIMATED), rotation, r.getBoolean(EXTRA_MIRROR), colorSpace);
+                r.getBoolean(EXTRA_ANIMATED), rotation, r.getBoolean(EXTRA_MIRROR), colorSpace, bitDepth, r.getBoolean(EXTRA_HAS_ALPHA, true));
     }
 
     /** {@code bytes} decoded in the VM to fit {@code maxWidth} x {@code maxHeight}, upright. */
@@ -911,16 +925,23 @@ public final class DecodeGate {
      */
     static Bitmap region(Op op, Bytes bytes, int left, int top, int width, int height, int sample)
             throws Failure {
+        return region(op, bytes, left, top, width, height, sample, 0);
+    }
+
+    static Bitmap region(Op op, Bytes bytes, int left, int top, int width, int height, int sample, int pixelFormat)
+            throws Failure {
+        if (pixelFormat < 0 || pixelFormat > 1) throw failed(true, "pixel format");
         final int outW = (int) (((long) width + sample - 1) / sample);
         final int outH = (int) (((long) height + sample - 1) / sample);
         if (left < 0 || top < 0 || width < 1 || height < 1 || sample < 1 || sample > MAX_REGION_SAMPLE
                 || left >= MAX_BOX || top >= MAX_BOX || width > MAX_BOX - left || height > MAX_BOX - top
-                || (long) outW * outH > MAX_VM_PIXELS) {
+                || (long) outW * outH > (pixelFormat == 1 ? MAX_VM_PIXELS / 2 : MAX_VM_PIXELS)) {
             throw failed(true, "region out of bounds");
         }
-        final Bundle r = request(op, METHOD_REGION, bytes, width, height, left, top, sample);
+        final Bundle r = request(op, pixelFormat == 1 ? METHOD_REGION_WIDE : METHOD_REGION, bytes, width, height, left, top, sample);
         final Bitmap bitmap = r.getParcelable(EXTRA_BITMAP, Bitmap.class);
-        if (bitmap == null || bitmap.getWidth() > outW || bitmap.getHeight() > outH) {
+        if (bitmap == null || bitmap.getWidth() > outW || bitmap.getHeight() > outH
+                || (pixelFormat == 1 && bitmap.getConfig() != Bitmap.Config.RGBA_F16)) {
             throw failed(false, "bad region reply");
         }
         return bitmap;
@@ -1297,7 +1318,7 @@ public final class DecodeGate {
         extras.putParcelable(EXTRA_FD, fd);
         extras.putInt(EXTRA_WIDTH, width);
         extras.putInt(EXTRA_HEIGHT, height);
-        if (METHOD_REGION.equals(method)) {
+        if (METHOD_REGION.equals(method) || METHOD_REGION_WIDE.equals(method)) {
             extras.putInt(EXTRA_LEFT, left);
             extras.putInt(EXTRA_TOP, top);
             extras.putInt(EXTRA_SAMPLE, sample);

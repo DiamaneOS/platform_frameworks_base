@@ -1255,7 +1255,15 @@ public final class VmDecode {
     public static Bitmap decodeRegion(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
             int priority, int left, int top, int width, int height, int sampleSize, long deadline)
             throws UnavailableException, RejectedException {
+        return decodeRegion(context, fd, ownerPackage, ownerUser, priority, left, top, width, height,
+                sampleSize, IDecodeService.PIXEL_FORMAT_RGBA_8888, deadline);
+    }
+
+    public static Bitmap decodeRegion(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
+            int priority, int left, int top, int width, int height, int sampleSize, int pixelFormat, long deadline)
+            throws UnavailableException, RejectedException {
         checkNotMainThread();
+        if (DecodeChecks.bytesPerPixel(pixelFormat) == 0) throw new RejectedException("pixel format");
         if (left < 0 || top < 0 || width < 1 || height < 1 || sampleSize < 1
                 || sampleSize > IDecodeService.MAX_REGION_SAMPLE) {
             throw new RejectedException("bad region");
@@ -1263,8 +1271,11 @@ public final class VmDecode {
         final int maxWidth = (int) (((long) width + sampleSize - 1) / sampleSize);
         final int maxHeight = (int) (((long) height + sampleSize - 1) / sampleSize);
         final DecodeRequest request = request(fd, ownerPackage, ownerUser, priority);
+        request.pixelFormat = pixelFormat;
         return client(context).call(priority, deadline, request.ownerPackage, capacityLane(request),
-                Math.min((long) maxWidth * maxHeight, IDecodeService.MAX_PIXELS) * 5, service -> {
+                Math.min((long) maxWidth * maxHeight, pixelFormat == 1
+                        ? IDecodeService.MAX_HIGH_PRECISION_PIXELS : IDecodeService.MAX_PIXELS)
+                        * (DecodeChecks.bytesPerPixel(pixelFormat) + 1), service -> {
             final Thumbnail thumbnail = service.decodeRegion(request, left, top, width, height, sampleSize);
             if (thumbnail == null) {
                 throw new RejectedException("no reply");
@@ -1294,12 +1305,20 @@ public final class VmDecode {
         public final int format;
         public final boolean animated;
         public final int colorSpace;
+        public final int bitDepth;
+        public final boolean hasAlpha;
 
         Info(int width, int height, int format, boolean animated) {
             this(width, height, format, animated, IDecodeService.COLOR_SPACE_SRGB);
         }
 
         Info(int width, int height, int format, boolean animated, int colorSpace) {
+            this(width, height, format, animated, colorSpace, 8, true);
+        }
+
+        Info(int width, int height, int format, boolean animated, int colorSpace, int bitDepth, boolean hasAlpha) {
+            this.bitDepth = bitDepth;
+            this.hasAlpha = hasAlpha;
             this.width = width;
             this.height = height;
             this.format = format;
@@ -1330,7 +1349,7 @@ public final class VmDecode {
                 throw new RejectedException(e.getMessage());
             }
             if (!DecodeChecks.isColorSpace(info.colorSpace)) throw new RejectedException("bad colour space");
-            return new Info(info.width, info.height, info.format, info.animated, info.colorSpace);
+            return new Info(info.width, info.height, info.format, info.animated, info.colorSpace, info.bitDepth, info.hasAlpha);
         });
     }
 

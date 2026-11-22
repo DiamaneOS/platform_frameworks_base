@@ -65,16 +65,17 @@ final class ReplyPixels {
         }
         final int stripes;
         try {
-            stripes = StripeValidator.checkHeader(width, height, t.stripeRows, t.rotation, maxWidth, maxHeight);
+            stripes = StripeValidator.checkHeader(width, height, t.stripeRows, t.rotation, maxWidth, maxHeight, t.pixelFormat);
         } catch (StripeValidator.BadReplyException e) {
             throw new VmDecode.RejectedException(e.getMessage());
         }
-        final long image = (long) width * height * 4;
+        final long image = (long) width * height * DecodeChecks.bytesPerPixel(t.pixelFormat);
         final long gain = (long) t.gainmapWidth * t.gainmapHeight * 4;
         final int copies = t.rotation != 0 ? 2 : 1; // a turn makes a turned copy of both
         try (DecodeMemory.Reservation memory = reserve(copies * (image + gain) + 2 * STRIPE_BYTES)) {
             // In the file's colour space, as Android's decode gives it: sRGB or Display P3 (Thumbnail.colorSpace).
-            final Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888, true,
+            final Bitmap bitmap = Bitmap.createBitmap(width, height, t.pixelFormat == 1
+                    ? Bitmap.Config.RGBA_F16 : Bitmap.Config.ARGB_8888, true,
                     DecodeChecks.colorSpaceOf(t));
             Bitmap result = bitmap;
             try {
@@ -87,7 +88,7 @@ final class ReplyPixels {
                         throw new VmDecode.RejectedException("stripe " + i + " breaks the contract: " + bad);
                     }
                     try {
-                        StripeValidator.checkStripe(width, height, t.stripeRows, i, stripe);
+                        StripeValidator.checkStripe(width, height, t.stripeRows, i, stripe, t.pixelFormat);
                     } catch (StripeValidator.BadReplyException e) {
                         throw new VmDecode.RejectedException(e.getMessage());
                     }
@@ -222,13 +223,13 @@ final class ReplyPixels {
 
         void put(int top, byte[] stripe) {
             final int width = mTarget.getWidth();
-            final int n = stripe.length / (width * 4);
+            final int n = stripe.length / (width * (mTarget.getConfig() == Bitmap.Config.RGBA_F16 ? 8 : 4));
             if (mStripe == null || mStripe.getHeight() != n) {
                 if (mStripe != null) {
                     mStripe.recycle();
                 }
                 final ColorSpace space = mTarget.getColorSpace();
-                mStripe = Bitmap.createBitmap(width, n, Bitmap.Config.ARGB_8888, true,
+                mStripe = Bitmap.createBitmap(width, n, mTarget.getConfig(), true,
                         space != null ? space : ColorSpace.get(ColorSpace.Named.SRGB));
             }
             mStripe.copyPixelsFromBuffer(ByteBuffer.wrap(stripe));

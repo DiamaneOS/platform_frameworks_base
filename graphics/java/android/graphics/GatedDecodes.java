@@ -174,8 +174,11 @@ final class GatedDecodes {
             opts.outWidth = width;
             opts.outHeight = height;
             opts.outMimeType = info.mimeType;
-            opts.outConfig = null;
-            opts.outColorSpace = null;
+            opts.outConfig = factoryConfig(info, opts, bytes);
+            final ColorSpace outputColor = requestedColor != null ? requestedColor : info.colorSpace;
+            opts.outColorSpace = opts.outConfig == Bitmap.Config.ALPHA_8 ? null
+                    : opts.outConfig == Bitmap.Config.RGBA_F16 ? GateWidePixels.outputColor(outputColor)
+                    : outputColor;
             if (opts.inJustDecodeBounds) {
                 return null;
             }
@@ -185,6 +188,7 @@ final class GatedDecodes {
         }
         final int storedSample = storedSample(info, sample);
         final boolean hdrFormat = "image/jpeg".equals(info.mimeType);
+        final boolean wide = info.bitDepth > 8;
         final long storedPixels = (long) roundedUp(info.width, storedSample)
                 * roundedUp(info.height, storedSample);
         final boolean large = storedPixels > DecodeGate.MAX_VM_PIXELS
@@ -204,6 +208,13 @@ final class GatedDecodes {
                     return result = bitmap;
                 }
             }
+            if (wide) {
+                op.checkFit(bytes.reserved() + GateWidePixels.peakBytes(width, height,
+                        opts != null && (opts.inBitmap != null || opts.inPreferredConfig == Bitmap.Config.HARDWARE)));
+                bitmap = GateWidePixels.decode(op, bytes, info.width, info.height, storedSample, width, height,
+                        0, false, info.mimeType, requestedColor);
+                bitmap.setHasAlpha(info.hasAlpha);
+            } else {
             op.checkFit(bytes.reserved() + (large
                     ? GateLargePixels.peakBytes(width, height, finalBytesPerPixel(opts),
                             opts != null && opts.inBitmap != null, hdrFormat)
@@ -212,6 +223,7 @@ final class GatedDecodes {
             bitmap = large ? GateLargePixels.decode(op, bytes, 0, 0, info.width, info.height,
                     storedSample, width, height, 0, false, requestedColor)
                     : exactly(stored(op, bytes, info.width, info.height, storedSample), width, height);
+            }
             // DiamaneOS: regions carry stored base pixels, the whole-image reply supplies the checked gain map.
             try {
                 if (hdrFormat) GateGainmaps.attach(op, bytes, bitmap, true);
@@ -220,9 +232,10 @@ final class GatedDecodes {
                 throw e;
             }
             markOpaque(bitmap, info.mimeType);
+            final Bitmap.Config outputConfig = factoryConfig(info, opts, bytes);
             bitmap = GateImageSettings.convert(bitmap, requestedColor,
-                    opts != null && opts.inPreferredConfig == Bitmap.Config.RGBA_F16
-                            ? Bitmap.Config.RGBA_F16 : bitmap.getConfig());
+                    outputConfig == Bitmap.Config.HARDWARE || outputConfig == Bitmap.Config.ALPHA_8
+                            ? bitmap.getConfig() : outputConfig);
             if (opts != null && !opts.inPremultiplied) {
                 bitmap = unpremultiplied(bitmap);
             }
@@ -241,6 +254,19 @@ final class GatedDecodes {
         } finally {
             DecodeMemory.recycle(bitmap, result);
         }
+    }
+
+    private static Bitmap.Config factoryConfig(DecodeGate.Info info, BitmapFactory.Options opts,
+            DecodeGate.Bytes bytes) {
+        final Bitmap.Config wanted = opts == null || opts.inPreferredConfig == null
+                ? Bitmap.Config.ARGB_8888 : opts.inPreferredConfig;
+        if (wanted == Bitmap.Config.HARDWARE) return wanted;
+        if (wanted == Bitmap.Config.ALPHA_8 && bytes.singleChannel()) return Bitmap.Config.ALPHA_8;
+        if (wanted == Bitmap.Config.RGB_565 && !info.hasAlpha) return Bitmap.Config.RGB_565;
+        if (wanted == Bitmap.Config.RGBA_F16) return Bitmap.Config.RGBA_F16;
+        if (info.bitDepth == 10 && "image/avif".equals(info.mimeType)) return Bitmap.Config.RGBA_1010102;
+        if (info.bitDepth > 8) return Bitmap.Config.RGBA_F16;
+        return Bitmap.Config.ARGB_8888;
     }
 
     // The VM's sample size for the stored pixels of a BitmapFactory decode: the caller's (at most the VM's largest),
@@ -599,6 +625,8 @@ final class GatedDecodes {
         final int rotation;
         final boolean mirrored;
         final ColorSpace colorSpace;
+        final int bitDepth;
+        final boolean hasAlpha;
 
         Header(DecodeGate.Op op, DecodeGate.Bytes bytes, DecodeGate.Info info) {
             this.op = op;
@@ -610,7 +638,9 @@ final class GatedDecodes {
             this.storedHeight = info.height;
             this.rotation = info.rotation;
             this.mirrored = info.mirrored;
-            this.colorSpace = info.colorSpace;
+            this.bitDepth = info.bitDepth;
+            this.hasAlpha = info.hasAlpha;
+            this.colorSpace = info.bitDepth > 8 ? GateWidePixels.outputColor(info.colorSpace) : info.colorSpace;
             this.mimeType = info.mimeType != null ? info.mimeType : "image/unknown";
             this.animated = info.animated && ("image/gif".equals(mimeType) || "image/webp".equals(mimeType)
                     || "image/avif".equals(mimeType));
@@ -800,6 +830,14 @@ final class GatedDecodes {
                         allocator == ImageDecoder.ALLOCATOR_HARDWARE);
                 if (bitmap != null) return result = bitmap;
             }
+            if (header.bitDepth > 8) {
+                header.op.checkFit(header.bytes.reserved() + GateWidePixels.peakBytes(width, height,
+                        allocator == ImageDecoder.ALLOCATOR_HARDWARE || allocator == ImageDecoder.ALLOCATOR_DEFAULT));
+                bitmap = GateWidePixels.decode(header.op, header.bytes, header.storedWidth, header.storedHeight,
+                        largeSample(header, width, height), width, height, header.rotation, header.mirrored,
+                        header.mimeType, colorSpace);
+                bitmap.setHasAlpha(header.hasAlpha);
+            } else {
             header.op.checkFit(header.bytes.reserved() + (target <= DecodeGate.MAX_VM_PIXELS
                     ? peakBytes(Math.min((long) box * box, DecodeGate.MAX_VM_PIXELS), target, 4)
                             + ("image/jpeg".equals(header.mimeType) ? 2 * target * 4 : 0)
@@ -822,6 +860,10 @@ final class GatedDecodes {
                     bitmap.recycle();
                     throw e;
                 }
+            }
+            }
+            if (header.bitDepth == 10 && "image/avif".equals(header.mimeType)) {
+                bitmap = GateImageSettings.convert(bitmap, colorSpace, Bitmap.Config.RGBA_1010102);
             }
             markOpaque(bitmap, header.mimeType);
             final boolean opaque = !bitmap.hasAlpha();
