@@ -8,6 +8,7 @@ import android.graphics.BitmapFactory;
 import android.graphics.DecodeGate;
 import android.os.ParcelFileDescriptor;
 import java.io.ByteArrayInputStream;
+import java.io.Closeable;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.concurrent.Callable;
@@ -43,9 +44,9 @@ public class GatePngPipeDeviceTest {
             final Bitmap warm = BitmapFactory.decodeByteArray(PNG, 0, PNG.length);
             assertNotNull("the real VM did not decode the fixture", warm);
             warm.recycle();
-            pipe(PNG, true);
             return null;
         });
+        pipe(PNG, true);
     }
 
     @Test public void bytesAfterThePngRemainUnread() throws Exception {
@@ -68,7 +69,7 @@ public class GatePngPipeDeviceTest {
     }
 
     @Test public void completedFramingDoesNotAcceptBrokenPixels() throws Exception {
-        worker(() -> { pipe(BROKEN, false); return null; });
+        pipe(BROKEN, false);
     }
 
     private static void pipe(byte[] png, boolean valid) throws Exception {
@@ -77,7 +78,8 @@ public class GatePngPipeDeviceTest {
                 OutputStream output = new ParcelFileDescriptor.AutoCloseOutputStream(descriptors[1])) {
             output.write(png);
             output.flush();
-            final Bitmap bitmap = BitmapFactory.decodeStream(input);
+            if (!valid) output.close();
+            final Bitmap bitmap = worker(() -> BitmapFactory.decodeStream(input), input, output);
             if (valid) {
                 assertNotNull("a complete PNG was refused while its writer stayed open", bitmap);
                 try {
@@ -93,14 +95,19 @@ public class GatePngPipeDeviceTest {
         }
     }
 
-    private static <T> T worker(Callable<T> action) throws Exception {
+    private static <T> T worker(Callable<T> action, Closeable... pending) throws Exception {
         final ExecutorService executor = Executors.newSingleThreadExecutor();
         Future<T> result = null;
         try {
             result = executor.submit(action);
-            return result.get(12, TimeUnit.SECONDS);
+            try {
+                return result.get(12, TimeUnit.SECONDS);
+            } catch (java.util.concurrent.TimeoutException timeout) {
+                throw new AssertionError("a complete PNG waited for EOF", timeout);
+            }
         } finally {
             if (result != null) result.cancel(true);
+            for (Closeable stream : pending) stream.close();
             executor.shutdownNow();
             assertTrue("PNG reader did not stop", executor.awaitTermination(3, TimeUnit.SECONDS));
         }
