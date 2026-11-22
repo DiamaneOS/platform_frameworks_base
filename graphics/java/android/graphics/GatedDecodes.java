@@ -193,6 +193,9 @@ final class GatedDecodes {
             throw e;
         }
         markOpaque(bitmap, info.mimeType);
+        bitmap = GateImageSettings.convert(bitmap, opts != null ? opts.inPreferredColorSpace : null,
+                opts != null && opts.inPreferredConfig == Bitmap.Config.RGBA_F16
+                        ? Bitmap.Config.RGBA_F16 : bitmap.getConfig());
         if (opts != null && !opts.inPremultiplied) {
             bitmap = unpremultiplied(bitmap);
         }
@@ -729,7 +732,7 @@ final class GatedDecodes {
         GateImageSettings.validateColorSpace(colorSpace);
         try {
             return retained(decodePixels(header, width, height, crop, mutable, allocator, unpremultiplied,
-                    alphaMask, postProcessor, source, conserveMemory));
+                    alphaMask, postProcessor, source, colorSpace, conserveMemory));
         } catch (DecodeGate.Failure e) {
             throw decodeException(e, source);
         } catch (OutOfMemoryError e) {
@@ -739,7 +742,8 @@ final class GatedDecodes {
 
     private static Bitmap decodePixels(Header header, int width, int height, @Nullable Rect crop, boolean mutable,
             int allocator, boolean unpremultiplied, boolean alphaMask, @Nullable PostProcessor postProcessor,
-            ImageDecoder.Source source, boolean conserveMemory) throws ImageDecoder.DecodeException {
+            ImageDecoder.Source source, @Nullable ColorSpace colorSpace, boolean conserveMemory)
+            throws ImageDecoder.DecodeException {
         try {
             if ((long) width * height > MAX_OUTPUT_PIXELS) {
                 throw DecodeGate.failed(true, "larger than the gate makes");
@@ -786,6 +790,9 @@ final class GatedDecodes {
                 DecodeMemory.recycle(bitmap, cropped);
                 bitmap = cropped;
             }
+            final boolean highPrecision = bitmap.getConfig() == Bitmap.Config.RGBA_F16;
+            bitmap = GateImageSettings.convert(bitmap, colorSpace,
+                    GateImageSettings.config(bitmap, colorSpace, conserveMemory, true, true));
             if (postProcessor != null) {
                 bitmap = postProcessed(bitmap, postProcessor);
             }
@@ -795,6 +802,11 @@ final class GatedDecodes {
                     return mask;
                 }
             }
+            bitmap = GateImageSettings.convert(bitmap, colorSpace,
+                    GateImageSettings.config(bitmap, colorSpace, conserveMemory,
+                            allocator == ImageDecoder.ALLOCATOR_HARDWARE
+                                    || allocator == ImageDecoder.ALLOCATOR_DEFAULT,
+                            postProcessor != null || highPrecision));
             if (unpremultiplied) {
                 bitmap = unpremultiplied(bitmap);
             }
@@ -950,10 +962,12 @@ final class GatedDecodes {
             final Bitmap[] frames = new Bitmap[f.count];
             for (int i = 0; i < f.count; i++) {
                 Bitmap frame = GatePixels.crop(f.frames, 0, i * f.height, f.width, f.height);
+                frame = GateImageSettings.convert(frame, colorSpace,
+                        GateImageSettings.config(frame, colorSpace, false, true, true));
                 if (drawn) {
                     frame = exactly(frame, width, height);
                     final Bitmap sized = frame.isMutable() ? frame
-                            : GatePixels.copy(frame, Bitmap.Config.ARGB_8888, true);
+                            : GatePixels.copy(frame, frame.getConfig(), true);
                     DecodeMemory.recycle(frame, sized);
                     final Canvas canvas = new Canvas(sized);
                     postProcessor.onPostProcess(canvas);
