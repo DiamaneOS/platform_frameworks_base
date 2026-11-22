@@ -18,6 +18,7 @@ import android.os.Looper;
 import de.diamaneos.decode.client.tests.R;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
+import de.diamaneos.decode.client.tests.R;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
