@@ -46,9 +46,14 @@ public class GateResidualDeviceTest {
     private void fileEntry(boolean zeroWait) throws Exception {
         DecodeGate.setForcedForTest(true);
         if (zeroWait) DecodeGate.setWaitForTest(0L);
-        File fifo = new File(context.getCacheDir(), "gate-deadline-fifo");
-        fifo.delete();
-        Os.mkfifo(fifo.getPath(), 0600);
+        File fifo = File.createTempFile("gate-deadline-", ".fifo", context.getCacheDir());
+        assertTrue(fifo.delete());
+        assertTrue(fifo.getPath().matches("[A-Za-z0-9_./-]+"));
+        // The test shell creates the FIFO because the app domain cannot create special files.
+        String made = OwnerDeviceTest.shell("su 0 sh -c 'mkfifo -m 600 " + fifo.getPath()
+                + " && chown " + android.os.Process.myUid() + ":" + android.os.Process.myUid()
+                + " " + fifo.getPath() + " && restorecon " + fifo.getPath() + " && echo GATE-FIFO-READY'");
+        assertTrue("FIFO fixture was not made", made.contains("GATE-FIFO-READY"));
         byte[] bytes = png();
         Thread writer = new Thread(() -> {
             SystemClock.sleep(1500);
@@ -69,7 +74,11 @@ public class GateResidualDeviceTest {
             final FileDescriptor cleanup = Os.open(fifo.getPath(),
                     android.system.OsConstants.O_RDONLY | android.system.OsConstants.O_NONBLOCK, 0);
             try { writer.join(5000); }
-            finally { Os.close(cleanup); fifo.delete(); }
+            finally {
+                Os.close(cleanup);
+                OwnerDeviceTest.shell("su 0 rm -f " + fifo.getPath());
+                assertFalse("FIFO fixture remains", fifo.exists());
+            }
         }
         assertFalse("writer left blocked", writer.isAlive());
         Log.i("GateResidual", "public file entry-return ms=" + elapsed.get() + " zeroWait=" + zeroWait);
