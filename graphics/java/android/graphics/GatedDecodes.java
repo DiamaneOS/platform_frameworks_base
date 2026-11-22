@@ -189,14 +189,26 @@ final class GatedDecodes {
                 * roundedUp(info.height, storedSample);
         final boolean large = storedPixels > DecodeGate.MAX_VM_PIXELS
                 || (long) width * height > DecodeGate.MAX_VM_PIXELS;
-        op.checkFit(bytes.reserved() + (large
-                ? GateLargePixels.peakBytes(width, height, finalBytesPerPixel(opts),
-                        opts != null && opts.inBitmap != null, hdrFormat)
-                : peakBytes(storedPixels, (long) width * height, finalBytesPerPixel(opts))
-                        + (hdrFormat ? GateGainmaps.extraBytes(width, height) : 0)));
         Bitmap bitmap = null;
         Bitmap result = null;
         try {
+            if ((long) width * height > DecodeGate.MAX_VM_PIXELS && hdrFormat && opts != null
+                    && opts.inPreferredConfig == Bitmap.Config.HARDWARE && opts.inBitmap == null
+                    && !opts.inMutable && GateLargeHardware.supportsColor(requestedColor)) {
+                bitmap = GateLargeHardware.decode(op, bytes, info.width, info.height, storedSample,
+                        width, height, 0, false, requestedColor, true, true, false);
+                if (bitmap != null) {
+                    if (outPadding != null) outPadding.set(-1, -1, -1, -1);
+                    opts.outConfig = bitmap.getConfig();
+                    opts.outColorSpace = bitmap.getColorSpace();
+                    return result = bitmap;
+                }
+            }
+            op.checkFit(bytes.reserved() + (large
+                    ? GateLargePixels.peakBytes(width, height, finalBytesPerPixel(opts),
+                            opts != null && opts.inBitmap != null, hdrFormat)
+                    : peakBytes(storedPixels, (long) width * height, finalBytesPerPixel(opts))
+                            + (hdrFormat ? GateGainmaps.extraBytes(width, height) : 0)));
             bitmap = large ? GateLargePixels.decode(op, bytes, 0, 0, info.width, info.height,
                     storedSample, width, height, 0, false, requestedColor)
                     : exactly(stored(op, bytes, info.width, info.height, storedSample), width, height);
@@ -775,6 +787,17 @@ final class GatedDecodes {
             }
             final long target = (long) width * height;
             final int box = Math.max(width, height);
+            if (target > DecodeGate.MAX_VM_PIXELS && "image/jpeg".equals(header.mimeType)
+                    && !mutable && !unpremultiplied && crop == null && postProcessor == null
+                    && !(alphaMask && header.bytes.singleChannel())
+                    && GateLargeHardware.supportsColor(colorSpace)
+                    && (allocator == ImageDecoder.ALLOCATOR_HARDWARE || allocator == ImageDecoder.ALLOCATOR_DEFAULT)) {
+                bitmap = GateLargeHardware.decode(header.op, header.bytes, header.storedWidth,
+                        header.storedHeight, largeSample(header, width, height), width, height,
+                        header.rotation, header.mirrored, colorSpace, true, false,
+                        allocator == ImageDecoder.ALLOCATOR_HARDWARE);
+                if (bitmap != null) return result = bitmap;
+            }
             header.op.checkFit(header.bytes.reserved() + (target <= DecodeGate.MAX_VM_PIXELS
                     ? peakBytes(Math.min((long) box * box, DecodeGate.MAX_VM_PIXELS), target, 4)
                             + ("image/jpeg".equals(header.mimeType) ? 2 * target * 4 : 0)
