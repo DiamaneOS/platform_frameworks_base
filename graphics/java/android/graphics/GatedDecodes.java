@@ -36,8 +36,8 @@ import java.nio.ByteBuffer;
  * whole image (JPEG scaled by its DCT and rounded up, WebP to the nearest size, others down) and a region rounded down,
  * every sample-th pixel of a JPEG's DCT scale or of a PNG, WebP scaled by libwebp. A header is the VM's probe. An
  * opaque image is marked as one (no alpha), so a preferred RGB_565 applies only to it, as in Android. ImageDecoder's
- * drawable of a GIF or WebP animation is animated from the VM's frames ({@link GatedAnimation}), which is not an
- * AnimatedImageDrawable (code that starts only those shows its first frame). Nine-patch chunks are not read: such an
+ * animated drawable is an AnimatedImageDrawable backed by checked VM frames ({@link GatedAnimation}).
+ * Nine-patch chunks are not read: such an
  * image is a plain bitmap. At most {@link #MAX_OUTPUT_PIXELS} are made for one image.
  */
 final class GatedDecodes {
@@ -575,8 +575,8 @@ final class GatedDecodes {
             this.rotation = info.rotation;
             this.mirrored = info.mirrored;
             this.mimeType = info.mimeType != null ? info.mimeType : "image/unknown";
-            // The VM animates GIF and WebP. Other animations (APNG, HEIF, AVIF sequences) are their first frame.
-            this.animated = info.animated && ("image/gif".equals(mimeType) || "image/webp".equals(mimeType));
+            this.animated = info.animated && ("image/gif".equals(mimeType) || "image/webp".equals(mimeType)
+                    || "image/avif".equals(mimeType));
         }
 
         @Override

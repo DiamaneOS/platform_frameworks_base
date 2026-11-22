@@ -99,6 +99,10 @@ public class GateAnimationDeviceTest {
                 drawable.isRunning());
         drawable.setVisible(true, true);
         assertEquals(stockRunning, drawable.isRunning());
+    @Test public void avifKeepsEveryFrameAndFinitePlayback() throws Exception {
+        checkPlayback(R.raw.vm_animation_compat_avif);
+    }
+
     private static Object field(Class<?> type, Object target, String name) throws Exception {
         final Field field = type.getDeclaredField(name);
         field.setAccessible(true);
@@ -281,7 +285,8 @@ public class GateAnimationDeviceTest {
         // ByteBuffer prevents the fixture's own APK asset exemption from bypassing the VM.
         final int before = DecodeGate.countsForTest()[0];
         final Drawable decoded = ImageDecoder.decodeDrawable(
-                ImageDecoder.createSource(ByteBuffer.wrap(bytes)));
+                ImageDecoder.createSource(ByteBuffer.wrap(bytes)), (decoder, info, source) ->
+                        assertTrue("header lost the animation", info.isAnimated()));
         assertTrue("VM animation has the stock public drawable type", decoded instanceof AnimatedImageDrawable);
         assertEquals("the test exercised VM frames", "android.graphics.GatedAnimation", decoded.getClass().getName());
         drawable = (AnimatedImageDrawable) decoded;

@@ -116,7 +116,7 @@ interface IDecodeService {
     void release(long handle);
 
     /**
-     * An animation (GIF or WebP), every frame fitting maxWidth x maxHeight with its aspect ratio kept, scaled down
+     * A supported animation, every frame fitting maxWidth x maxHeight with its aspect ratio kept, scaled down
      * further when all frames would exceed MAX_FRAMES_BYTES, and at most MAX_FRAMES of them. STATUS_UNSUPPORTED for
      * another format. Last, so callers built before it keep their transaction numbers.
      */

@@ -17,7 +17,7 @@
 package de.diamaneos.sanitizer.decode;
 
 /**
- * A decoded animation (GIF or WebP) held by the service: every frame as it is shown, composed onto the whole canvas,
+ * A decoded animation held by the service: every frame as it is shown, composed onto the whole canvas,
  * all of the same size. The pixels come in stripes through readStripe(handle, index) as one tall image: frame f is
  * rows [f * height, (f + 1) * height). Stripe i holds rows [i * stripeRows, min(frameCount * height, (i + 1) *
  * stripeRows)), each row width * 4 bytes of premultiplied RGBA. The caller checks every stripe as for a Thumbnail.
