@@ -754,6 +754,7 @@ public final class VmDecodeProvider extends ContentProvider {
                     reply.putInt(DecodeGate.EXTRA_HEIGHT, info.height);
                     reply.putInt(DecodeGate.EXTRA_FORMAT, info.format);
                     reply.putBoolean(DecodeGate.EXTRA_ANIMATED, info.animated);
+                    reply.putInt(DecodeGate.EXTRA_COLOR_SPACE, info.colorSpace);
                     if (DecodeGate.METHOD_HEADER.equals(method) && (info.format == IDecodeService.FORMAT_JPEG
                             || info.format == IDecodeService.FORMAT_HEIF
                             || info.format == IDecodeService.FORMAT_AVIF)) {

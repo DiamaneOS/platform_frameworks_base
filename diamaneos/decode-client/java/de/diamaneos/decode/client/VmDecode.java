@@ -1293,12 +1293,18 @@ public final class VmDecode {
         /** IDecodeService.FORMAT_*. */
         public final int format;
         public final boolean animated;
+        public final int colorSpace;
 
         Info(int width, int height, int format, boolean animated) {
+            this(width, height, format, animated, IDecodeService.COLOR_SPACE_SRGB);
+        }
+
+        Info(int width, int height, int format, boolean animated, int colorSpace) {
             this.width = width;
             this.height = height;
             this.format = format;
             this.animated = animated;
+            this.colorSpace = colorSpace;
         }
     }
 
@@ -1323,7 +1329,8 @@ public final class VmDecode {
             } catch (StripeValidator.BadReplyException e) {
                 throw new RejectedException(e.getMessage());
             }
-            return new Info(info.width, info.height, info.format, info.animated);
+            if (!DecodeChecks.isColorSpace(info.colorSpace)) throw new RejectedException("bad colour space");
+            return new Info(info.width, info.height, info.format, info.animated, info.colorSpace);
         });
     }
 

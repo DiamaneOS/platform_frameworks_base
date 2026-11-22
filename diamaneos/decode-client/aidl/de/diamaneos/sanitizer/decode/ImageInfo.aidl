@@ -30,4 +30,7 @@ parcelable ImageInfo {
 
     /** True for an image with more than one frame. Only GIF, WebP, PNG (APNG), HEIF and AVIF can be animated. */
     boolean animated;
+
+    /** IDecodeService.COLOR_SPACE_*, the checked source colour space. */
+    int colorSpace;
 }

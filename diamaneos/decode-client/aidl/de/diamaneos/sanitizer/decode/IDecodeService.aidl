@@ -61,9 +61,15 @@ interface IDecodeService {
     const int FORMAT_ICO = 9;
     const int FORMAT_WBMP = 10;
 
-    /** Thumbnail.colorSpace: android.graphics.ColorSpace.Named.SRGB and DISPLAY_P3. */
+    /** Checked colour tags for ImageInfo, Thumbnail and Frames. */
     const int COLOR_SPACE_SRGB = 0;
     const int COLOR_SPACE_DISPLAY_P3 = 1;
+    const int COLOR_SPACE_ADOBE_RGB = 2;
+    const int COLOR_SPACE_PRO_PHOTO_RGB = 3;
+    const int COLOR_SPACE_BT2020 = 4;
+    const int COLOR_SPACE_BT2020_HLG = 5;
+    const int COLOR_SPACE_BT2020_PQ = 6;
+    const int COLOR_SPACE_LINEAR_SRGB = 7;
 
     /**
      * Thumbnails: a longer input is refused (STATUS_INVALID). A regular file the service can read without

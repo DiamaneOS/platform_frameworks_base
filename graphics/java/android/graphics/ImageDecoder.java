@@ -2177,7 +2177,7 @@ public final class ImageDecoder implements AutoCloseable {
     @Nullable
     private ColorSpace getColorSpace() {
         if (mGated != null) {
-            return ColorSpace.get(ColorSpace.Named.SRGB); // DiamaneOS: DecodeGate
+            return mGated.colorSpace; // DiamaneOS: checked VM header metadata.
         }
         return nGetColorSpace(mNativePtr);
     }

@@ -52,6 +52,7 @@ public final class DecodeChecks {
         if (i.status != IDecodeService.STATUS_OK) return null;
         if (!format(i.format)) return "format";
         if (!size(i.width, i.height, IDecodeService.MAX_DIMENSION, IDecodeService.MAX_DIMENSION)) return "size";
+        if (!isColorSpace(i.colorSpace)) return "colorSpace";
         if (i.animated && !mayBeAnimated(i.format)) return "animated";
         return null;
     }
@@ -69,7 +70,7 @@ public final class DecodeChecks {
             return "stripeRows";
         }
         if (t.handle == 0) return "handle";
-        if (t.colorSpace != IDecodeService.COLOR_SPACE_SRGB && t.colorSpace != IDecodeService.COLOR_SPACE_DISPLAY_P3) {
+        if (!isColorSpace(t.colorSpace)) {
             return "colorSpace";
         }
         if (t.gainmapWidth == 0 && t.gainmapHeight == 0) {
@@ -149,7 +150,7 @@ public final class DecodeChecks {
         for (int d : f.durations) {
             if (d < 0 || d > IDecodeService.MAX_FRAME_MILLIS) return "duration";
         }
-        if (f.colorSpace != IDecodeService.COLOR_SPACE_SRGB && f.colorSpace != IDecodeService.COLOR_SPACE_DISPLAY_P3) {
+        if (!isColorSpace(f.colorSpace)) {
             return "colorSpace";
         }
         long rows = (long) f.frameCount * f.height;
@@ -179,14 +180,34 @@ public final class DecodeChecks {
 
     /** The android.graphics.ColorSpace checked frames are built in. */
     public static android.graphics.ColorSpace colorSpaceOf(Frames f) {
-        return android.graphics.ColorSpace.get(f.colorSpace == IDecodeService.COLOR_SPACE_DISPLAY_P3
-                ? android.graphics.ColorSpace.Named.DISPLAY_P3 : android.graphics.ColorSpace.Named.SRGB);
+        return colorSpaceOf(f.colorSpace);
     }
 
     /** The android.graphics.ColorSpace a checked thumbnail's Bitmap is built in. */
     public static android.graphics.ColorSpace colorSpaceOf(Thumbnail t) {
-        return android.graphics.ColorSpace.get(t.colorSpace == IDecodeService.COLOR_SPACE_DISPLAY_P3
-                ? android.graphics.ColorSpace.Named.DISPLAY_P3 : android.graphics.ColorSpace.Named.SRGB);
+        return colorSpaceOf(t.colorSpace);
+    }
+
+    /** Only the complete named colour tag set is accepted. */
+    public static boolean isColorSpace(int value) {
+        return value >= IDecodeService.COLOR_SPACE_SRGB && value <= IDecodeService.COLOR_SPACE_LINEAR_SRGB;
+    }
+
+    /** Build a colour space only after checking its scalar tag. */
+    public static android.graphics.ColorSpace colorSpaceOf(int value) {
+        final android.graphics.ColorSpace.Named named;
+        switch (value) {
+            case IDecodeService.COLOR_SPACE_SRGB: named = android.graphics.ColorSpace.Named.SRGB; break;
+            case IDecodeService.COLOR_SPACE_DISPLAY_P3: named = android.graphics.ColorSpace.Named.DISPLAY_P3; break;
+            case IDecodeService.COLOR_SPACE_ADOBE_RGB: named = android.graphics.ColorSpace.Named.ADOBE_RGB; break;
+            case IDecodeService.COLOR_SPACE_PRO_PHOTO_RGB: named = android.graphics.ColorSpace.Named.PRO_PHOTO_RGB; break;
+            case IDecodeService.COLOR_SPACE_BT2020: named = android.graphics.ColorSpace.Named.BT2020; break;
+            case IDecodeService.COLOR_SPACE_BT2020_HLG: named = android.graphics.ColorSpace.Named.BT2020_HLG; break;
+            case IDecodeService.COLOR_SPACE_BT2020_PQ: named = android.graphics.ColorSpace.Named.BT2020_PQ; break;
+            case IDecodeService.COLOR_SPACE_LINEAR_SRGB: named = android.graphics.ColorSpace.Named.LINEAR_SRGB; break;
+            default: throw new IllegalArgumentException("unchecked colour space");
+        }
+        return android.graphics.ColorSpace.get(named);
     }
 
     /** Stripe index of t: exactly its rows, premultiplied (no colour channel above alpha). */

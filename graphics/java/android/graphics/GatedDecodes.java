@@ -598,6 +598,7 @@ final class GatedDecodes {
         final int storedHeight;
         final int rotation;
         final boolean mirrored;
+        final ColorSpace colorSpace;
 
         Header(DecodeGate.Op op, DecodeGate.Bytes bytes, DecodeGate.Info info) {
             this.op = op;
@@ -609,6 +610,7 @@ final class GatedDecodes {
             this.storedHeight = info.height;
             this.rotation = info.rotation;
             this.mirrored = info.mirrored;
+            this.colorSpace = info.colorSpace;
             this.mimeType = info.mimeType != null ? info.mimeType : "image/unknown";
             this.animated = info.animated && ("image/gif".equals(mimeType) || "image/webp".equals(mimeType)
                     || "image/avif".equals(mimeType));

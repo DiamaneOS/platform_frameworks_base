@@ -137,6 +137,7 @@ public final class DecodeGate {
     public static final String EXTRA_MIRROR = "mirror";
     /** Probe: IDecodeService.FORMAT_* and whether the image is animated. */
     public static final String EXTRA_FORMAT = "format";
+    public static final String EXTRA_COLOR_SPACE = "colorSpace";
     public static final String EXTRA_ANIMATED = "animated";
     /** Frames: their count, times in milliseconds, and how often they play (0: forever). */
     public static final String EXTRA_FRAME_COUNT = "frameCount";
@@ -695,14 +696,21 @@ public final class DecodeGate {
         final boolean animated;
         final int rotation;
         final boolean mirrored;
+        final ColorSpace colorSpace;
 
         Info(int width, int height, String mimeType, boolean animated, int rotation, boolean mirrored) {
+            this(width, height, mimeType, animated, rotation, mirrored, 0);
+        }
+
+        Info(int width, int height, String mimeType, boolean animated, int rotation, boolean mirrored,
+                int colorSpace) {
             this.width = width;
             this.height = height;
             this.mimeType = mimeType;
             this.animated = animated;
             this.rotation = rotation;
             this.mirrored = mirrored;
+            this.colorSpace = de.diamaneos.sanitizer.decode.DecodeChecks.colorSpaceOf(colorSpace);
         }
     }
 
@@ -872,11 +880,15 @@ public final class DecodeGate {
         final int width = r.getInt(EXTRA_WIDTH);
         final int height = r.getInt(EXTRA_HEIGHT);
         final int rotation = r.getInt(EXTRA_ROTATION);
+        final int colorSpace = r.getInt(EXTRA_COLOR_SPACE);
         if (width < 1 || height < 1 || width > MAX_BOX || height > MAX_BOX || !quarterTurn(rotation)) {
             throw failed(false, "bad probe reply");
         }
+        if (!de.diamaneos.sanitizer.decode.DecodeChecks.isColorSpace(colorSpace)) {
+            throw failed(false, "bad probe colour space");
+        }
         return new Info(width, height, mimeTypeOf(r.getInt(EXTRA_FORMAT), bytes.head()),
-                r.getBoolean(EXTRA_ANIMATED), rotation, r.getBoolean(EXTRA_MIRROR));
+                r.getBoolean(EXTRA_ANIMATED), rotation, r.getBoolean(EXTRA_MIRROR), colorSpace);
     }
 
     /** {@code bytes} decoded in the VM to fit {@code maxWidth} x {@code maxHeight}, upright. */
