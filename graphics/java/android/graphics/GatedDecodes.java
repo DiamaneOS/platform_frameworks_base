@@ -724,7 +724,9 @@ final class GatedDecodes {
      */
     static Bitmap decode(Header header, int width, int height, @Nullable Rect crop, boolean mutable,
             int allocator, boolean unpremultiplied, boolean alphaMask, @Nullable PostProcessor postProcessor,
-            ImageDecoder.Source source, boolean conserveMemory) throws ImageDecoder.DecodeException {
+            ImageDecoder.Source source, @Nullable ColorSpace colorSpace, boolean conserveMemory)
+            throws ImageDecoder.DecodeException {
+        GateImageSettings.validateColorSpace(colorSpace);
         try {
             return retained(decodePixels(header, width, height, crop, mutable, allocator, unpremultiplied,
                     alphaMask, postProcessor, source, conserveMemory));
@@ -925,8 +927,9 @@ final class GatedDecodes {
      * that size and drawn on, at most {@link #MAX_ANIMATION_BYTES} for all of them.
      */
     static Drawable animated(Header header, int width, int height, @Nullable Rect crop,
-            @Nullable PostProcessor postProcessor, ImageDecoder.Source source)
+            @Nullable PostProcessor postProcessor, ImageDecoder.Source source, @Nullable ColorSpace colorSpace)
             throws ImageDecoder.DecodeException {
+        GateImageSettings.validateColorSpace(colorSpace);
         try {
             // The frames come at most as the service's frame limit (MAX_ANIMATION_BYTES): the answer, its copy and
             // the frames cut from it, and with a post-processor the frames drawn at their size.

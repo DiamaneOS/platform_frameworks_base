@@ -207,6 +207,7 @@ public class GateAnimationDeviceTest {
                 fail("invalid target color space accepted: " + color);
             } catch (IllegalArgumentException expected) {
                 assertTrue("the test exercised the gate", gateAnswers() > before);
+                // The stock contract rejects non-RGB and nonparametric destinations.
             }
         }
     }

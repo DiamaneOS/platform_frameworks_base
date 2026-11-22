@@ -99,7 +99,7 @@ public final class GatedAnimation extends AnimatedImageDrawable {
             final int targetDensity = resources.getDisplayMetrics().densityDpi;
             final int width = Bitmap.scaleFromDensity(header.width, density, targetDensity);
             final int height = Bitmap.scaleFromDensity(header.height, density, targetDensity);
-            return (GatedAnimation) GatedDecodes.animated(header, width, height, null, null, source);
+            return (GatedAnimation) GatedDecodes.animated(header, width, height, null, null, source, null);
         }
     }
 

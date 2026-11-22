@@ -1788,11 +1788,10 @@ public final class ImageDecoder implements AutoCloseable {
     private Bitmap decodeBitmapInternal() throws IOException {
         checkState(false);
         if (mGated != null) {
-            // DiamaneOS: decoded in the protected VM (DecodeGate), the target colour space checked as stock.
-            getColorSpacePtr();
+            // DiamaneOS: decoded in the protected VM (DecodeGate).
             return GatedDecodes.decode(mGated, mDesiredWidth, mDesiredHeight, mCropRect, mMutable,
                     mAllocator, mUnpremultipliedRequired, mDecodeAsAlphaMask, mPostProcessor,
-                    mSource, mConserveMemory);
+                    mSource, mDesiredColorSpace, mConserveMemory);
         }
         return nDecodeBitmap(mNativePtr, this, mPostProcessor != null,
                 mDesiredWidth, mDesiredHeight, mCropRect,
@@ -1976,9 +1975,9 @@ public final class ImageDecoder implements AutoCloseable {
                 if (decoder.mAnimated && decoder.mGated != null) {
                     // DiamaneOS: animated from the protected VM's frames (DecodeGate).
                     decoder.checkState(true);
-                    decoder.getColorSpacePtr();
                     return GatedDecodes.animated(decoder.mGated, decoder.mDesiredWidth,
-                            decoder.mDesiredHeight, decoder.mCropRect, decoder.mPostProcessor, src);
+                            decoder.mDesiredHeight, decoder.mCropRect, decoder.mPostProcessor, src,
+                            decoder.mDesiredColorSpace);
                 }
                 if (decoder.mAnimated) {
                     // AnimatedImageDrawable calls postProcessAndRelease only if
