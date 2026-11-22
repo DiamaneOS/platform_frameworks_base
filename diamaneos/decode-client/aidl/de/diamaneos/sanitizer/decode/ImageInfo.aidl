@@ -33,4 +33,10 @@ parcelable ImageInfo {
 
     /** IDecodeService.COLOR_SPACE_*, the checked source colour space. */
     int colorSpace;
+
+    /** Source sample depth from the VM header, one of 1, 2, 4, 8, 10, 12 or 16. */
+    int bitDepth = 8;
+
+    /** True when the encoded source has an alpha channel. */
+    boolean hasAlpha = true;
 }

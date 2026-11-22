@@ -54,6 +54,7 @@ public final class DecodeChecks {
         if (!size(i.width, i.height, IDecodeService.MAX_DIMENSION, IDecodeService.MAX_DIMENSION)) return "size";
         if (!isColorSpace(i.colorSpace)) return "colorSpace";
         if (i.animated && !mayBeAnimated(i.format)) return "animated";
+        if (!isBitDepth(i.bitDepth)) return "bitDepth";
         return null;
     }
 
@@ -61,12 +62,14 @@ public final class DecodeChecks {
     public static String check(Thumbnail t, int maxWidth, int maxHeight) {
         if (t == null || !status(t.status)) return "status";
         if (t.status != IDecodeService.STATUS_OK) return null;
+        final int pixelBytes = bytesPerPixel(t.pixelFormat);
+        if (pixelBytes == 0) return "pixelFormat";
         boolean turned = t.rotation == 90 || t.rotation == 270;
         if (!turned && t.rotation != 0 && t.rotation != 180) return "rotation";
         if (!size(t.width, t.height, turned ? maxHeight : maxWidth, turned ? maxWidth : maxHeight)) return "size";
-        if ((long) t.width * t.height > IDecodeService.MAX_PIXELS) return "pixels";
+        if ((long) t.width * t.height > (pixelBytes == 8 ? IDecodeService.MAX_HIGH_PRECISION_PIXELS : IDecodeService.MAX_PIXELS)) return "pixels";
         if (t.stripeRows < 1 || t.stripeRows > t.height
-                || (long) t.stripeRows * t.width * 4 > IDecodeService.MAX_STRIPE_BYTES) {
+                || (long) t.stripeRows * t.width * pixelBytes > IDecodeService.MAX_STRIPE_BYTES) {
             return "stripeRows";
         }
         if (t.handle == 0) return "handle";
@@ -210,16 +213,46 @@ public final class DecodeChecks {
         return android.graphics.ColorSpace.get(named);
     }
 
+    /** Bytes per pixel only for the complete explicit storage format set, zero for an unknown value. */
+    public static int bytesPerPixel(int format) {
+        if (format == IDecodeService.PIXEL_FORMAT_RGBA_8888) return 4;
+        if (format == IDecodeService.PIXEL_FORMAT_RGBA_F16) return 8;
+        return 0;
+    }
+
+    /** Source depths that the image contract can represent. */
+    public static boolean isBitDepth(int depth) {
+        return depth == 1 || depth == 2 || depth == 4 || depth == 8 || depth == 10 || depth == 12 || depth == 16;
+    }
+
+    private static int halfAt(byte[] bytes, int offset) {
+        return (bytes[offset] & 255) | ((bytes[offset + 1] & 255) << 8);
+    }
+
     /** Stripe index of t: exactly its rows, premultiplied (no colour channel above alpha). */
     public static String check(Thumbnail t, int index, byte[] stripe) {
+        final int pixelBytes = bytesPerPixel(t.pixelFormat);
+        if (pixelBytes == 0) return "pixelFormat";
         long first = (long) index * t.stripeRows;
         if (index < 0 || first >= t.height) return "index";
         long rows = Math.min(t.stripeRows, t.height - first);
-        if (stripe == null || stripe.length != rows * t.width * 4) return "stripe length";
-        for (int i = 0; i < stripe.length; i += 4) {
-            int a = stripe[i + 3] & 0xff;
-            if ((stripe[i] & 0xff) > a || (stripe[i + 1] & 0xff) > a || (stripe[i + 2] & 0xff) > a) {
-                return "colour above alpha";
+        if (stripe == null || stripe.length != rows * t.width * pixelBytes) return "stripe length";
+        if (pixelBytes == 8) {
+            for (int i = 0; i < stripe.length; i += 8) {
+                final int alpha = halfAt(stripe, i + 6);
+                // Positive half values sort like their bits, 0x3c00 is one and excludes every NaN and infinity.
+                if (alpha > 0x3c00) return "half alpha";
+                for (int channel = 0; channel < 3; channel++) {
+                    final int value = halfAt(stripe, i + channel * 2);
+                    if (value > alpha) return "half colour above alpha";
+                }
+            }
+        } else {
+            for (int i = 0; i < stripe.length; i += 4) {
+                int alpha = stripe[i + 3] & 255;
+                if ((stripe[i] & 255) > alpha || (stripe[i + 1] & 255) > alpha || (stripe[i + 2] & 255) > alpha) {
+                    return "colour above alpha";
+                }
             }
         }
         return null;

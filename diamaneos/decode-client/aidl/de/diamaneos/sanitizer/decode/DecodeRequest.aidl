@@ -57,4 +57,7 @@ parcelable DecodeRequest {
      * server's own). Ignored from any other caller.
      */
     int forUid = -1;
+
+    /** Requested checked raw pixel storage for thumbnail and region operations. */
+    int pixelFormat = 0;
 }

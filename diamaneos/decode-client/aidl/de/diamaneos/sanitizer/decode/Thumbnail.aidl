@@ -18,18 +18,19 @@ package de.diamaneos.sanitizer.decode;
 
 /**
  * A decoded, scaled image held by the service. The pixels come in stripes through readStripe(handle, index): stripe i
- * holds rows [i * stripeRows, min(height, (i + 1) * stripeRows)), each row width * 4 bytes of premultiplied RGBA.
+ * holds rows [i * stripeRows, min(height, (i + 1) * stripeRows)). RGBA8888 uses four bytes per pixel.
+ * RGBAF16 uses eight bytes, four little-endian half values in [0, 1]. All colours are premultiplied.
  * The caller checks every stripe's exact length and that no colour channel exceeds alpha.
  */
 parcelable Thumbnail {
     /** IDecodeService.STATUS_*. The other fields are only meaningful with STATUS_OK. */
     int status;
 
-    /** Decoded size: within the requested box, width * height at most IDecodeService.MAX_PIXELS. */
+    /** Decoded size: within the requested box, width * height at most MAX_PIXELS, or MAX_HIGH_PRECISION_PIXELS for F16. */
     int width;
     int height;
 
-    /** Rows per stripe, so that stripeRows * width * 4 is at most IDecodeService.MAX_STRIPE_BYTES. */
+    /** Rows per stripe, so that stripeRows * width * bytesPerPixel(pixelFormat) is at most IDecodeService.MAX_STRIPE_BYTES. */
     int stripeRows;
 
     /** Orientation from the file, applied by the caller: 0, 90, 180 or 270. */
@@ -67,4 +68,7 @@ parcelable Thumbnail {
      * false.
      */
     boolean mirrored;
+
+    /** IDecodeService.PIXEL_FORMAT_*, checked before any stripe is allocated or copied. */
+    int pixelFormat = 0;
 }
