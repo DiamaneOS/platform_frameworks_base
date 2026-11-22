@@ -1933,6 +1933,12 @@ public final class Bitmap implements Parcelable {
         }
     }
 
+    // DiamaneOS: finalize private gate working storage without a second pixel allocation.
+    void freezeForDecodeGate() {
+        checkRecycled("Cannot freeze a recycled bitmap");
+        setImmutable();
+    }
+
     /**
      * <p>Indicates whether pixels stored in this bitmaps are stored pre-multiplied.
      * When a pixel is pre-multiplied, the RGB components have been multiplied by

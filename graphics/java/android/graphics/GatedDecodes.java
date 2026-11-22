@@ -42,7 +42,7 @@ import java.nio.ByteBuffer;
  */
 final class GatedDecodes {
     /** A decode makes at most this many pixels, the stored stripes it is made from included. */
-    static final long MAX_OUTPUT_PIXELS = 4L * DecodeGate.MAX_VM_PIXELS;
+    static final long MAX_OUTPUT_PIXELS = 8L * DecodeGate.MAX_VM_PIXELS;
     /** An animation with a post-processor is drawn at its size: all its frames at most this many bytes. */
     static final long MAX_ANIMATION_BYTES = DecodeGate.MAX_BYTES;
 
@@ -156,6 +156,9 @@ final class GatedDecodes {
     private static Bitmap bitmapFactory(DecodeGate.Op op, DecodeGate.Bytes bytes, Rect outPadding,
             BitmapFactory.Options opts) throws DecodeGate.Failure {
         final DecodeGate.Info info = DecodeGate.probe(op, bytes, false);
+        final ColorSpace requestedColor = opts != null
+                && !(opts.inPreferredConfig == Bitmap.Config.ALPHA_8 && bytes.singleChannel())
+                ? opts.inPreferredColorSpace : null;
         // As BitmapFactory: the sample size as given, the size its codec samples to, or with the density's scale the
         // size rounded down and scaled.
         final int sample = opts != null && opts.inSampleSize > 1 ? opts.inSampleSize : 1;
@@ -182,9 +185,18 @@ final class GatedDecodes {
         }
         final int storedSample = storedSample(info, sample);
         final boolean hdrFormat = "image/jpeg".equals(info.mimeType);
-        op.checkFit(bytes.reserved() + peakBytes((long) roundedUp(info.width, storedSample) * roundedUp(info.height, storedSample),
-                (long) width * height, finalBytesPerPixel(opts)) + (hdrFormat ? GateGainmaps.extraBytes(width, height) : 0));
-        Bitmap bitmap = exactly(stored(op, bytes, info.width, info.height, storedSample), width, height);
+        final long storedPixels = (long) roundedUp(info.width, storedSample)
+                * roundedUp(info.height, storedSample);
+        final boolean large = storedPixels > DecodeGate.MAX_VM_PIXELS
+                || (long) width * height > DecodeGate.MAX_VM_PIXELS;
+        op.checkFit(bytes.reserved() + (large
+                ? GateLargePixels.peakBytes(width, height, finalBytesPerPixel(opts),
+                        opts != null && opts.inBitmap != null, hdrFormat)
+                : peakBytes(storedPixels, (long) width * height, finalBytesPerPixel(opts))
+                        + (hdrFormat ? GateGainmaps.extraBytes(width, height) : 0)));
+        Bitmap bitmap = large ? GateLargePixels.decode(op, bytes, 0, 0, info.width, info.height,
+                storedSample, width, height, 0, false, requestedColor)
+                : exactly(stored(op, bytes, info.width, info.height, storedSample), width, height);
         // DiamaneOS: regions carry stored base pixels, the whole-image reply supplies the checked gain map.
         try {
             if (hdrFormat) GateGainmaps.attach(op, bytes, bitmap, true);
@@ -193,7 +205,7 @@ final class GatedDecodes {
             throw e;
         }
         markOpaque(bitmap, info.mimeType);
-        bitmap = GateImageSettings.convert(bitmap, opts != null ? opts.inPreferredColorSpace : null,
+        bitmap = GateImageSettings.convert(bitmap, requestedColor,
                 opts != null && opts.inPreferredConfig == Bitmap.Config.RGBA_F16
                         ? Bitmap.Config.RGBA_F16 : bitmap.getConfig());
         if (opts != null && !opts.inPremultiplied) {
@@ -233,20 +245,26 @@ final class GatedDecodes {
      * A conservative ceiling for a decode, checked before it allocates ({@link DecodeMemory}): {@code stored}
      * pixels as the VM gives them (one answer and its copy, or the whole image and one stripe's answer and copy), the
      * {@code target} pixels in ARGB as it is scaled, cropped or unpremultiplied (the step's source and its result), and
-     * the copy handed out at {@code finalBytesPerPixel}. Each step gives back its source before the next one.
+     * a requested conversion at {@code finalBytesPerPixel}. Private working pixels are frozen without a copy.
+     * Each step gives back its source before the next one.
      */
     static long peakBytes(long stored, long target, int finalBytesPerPixel) {
+        return peakBytes(stored, target, finalBytesPerPixel, true);
+    }
+
+    static long peakBytes(long stored, long target, int finalBytesPerPixel, boolean scaled) {
         final long vm = Math.min(stored, DecodeGate.MAX_VM_PIXELS) * 4;
         final long storing = stored > DecodeGate.MAX_VM_PIXELS ? stored * 4 + 2 * vm : 2 * vm;
-        final long scaling = stored * 4 + target * 4;
-        final long finishing = target * 4 + target * Math.max(4, finalBytesPerPixel);
+        final long scaling = scaled ? stored * 4 + target * 4 : storing;
+        final long finishing = target * 4 + (finalBytesPerPixel != 4 ? target * Math.max(1, finalBytesPerPixel) : 0);
         return Math.max(storing, Math.max(scaling, finishing));
     }
 
     // Bytes per pixel of what a BitmapFactory call hands out.
     private static int finalBytesPerPixel(BitmapFactory.Options opts) {
         final Bitmap.Config want = opts != null && opts.inPreferredConfig != null ? opts.inPreferredConfig : null;
-        return want == Bitmap.Config.RGBA_F16 ? 8 : 4;
+        return want == Bitmap.Config.RGBA_F16 ? 8 : want == Bitmap.Config.RGB_565 ? 2
+                : want == Bitmap.Config.ALPHA_8 ? 1 : 4;
     }
 
     /**
@@ -366,8 +384,9 @@ final class GatedDecodes {
 
     // The options' config, mutability and reused bitmap applied to a software bitmap of the VM's pixels.
     private static Bitmap configured(Bitmap bitmap, BitmapFactory.Options opts, DecodeGate.Bytes bytes) throws DecodeGate.Failure {
-        final Bitmap.Config want = opts != null && opts.inPreferredConfig != null
+        final Bitmap.Config preferred = opts != null && opts.inPreferredConfig != null
                 ? opts.inPreferredConfig : Bitmap.Config.ARGB_8888;
+        final Bitmap.Config want = preferred == Bitmap.Config.ARGB_4444 ? Bitmap.Config.ARGB_8888 : preferred;
         final boolean mutable = opts != null && opts.inMutable;
         if (opts != null && opts.inBitmap != null) {
             try {
@@ -436,18 +455,13 @@ final class GatedDecodes {
         return reused;
     }
 
-    // An immutable bitmap of the pixels, as the APIs give by default. A mutable source of the gate's own is given
-    // back once copied.
+    // Finalize exclusively owned working pixels, as the APIs return immutable results by default.
     private static Bitmap immutable(Bitmap bitmap) throws DecodeGate.Failure {
         if (!bitmap.isMutable()) {
             return bitmap;
         }
-        final Bitmap copy = GatePixels.copy(bitmap, bitmap.getConfig(), false);
-        if (copy == null) {
-            return bitmap;
-        }
-        DecodeMemory.recycle(bitmap, copy);
-        return copy;
+        bitmap.freezeForDecodeGate();
+        return bitmap;
     }
 
     // Rows per block of the conversions below: about 256 K pixels at a time, never the whole image in one array.
@@ -753,14 +767,17 @@ final class GatedDecodes {
             header.op.checkFit(header.bytes.reserved() + (target <= DecodeGate.MAX_VM_PIXELS
                     ? peakBytes(Math.min((long) box * box, DecodeGate.MAX_VM_PIXELS), target, 4)
                             + ("image/jpeg".equals(header.mimeType) ? 2 * target * 4 : 0)
-                    : peakBytes(largeStoredPixels(header, width, height), target, 4)
-                            + ("image/jpeg".equals(header.mimeType) ? GateGainmaps.extraBytes(width, height) : 0)));
+                    : GateLargePixels.peakBytes(width, height, 4,
+                            allocator == ImageDecoder.ALLOCATOR_HARDWARE,
+                            "image/jpeg".equals(header.mimeType))));
             Bitmap bitmap;
             if ((long) width * height <= DecodeGate.MAX_VM_PIXELS) {
                 final DecodeGate.Decoded decoded = DecodeGate.decode(header.op, header.bytes, box, box);
                 bitmap = exactly(decoded.bitmap, width, height);
             } else {
-                bitmap = uprightLarge(header, width, height);
+                bitmap = GateLargePixels.decode(header.op, header.bytes, 0, 0,
+                        header.storedWidth, header.storedHeight, largeSample(header, width, height),
+                        width, height, header.rotation, header.mirrored, colorSpace);
                 // DiamaneOS: the region-built base keeps the whole-image reply's upright gain map.
                 try {
                     if ("image/jpeg".equals(header.mimeType)) {
@@ -790,16 +807,18 @@ final class GatedDecodes {
                 DecodeMemory.recycle(bitmap, cropped);
                 bitmap = cropped;
             }
+            final boolean mask = alphaMask && header.bytes.singleChannel();
+            final ColorSpace requestedColor = mask ? null : colorSpace;
             final boolean highPrecision = bitmap.getConfig() == Bitmap.Config.RGBA_F16;
-            bitmap = GateImageSettings.convert(bitmap, colorSpace,
-                    GateImageSettings.config(bitmap, colorSpace, conserveMemory, true, true));
+            bitmap = GateImageSettings.convert(bitmap, requestedColor,
+                    GateImageSettings.config(bitmap, requestedColor, conserveMemory, true, true));
             if (postProcessor != null) {
                 bitmap = postProcessed(bitmap, postProcessor);
             }
-            if (alphaMask && header.bytes.singleChannel()) {
-                final Bitmap mask = greyAsAlpha(bitmap, mutable);
-                if (mask != null) {
-                    return mask;
+            if (mask) {
+                final Bitmap alpha = greyAsAlpha(bitmap, mutable);
+                if (alpha != null) {
+                    return alpha;
                 }
             }
             bitmap = GateImageSettings.convert(bitmap, colorSpace,
@@ -864,30 +883,6 @@ final class GatedDecodes {
             sample++;
         }
         return sample;
-    }
-
-    private static long largeStoredPixels(Header header, int width, int height) {
-        final int sample = largeSample(header, width, height);
-        return (long) roundedUp(header.storedWidth, sample) * roundedUp(header.storedHeight, sample);
-    }
-
-    // An image above the VM's pixel limit at width x height upright: its stored stripes, sampled as little as the size
-    // allows, then mirrored and turned as the file asks and scaled in one step.
-    private static Bitmap uprightLarge(Header header, int width, int height) throws DecodeGate.Failure {
-        final boolean turned = header.rotation == 90 || header.rotation == 270;
-        final int sample = largeSample(header, width, height);
-        final Bitmap stored = stored(header.op, header.bytes, header.storedWidth, header.storedHeight, sample);
-        final Matrix matrix = new Matrix();
-        if (header.mirrored) {
-            matrix.postScale(-1, 1);
-        }
-        matrix.postRotate(header.rotation);
-        matrix.postScale((float) width / (turned ? stored.getHeight() : stored.getWidth()),
-                (float) height / (turned ? stored.getWidth() : stored.getHeight()));
-        final Bitmap upright = GatePixels.transform(stored, 0, 0, stored.getWidth(), stored.getHeight(), matrix,
-                true);
-        DecodeMemory.recycle(stored, upright);
-        return exactly(upright, width, height);
     }
 
     // Draws the post-processor's work on a mutable copy and takes its pixel format, as the decoders do: UNKNOWN keeps
