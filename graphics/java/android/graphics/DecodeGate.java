@@ -100,6 +100,9 @@ public final class DecodeGate {
      */
     public static final String METHOD_REGION = "region";
     public static final String METHOD_REGION_WIDE = "region-f16";
+    public static final String METHOD_REGION_STRAIGHT = "region-straight";
+    public static final String METHOD_REGION_STRAIGHT_WIDE = "region-straight-f16";
+    public static final String METHOD_STRAIGHT_WEBP = "straight-webp";
     public static final String EXTRA_LEFT = "left";
     public static final String EXTRA_TOP = "top";
     public static final String EXTRA_SAMPLE = "sample";
@@ -940,21 +943,40 @@ public final class DecodeGate {
 
     static Bitmap region(Op op, Bytes bytes, int left, int top, int width, int height, int sample, int pixelFormat)
             throws Failure {
-        if (pixelFormat < 0 || pixelFormat > 1) throw failed(true, "pixel format");
+        if (pixelFormat < 0 || pixelFormat > 3) throw failed(true, "pixel format");
         final int outW = (int) (((long) width + sample - 1) / sample);
         final int outH = (int) (((long) height + sample - 1) / sample);
         if (left < 0 || top < 0 || width < 1 || height < 1 || sample < 1 || sample > MAX_REGION_SAMPLE
                 || left >= MAX_BOX || top >= MAX_BOX || width > MAX_BOX - left || height > MAX_BOX - top
-                || (long) outW * outH > (pixelFormat == 1 ? MAX_VM_PIXELS / 2 : MAX_VM_PIXELS)) {
+                || (long) outW * outH > ((pixelFormat & 1) != 0 ? MAX_VM_PIXELS / 2 : MAX_VM_PIXELS)) {
             throw failed(true, "region out of bounds");
         }
-        final Bundle r = request(op, pixelFormat == 1 ? METHOD_REGION_WIDE : METHOD_REGION, bytes, width, height, left, top, sample);
+        final String method = pixelFormat == 3 ? METHOD_REGION_STRAIGHT_WIDE
+                : pixelFormat == 2 ? METHOD_REGION_STRAIGHT
+                : pixelFormat == 1 ? METHOD_REGION_WIDE : METHOD_REGION;
+        final Bundle r = request(op, method, bytes, width, height, left, top, sample);
         final Bitmap bitmap = r.getParcelable(EXTRA_BITMAP, Bitmap.class);
         if (bitmap == null || bitmap.getWidth() > outW || bitmap.getHeight() > outH
-                || (pixelFormat == 1 && bitmap.getConfig() != Bitmap.Config.RGBA_F16)) {
+                || ((pixelFormat & 1) != 0 && bitmap.getConfig() != Bitmap.Config.RGBA_F16)
+                || ((pixelFormat & 2) != 0 && bitmap.hasAlpha() && bitmap.isPremultiplied())) {
             throw failed(false, "bad region reply");
         }
         op.sourceError = Math.max(op.sourceError, r.getInt(EXTRA_SOURCE_ERROR));
+        return bitmap;
+    }
+
+    static Bitmap straightWebp(Op op, Bytes bytes, int width, int height) throws Failure {
+        if (width < 1 || height < 1 || (long) width * height > MAX_VM_PIXELS) {
+            throw failed(true, "straight WebP dimensions");
+        }
+        final Bundle reply = request(op, METHOD_STRAIGHT_WEBP, bytes, width, height);
+        final Bitmap bitmap = reply.getParcelable(EXTRA_BITMAP, Bitmap.class);
+        if (bitmap == null || bitmap.getWidth() != width || bitmap.getHeight() != height
+                || bitmap.getConfig() != Bitmap.Config.ARGB_8888
+                || bitmap.hasAlpha() && bitmap.isPremultiplied()) {
+            throw failed(false, "straight WebP reply");
+        }
+        op.sourceError = Math.max(op.sourceError, reply.getInt(EXTRA_SOURCE_ERROR));
         return bitmap;
     }
 
@@ -1336,7 +1358,8 @@ public final class DecodeGate {
         extras.putParcelable(EXTRA_FD, fd);
         extras.putInt(EXTRA_WIDTH, width);
         extras.putInt(EXTRA_HEIGHT, height);
-        if (METHOD_REGION.equals(method) || METHOD_REGION_WIDE.equals(method)) {
+        if (METHOD_REGION.equals(method) || METHOD_REGION_WIDE.equals(method)
+                || METHOD_REGION_STRAIGHT.equals(method) || METHOD_REGION_STRAIGHT_WIDE.equals(method)) {
             extras.putInt(EXTRA_LEFT, left);
             extras.putInt(EXTRA_TOP, top);
             extras.putInt(EXTRA_SAMPLE, sample);

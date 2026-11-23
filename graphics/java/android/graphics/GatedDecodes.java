@@ -821,6 +821,15 @@ final class GatedDecodes {
             }
             final long target = (long) width * height;
             final int box = Math.max(width, height);
+            if (unpremultiplied && header.hasAlpha) {
+                if (!samplesTo(header, width, height)) {
+                    throw new IllegalStateException("Cannot scale unpremultiplied pixels!");
+                }
+                bitmap = GateStraightPixels.decode(header, width, height,
+                        largeSample(header, width, height), crop, colorSpace, mutable, allocator, conserveMemory);
+                GatePartialImages.imageDecoder(header.op.sourceError, partialListener, source);
+                return result = bitmap;
+            }
             if (target > DecodeGate.MAX_VM_PIXELS && "image/jpeg".equals(header.mimeType)
                     && !mutable && !unpremultiplied && crop == null && postProcessor == null
                     && !(alphaMask && header.bytes.singleChannel())
