@@ -57,7 +57,7 @@ final class GateStraightPixels {
                         throw DecodeGate.failed(false, "straight region colour");
                     }
                     final ColorSpace destination = outputColor(source, target, wide);
-                    final ColorSpace.Connector connector = source.equals(destination) ? null
+                    final ColorSpace.Connector connector = sameEncoding(source, destination) ? null
                             : ColorSpace.connect(source, destination);
                     final float[] rgb = new float[3];
                     try (DecodeMemory.Reservation tileScratch = GatePixels.scratch(tile.getByteCount())) {
@@ -121,6 +121,18 @@ final class GateStraightPixels {
             return ColorSpace.get(ColorSpace.Named.LINEAR_SRGB);
         }
         return source;
+    }
+
+    private static boolean sameEncoding(ColorSpace source, ColorSpace destination) {
+        if (source.equals(destination)) return true;
+        final ColorSpace srgb = ColorSpace.get(ColorSpace.Named.SRGB);
+        final ColorSpace extended = ColorSpace.get(ColorSpace.Named.EXTENDED_SRGB);
+        if ((source.equals(srgb) || source.equals(extended))
+                && (destination.equals(srgb) || destination.equals(extended))) return true;
+        final ColorSpace linear = ColorSpace.get(ColorSpace.Named.LINEAR_SRGB);
+        final ColorSpace linearExtended = ColorSpace.get(ColorSpace.Named.LINEAR_EXTENDED_SRGB);
+        return (source.equals(linear) || source.equals(linearExtended))
+                && (destination.equals(linear) || destination.equals(linearExtended));
     }
 
     private static void copyPixel(ByteBuffer target, int to, int bytes, ByteBuffer source, int from,
