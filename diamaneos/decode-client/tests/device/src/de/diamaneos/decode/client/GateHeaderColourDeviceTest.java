@@ -77,7 +77,7 @@ public class GateHeaderColourDeviceTest {
 
     @Test public void anUnknownHeaderColourNeverReachesTheListener() throws Exception {
         final byte[] png = png();
-        mode(8);
+        mode(9);
         final AtomicBoolean called = new AtomicBoolean();
         try {
             ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(png)),
