@@ -147,6 +147,7 @@ public final class DecodeGate {
     public static final String EXTRA_DURATIONS = "durations";
     public static final String EXTRA_LOOPS = "loops";
     public static final String EXTRA_ERROR = "error";
+    public static final String EXTRA_SOURCE_ERROR = "sourceError";
     /** True when the VM refused the bytes themselves (broken, unsupported). */
     public static final String EXTRA_REFUSED = "refused";
     /** In the method's own reply: true when the call was taken and the callback will be called. */
@@ -444,9 +445,15 @@ public final class DecodeGate {
         final boolean refused;
         final boolean again;
         long memory;
+        final int sourceError;
 
         Failure(boolean refused, boolean again, String message) {
+            this(refused, again, message, 0);
+        }
+
+        Failure(boolean refused, boolean again, String message, int sourceError) {
             super(message);
+            this.sourceError = sourceError;
             this.refused = refused;
             this.again = again;
         }
@@ -467,6 +474,7 @@ public final class DecodeGate {
         final GateOwner owner;
         private final String mInputUser;
         private volatile boolean mPermit;
+        int sourceError;
 
         Op(long wait, boolean critical, GateRefill refill) {
             this(wait, critical, refill, DecodeGate.owner());
@@ -889,6 +897,7 @@ public final class DecodeGate {
     /** The probe of {@code bytes} in the VM, with the turn the file asks for when {@code turn} (else 0). */
     static Info probe(Op op, Bytes bytes, boolean turn) throws Failure {
         final Bundle r = request(op, turn ? METHOD_HEADER : METHOD_PROBE, bytes, 0, 0);
+        if (r.getInt(EXTRA_SOURCE_ERROR) != 0) throw failed(false, "partial probe reply");
         final int width = r.getInt(EXTRA_WIDTH);
         final int height = r.getInt(EXTRA_HEIGHT);
         final int rotation = r.getInt(EXTRA_ROTATION);
@@ -915,6 +924,7 @@ public final class DecodeGate {
         if (bitmap == null || !quarterTurn(rotation) || bitmap.getWidth() > boxW || bitmap.getHeight() > boxH) {
             throw failed(false, "bad decode reply");
         }
+        op.sourceError = Math.max(op.sourceError, r.getInt(EXTRA_SOURCE_ERROR));
         return new Decoded(bitmap, rotation, r.getBoolean(EXTRA_MIRROR));
     }
 
@@ -944,6 +954,7 @@ public final class DecodeGate {
                 || (pixelFormat == 1 && bitmap.getConfig() != Bitmap.Config.RGBA_F16)) {
             throw failed(false, "bad region reply");
         }
+        op.sourceError = Math.max(op.sourceError, r.getInt(EXTRA_SOURCE_ERROR));
         return bitmap;
     }
 
@@ -1234,7 +1245,14 @@ public final class DecodeGate {
     // An answer for one caller: an error as a Failure, pixels as a copy of their own (the cache keeps the original).
     private static Bundle answerOf(Bundle answer) throws Failure {
         final String error = answer.getString(EXTRA_ERROR);
+        final int sourceError = answer.getInt(EXTRA_SOURCE_ERROR);
+        if (sourceError != 0 && sourceError != 2 && sourceError != 3) {
+            throw failed(false, "bad source error");
+        }
         if (error != null) {
+            if (answer.getBoolean(EXTRA_REFUSED) && sourceError != 0) {
+                throw new Failure(true, false, error, sourceError);
+            }
             throw answer.getBoolean(EXTRA_REFUSED) ? failed(true, error) : notNow(error);
         }
         final Bitmap bitmap = answer.getParcelable(EXTRA_BITMAP, Bitmap.class);

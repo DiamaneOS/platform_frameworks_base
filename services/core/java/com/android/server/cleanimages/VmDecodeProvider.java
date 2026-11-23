@@ -763,16 +763,18 @@ public final class VmDecodeProvider extends ContentProvider {
                         // The turn and the mirror the file asks for (its orientation), from a tiny decode in the VM.
                         final VmDecode.Decoded tiny = VmDecode.decode(getContext(), fd, lane, ownerUser,
                                 VmDecode.PRIORITY_USER_WAITING, TURN_PROBE_SIDE, TURN_PROBE_SIDE,
-                                VmDecode.deadlineIn(Math.max(1, end - SystemClock.uptimeMillis())));
+                                VmDecode.deadlineIn(Math.max(1, end - SystemClock.uptimeMillis())), true);
                         reply.putInt(DecodeGate.EXTRA_ROTATION, tiny.rotation);
                         reply.putBoolean(DecodeGate.EXTRA_MIRROR, tiny.mirrored);
                     }
                 } else if (DecodeGate.METHOD_REGION.equals(method) || DecodeGate.METHOD_REGION_WIDE.equals(method)) {
-                    reply.putParcelable(DecodeGate.EXTRA_BITMAP, VmDecode.decodeRegion(getContext(), fd, lane,
+                    final VmDecode.Decoded region = VmDecode.decodeRegionReply(getContext(), fd, lane,
                             ownerUser, VmDecode.PRIORITY_USER_WAITING, regionLeft, regionTop, width, height, sample,
                             DecodeGate.METHOD_REGION_WIDE.equals(method) ? IDecodeService.PIXEL_FORMAT_RGBA_F16
                                     : IDecodeService.PIXEL_FORMAT_RGBA_8888,
-                            VmDecode.deadlineIn(left)));
+                            VmDecode.deadlineIn(left), true);
+                    reply.putParcelable(DecodeGate.EXTRA_BITMAP, region.bitmap);
+                    reply.putInt(DecodeGate.EXTRA_SOURCE_ERROR, region.sourceError);
                     reply.putInt(DecodeGate.EXTRA_ROTATION, 0);
                 } else if (DecodeGate.METHOD_FRAMES.equals(method)) {
                     final VmDecode.Animation animation = VmDecode.decodeFrames(getContext(), fd, lane, ownerUser,
@@ -783,13 +785,15 @@ public final class VmDecodeProvider extends ContentProvider {
                     reply.putInt(DecodeGate.EXTRA_LOOPS, animation.loopCount);
                 } else {
                     final VmDecode.Decoded decoded = VmDecode.decode(getContext(), fd, lane, ownerUser,
-                            VmDecode.PRIORITY_USER_WAITING, width, height, VmDecode.deadlineIn(left));
+                            VmDecode.PRIORITY_USER_WAITING, width, height, VmDecode.deadlineIn(left), true);
+                    reply.putInt(DecodeGate.EXTRA_SOURCE_ERROR, decoded.sourceError);
                     reply.putParcelable(DecodeGate.EXTRA_BITMAP, decoded.bitmap);
                     reply.putInt(DecodeGate.EXTRA_ROTATION, decoded.rotation);
                     reply.putBoolean(DecodeGate.EXTRA_MIRROR, decoded.mirrored);
                 }
             }
         } catch (VmDecode.RejectedException e) {
+            if (e.sourceError != 0) reply.putInt(DecodeGate.EXTRA_SOURCE_ERROR, e.sourceError);
             reply.putBoolean(DecodeGate.EXTRA_REFUSED, true);
             reply.putString(DecodeGate.EXTRA_ERROR, "refused: " + e.getMessage());
         } catch (VmDecode.UnavailableException e) {

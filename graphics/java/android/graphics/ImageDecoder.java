@@ -1791,7 +1791,7 @@ public final class ImageDecoder implements AutoCloseable {
             // DiamaneOS: decoded in the protected VM (DecodeGate).
             return GatedDecodes.decode(mGated, mDesiredWidth, mDesiredHeight, mCropRect, mMutable,
                     mAllocator, mUnpremultipliedRequired, mDecodeAsAlphaMask, mPostProcessor,
-                    mSource, mDesiredColorSpace, mConserveMemory);
+                    mSource, mDesiredColorSpace, mConserveMemory, mOnPartialImageListener);
         }
         return nDecodeBitmap(mNativePtr, this, mPostProcessor != null,
                 mDesiredWidth, mDesiredHeight, mCropRect,

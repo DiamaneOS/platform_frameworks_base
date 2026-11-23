@@ -202,6 +202,7 @@ final class GatedDecodes {
                 bitmap = GateLargeHardware.decode(op, bytes, info.width, info.height, storedSample,
                         width, height, 0, false, requestedColor, true, true, false);
                 if (bitmap != null) {
+                    GatePartialImages.bitmapFactory(op.sourceError);
                     if (outPadding != null) outPadding.set(-1, -1, -1, -1);
                     opts.outConfig = bitmap.getConfig();
                     opts.outColorSpace = bitmap.getColorSpace();
@@ -231,6 +232,7 @@ final class GatedDecodes {
                 bitmap.recycle();
                 throw e;
             }
+            GatePartialImages.bitmapFactory(op.sourceError);
             markOpaque(bitmap, info.mimeType);
             final Bitmap.Config outputConfig = factoryConfig(info, opts, bytes);
             bitmap = GateImageSettings.convert(bitmap, requestedColor,
@@ -794,12 +796,12 @@ final class GatedDecodes {
      */
     static Bitmap decode(Header header, int width, int height, @Nullable Rect crop, boolean mutable,
             int allocator, boolean unpremultiplied, boolean alphaMask, @Nullable PostProcessor postProcessor,
-            ImageDecoder.Source source, @Nullable ColorSpace colorSpace, boolean conserveMemory)
-            throws ImageDecoder.DecodeException {
+            ImageDecoder.Source source, @Nullable ColorSpace colorSpace, boolean conserveMemory,
+            @Nullable ImageDecoder.OnPartialImageListener partialListener) throws ImageDecoder.DecodeException {
         GateImageSettings.validateColorSpace(colorSpace);
         try {
             return retained(decodePixels(header, width, height, crop, mutable, allocator, unpremultiplied,
-                    alphaMask, postProcessor, source, colorSpace, conserveMemory));
+                    alphaMask, postProcessor, source, colorSpace, conserveMemory, partialListener));
         } catch (DecodeGate.Failure e) {
             throw decodeException(e, source);
         } catch (OutOfMemoryError e) {
@@ -809,8 +811,8 @@ final class GatedDecodes {
 
     private static Bitmap decodePixels(Header header, int width, int height, @Nullable Rect crop, boolean mutable,
             int allocator, boolean unpremultiplied, boolean alphaMask, @Nullable PostProcessor postProcessor,
-            ImageDecoder.Source source, @Nullable ColorSpace colorSpace, boolean conserveMemory)
-            throws ImageDecoder.DecodeException {
+            ImageDecoder.Source source, @Nullable ColorSpace colorSpace, boolean conserveMemory,
+            @Nullable ImageDecoder.OnPartialImageListener partialListener) throws ImageDecoder.DecodeException {
         Bitmap bitmap = null;
         Bitmap result = null;
         try {
@@ -828,7 +830,10 @@ final class GatedDecodes {
                         header.storedHeight, largeSample(header, width, height), width, height,
                         header.rotation, header.mirrored, colorSpace, true, false,
                         allocator == ImageDecoder.ALLOCATOR_HARDWARE);
-                if (bitmap != null) return result = bitmap;
+                if (bitmap != null) {
+                    GatePartialImages.imageDecoder(header.op.sourceError, partialListener, source);
+                    return result = bitmap;
+                }
             }
             if (header.bitDepth > 8) {
                 header.op.checkFit(header.bytes.reserved() + GateWidePixels.peakBytes(width, height,
@@ -862,6 +867,7 @@ final class GatedDecodes {
                 }
             }
             }
+            GatePartialImages.imageDecoder(header.op.sourceError, partialListener, source);
             if (header.bitDepth == 10 && "image/avif".equals(header.mimeType)) {
                 bitmap = GateImageSettings.convert(bitmap, colorSpace, Bitmap.Config.RGBA_1010102);
             }
@@ -1100,7 +1106,8 @@ final class GatedDecodes {
 
     private static ImageDecoder.DecodeException decodeException(DecodeGate.Failure e,
             ImageDecoder.Source source) {
-        return new ImageDecoder.DecodeException(e.refused ? ImageDecoder.DecodeException.SOURCE_MALFORMED_DATA
+        return new ImageDecoder.DecodeException(e.sourceError != 0 ? e.sourceError
+                : e.refused ? ImageDecoder.DecodeException.SOURCE_MALFORMED_DATA
                 : ImageDecoder.DecodeException.SOURCE_EXCEPTION,
                 "not decoded in the protected VM: " + e.getMessage(), e.getCause(), source);
     }
