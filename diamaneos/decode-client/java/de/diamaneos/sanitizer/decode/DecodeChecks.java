@@ -55,7 +55,7 @@ public final class DecodeChecks {
         if (i.status != IDecodeService.STATUS_OK) return null;
         if (!format(i.format)) return "format";
         if (!size(i.width, i.height, IDecodeService.MAX_DIMENSION, IDecodeService.MAX_DIMENSION)) return "size";
-        if (!isColorSpace(i.colorSpace)) return "colorSpace";
+        if (!isColorSpace(i.colorSpace, i.colorDescription)) return "colorSpace";
         if (i.animated && !mayBeAnimated(i.format)) return "animated";
         if (!isBitDepth(i.bitDepth)) return "bitDepth";
         return null;
@@ -79,7 +79,7 @@ public final class DecodeChecks {
             return "stripeRows";
         }
         if (t.handle == 0) return "handle";
-        if (!isColorSpace(t.colorSpace)) {
+        if (!isColorSpace(t.colorSpace, t.colorDescription)) {
             return "colorSpace";
         }
         if (t.gainmapWidth == 0 && t.gainmapHeight == 0) {
@@ -159,7 +159,7 @@ public final class DecodeChecks {
         for (int d : f.durations) {
             if (d < 0 || d > IDecodeService.MAX_FRAME_MILLIS) return "duration";
         }
-        if (!isColorSpace(f.colorSpace)) {
+        if (!isColorSpace(f.colorSpace, f.colorDescription)) {
             return "colorSpace";
         }
         long rows = (long) f.frameCount * f.height;
@@ -189,17 +189,48 @@ public final class DecodeChecks {
 
     /** The android.graphics.ColorSpace checked frames are built in. */
     public static android.graphics.ColorSpace colorSpaceOf(Frames f) {
-        return colorSpaceOf(f.colorSpace);
+        return colorSpaceOf(f.colorSpace, f.colorDescription);
     }
 
     /** The android.graphics.ColorSpace a checked thumbnail's Bitmap is built in. */
     public static android.graphics.ColorSpace colorSpaceOf(Thumbnail t) {
-        return colorSpaceOf(t.colorSpace);
+        return colorSpaceOf(t.colorSpace, t.colorDescription);
     }
 
     /** Only the complete named colour tag set is accepted. */
     public static boolean isColorSpace(int value) {
         return value >= IDecodeService.COLOR_SPACE_SRGB && value <= IDecodeService.COLOR_SPACE_LINEAR_SRGB;
+    }
+
+    /** A custom tag requires exactly the checked matrix and transfer values. */
+    public static boolean isColorSpace(int value, float[] description) {
+        return value == IDecodeService.COLOR_SPACE_CUSTOM ? isColorDescription(description)
+                : isColorSpace(value) && (description == null || description.length == 0);
+    }
+
+    public static boolean isColorDescription(float[] p) {
+        if (p == null || p.length != 16) return false;
+        for (float value : p) if (!Float.isFinite(value) || Math.abs(value) > 65536.0f) return false;
+        final double det = (double)p[0] * ((double)p[4]*p[8] - (double)p[7]*p[5])
+                - (double)p[3] * ((double)p[1]*p[8] - (double)p[7]*p[2])
+                + (double)p[6] * ((double)p[1]*p[5] - (double)p[4]*p[2]);
+        if (!Double.isFinite(det) || Math.abs(det) < 1e-12) return false;
+        for (int i=0; i<9; i+=3) if (Math.abs((double)p[i]+p[i+1]+p[i+2]) < 1e-12) return false;
+        final double a=p[9], c=p[11], d=p[12], g=p[15];
+        return d >= 0 && d <= 1.00000011920928955078125 && a >= 0 && c >= 0 && g >= 0
+                && !(d == 0 && (a == 0 || g == 0)) && !(d >= 1 && c == 0)
+                && !((a == 0 || g == 0) && c == 0) && p[9]*p[12]+p[10] >= 0;
+    }
+
+    /** Build only from checked scalar values produced inside the VM. */
+    public static android.graphics.ColorSpace colorSpaceOf(int value, float[] description) {
+        if (!isColorSpace(value, description)) throw new IllegalArgumentException("unchecked colour description");
+        if (value != IDecodeService.COLOR_SPACE_CUSTOM) return colorSpaceOf(value);
+        final float[] xyz = java.util.Arrays.copyOf(description, 9);
+        final android.graphics.ColorSpace.Rgb.TransferParameters transfer = new android.graphics.ColorSpace.Rgb.TransferParameters(
+                description[9], description[10], description[11], description[12], description[13], description[14], description[15]);
+        final android.graphics.ColorSpace matched = android.graphics.ColorSpace.match(xyz, transfer);
+        return matched != null ? matched : new android.graphics.ColorSpace.Rgb("Unknown", xyz, transfer);
     }
 
     /** Build a colour space only after checking its scalar tag. */

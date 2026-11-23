@@ -42,4 +42,6 @@ parcelable ImageInfo {
 
     /** Zero for complete data, 2 for incomplete source data, 3 for malformed source data. */
     int sourceError = 0;
+    /** Exactly 16 checked XYZ D50 and transfer values for COLOR_SPACE_CUSTOM, empty for named tags. */
+    float[] colorDescription;
 }

@@ -757,6 +757,7 @@ public final class VmDecodeProvider extends ContentProvider {
                     reply.putInt(DecodeGate.EXTRA_FORMAT, info.format);
                     reply.putBoolean(DecodeGate.EXTRA_ANIMATED, info.animated);
                     reply.putInt(DecodeGate.EXTRA_COLOR_SPACE, info.colorSpace);
+                    reply.putFloatArray(DecodeGate.EXTRA_COLOR_DESCRIPTION, info.colorDescription);
                     reply.putInt(DecodeGate.EXTRA_BIT_DEPTH, info.bitDepth);
                     reply.putBoolean(DecodeGate.EXTRA_HAS_ALPHA, info.hasAlpha);
                     if (DecodeGate.METHOD_HEADER.equals(method) && (info.format == IDecodeService.FORMAT_JPEG

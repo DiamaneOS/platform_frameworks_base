@@ -142,6 +142,7 @@ public final class DecodeGate {
     /** Probe: IDecodeService.FORMAT_* and whether the image is animated. */
     public static final String EXTRA_FORMAT = "format";
     public static final String EXTRA_COLOR_SPACE = "colorSpace";
+    public static final String EXTRA_COLOR_DESCRIPTION = "colorDescription";
     public static final String EXTRA_BIT_DEPTH = "bitDepth";
     public static final String EXTRA_HAS_ALPHA = "hasAlpha";
     public static final String EXTRA_ANIMATED = "animated";
@@ -725,6 +726,11 @@ public final class DecodeGate {
 
         Info(int width, int height, String mimeType, boolean animated, int rotation, boolean mirrored,
                 int colorSpace, int bitDepth, boolean hasAlpha) {
+            this(width, height, mimeType, animated, rotation, mirrored, colorSpace, bitDepth, hasAlpha, null);
+        }
+
+        Info(int width, int height, String mimeType, boolean animated, int rotation, boolean mirrored,
+                int colorSpace, int bitDepth, boolean hasAlpha, float[] description) {
             this.bitDepth = bitDepth;
             this.hasAlpha = hasAlpha;
             this.width = width;
@@ -733,7 +739,7 @@ public final class DecodeGate {
             this.animated = animated;
             this.rotation = rotation;
             this.mirrored = mirrored;
-            this.colorSpace = GateColorSpaces.of(colorSpace);
+            this.colorSpace = GateColorSpaces.of(colorSpace, description);
         }
     }
 
@@ -905,16 +911,17 @@ public final class DecodeGate {
         final int height = r.getInt(EXTRA_HEIGHT);
         final int rotation = r.getInt(EXTRA_ROTATION);
         final int colorSpace = r.getInt(EXTRA_COLOR_SPACE);
+        final float[] description = r.getFloatArray(EXTRA_COLOR_DESCRIPTION);
         final int bitDepth = r.getInt(EXTRA_BIT_DEPTH, 8);
         if (!GateColorSpaces.isBitDepth(bitDepth)) throw failed(false, "bad source depth");
         if (width < 1 || height < 1 || width > MAX_BOX || height > MAX_BOX || !quarterTurn(rotation)) {
             throw failed(false, "bad probe reply");
         }
-        if (!GateColorSpaces.isValid(colorSpace)) {
+        if (!GateColorSpaces.isValid(colorSpace, description)) {
             throw failed(false, "bad probe colour space");
         }
         return new Info(width, height, mimeTypeOf(r.getInt(EXTRA_FORMAT), bytes.head()),
-                r.getBoolean(EXTRA_ANIMATED), rotation, r.getBoolean(EXTRA_MIRROR), colorSpace, bitDepth, r.getBoolean(EXTRA_HAS_ALPHA, true));
+                r.getBoolean(EXTRA_ANIMATED), rotation, r.getBoolean(EXTRA_MIRROR), colorSpace, bitDepth, r.getBoolean(EXTRA_HAS_ALPHA, true), description);
     }
 
     /** {@code bytes} decoded in the VM to fit {@code maxWidth} x {@code maxHeight}, upright. */

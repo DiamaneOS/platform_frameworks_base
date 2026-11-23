@@ -1340,6 +1340,7 @@ public final class VmDecode {
         public final int format;
         public final boolean animated;
         public final int colorSpace;
+        public final float[] colorDescription;
         public final int bitDepth;
         public final boolean hasAlpha;
 
@@ -1352,6 +1353,12 @@ public final class VmDecode {
         }
 
         Info(int width, int height, int format, boolean animated, int colorSpace, int bitDepth, boolean hasAlpha) {
+            this(width, height, format, animated, colorSpace, bitDepth, hasAlpha, null);
+        }
+
+        Info(int width, int height, int format, boolean animated, int colorSpace, int bitDepth, boolean hasAlpha,
+                float[] description) {
+            this.colorDescription = description == null ? null : description.clone();
             this.bitDepth = bitDepth;
             this.hasAlpha = hasAlpha;
             this.width = width;
@@ -1386,8 +1393,8 @@ public final class VmDecode {
             } catch (StripeValidator.BadReplyException e) {
                 throw new RejectedException(e.getMessage());
             }
-            if (!DecodeChecks.isColorSpace(info.colorSpace)) throw new RejectedException("bad colour space");
-            return new Info(info.width, info.height, info.format, info.animated, info.colorSpace, info.bitDepth, info.hasAlpha);
+            if (!DecodeChecks.isColorSpace(info.colorSpace, info.colorDescription)) throw new RejectedException("bad colour space");
+            return new Info(info.width, info.height, info.format, info.animated, info.colorSpace, info.bitDepth, info.hasAlpha, info.colorDescription);
         });
     }
 

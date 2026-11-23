@@ -19,7 +19,7 @@ package de.diamaneos.sanitizer.decode;
 /**
  * A decoded, scaled image held by the service. The pixels come in stripes through readStripe(handle, index): stripe i
  * holds rows [i * stripeRows, min(height, (i + 1) * stripeRows)). RGBA8888 uses four bytes per pixel.
- * RGBAF16 uses eight bytes, four little-endian half values in [0, 1]. All colours are premultiplied.
+ * RGBAF16 uses eight bytes, four little-endian half values in [0, 1]. Explicit straight requests retain RGB above alpha.
  * The caller checks every stripe's exact length and that no colour channel exceeds alpha.
  */
 parcelable Thumbnail {
@@ -40,9 +40,8 @@ parcelable Thumbnail {
     long handle;
 
     /**
-     * The pixels' colour space, IDecodeService.COLOR_SPACE_*: the file's own when it is sRGB or Display P3, as
-     * Android's decode keeps it, otherwise the nearest of the two that holds its gamut. The caller builds its Bitmap
-     * in it. Last, so a caller built before it reads sRGB.
+     * The checked pixels' colour space, IDecodeService.COLOR_SPACE_*. A custom scalar tag requires the complete
+     * colorDescription. The caller builds its Bitmap in that checked space.
      */
     int colorSpace;
 
@@ -74,4 +73,6 @@ parcelable Thumbnail {
 
     /** Zero for complete data, 2 for incomplete source data, 3 for malformed source data. */
     int sourceError = 0;
+    /** Exactly 16 checked XYZ D50 and transfer values for COLOR_SPACE_CUSTOM, empty for named tags. */
+    float[] colorDescription;
 }

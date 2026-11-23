@@ -70,6 +70,7 @@ interface IDecodeService {
     const int COLOR_SPACE_BT2020_HLG = 5;
     const int COLOR_SPACE_BT2020_PQ = 6;
     const int COLOR_SPACE_LINEAR_SRGB = 7;
+    const int COLOR_SPACE_CUSTOM = 8;
 
     /**
      * Thumbnails: a longer input is refused (STATUS_INVALID). A regular file the service can read without
