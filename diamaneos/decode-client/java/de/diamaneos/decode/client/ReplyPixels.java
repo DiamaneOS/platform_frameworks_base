@@ -85,7 +85,7 @@ final class ReplyPixels {
             // In the file's colour space, as Android's decode gives it: sRGB or Display P3 (Thumbnail.colorSpace).
             final Bitmap bitmap = Bitmap.createBitmap(width, height, (t.pixelFormat & 1) != 0
                     ? Bitmap.Config.RGBA_F16 : Bitmap.Config.ARGB_8888, true,
-                    DecodeChecks.colorSpaceOf(t));
+                    android.graphics.GateColorSpaces.of(t.colorSpace, t.colorDescription));
             Bitmap result = bitmap;
             try {
                 if (straight) {
@@ -184,7 +184,7 @@ final class ReplyPixels {
         final int stripes = (rows + f.stripeRows - 1) / f.stripeRows;
         try (DecodeMemory.Reservation memory = reserve((long) rows * f.width * 4 + 2 * STRIPE_BYTES)) {
             final Bitmap frames = Bitmap.createBitmap(f.width, rows, Bitmap.Config.ARGB_8888, true,
-                    DecodeChecks.colorSpaceOf(f));
+                    android.graphics.GateColorSpaces.of(f.colorSpace, f.colorDescription));
             try {
                 try (Rows out = new Rows(frames)) {
                 for (int i = 0; i < stripes; i++) {

@@ -1,8 +1,11 @@
 /* Copyright (C) 2026 DiamaneOS */
 package android.graphics;
 
-/** The bounded scalar colour descriptions in the decode wire contract. */
-final class GateColorSpaces {
+/**
+ * The bounded scalar colour descriptions in the decode wire contract.
+ * @hide
+ */
+public final class GateColorSpaces {
     static boolean isValid(int value) {
         return value >= 0 && value <= 7;
     }
@@ -26,14 +29,23 @@ final class GateColorSpaces {
                 && !((a == 0 || g == 0) && c == 0) && p[9]*p[12]+p[10] >= 0;
     }
 
-    static ColorSpace of(int value, float[] description) {
+    public static ColorSpace of(int value, float[] description) {
         if (!isValid(value, description)) throw new IllegalArgumentException("unchecked colour description");
         if (value != 8) return of(value);
         final float[] xyz = java.util.Arrays.copyOf(description, 9);
         final ColorSpace.Rgb.TransferParameters transfer = new ColorSpace.Rgb.TransferParameters(
                 description[9], description[10], description[11], description[12], description[13], description[14], description[15]);
         final ColorSpace matched = ColorSpace.match(xyz, transfer);
-        return matched != null ? matched : new ColorSpace.Rgb("Unknown", xyz, transfer);
+        return matched != null ? matched : new ColorSpace.Rgb("Unknown", xyz, transfer, true);
+    }
+
+    static float[] checkedNativeTransform(float[] adapted, float[] sourceD50) {
+        for (float value : adapted) {
+            if (!Float.isFinite(value)) {
+                throw new IllegalArgumentException("colour transform is not finite");
+            }
+        }
+        return sourceD50;
     }
 
     static boolean isBitDepth(int depth) {
