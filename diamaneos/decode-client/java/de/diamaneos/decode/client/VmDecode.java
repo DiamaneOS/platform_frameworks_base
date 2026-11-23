@@ -129,6 +129,13 @@ public final class VmDecode {
     public static final class RejectedException extends Exception {
         /** True when the URI could not be opened: not a verdict on the image, it may be tried again later. */
         public final boolean openFailed;
+        public final int sourceError;
+
+        public RejectedException(String message, int sourceError) {
+            super(message);
+            this.openFailed = false;
+            this.sourceError = sourceError == 2 ? 2 : 3;
+        }
 
         public RejectedException(String message) {
             this(message, false);
@@ -137,6 +144,7 @@ public final class VmDecode {
         public RejectedException(String message, boolean openFailed) {
             super(message);
             this.openFailed = openFailed;
+            this.sourceError = 0;
         }
     }
 
@@ -147,12 +155,18 @@ public final class VmDecode {
         public final int rotation;
         /** True when the stored pixels were mirrored left to right before the turn (the file's orientation). */
         public final boolean mirrored;
+        public final int sourceError;
 
         Decoded(Bitmap bitmap, int rotation) {
             this(bitmap, rotation, false);
         }
 
         Decoded(Bitmap bitmap, int rotation, boolean mirrored) {
+            this(bitmap, rotation, mirrored, 0);
+        }
+
+        Decoded(Bitmap bitmap, int rotation, boolean mirrored, int sourceError) {
+            this.sourceError = sourceError;
             this.bitmap = bitmap;
             this.rotation = rotation;
             this.mirrored = mirrored;
@@ -485,6 +499,12 @@ public final class VmDecode {
      */
     public static Decoded decode(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
             int priority, int maxWidth, int maxHeight, long deadline) throws UnavailableException, RejectedException {
+        return decode(context, fd, ownerPackage, ownerUser, priority, maxWidth, maxHeight, deadline, false);
+    }
+
+    public static Decoded decode(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
+            int priority, int maxWidth, int maxHeight, long deadline, boolean allowPartial)
+            throws UnavailableException, RejectedException {
         checkNotMainThread();
         if (maxWidth < 1 || maxHeight < 1) {
             throw new RejectedException("bad box " + maxWidth + "x" + maxHeight);
@@ -498,7 +518,7 @@ public final class VmDecode {
             }
             checkStatus(thumbnail.status);
             try {
-                final Decoded decoded = toDecoded(service, thumbnail, maxWidth, maxHeight);
+                final Decoded decoded = ReplyPixels.thumbnail(service, thumbnail, maxWidth, maxHeight, allowPartial);
                 if (madeLogging()) {
                     madeLine("made " + decoded.bitmap.getWidth() + "x" + decoded.bitmap.getHeight()
                             + " in the VM for " + request.ownerPackage);
@@ -1262,6 +1282,13 @@ public final class VmDecode {
     public static Bitmap decodeRegion(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
             int priority, int left, int top, int width, int height, int sampleSize, int pixelFormat, long deadline)
             throws UnavailableException, RejectedException {
+        return decodeRegionReply(context, fd, ownerPackage, ownerUser, priority, left, top, width, height,
+                sampleSize, pixelFormat, deadline, false).bitmap;
+    }
+
+    public static Decoded decodeRegionReply(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
+            int priority, int left, int top, int width, int height, int sampleSize, int pixelFormat, long deadline,
+            boolean allowPartial) throws UnavailableException, RejectedException {
         checkNotMainThread();
         if (DecodeChecks.bytesPerPixel(pixelFormat) == 0) throw new RejectedException("pixel format");
         if (left < 0 || top < 0 || width < 1 || height < 1 || sampleSize < 1
@@ -1285,7 +1312,7 @@ public final class VmDecode {
                 if (thumbnail.rotation != 0 || thumbnail.mirrored) {
                     throw new RejectedException("a turned region");
                 }
-                return toDecoded(service, thumbnail, maxWidth, maxHeight).bitmap;
+                return ReplyPixels.thumbnail(service, thumbnail, maxWidth, maxHeight, allowPartial);
             } finally {
                 try {
                     service.release(thumbnail.handle);
@@ -1337,6 +1364,9 @@ public final class VmDecode {
             final ImageInfo info = service.probe(request);
             if (info == null) {
                 throw new RejectedException("no reply");
+            }
+            if (info.status == IDecodeService.STATUS_INVALID && info.sourceError == 2) {
+                throw new RejectedException("incomplete image header", 2);
             }
             checkStatus(info.status);
             final String broken = DecodeChecks.check(info);

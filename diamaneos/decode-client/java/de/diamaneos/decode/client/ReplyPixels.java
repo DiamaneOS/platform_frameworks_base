@@ -53,6 +53,11 @@ final class ReplyPixels {
     /** Reads every stripe of {@code t}, checks it, and builds the bitmap turned upright. */
     static VmDecode.Decoded thumbnail(IDecodeService service, Thumbnail t, int maxWidth, int maxHeight)
             throws RemoteException, VmDecode.RejectedException, VmDecode.UnavailableException {
+        return thumbnail(service, t, maxWidth, maxHeight, false);
+    }
+
+    static VmDecode.Decoded thumbnail(IDecodeService service, Thumbnail t, int maxWidth, int maxHeight,
+            boolean allowPartial) throws RemoteException, VmDecode.RejectedException, VmDecode.UnavailableException {
         final int width = t.width;
         final int height = t.height;
         if (maxWidth < 1 || maxHeight < 1) {
@@ -62,6 +67,9 @@ final class ReplyPixels {
         final String broken = DecodeChecks.check(t, maxWidth, maxHeight);
         if (broken != null) {
             throw new VmDecode.RejectedException("thumbnail breaks the contract: " + broken);
+        }
+        if (!allowPartial && t.sourceError != 0) {
+            throw new VmDecode.RejectedException("partial image", t.sourceError);
         }
         final int stripes;
         try {
@@ -111,7 +119,7 @@ final class ReplyPixels {
                         DecodeMemory.recycle(bitmap, result);
                     }
                 }
-                final VmDecode.Decoded decoded = new VmDecode.Decoded(result, t.rotation, t.mirrored);
+                final VmDecode.Decoded decoded = new VmDecode.Decoded(result, t.rotation, t.mirrored, t.sourceError);
                 DecodeMemory.keep(result, memory);
                 return decoded;
             } catch (RemoteException | VmDecode.RejectedException | VmDecode.UnavailableException
