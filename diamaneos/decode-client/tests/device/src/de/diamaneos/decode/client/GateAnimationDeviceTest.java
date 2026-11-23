@@ -322,6 +322,7 @@ public class GateAnimationDeviceTest {
     }
 
     private void checkPlayback(int resource) throws Exception {
+        DecodeGate.resetForTest();
         final byte[] bytes = fixture(resource);
         // ByteBuffer prevents the fixture's own APK asset exemption from bypassing the VM.
         final int before = DecodeGate.countsForTest()[0];

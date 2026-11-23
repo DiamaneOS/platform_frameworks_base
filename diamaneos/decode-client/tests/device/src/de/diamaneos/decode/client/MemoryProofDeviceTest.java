@@ -18,6 +18,8 @@ package de.diamaneos.decode.client;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assume.assumeTrue;
 
 import android.content.Context;
@@ -85,7 +87,7 @@ public class MemoryProofDeviceTest {
         base.setGainmap(gainmap);
         final ByteArrayOutputStream out = new ByteArrayOutputStream();
         assertTrue(base.compress(Bitmap.CompressFormat.JPEG, 90, out));
-        base.recycle();
+        DecodeMemory.recycle(base, null);
         final File file = new File(mContext.getCacheDir(), "hdr-" + width + "x" + height + "-" + seed + ".jpg");
         try (FileOutputStream f = new FileOutputStream(file)) {
             f.write(out.toByteArray());
@@ -135,6 +137,19 @@ public class MemoryProofDeviceTest {
         for (int i = 0; i < 4; i++) {
             files.add(hdrJpeg(4000, 3000, i * 17)); // 12 MP each, a 3 MP gain map
         }
+        final java.util.Map<File, int[]> nativeGainmaps = new java.util.HashMap<>();
+        DecodeGate.setForcedForTest(false);
+        try {
+            for (File file : files) {
+                final Bitmap stock = BitmapFactory.decodeFile(file.getPath());
+                assertNotNull("native HDR fixture refused", stock);
+                try {
+                    assertTrue("native fixture lost its gain map", stock.hasGainmap());
+                    final Bitmap map = stock.getGainmap().getGainmapContents();
+                    nativeGainmaps.put(file, new int[] {map.getWidth(), map.getHeight()});
+                } finally { DecodeMemory.recycle(stock, null); }
+            }
+        } finally { DecodeGate.setForcedForTest(true); }
         System.gc();
         final long rss0 = rssKb();
         final long hwm0 = peakRssKb();
@@ -236,22 +251,27 @@ public class MemoryProofDeviceTest {
             // 3. A reused bitmap that held an HDR image, for each file in turn.
             final Bitmap reused = Bitmap.createBitmap(4000, 3000, Bitmap.Config.ARGB_8888);
             reused.setGainmap(new Gainmap(Bitmap.createBitmap(2000, 1500, Bitmap.Config.ARGB_8888)));
-            for (File f : files) {
-                final BitmapFactory.Options opts = new BitmapFactory.Options();
-                opts.inMutable = true;
-                opts.inBitmap = reused;
-                try {
-                    final Bitmap b = BitmapFactory.decodeFile(f.getPath(), opts);
-                    if (b != null) {
-                        made.incrementAndGet();
-                        assertTrue("the reused bitmap kept a gain map", !b.hasGainmap());
-                    } else {
-                        forNow.incrementAndGet();
+            try {
+                for (File f : files) {
+                    final BitmapFactory.Options opts = new BitmapFactory.Options();
+                    opts.inMutable = true;
+                    opts.inBitmap = reused;
+                    try {
+                        final Bitmap b = BitmapFactory.decodeFile(f.getPath(), opts);
+                        if (b != null) {
+                            made.incrementAndGet();
+                            assertSame(reused, b);
+                            assertTrue("the new HDR image lost its gain map", b.hasGainmap());
+                            assertEquals(nativeGainmaps.get(f)[0], b.getGainmap().getGainmapContents().getWidth());
+                            assertEquals(nativeGainmaps.get(f)[1], b.getGainmap().getGainmapContents().getHeight());
+                        } else {
+                            forNow.incrementAndGet();
+                        }
+                    } catch (IllegalArgumentException e) {
+                        forNow.incrementAndGet(); // Existing storage cannot fit this image.
                     }
-                } catch (IllegalArgumentException e) {
-                    forNow.incrementAndGet(); // "Problem decoding into existing bitmap": no image this time
                 }
-            }
+            } finally { DecodeMemory.recycle(reused, null); }
         } finally {
             sampler.stop = true;
             sampler.join();

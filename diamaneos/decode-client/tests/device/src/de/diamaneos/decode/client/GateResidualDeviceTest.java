@@ -49,11 +49,9 @@ public class GateResidualDeviceTest {
         File fifo = File.createTempFile("gate-deadline-", ".fifo", context.getCacheDir());
         assertTrue(fifo.delete());
         assertTrue(fifo.getPath().matches("[A-Za-z0-9_./-]+"));
-        // The test shell creates the FIFO because the app domain cannot create special files.
-        String made = OwnerDeviceTest.shell("su 0 sh -c 'mkfifo -m 600 " + fifo.getPath()
-                + " && chown " + android.os.Process.myUid() + ":" + android.os.Process.myUid()
-                + " " + fifo.getPath() + " && restorecon " + fifo.getPath() + " && echo GATE-FIFO-READY'");
-        assertTrue("FIFO fixture was not made", made.contains("GATE-FIFO-READY"));
+        // The app creates the FIFO in its own private directory.
+        Os.mkfifo(fifo.getPath(), 0600);
+        assertTrue("FIFO fixture was not made", fifo.exists());
         byte[] bytes = png();
         Thread writer = new Thread(() -> {
             SystemClock.sleep(1500);
@@ -76,7 +74,7 @@ public class GateResidualDeviceTest {
             try { writer.join(5000); }
             finally {
                 Os.close(cleanup);
-                OwnerDeviceTest.shell("su 0 rm -f " + fifo.getPath());
+                assertTrue("FIFO fixture was not removed", fifo.delete());
                 assertFalse("FIFO fixture remains", fifo.exists());
             }
         }

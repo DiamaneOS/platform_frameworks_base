@@ -250,7 +250,10 @@ public class GateBudgetDeviceTest {
         DecodeGate.setLocal(provider);
         final byte[] png = png(64, 32, Color.RED);
         DecodeMemory.setMaxForTest(1L << 20);
-        assertNotNull(BitmapFactory.decodeByteArray(png, 0, png.length));
+        final Bitmap initial = BitmapFactory.decodeByteArray(png, 0, png.length);
+        assertNotNull(initial);
+        initial.recycle();
+        DecodeGate.resetForTest();
         try (DecodeMemory.Reservation others = DecodeMemory.reserve((1L << 20) - 1024)) {
             DecodeGate.resetForTest();
             assertNull(BitmapFactory.decodeByteArray(png, 0, png.length));
@@ -262,7 +265,10 @@ public class GateBudgetDeviceTest {
             }
         }
         DecodeGate.resetForTest();
-        assertNotNull("room again", BitmapFactory.decodeByteArray(png, 0, png.length));
+        final Bitmap retried = BitmapFactory.decodeByteArray(png, 0, png.length);
+        assertNotNull("room again", retried);
+        retried.recycle();
+        DecodeGate.resetForTest();
         // An image whose decode needs more than this process takes at all.
         provider.width = 1024;
         provider.height = 1024;

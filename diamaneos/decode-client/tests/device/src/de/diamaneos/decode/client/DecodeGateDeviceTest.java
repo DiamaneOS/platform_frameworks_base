@@ -455,11 +455,22 @@ public class DecodeGateDeviceTest {
     }
 
     @Test
-    public void moviesAreNotMadeInAGatedProcess() {
-        assertNull(Movie.decodeByteArray(GIF, 0, GIF.length));
-        assertNull(Movie.decodeStream(new ByteArrayInputStream(GIF)));
+    public void moviesKeepThePublicShapeWithVmFrames() throws Exception {
+        final Movie array = Movie.decodeByteArray(GIF, 0, GIF.length);
+        final Movie stream = Movie.decodeStream(new ByteArrayInputStream(GIF));
+        assertNotNull(array);
+        assertNotNull(stream);
+        final java.lang.reflect.Field nativeMovie = Movie.class.getDeclaredField("mNativeMovie");
+        nativeMovie.setAccessible(true);
+        assertEquals("gated Movie retained a native decoder", 0L, nativeMovie.getLong(array));
+        assertEquals("gated stream retained a native decoder", 0L, nativeMovie.getLong(stream));
         DecodeGate.setForcedForTest(false);
-        assertNotNull("as before without the gate", Movie.decodeByteArray(GIF, 0, GIF.length));
+        final Movie stock = Movie.decodeByteArray(GIF, 0, GIF.length);
+        assertNotNull(stock);
+        assertEquals(stock.width(), array.width());
+        assertEquals(stock.height(), array.height());
+        assertEquals(stock.width(), stream.width());
+        assertEquals(stock.height(), stream.height());
     }
 
     // Exemption
