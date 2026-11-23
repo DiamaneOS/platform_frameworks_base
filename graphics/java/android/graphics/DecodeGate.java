@@ -1289,9 +1289,12 @@ public final class DecodeGate {
             return answer;
         }
         try (DecodeMemory.Reservation memory = DecodeMemory.reserve(DecodeMemory.bitmapBytes(bitmap))) {
+            final boolean straight = bitmap.hasAlpha() && !bitmap.isPremultiplied();
             final Bitmap copy = bitmap.copy(bitmap.getConfig(), false);
             if (copy == null) throw notNow("no memory for the pixels");
             try {
+                // Parcel keeps raw straight pixels but its Java copy request defaults to premultiplied.
+                if (straight) copy.setPremultiplied(false);
                 final Bundle mine = new Bundle(answer);
                 mine.putParcelable(EXTRA_BITMAP, copy);
                 DecodeMemory.keep(copy, memory);
