@@ -429,7 +429,7 @@ public final class VmDecodeProvider extends ContentProvider {
                 || DecodeGate.METHOD_REGION_STRAIGHT_WIDE.equals(method);
         final ParcelFileDescriptor given = extras.getParcelable(DecodeGate.EXTRA_FD, ParcelFileDescriptor.class);
         if (!probe && !frames && !region && !DecodeGate.METHOD_DECODE.equals(method)
-                && !DecodeGate.METHOD_STRAIGHT_WEBP.equals(method)) {
+                && !DecodeGate.METHOD_STRAIGHT_WEBP.equals(method) && !DecodeGate.METHOD_GAINMAP.equals(method)) {
             closeQuietly(given);
             return refusal("unknown method");
         }
@@ -782,6 +782,11 @@ public final class VmDecodeProvider extends ContentProvider {
                             VmDecode.deadlineIn(left), true);
                     reply.putParcelable(DecodeGate.EXTRA_BITMAP, region.bitmap);
                     reply.putInt(DecodeGate.EXTRA_SOURCE_ERROR, region.sourceError);
+                    reply.putInt(DecodeGate.EXTRA_ROTATION, 0);
+                } else if (DecodeGate.METHOD_GAINMAP.equals(method)) {
+                    final VmDecode.Decoded gain = VmDecode.decodeGainmap(getContext(), fd, lane, ownerUser,
+                            VmDecode.PRIORITY_USER_WAITING, width, height, VmDecode.deadlineIn(left));
+                    reply.putParcelable(DecodeGate.EXTRA_BITMAP, gain.bitmap);
                     reply.putInt(DecodeGate.EXTRA_ROTATION, 0);
                 } else if (DecodeGate.METHOD_FRAMES.equals(method)) {
                     final VmDecode.Animation animation = VmDecode.decodeFrames(getContext(), fd, lane, ownerUser,

@@ -3,7 +3,7 @@ package android.graphics;
 
 /** Gain maps for a whole image assembled from the VM's stored base regions. */
 final class GateGainmaps {
-    // Whole reply and copy, gain-map reply, copy and inverse transform, before any allocation.
+    // The initial whole metadata reply and copy, before its independent gain-pixel stage.
     private static final int MAX_BOX = (int) Math.sqrt(DecodeGate.MAX_VM_PIXELS);
 
     private static int box(int width, int height) {
@@ -20,28 +20,41 @@ final class GateGainmaps {
         final int box = box(target.getWidth(), target.getHeight());
         final DecodeGate.Decoded decoded = DecodeGate.decode(op, bytes, box, box);
         final Bitmap whole = decoded.bitmap;
+        Bitmap contents = null;
+        boolean complete = false;
         try {
             final Gainmap map = whole.getGainmap();
             if (map == null) {
                 target.setGainmap(null);
+                complete = true;
                 return;
             }
-            Bitmap contents = map.getGainmapContents();
-            if ((long) contents.getWidth() * contents.getHeight() > 2L * 1024 * 1024
-                    || contents.getWidth() > whole.getWidth() || contents.getHeight() > whole.getHeight()) {
+            final Bitmap metadataPixels = map.getGainmapContents();
+            if ((long) metadataPixels.getWidth() * metadataPixels.getHeight() > 2L * 1024 * 1024
+                    || metadataPixels.getWidth() > whole.getWidth()
+                    || metadataPixels.getHeight() > whole.getHeight()) {
                 throw DecodeGate.failed(true, "gain map exceeds the checked producer limit");
             }
-            if (stored && (decoded.rotation != 0 || decoded.mirrored)) {
+            final boolean turned = !stored && (decoded.rotation == 90 || decoded.rotation == 270);
+            final int baseWidth = turned ? target.getHeight() : target.getWidth();
+            final int baseHeight = turned ? target.getWidth() : target.getHeight();
+            final long gainPixels = Math.min((long) baseWidth * baseHeight, DecodeGate.MAX_VM_PIXELS);
+            op.checkFit(bytes.reserved() + DecodeMemory.bitmapBytes(target)
+                    + 2 * DecodeMemory.bitmapBytes(whole) + 3 * gainPixels * 4 + (4L << 20));
+            contents = DecodeGate.gainmap(op, bytes, baseWidth, baseHeight);
+            if (!stored && (decoded.rotation != 0 || decoded.mirrored)) {
                 final Matrix forward = new Matrix();
                 if (decoded.mirrored) forward.postScale(-1, 1);
                 forward.postRotate(decoded.rotation);
-                final Matrix inverse = new Matrix();
-                if (!forward.invert(inverse)) throw DecodeGate.failed(true, "invalid gain-map transform");
-                contents = GatePixels.transform(contents, 0, 0, contents.getWidth(), contents.getHeight(),
-                        inverse, false);
+                final Bitmap upright = GatePixels.transform(contents, 0, 0,
+                        contents.getWidth(), contents.getHeight(), forward, false);
+                DecodeMemory.recycle(contents, upright);
+                contents = upright;
             }
             target.setGainmap(new Gainmap(map, contents));
+            complete = true;
         } finally {
+            if (!complete) DecodeMemory.recycle(contents, null);
             DecodeMemory.recycle(whole, target);
         }
     }

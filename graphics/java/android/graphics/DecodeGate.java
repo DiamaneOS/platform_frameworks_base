@@ -90,6 +90,7 @@ public final class DecodeGate {
             .build();
     /** Decodes the bytes to fit a box: EXTRA_BITMAP (upright) and EXTRA_ROTATION come back. */
     public static final String METHOD_DECODE = "decode";
+    public static final String METHOD_GAINMAP = "gainmap-pixels";
     /** Reads the header: the stored size (EXTRA_WIDTH, EXTRA_HEIGHT), EXTRA_FORMAT and EXTRA_ANIMATED. */
     public static final String METHOD_PROBE = "probe";
     /** {@link #METHOD_PROBE} and, for JPEG, HEIF and AVIF, the turn the file asks for (EXTRA_ROTATION). */
@@ -941,6 +942,23 @@ public final class DecodeGate {
         }
         op.sourceError = Math.max(op.sourceError, r.getInt(EXTRA_SOURCE_ERROR));
         return new Decoded(bitmap, rotation, r.getBoolean(EXTRA_MIRROR));
+    }
+
+    static Bitmap gainmap(Op op, Bytes bytes, int baseWidth, int baseHeight) throws Failure {
+        if (baseWidth < 1 || baseHeight < 1 || baseWidth > MAX_BOX || baseHeight > MAX_BOX) {
+            throw failed(true, "gain map base geometry");
+        }
+        final Bundle reply = request(op, METHOD_GAINMAP, bytes, baseWidth, baseHeight);
+        final Bitmap bitmap = reply.getParcelable(EXTRA_BITMAP, Bitmap.class);
+        if (bitmap == null || bitmap.getWidth() > baseWidth || bitmap.getHeight() > baseHeight
+                || (long) bitmap.getWidth() * bitmap.getHeight() > MAX_VM_PIXELS
+                || bitmap.getConfig() != Bitmap.Config.ARGB_8888 || bitmap.hasGainmap()
+                || reply.getInt(EXTRA_ROTATION) != 0 || reply.getBoolean(EXTRA_MIRROR)
+                || reply.getInt(EXTRA_SOURCE_ERROR) != 0) {
+            DecodeMemory.recycle(bitmap, null);
+            throw failed(false, "bad gain map reply");
+        }
+        return bitmap;
     }
 
     /**
