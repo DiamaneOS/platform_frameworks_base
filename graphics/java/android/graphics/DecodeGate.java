@@ -219,11 +219,16 @@ public final class DecodeGate {
     // Answers by request and bytes (see Call), and requests under way. An answer is charged its pixels, and for its
     // key, its bundle and the rest a fixed amount that covers them.
     private static final int ENTRY_BYTES = 2048;
-    private static final android.util.LruCache<String, Bundle> sAnswers =
-            new android.util.LruCache<String, Bundle>(CACHE_BYTES) {
+    private static final android.util.LruCache<String, Answer> sAnswers =
+            new android.util.LruCache<String, Answer>(CACHE_BYTES) {
                 @Override
-                protected int sizeOf(String key, Bundle value) {
-                    return entryBytes(value);
+                protected int sizeOf(String key, Answer value) {
+                    return entryBytes(value.bundle);
+                }
+
+                @Override
+                protected void entryRemoved(boolean evicted, String key, Answer old, Answer replacement) {
+                    old.release();
                 }
             };
     // The gate's own threads that hand requests to the system server, so no caller blocks in that call.
@@ -438,7 +443,7 @@ public final class DecodeGate {
     public static void resetForTest() {
         debuggableOnly();
         sNoWaitUntil = 0;
-        sAnswers.evictAll();
+        synchronized (sAnswers) { sAnswers.evictAll(); }
     }
 
     /**
@@ -1007,11 +1012,35 @@ public final class DecodeGate {
         return rotation == 0 || rotation == 90 || rotation == 180 || rotation == 270;
     }
 
+    // Only private copies leave the gate. Cache entries, calls and refills share the original
+    // through explicit references so large uncached replies do not wait for GC between stripes.
+    static final class Answer {
+        final Bundle bundle;
+        private int mHolders = 1;
+
+        Answer(Bundle bundle) { this.bundle = bundle; }
+
+        synchronized Answer retain() {
+            if (mHolders == 0) throw new IllegalStateException("reply already released");
+            mHolders++;
+            return this;
+        }
+
+        void release() {
+            synchronized (this) {
+                if (mHolders == 0) throw new IllegalStateException("reply released twice");
+                if (--mHolders != 0) return;
+            }
+            DecodeMemory.recycle(bundle.getParcelable(EXTRA_BITMAP, Bitmap.class), null);
+        }
+    }
+
     /** One request under way, shared by every caller of the same request for the same bytes. */
     private static final class Call {
         final String key;
         final long end;
-        private Bundle mAnswer; // guarded by this
+        private Answer mAnswer; // guarded by this
+        private int mReaders; // request callers, guarded by this
         private boolean mSettled;
         // Refill registrations of callers that were not answered in time. Guarded by this.
         private java.util.ArrayList<GateRefill> mRefills;
@@ -1021,21 +1050,36 @@ public final class DecodeGate {
             this.end = end;
         }
 
-        // Gives the answer to its waiters, and returns the refills to tell (null: none, or answered before).
-        synchronized java.util.List<GateRefill> answer(Bundle answer) {
+        synchronized void addReader() {
+            if (mSettled) throw new IllegalStateException("reply already settled");
+            mReaders++;
+        }
+
+        void releaseReader() {
+            final Answer answer;
+            synchronized (this) {
+                if (mReaders == 0) throw new IllegalStateException("reader released twice");
+                answer = --mReaders == 0 ? mAnswer : null;
+                if (mReaders == 0) mAnswer = null;
+            }
+            if (answer != null) answer.release();
+        }
+
+        // Null means already answered. Otherwise the returned refills receive the producer's answer.
+        synchronized java.util.List<GateRefill> answer(Answer answer) {
             if (mSettled) return null;
             mSettled = true;
-            mAnswer = answer != null ? answer : new Bundle();
+            if (mReaders != 0) mAnswer = answer.retain();
             notifyAll();
             final java.util.List<GateRefill> refills = mRefills;
             mRefills = null;
-            return refills;
+            return refills != null ? refills : java.util.Collections.emptyList();
         }
 
         // A refill waits for this call's answer: null, or the answer when it came already.
         synchronized Bundle addRefill(GateRefill refill) {
             if (mAnswer != null) {
-                return mAnswer;
+                return mAnswer.bundle;
             }
             if (mRefills == null) {
                 mRefills = new java.util.ArrayList<>(1);
@@ -1060,7 +1104,7 @@ public final class DecodeGate {
                     return null;
                 }
             }
-            return mAnswer;
+            return mAnswer.bundle;
         }
     }
 
@@ -1176,13 +1220,19 @@ public final class DecodeGate {
         final GateOwner owner = op.owner;
         final String key = owner.key() + ':' + method + ':' + width + 'x' + height + '@' + left + ',' + top + '/'
                 + sample + ':' + bytes.digest();
-        Bundle cached = sAnswers.get(key);
+        Answer cached;
+        synchronized (sAnswers) {
+            cached = sAnswers.get(key);
+            if (cached != null) cached.retain();
+        }
         if (cached == null && op.refill != null) {
             cached = op.refill.held(key);
         }
         if (cached != null) {
-            sCacheHits.incrementAndGet();
-            return answerOf(cached);
+            try {
+                sCacheHits.incrementAndGet();
+                return answerOf(cached.bundle);
+            } finally { cached.release(); }
         }
         final Call call;
         boolean send = false;
@@ -1199,51 +1249,53 @@ public final class DecodeGate {
                 sCalls.put(key, call);
                 send = true;
             }
+            call.addReader();
         }
-        if (expired != null) {
-            for (Call gone : expired) {
-                finish(gone, error("no answer in time")); // its waiters and refills learn it now
-            }
-        }
-        if (send) {
-            final java.lang.ref.WeakReference<Call> expiration = new java.lang.ref.WeakReference<>(call);
-            GateRefill.timerForGate().postAtTime(() -> {
-                final Call started = expiration.get();
-                if (started == null) return;
-                boolean pending;
-                synchronized (sCalls) {
-                    pending = sCalls.get(started.key) == started;
-                    if (pending) sCalls.remove(started.key);
-                }
-                if (pending) finish(started, error("no answer in time"));
-                synchronized (started) { started.mAnswer = null; }
-            }, call.end);
-            send(method, bytes, width, height, left, top, sample, owner, call);
-        }
-        long wait = op.left();
-        Bundle answer;
-        sInside.set(Boolean.TRUE);
         try {
-            answer = wait > 0 ? call.await(op.end) : call.await(0);
-        } finally {
-            sInside.set(Boolean.FALSE);
-        }
-        if (answer == null && op.refill != null) {
-            // Its answer comes to the refill, which reloads then (or it came just now).
-            answer = call.addRefill(op.refill);
-        }
-        if (answer != null && answer.getString(EXTRA_ERROR) == null) {
-            (METHOD_PROBE.equals(method) || METHOD_HEADER.equals(method) ? sProbes : sDecodes).incrementAndGet();
-        }
-        if (answer == null) {
-            if (wait == 0) {
-                sNotWaited.incrementAndGet();
-                throw notNow("not waited for here, finishing in the background");
+            if (expired != null) {
+                for (Call gone : expired) {
+                    finish(gone, error("no answer in time")); // its waiters and refills learn it now
+                }
             }
-            timedOut(op);
-            throw notNow("missed its time, finishing in the background");
-        }
-        return answerOf(answer);
+            if (send) {
+                final java.lang.ref.WeakReference<Call> expiration = new java.lang.ref.WeakReference<>(call);
+                GateRefill.timerForGate().postAtTime(() -> {
+                    final Call started = expiration.get();
+                    if (started == null) return;
+                    boolean pending;
+                    synchronized (sCalls) {
+                        pending = sCalls.get(started.key) == started;
+                        if (pending) sCalls.remove(started.key);
+                    }
+                    if (pending) finish(started, error("no answer in time"));
+                }, call.end);
+                send(method, bytes, width, height, left, top, sample, owner, call);
+            }
+            long wait = op.left();
+            Bundle answer;
+            sInside.set(Boolean.TRUE);
+            try {
+                answer = wait > 0 ? call.await(op.end) : call.await(0);
+            } finally {
+                sInside.set(Boolean.FALSE);
+            }
+            if (answer == null && op.refill != null) {
+                // Its answer comes to the refill, which reloads then (or it came just now).
+                answer = call.addRefill(op.refill);
+            }
+            if (answer != null && answer.getString(EXTRA_ERROR) == null) {
+                (METHOD_PROBE.equals(method) || METHOD_HEADER.equals(method) ? sProbes : sDecodes).incrementAndGet();
+            }
+            if (answer == null) {
+                if (wait == 0) {
+                    sNotWaited.incrementAndGet();
+                    throw notNow("not waited for here, finishing in the background");
+                }
+                timedOut(op);
+                throw notNow("missed its time, finishing in the background");
+            }
+            return answerOf(answer);
+        } finally { call.releaseReader(); }
     }
 
     // Requests whose time is over (their callback never came) leave the table: each only as itself, so a newer call
@@ -1453,20 +1505,33 @@ public final class DecodeGate {
                 a = error("no room to retain the reply pixels");
             }
         }
-        if ((a.getString(EXTRA_ERROR) == null || a.getBoolean(EXTRA_REFUSED)) && entryBytes(a) <= CACHE_BYTES / 2) {
-            sAnswers.put(call.key, a);
+        final Answer shared;
+        try { shared = new Answer(a); }
+        catch (RuntimeException | Error e) {
+            DecodeMemory.recycle(bitmap, null);
+            throw e;
         }
-        synchronized (sCalls) {
-            if (sCalls.get(call.key) == call) {
-                sCalls.remove(call.key);
+        try {
+            final java.util.List<GateRefill> refills;
+            synchronized (sCalls) {
+                if (sCalls.get(call.key) == call) sCalls.remove(call.key);
+                refills = call.answer(shared);
             }
-        }
-        final java.util.List<GateRefill> refills = call.answer(a);
-        if (refills != null) {
-            for (GateRefill refill : refills) {
-                refill.answered(call.key, a);
+            if (refills == null) return;
+            if ((a.getString(EXTRA_ERROR) == null || a.getBoolean(EXTRA_REFUSED))
+                    && entryBytes(a) <= CACHE_BYTES / 2) {
+                synchronized (sAnswers) {
+                    shared.retain();
+                    try {
+                        sAnswers.put(call.key, shared);
+                    } catch (RuntimeException | Error e) {
+                        if (sAnswers.get(call.key) != shared) shared.release();
+                        throw e;
+                    }
+                }
             }
-        }
+            for (GateRefill refill : refills) refill.answered(call.key, shared);
+        } finally { shared.release(); }
     }
 
     // A stream that failed to read: a failure of the moment that keeps the stream's exception as its cause, which

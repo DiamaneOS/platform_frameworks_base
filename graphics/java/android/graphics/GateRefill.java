@@ -60,7 +60,7 @@ public final class GateRefill {
     private static final java.util.concurrent.atomic.AtomicBoolean sCapacityPosted = new java.util.concurrent.atomic.AtomicBoolean();
     private final Object mLock = new Object();
     // Answers of this registration's calls, by the gate's key. Guarded by mLock.
-    private final HashMap<String, android.os.Bundle> mHeld = new HashMap<>();
+    private final HashMap<String, DecodeGate.Answer> mHeld = new HashMap<>();
     // Input read for this registration after its caller left, by its source (GateInput). Guarded by mLock.
     private final HashMap<String, DecodeGate.Bytes> mInputs = new HashMap<>();
     private final java.util.WeakHashMap<Object, Long> mInputIds = new java.util.WeakHashMap<>();
@@ -201,6 +201,7 @@ public final class GateRefill {
     }
 
     private void clearLocked() {
+        for (DecodeGate.Answer answer : mHeld.values()) answer.release();
         mHeld.clear();
         for (DecodeGate.Bytes bytes : mInputs.values()) {
             bytes.close();
@@ -230,9 +231,10 @@ public final class GateRefill {
     }
 
     // The gate: an answer held for this registration under the gate's key, or null.
-    android.os.Bundle held(String key) {
+    DecodeGate.Answer held(String key) {
         synchronized (mLock) {
-            return endedLocked() ? null : mHeld.get(key);
+            final DecodeGate.Answer answer = endedLocked() ? null : mHeld.get(key);
+            return answer != null ? answer.retain() : null;
         }
     }
 
@@ -324,10 +326,11 @@ public final class GateRefill {
     }
 
     // The gate: a call this registration waits for got its answer (pixels, sizes, or an error).
-    void answered(String key, android.os.Bundle answer) {
+    void answered(String key, DecodeGate.Answer shared) {
+        final android.os.Bundle answer = shared.bundle;
         final boolean reload;
         synchronized (mLock) {
-            if (endedLocked()) {
+            if (endedLocked() || mSuspended) {
                 return;
             }
             mWaitingCalls = Math.max(0, mWaitingCalls - 1);
@@ -341,7 +344,15 @@ public final class GateRefill {
                 reload = false;
             } else {
                 if (mHeld.size() < MAX_HELD || mHeld.containsKey(key)) {
-                    mHeld.put(key, answer);
+                    shared.retain();
+                    final DecodeGate.Answer old;
+                    try {
+                        old = mHeld.put(key, shared);
+                    } catch (RuntimeException | Error e) {
+                        if (mHeld.get(key) != shared) shared.release();
+                        throw e;
+                    }
+                    if (old != null) old.release();
                 }
                 reload = true;
             }
