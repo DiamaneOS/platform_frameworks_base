@@ -29,6 +29,9 @@ package android.graphics;
 public final class DecodeMemory {
     /** All reservations of this process together, at most. */
     public static final long MAX_BYTES = 320L << 20;
+    static final int FRAME_OBJECT_BYTES = 4096;
+    static final long MAX_FRAME_OBJECT_BYTES = 32L << 20;
+    static final int MAX_FRAMES = (int) (MAX_FRAME_OBJECT_BYTES / FRAME_OBJECT_BYTES);
 
     private static final Object sLock = new Object();
     private static long sHeld; // guarded by sLock
@@ -83,19 +86,39 @@ public final class DecodeMemory {
 
     /** The immutable copy held by an icon request across retries. */
     public static void keepBytes(byte[] bytes, Reservation memory) {
+        keepStorage(bytes, bytes.length, memory);
+    }
+
+    // XML frame replacement shares the array, so its metadata follows every drawable that retains it.
+    static void keepFrames(Bitmap[] frames, Reservation memory) {
+        if (frames.length < 1 || frames.length > MAX_FRAMES) {
+            throw new IllegalArgumentException("frame object count");
+        }
+        keepStorage(frames, (long) frames.length * FRAME_OBJECT_BYTES, memory);
+    }
+
+    // Reply bundles share this array even after their original pixels are recycled.
+    static void keepDurations(int[] durations, Reservation memory) {
+        if (durations.length < 1 || durations.length > MAX_FRAMES) {
+            throw new IllegalArgumentException("frame duration count");
+        }
+        keepStorage(durations, (long) durations.length * Integer.BYTES, memory);
+    }
+
+    private static void keepStorage(Object bytes, long length, Reservation memory) {
         collector();
         final Held held = new Held(bytes);
         synchronized (sLock) {
             if (keptLocked(bytes)) return;
-            if (memory.mBytes < bytes.length) throw new IllegalStateException("bytes exceed reservation");
+            if (memory.mBytes < length) throw new IllegalStateException("bytes exceed reservation");
             try {
                 sPixels.add(held);
             } catch (RuntimeException | Error e) {
                 sPixels.remove(held);
                 throw e;
             }
-            held.memory.mBytes = bytes.length;
-            memory.mBytes -= bytes.length;
+            held.memory.mBytes = length;
+            memory.mBytes -= length;
         }
     }
 

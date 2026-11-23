@@ -1050,14 +1050,17 @@ final class GatedDecodes {
         Bitmap atlas = null;
         Bitmap current = null;
         Bitmap[] frames = null;
+        DecodeMemory.Reservation objects = null;
         boolean transferred = false;
         try {
             // The frames come at most as the service's frame limit (MAX_ANIMATION_BYTES): the answer, its copy and
             // the frames cut from it, and with a post-processor the frames drawn at their size.
             header.op.checkFit(header.bytes.reserved() + 3 * MAX_ANIMATION_BYTES
-                    + (postProcessor != null ? MAX_ANIMATION_BYTES : 0));
+                    + (postProcessor != null ? MAX_ANIMATION_BYTES : 0)
+                    + DecodeMemory.MAX_FRAME_OBJECT_BYTES);
             final DecodeGate.Frames f = DecodeGate.frames(header.op, header.bytes, width, height);
             atlas = f.frames;
+            objects = DecodeMemory.reserve((long) f.count * DecodeMemory.FRAME_OBJECT_BYTES);
             Rect r = null;
             if (crop != null) {
                 r = new Rect(crop);
@@ -1092,13 +1095,17 @@ final class GatedDecodes {
                 current = null;
             }
             final GatedAnimation result = new GatedAnimation(frames, width, height, r, f.durations, f.loops);
+            DecodeMemory.keepFrames(frames, objects);
             transferred = true;
             return result;
         } catch (DecodeGate.Failure e) {
             throw decodeException(e, source);
+        } catch (DecodeMemory.NoRoomException e) {
+            throw decodeException(DecodeGate.noRoom(e), source);
         } catch (OutOfMemoryError e) {
             throw decodeException(DecodeGate.failed(false, "no memory for the frames"), source);
         } finally {
+            if (objects != null) objects.close();
             if (!transferred) {
                 DecodeMemory.recycle(current, null);
                 if (frames != null) {

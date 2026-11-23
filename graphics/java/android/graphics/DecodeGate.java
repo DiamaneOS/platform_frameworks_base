@@ -1000,7 +1000,7 @@ public final class DecodeGate {
         final Bitmap frames = r.getParcelable(EXTRA_BITMAP, Bitmap.class);
         final int count = r.getInt(EXTRA_FRAME_COUNT);
         final int[] durations = r.getIntArray(EXTRA_DURATIONS);
-        if (frames == null || count < 1 || frames.getWidth() > boxW || frames.getHeight() % count != 0
+        if (frames == null || count < 1 || count > DecodeMemory.MAX_FRAMES || frames.getWidth() > boxW || frames.getHeight() % count != 0
                 || frames.getHeight() / count > boxH || durations == null || durations.length != count) {
             throw failed(false, "bad frames reply");
         }
@@ -1475,11 +1475,13 @@ public final class DecodeGate {
 
     // What an answer is charged in the cache: its pixels, its gain map's pixels, and a fixed amount for the rest.
     private static int entryBytes(Bundle answer) {
+        final int[] durations = answer.getIntArray(EXTRA_DURATIONS);
+        final long metadata = ENTRY_BYTES + (durations != null ? (long) durations.length * Integer.BYTES : 0);
         final Bitmap b = answer.getParcelable(EXTRA_BITMAP, Bitmap.class);
         if (b == null) {
-            return ENTRY_BYTES;
+            return (int) Math.min(Integer.MAX_VALUE, metadata);
         }
-        long bytes = ENTRY_BYTES + (long) b.getAllocationByteCount();
+        long bytes = metadata + b.getAllocationByteCount();
         final Gainmap gainmap = b.hasGainmap() ? b.getGainmap() : null;
         if (gainmap != null && gainmap.getGainmapContents() != null) {
             bytes += gainmap.getGainmapContents().getAllocationByteCount();
@@ -1503,6 +1505,20 @@ public final class DecodeGate {
             } catch (DecodeMemory.NoRoomException | OutOfMemoryError e) {
                 DecodeMemory.recycle(bitmap, null);
                 a = error("no room to retain the reply pixels");
+            }
+        }
+        final int[] durations = a.getIntArray(EXTRA_DURATIONS);
+        if (durations != null) {
+            if (durations.length < 1 || durations.length > DecodeMemory.MAX_FRAMES) {
+                DecodeMemory.recycle(bitmap, null);
+                a = error("bad frame duration count");
+            } else {
+                try (DecodeMemory.Reservation memory = DecodeMemory.reserve((long) durations.length * Integer.BYTES)) {
+                    DecodeMemory.keepDurations(durations, memory);
+                } catch (DecodeMemory.NoRoomException | OutOfMemoryError e) {
+                    DecodeMemory.recycle(bitmap, null);
+                    a = error("no room to retain frame durations");
+                }
             }
         }
         final Answer shared;

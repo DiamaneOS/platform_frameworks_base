@@ -93,8 +93,10 @@ interface IDecodeService {
     const int MAX_STRIPE_BYTES = 262144;
     const int HANDLE_TIMEOUT_MILLIS = 30000;
 
-    /** Frames: at most this many frames, each at most this long, all pixels together at most this many bytes. */
-    const int MAX_FRAMES = 1024;
+    /** Frames: bounded object storage, frame count, delays and total pixel payload. */
+    const int FRAME_OBJECT_BYTES = 4096;
+    const int MAX_FRAME_OBJECT_BYTES = 33554432;
+    const int MAX_FRAMES = 8192;
     const int MAX_FRAME_MILLIS = 16777215;
     const int MAX_FRAMES_BYTES = 33554432;
 
