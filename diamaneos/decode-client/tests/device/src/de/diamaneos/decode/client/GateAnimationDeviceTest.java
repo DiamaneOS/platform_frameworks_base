@@ -103,6 +103,47 @@ public class GateAnimationDeviceTest {
         checkPlayback(R.raw.vm_animation_compat_avif);
     }
 
+
+    @Test public void heifIntraKeepsStockDefaultRepeatAndPlayback() throws Exception {
+        checkDefaultRepeat(R.raw.vm_animation_compat_heif_intra);
+        checkPlayback(R.raw.vm_animation_compat_heif_intra);
+    }
+
+    @Test public void heifPredictedKeepsReferencesAndPlayback() throws Exception {
+        checkDefaultRepeat(R.raw.vm_animation_compat_heif_predicted);
+        checkPlayback(R.raw.vm_animation_compat_heif_predicted);
+    }
+
+    @Test public void heifReorderedKeepsPresentationOrderAndPlayback() throws Exception {
+        checkDefaultRepeat(R.raw.vm_animation_compat_heif_reordered);
+        checkPlayback(R.raw.vm_animation_compat_heif_reordered);
+    }
+
+    private void checkDefaultRepeat(int resource) throws Exception {
+        final byte[] bytes = fixture(resource);
+        final int stockRepeat;
+        DecodeGate.setForcedForTest(false);
+        final AnimatedImageDrawable stock = (AnimatedImageDrawable) ImageDecoder.decodeDrawable(
+                ImageDecoder.createSource(ByteBuffer.wrap(bytes)));
+        try {
+            stockRepeat = stock.getRepeatCount();
+        } finally {
+            stock.stop();
+            DecodeGate.setForcedForTest(true);
+        }
+        final int before = DecodeGate.countsForTest()[0];
+        drawable = (AnimatedImageDrawable) ImageDecoder.decodeDrawable(
+                ImageDecoder.createSource(ByteBuffer.wrap(bytes)));
+        try {
+            assertEquals("encoded default repeat changed", stockRepeat, drawable.getRepeatCount());
+            assertEquals(0, stockRepeat);
+            assertTrue("HEIF did not use VM frames", DecodeGate.countsForTest()[0] > before);
+        } finally {
+            drawable.stop();
+            drawable = null;
+        }
+    }
+
     private static Object field(Class<?> type, Object target, String name) throws Exception {
         final Field field = type.getDeclaredField(name);
         field.setAccessible(true);

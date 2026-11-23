@@ -645,7 +645,7 @@ final class GatedDecodes {
             this.colorSpace = info.bitDepth > 8 ? GateWidePixels.outputColor(info.colorSpace) : info.colorSpace;
             this.mimeType = info.mimeType != null ? info.mimeType : "image/unknown";
             this.animated = info.animated && ("image/gif".equals(mimeType) || "image/webp".equals(mimeType)
-                    || "image/avif".equals(mimeType));
+                    || "image/avif".equals(mimeType) || "image/heif".equals(mimeType));
         }
 
         @Override
