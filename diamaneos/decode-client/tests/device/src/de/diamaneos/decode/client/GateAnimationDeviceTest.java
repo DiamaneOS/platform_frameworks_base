@@ -115,7 +115,39 @@ public class GateAnimationDeviceTest {
     }
 
     @Test public void heifReorderedKeepsPresentationOrderAndPlayback() throws Exception {
-        checkDefaultRepeat(R.raw.vm_animation_compat_heif_reordered);
+        final byte[] bytes = fixture(R.raw.vm_animation_compat_heif_reordered);
+        Integer nativeRepeat = null;
+        AnimatedImageDrawable stock = null;
+        DecodeGate.setForcedForTest(false);
+        try {
+            stock = (AnimatedImageDrawable) ImageDecoder.decodeDrawable(
+                    ImageDecoder.createSource(ByteBuffer.wrap(bytes)));
+            nativeRepeat = stock.getRepeatCount();
+        } catch (java.io.IOException unsupported) {
+            assertEquals("unexpected native B-sequence failure", "Failed to create drawable", unsupported.getMessage());
+            android.util.Log.i("GateAnimationTest", "native B-sequence fixture unsupported: " + unsupported.getMessage());
+        } finally {
+            if (stock != null) stock.stop();
+            DecodeGate.setForcedForTest(true);
+        }
+        DecodeGate.resetForTest();
+        drawable = (AnimatedImageDrawable) ImageDecoder.decodeDrawable(
+                ImageDecoder.createSource(ByteBuffer.wrap(bytes)));
+        try {
+            assertEquals(0, drawable.getRepeatCount());
+            if (nativeRepeat != null) assertEquals(nativeRepeat.intValue(), drawable.getRepeatCount());
+            final Bitmap[] ordered = (Bitmap[]) field(drawable.getClass(), drawable, "mFrames");
+            assertEquals(8, ordered.length);
+            int previous = -1;
+            for (Bitmap frame : ordered) {
+                final int gray = android.graphics.Color.red(frame.getPixel(0, 0));
+                assertTrue("B-picture presentation order changed", gray > previous);
+                previous = gray;
+            }
+        } finally {
+            drawable.stop();
+            drawable = null;
+        }
         checkPlayback(R.raw.vm_animation_compat_heif_reordered);
     }
 
