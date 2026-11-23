@@ -49,6 +49,9 @@ public final class DecodeChecks {
 
     public static String check(ImageInfo i) {
         if (i == null || !status(i.status)) return "status";
+        if (i.sourceError != 0 && !(i.status == IDecodeService.STATUS_INVALID && i.sourceError == 2)) {
+            return "sourceError";
+        }
         if (i.status != IDecodeService.STATUS_OK) return null;
         if (!format(i.format)) return "format";
         if (!size(i.width, i.height, IDecodeService.MAX_DIMENSION, IDecodeService.MAX_DIMENSION)) return "size";
@@ -61,7 +64,8 @@ public final class DecodeChecks {
     /** maxWidth x maxHeight is the box as shown: turned by 90 or 270 degrees, the stored image fits it turned. */
     public static String check(Thumbnail t, int maxWidth, int maxHeight) {
         if (t == null || !status(t.status)) return "status";
-        if (t.status != IDecodeService.STATUS_OK) return null;
+        if (t.sourceError != 0 && t.sourceError != 2 && t.sourceError != 3) return "sourceError";
+        if (t.status != IDecodeService.STATUS_OK) return t.sourceError == 0 ? null : "sourceError";
         final int pixelBytes = bytesPerPixel(t.pixelFormat);
         if (pixelBytes == 0) return "pixelFormat";
         boolean turned = t.rotation == 90 || t.rotation == 270;

@@ -71,4 +71,7 @@ parcelable Thumbnail {
 
     /** IDecodeService.PIXEL_FORMAT_*, checked before any stripe is allocated or copied. */
     int pixelFormat = 0;
+
+    /** Zero for complete data, 2 for incomplete source data, 3 for malformed source data. */
+    int sourceError = 0;
 }

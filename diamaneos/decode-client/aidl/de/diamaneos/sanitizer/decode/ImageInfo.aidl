@@ -39,4 +39,7 @@ parcelable ImageInfo {
 
     /** True when the encoded source has an alpha channel. */
     boolean hasAlpha = true;
+
+    /** Zero for complete data, 2 for incomplete source data, 3 for malformed source data. */
+    int sourceError = 0;
 }
