@@ -86,6 +86,8 @@ interface IDecodeService {
     /** Explicit raw pixel storage, with an unchanged 32 MiB base-pixel budget. */
     const int PIXEL_FORMAT_RGBA_8888 = 0;
     const int PIXEL_FORMAT_RGBA_F16 = 1;
+    const int PIXEL_FORMAT_STRAIGHT_RGBA_8888 = 2;
+    const int PIXEL_FORMAT_STRAIGHT_RGBA_F16 = 3;
     const int MAX_HIGH_PRECISION_PIXELS = 4194304;
     const int MAX_STRIPE_BYTES = 262144;
     const int HANDLE_TIMEOUT_MILLIS = 30000;

@@ -505,11 +505,18 @@ public final class VmDecode {
     public static Decoded decode(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
             int priority, int maxWidth, int maxHeight, long deadline, boolean allowPartial)
             throws UnavailableException, RejectedException {
+        return decode(context, fd, ownerPackage, ownerUser, priority, maxWidth, maxHeight, deadline, allowPartial, 0);
+    }
+
+    public static Decoded decode(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
+            int priority, int maxWidth, int maxHeight, long deadline, boolean allowPartial, int pixelFormat)
+            throws UnavailableException, RejectedException {
         checkNotMainThread();
-        if (maxWidth < 1 || maxHeight < 1) {
-            throw new RejectedException("bad box " + maxWidth + "x" + maxHeight);
+        if ((pixelFormat != 0 && pixelFormat != 2) || maxWidth < 1 || maxHeight < 1) {
+            throw new RejectedException("bad box or pixel format");
         }
         final DecodeRequest request = request(fd, ownerPackage, ownerUser, priority);
+        request.pixelFormat = pixelFormat;
         return client(context).call(priority, deadline, request.ownerPackage, capacityLane(request),
                 Math.min((long) maxWidth * maxHeight, IDecodeService.MAX_PIXELS) * 5, service -> {
             final Thumbnail thumbnail = service.decodeThumbnail(request, maxWidth, maxHeight);
@@ -518,6 +525,7 @@ public final class VmDecode {
             }
             checkStatus(thumbnail.status);
             try {
+                if (thumbnail.pixelFormat != pixelFormat) throw new RejectedException("reply pixel format");
                 final Decoded decoded = ReplyPixels.thumbnail(service, thumbnail, maxWidth, maxHeight, allowPartial);
                 if (madeLogging()) {
                     madeLine("made " + decoded.bitmap.getWidth() + "x" + decoded.bitmap.getHeight()
@@ -1300,7 +1308,7 @@ public final class VmDecode {
         final DecodeRequest request = request(fd, ownerPackage, ownerUser, priority);
         request.pixelFormat = pixelFormat;
         return client(context).call(priority, deadline, request.ownerPackage, capacityLane(request),
-                Math.min((long) maxWidth * maxHeight, pixelFormat == 1
+                Math.min((long) maxWidth * maxHeight, (pixelFormat & 1) != 0
                         ? IDecodeService.MAX_HIGH_PRECISION_PIXELS : IDecodeService.MAX_PIXELS)
                         * (DecodeChecks.bytesPerPixel(pixelFormat) + 1), service -> {
             final Thumbnail thumbnail = service.decodeRegion(request, left, top, width, height, sampleSize);
@@ -1309,7 +1317,7 @@ public final class VmDecode {
             }
             checkStatus(thumbnail.status);
             try {
-                if (thumbnail.rotation != 0 || thumbnail.mirrored) {
+                if (thumbnail.rotation != 0 || thumbnail.mirrored || thumbnail.pixelFormat != pixelFormat) {
                     throw new RejectedException("a turned region");
                 }
                 return ReplyPixels.thumbnail(service, thumbnail, maxWidth, maxHeight, allowPartial);

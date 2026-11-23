@@ -38,7 +38,7 @@ public class WideStripeValidatorTest {
         rejected(() -> StripeValidator.checkHeader(32769, 1, 1, 0, 32769, 1, 1));
         assertEquals(128, StripeValidator.checkHeader(2048, 2048, 16, 0, 2048, 2048, 1));
         rejected(() -> StripeValidator.checkHeader(4096, 1025, 8, 0, 4096, 1025, 1));
-        rejected(() -> StripeValidator.checkHeader(1, 1, 1, 0, 1, 1, 2));
+        rejected(() -> StripeValidator.checkHeader(1, 1, 1, 0, 1, 1, 4));
         rejected(() -> StripeValidator.checkHeader(1, 1, 1, 0, 1, 1, -1));
     }
 

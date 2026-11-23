@@ -68,6 +68,8 @@ public final class DecodeChecks {
         if (t.status != IDecodeService.STATUS_OK) return t.sourceError == 0 ? null : "sourceError";
         final int pixelBytes = bytesPerPixel(t.pixelFormat);
         if (pixelBytes == 0) return "pixelFormat";
+        if ((t.pixelFormat & 2) != 0 && (t.rotation != 0 || t.mirrored
+                || t.gainmapWidth != 0 || t.gainmapHeight != 0)) return "straight geometry";
         boolean turned = t.rotation == 90 || t.rotation == 270;
         if (!turned && t.rotation != 0 && t.rotation != 180) return "rotation";
         if (!size(t.width, t.height, turned ? maxHeight : maxWidth, turned ? maxWidth : maxHeight)) return "size";
@@ -219,8 +221,10 @@ public final class DecodeChecks {
 
     /** Bytes per pixel only for the complete explicit storage format set, zero for an unknown value. */
     public static int bytesPerPixel(int format) {
-        if (format == IDecodeService.PIXEL_FORMAT_RGBA_8888) return 4;
-        if (format == IDecodeService.PIXEL_FORMAT_RGBA_F16) return 8;
+        if (format == IDecodeService.PIXEL_FORMAT_RGBA_8888
+                || format == IDecodeService.PIXEL_FORMAT_STRAIGHT_RGBA_8888) return 4;
+        if (format == IDecodeService.PIXEL_FORMAT_RGBA_F16
+                || format == IDecodeService.PIXEL_FORMAT_STRAIGHT_RGBA_F16) return 8;
         return 0;
     }
 
@@ -248,10 +252,10 @@ public final class DecodeChecks {
                 if (alpha > 0x3c00) return "half alpha";
                 for (int channel = 0; channel < 3; channel++) {
                     final int value = halfAt(stripe, i + channel * 2);
-                    if (value > alpha) return "half colour above alpha";
+                    if (value > ((t.pixelFormat & 2) != 0 ? 0x3c00 : alpha)) return "half colour above alpha";
                 }
             }
-        } else {
+        } else if ((t.pixelFormat & 2) == 0) {
             for (int i = 0; i < stripe.length; i += 4) {
                 int alpha = stripe[i + 3] & 255;
                 if ((stripe[i] & 255) > alpha || (stripe[i + 1] & 255) > alpha || (stripe[i + 2] & 255) > alpha) {

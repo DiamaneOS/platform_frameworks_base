@@ -54,7 +54,7 @@ public final class StripeValidator {
 
     public static int checkHeader(int width, int height, int stripeRows, int rotation, int maxWidth, int maxHeight,
             int pixelFormat) throws BadReplyException {
-        final int bytes = pixelFormat == 0 ? 4 : pixelFormat == 1 ? 8 : 0;
+        final int bytes = pixelFormat < 0 || pixelFormat > 3 ? 0 : (pixelFormat & 1) == 0 ? 4 : 8;
         if (bytes == 0) throw new BadReplyException("pixel format");
         if (maxWidth < 1 || maxHeight < 1) {
             throw new BadReplyException("bad box " + maxWidth + "x" + maxHeight);
@@ -69,7 +69,7 @@ public final class StripeValidator {
         if (width > (turned ? maxHeight : maxWidth) || height > (turned ? maxWidth : maxHeight)) {
             throw new BadReplyException("bigger than asked: " + width + "x" + height);
         }
-        if ((long) width * height > (pixelFormat == 1 ? MAX_PIXELS / 2 : MAX_PIXELS)) {
+        if ((long) width * height > ((pixelFormat & 1) != 0 ? MAX_PIXELS / 2 : MAX_PIXELS)) {
             throw new BadReplyException("too many pixels: " + width + "x" + height);
         }
         if (stripeRows < 1 || stripeRows > height || (long) stripeRows * width * bytes > MAX_STRIPE_BYTES) {
@@ -85,7 +85,7 @@ public final class StripeValidator {
 
     public static int stripeLength(int width, int height, int stripeRows, int index, int pixelFormat)
             throws BadReplyException {
-        final int bytes = pixelFormat == 0 ? 4 : pixelFormat == 1 ? 8 : 0;
+        final int bytes = pixelFormat < 0 || pixelFormat > 3 ? 0 : (pixelFormat & 1) == 0 ? 4 : 8;
         if (bytes == 0) throw new BadReplyException("pixel format");
         if (index < 0) {
             throw new BadReplyException("bad stripe index " + index);
@@ -115,16 +115,17 @@ public final class StripeValidator {
             throw new BadReplyException("stripe " + index + " has " + (stripe == null ? -1 : stripe.length)
                     + " bytes, expected " + expected);
         }
-        if (pixelFormat == 1) {
+        if ((pixelFormat & 1) != 0) {
             for (int at = 0; at < expected; at += 8) {
                 final int alpha = halfWord(stripe, at + 6);
                 if (alpha > 0x3c00) throw new BadReplyException("wide alpha");
                 for (int channel = 0; channel < 3; channel++) {
-                    if (halfWord(stripe, at + channel * 2) > alpha) throw new BadReplyException("wide colour");
+                    if (halfWord(stripe, at + channel * 2) > ((pixelFormat & 2) != 0 ? 0x3c00 : alpha)) throw new BadReplyException("wide colour");
                 }
             }
             return expected;
         }
+        if ((pixelFormat & 2) != 0) return expected;
         for (int i = 0; i < expected; i += 4) {
             final int a = stripe[i + 3] & 0xff;
             if ((stripe[i] & 0xff) > a || (stripe[i + 1] & 0xff) > a || (stripe[i + 2] & 0xff) > a) {

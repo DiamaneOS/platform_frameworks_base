@@ -79,15 +79,22 @@ final class ReplyPixels {
         }
         final long image = (long) width * height * DecodeChecks.bytesPerPixel(t.pixelFormat);
         final long gain = (long) t.gainmapWidth * t.gainmapHeight * 4;
-        final int copies = t.rotation != 0 ? 2 : 1; // a turn makes a turned copy of both
+        final boolean straight = (t.pixelFormat & 2) != 0;
+        final int copies = straight || t.rotation != 0 ? 2 : 1; // a turn makes a turned copy of both
         try (DecodeMemory.Reservation memory = reserve(copies * (image + gain) + 2 * STRIPE_BYTES)) {
             // In the file's colour space, as Android's decode gives it: sRGB or Display P3 (Thumbnail.colorSpace).
-            final Bitmap bitmap = Bitmap.createBitmap(width, height, t.pixelFormat == 1
+            final Bitmap bitmap = Bitmap.createBitmap(width, height, (t.pixelFormat & 1) != 0
                     ? Bitmap.Config.RGBA_F16 : Bitmap.Config.ARGB_8888, true,
                     DecodeChecks.colorSpaceOf(t));
             Bitmap result = bitmap;
             try {
-                try (Rows rows = new Rows(bitmap)) {
+                if (straight) {
+                    if (t.rotation != 0 || t.mirrored || t.gainmapWidth != 0 || t.gainmapHeight != 0) {
+                        throw new VmDecode.RejectedException("turned straight pixels");
+                    }
+                    bitmap.setPremultiplied(false);
+                }
+                try (Rows rows = new Rows(bitmap, straight)) {
                 for (int i = 0; i < stripes; i++) {
                     stillWanted();
                     final byte[] stripe = service.readStripe(t.handle, i);
@@ -222,14 +229,31 @@ final class ReplyPixels {
         private final Canvas mCanvas;
         private final Paint mCopy = new Paint();
         private Bitmap mStripe;
+        private final ByteBuffer mStraight;
 
         Rows(Bitmap target) {
+            this(target, false);
+        }
+
+        Rows(Bitmap target, boolean straight) {
             mTarget = target;
-            mCanvas = new Canvas(target);
+            if (straight && target.getRowBytes() != target.getWidth()
+                    * (target.getConfig() == Bitmap.Config.RGBA_F16 ? 8 : 4)) {
+                throw new IllegalStateException("straight storage stride");
+            }
+            mCanvas = straight ? null : new Canvas(target);
+            mStraight = straight ? ByteBuffer.allocate(target.getByteCount()) : null;
             mCopy.setBlendMode(BlendMode.SRC);
         }
 
         void put(int top, byte[] stripe) {
+            if (mStraight != null) {
+                if ((long) top * mTarget.getRowBytes() != mStraight.position()) {
+                    throw new IllegalStateException("inconsistent straight stripe position");
+                }
+                mStraight.put(stripe);
+                return;
+            }
             final int width = mTarget.getWidth();
             final int n = stripe.length / (width * (mTarget.getConfig() == Bitmap.Config.RGBA_F16 ? 8 : 4));
             if (mStripe == null || mStripe.getHeight() != n) {
@@ -246,7 +270,11 @@ final class ReplyPixels {
 
         @Override
         public void close() {
-            mCanvas.setBitmap(null);
+            if (mStraight != null && !mStraight.hasRemaining()) {
+                mStraight.flip();
+                mTarget.copyPixelsFromBuffer(mStraight);
+            }
+            if (mCanvas != null) mCanvas.setBitmap(null);
             if (mStripe != null) {
                 mStripe.recycle();
                 mStripe = null;
