@@ -75,4 +75,7 @@ parcelable Thumbnail {
     int sourceError = 0;
     /** Exactly 16 checked XYZ D50 and transfer values for COLOR_SPACE_CUSTOM, empty for named tags. */
     float[] colorDescription;
+
+    /** True only for the explicitly requested independent gain pixels. */
+    boolean gainmapOnly = false;
 }

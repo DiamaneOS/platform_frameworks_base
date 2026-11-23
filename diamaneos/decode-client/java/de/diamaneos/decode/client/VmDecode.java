@@ -511,12 +511,27 @@ public final class VmDecode {
     public static Decoded decode(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
             int priority, int maxWidth, int maxHeight, long deadline, boolean allowPartial, int pixelFormat)
             throws UnavailableException, RejectedException {
+        return decode(context, fd, ownerPackage, ownerUser, priority, maxWidth, maxHeight,
+                deadline, allowPartial, pixelFormat, false);
+    }
+
+    public static Decoded decodeGainmap(Context context, ParcelFileDescriptor fd, String ownerPackage,
+            int ownerUser, int priority, int baseWidth, int baseHeight, long deadline)
+            throws UnavailableException, RejectedException {
+        return decode(context, fd, ownerPackage, ownerUser, priority, baseWidth, baseHeight,
+                deadline, false, 0, true);
+    }
+
+    private static Decoded decode(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
+            int priority, int maxWidth, int maxHeight, long deadline, boolean allowPartial, int pixelFormat,
+            boolean gainmapOnly) throws UnavailableException, RejectedException {
         checkNotMainThread();
         if ((pixelFormat != 0 && pixelFormat != 2) || maxWidth < 1 || maxHeight < 1) {
             throw new RejectedException("bad box or pixel format");
         }
         final DecodeRequest request = request(fd, ownerPackage, ownerUser, priority);
         request.pixelFormat = pixelFormat;
+        request.gainmapOnly = gainmapOnly;
         return client(context).call(priority, deadline, request.ownerPackage, capacityLane(request),
                 Math.min((long) maxWidth * maxHeight, IDecodeService.MAX_PIXELS) * 5, service -> {
             final Thumbnail thumbnail = service.decodeThumbnail(request, maxWidth, maxHeight);
@@ -525,8 +540,15 @@ public final class VmDecode {
             }
             checkStatus(thumbnail.status);
             try {
-                if (thumbnail.pixelFormat != pixelFormat) throw new RejectedException("reply pixel format");
-                final Decoded decoded = ReplyPixels.thumbnail(service, thumbnail, maxWidth, maxHeight, allowPartial);
+                if (thumbnail.pixelFormat != pixelFormat || thumbnail.gainmapOnly != gainmapOnly) {
+                    throw new RejectedException("reply pixel format or mode");
+                }
+                if (gainmapOnly && (thumbnail.rotation != 0 || thumbnail.mirrored
+                        || thumbnail.gainmapWidth != 0 || thumbnail.gainmapHeight != 0
+                        || thumbnail.colorSpace != IDecodeService.COLOR_SPACE_SRGB)) {
+                    throw new RejectedException("gain map reply shape");
+                }
+                final Decoded decoded = ReplyPixels.thumbnail(service, thumbnail, maxWidth, maxHeight, allowPartial, gainmapOnly);
                 if (madeLogging()) {
                     madeLine("made " + decoded.bitmap.getWidth() + "x" + decoded.bitmap.getHeight()
                             + " in the VM for " + request.ownerPackage);

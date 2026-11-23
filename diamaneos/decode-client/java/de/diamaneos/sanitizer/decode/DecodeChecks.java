@@ -63,9 +63,17 @@ public final class DecodeChecks {
 
     /** maxWidth x maxHeight is the box as shown: turned by 90 or 270 degrees, the stored image fits it turned. */
     public static String check(Thumbnail t, int maxWidth, int maxHeight) {
+        return check(t, maxWidth, maxHeight, false);
+    }
+
+    public static String check(Thumbnail t, int maxWidth, int maxHeight, boolean gainmapOnly) {
         if (t == null || !status(t.status)) return "status";
         if (t.sourceError != 0 && t.sourceError != 2 && t.sourceError != 3) return "sourceError";
         if (t.status != IDecodeService.STATUS_OK) return t.sourceError == 0 ? null : "sourceError";
+        if (t.gainmapOnly != gainmapOnly) return "reply mode";
+        if (gainmapOnly && (t.rotation != 0 || t.mirrored || t.pixelFormat != 0
+                || t.gainmapWidth != 0 || t.gainmapHeight != 0 || t.sourceError != 0
+                || t.colorSpace != IDecodeService.COLOR_SPACE_SRGB)) return "gain pixels";
         final int pixelBytes = bytesPerPixel(t.pixelFormat);
         if (pixelBytes == 0) return "pixelFormat";
         if ((t.pixelFormat & 2) != 0 && (t.rotation != 0 || t.mirrored
@@ -289,6 +297,7 @@ public final class DecodeChecks {
         } else if ((t.pixelFormat & 2) == 0) {
             for (int i = 0; i < stripe.length; i += 4) {
                 int alpha = stripe[i + 3] & 255;
+                if (t.gainmapOnly && alpha != 255) return "gain pixels alpha";
                 if ((stripe[i] & 255) > alpha || (stripe[i + 1] & 255) > alpha || (stripe[i + 2] & 255) > alpha) {
                     return "colour above alpha";
                 }

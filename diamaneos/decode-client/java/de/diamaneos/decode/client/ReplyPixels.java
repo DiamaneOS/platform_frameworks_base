@@ -58,13 +58,19 @@ final class ReplyPixels {
 
     static VmDecode.Decoded thumbnail(IDecodeService service, Thumbnail t, int maxWidth, int maxHeight,
             boolean allowPartial) throws RemoteException, VmDecode.RejectedException, VmDecode.UnavailableException {
+        return thumbnail(service, t, maxWidth, maxHeight, allowPartial, false);
+    }
+
+    static VmDecode.Decoded thumbnail(IDecodeService service, Thumbnail t, int maxWidth, int maxHeight,
+            boolean allowPartial, boolean gainmapOnly)
+            throws RemoteException, VmDecode.RejectedException, VmDecode.UnavailableException {
         final int width = t.width;
         final int height = t.height;
         if (maxWidth < 1 || maxHeight < 1) {
             throw new VmDecode.RejectedException("bad box " + maxWidth + "x" + maxHeight);
         }
         // The contract's own checks (DecodeChecks, the service's copy, compared at build time), then StripeValidator's.
-        final String broken = DecodeChecks.check(t, maxWidth, maxHeight);
+        final String broken = DecodeChecks.check(t, maxWidth, maxHeight, gainmapOnly);
         if (broken != null) {
             throw new VmDecode.RejectedException("thumbnail breaks the contract: " + broken);
         }
