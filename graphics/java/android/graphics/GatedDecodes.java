@@ -346,7 +346,7 @@ final class GatedDecodes {
                 stripe = DecodeGate.region(op, bytes, left, top + y, width, tall, sample);
             } catch (DecodeGate.Failure e) {
                 if (whole != null) {
-                    canvas.setBitmap(null);
+                    GatePixels.releaseCanvas(canvas);
                     whole.recycle();
                 }
                 throw e;
@@ -358,7 +358,7 @@ final class GatedDecodes {
             }
             if (stripe.getWidth() != whole.getWidth() || made + stripe.getHeight() > outH) {
                 stripe.recycle();
-                canvas.setBitmap(null);
+                GatePixels.releaseCanvas(canvas);
                 whole.recycle();
                 throw DecodeGate.failed(false, "bad region stripe");
             }
@@ -367,7 +367,7 @@ final class GatedDecodes {
             stripe.recycle();
             y += tall;
         }
-        canvas.setBitmap(null);
+        GatePixels.releaseCanvas(canvas);
         if (made < outH) {
             // The sampled height rounds down: the rows past it were never drawn.
             whole.reconfigure(whole.getWidth(), made, Bitmap.Config.ARGB_8888);
@@ -497,7 +497,7 @@ final class GatedDecodes {
         try {
             canvas.drawBitmap(bitmap, 0, 0, null);
         } finally {
-            canvas.setBitmap(null);
+            GatePixels.releaseCanvas(canvas);
         }
         // DiamaneOS: a reused output receives this image's map after its previous map was cleared.
         reused.setGainmap(bitmap.getGainmap());
@@ -584,7 +584,7 @@ final class GatedDecodes {
                         canvas.drawBitmap(block, new Rect(0, 0, w, n), new Rect(0, y, w, y + n), copy);
                     }
                 } finally {
-                    canvas.setBitmap(null);
+                    GatePixels.releaseCanvas(canvas);
                 }
                 final Bitmap result = mutable ? mask : immutable(mask);
                 DecodeMemory.recycle(bitmap, result);
@@ -995,7 +995,7 @@ final class GatedDecodes {
             try {
                 format = postProcessor.onPostProcess(canvas);
             } finally {
-                canvas.setBitmap(null);
+                GatePixels.releaseCanvas(canvas);
             }
             if (format == PixelFormat.OPAQUE) {
                 drawn.setHasAlpha(false);
@@ -1088,7 +1088,7 @@ final class GatedDecodes {
                     try {
                         postProcessor.onPostProcess(canvas);
                     } finally {
-                        canvas.setBitmap(null);
+                        GatePixels.releaseCanvas(canvas);
                     }
                 }
                 frames[i] = immutable(current);
@@ -1259,7 +1259,7 @@ final class GatedDecodes {
                             bitmap.getColorSpace());
                     final Canvas canvas = new Canvas(all);
                     canvas.drawBitmap(bitmap, outX, outY, null);
-                    canvas.setBitmap(null);
+                    GatePixels.releaseCanvas(canvas);
                     bitmap.recycle();
                     bitmap = all;
                 }

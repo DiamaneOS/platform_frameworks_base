@@ -44,7 +44,7 @@ final class GateImageSettings {
                 paint.setBlendMode(BlendMode.SRC);
                 canvas.drawBitmap(source, 0, 0, paint);
             } finally {
-                canvas.setBitmap(null);
+                GatePixels.releaseCanvas(canvas);
             }
             converted.setDensity(source.getDensity());
             converted.setGainmap(source.getGainmap());

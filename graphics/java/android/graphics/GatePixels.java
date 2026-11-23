@@ -127,5 +127,13 @@ final class GatePixels {
         return make(bytes, () -> Bitmap.createBitmap(source, x, y, width, height, matrix, filter));
     }
 
+    static void releaseCanvas(Canvas canvas) {
+        try {
+            canvas.setBitmap(null);
+        } finally {
+            canvas.release();
+        }
+    }
+
     private GatePixels() { }
 }

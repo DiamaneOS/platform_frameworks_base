@@ -1181,10 +1181,14 @@ public final class Bitmap implements Parcelable {
             bitmap.setPremultiplied(source.mRequestPremultiplied);
 
             Canvas canvas = new Canvas(bitmap);
-            canvas.translate(-deviceR.left, -deviceR.top);
-            canvas.concat(m);
-            canvas.drawBitmap(source, srcR, dstR, paint);
-            canvas.setBitmap(null);
+            // DiamaneOS: release the temporary canvas before another frame is allocated.
+            try {
+                canvas.translate(-deviceR.left, -deviceR.top);
+                canvas.concat(m);
+                canvas.drawBitmap(source, srcR, dstR, paint);
+            } finally {
+                GatePixels.releaseCanvas(canvas);
+            }
 
             // If the source has a gainmap, apply the same set of transformations to the gainmap
             // and set it on the output
@@ -1273,12 +1277,16 @@ public final class Bitmap implements Parcelable {
         }
         newMapContents.eraseColor(0);
         canvas = new Canvas(newMapContents);
-        // Scale the translate & matrix to be in gainmap-relative dimensions
-        canvas.scale(scaleX, scaleY);
-        canvas.translate(-deviceR.left, -deviceR.top);
-        canvas.concat(m);
-        canvas.drawBitmap(sourceGainmap, gSrcR, dstR, paint);
-        canvas.setBitmap(null);
+        // DiamaneOS: release the temporary gainmap canvas on every draw outcome.
+        try {
+            // Scale the translate & matrix to be in gainmap-relative dimensions
+            canvas.scale(scaleX, scaleY);
+            canvas.translate(-deviceR.left, -deviceR.top);
+            canvas.concat(m);
+            canvas.drawBitmap(sourceGainmap, gSrcR, dstR, paint);
+        } finally {
+            GatePixels.releaseCanvas(canvas);
+        }
         // Create a new gainmap using a copy of the metadata information from the source but
         // with the transformed bitmap created above
         return newMapContents;
