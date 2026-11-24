@@ -214,6 +214,7 @@ public class KeyguardServiceDelegate {
         mLockPatternUtils = new LockPatternUtils(context);
         mActivityManagerInternal = LocalServices.getService(ActivityManagerInternal.class);
         initializeKeyguardState();
+        SdCardHold.onKeyguardStateUnknown(); // DiamaneOS
     }
 
     private final Context mContext;
@@ -232,6 +233,7 @@ public class KeyguardServiceDelegate {
         } finally {
             Binder.restoreCallingIdentity(token);
         }
+        SdCardHold.onKeyguardShowingStateChanged(showing); // DiamaneOS
 
         if (showing) {
             System.gc();
