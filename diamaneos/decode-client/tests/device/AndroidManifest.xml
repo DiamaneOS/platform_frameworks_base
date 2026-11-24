@@ -27,8 +27,10 @@
     <!-- VmPathDeviceTest reaches the decode service: the permission is the platform's signature, and the service
          takes this package as a caller on debuggable builds only. -->
     <uses-permission android:name="de.diamaneos.sanitizer.permission.DECODE" />
-    <!-- CardDecisionsDeviceTest asks for adoptable storage, which must be refused. -->
+    <!-- CardDecisionsDeviceTest asks for adoptable storage, which must be refused, and ObbLifecycleDeviceTest ejects
+         and mounts the SD card. -->
     <uses-permission android:name="android.permission.MOUNT_FORMAT_FILESYSTEMS" />
+    <uses-permission android:name="android.permission.MOUNT_UNMOUNT_FILESYSTEMS" />
     <!-- ClientContextDeviceTest makes a package context of another app. -->
     <queries>
         <package android:name="com.android.systemui" />

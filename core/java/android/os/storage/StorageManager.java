@@ -445,6 +445,16 @@ public class StorageManager {
                 if (delegate != null) {
                     mListeners.remove(nonce);
                 }
+                // DiamaneOS: a mount's listener also hears when its image goes without the app asking (its VM ended,
+                // its card went). It is kept until then, or until an unmount of the same path ends it.
+                if (delegate != null && status == OnObbStateChangeListener.MOUNTED) {
+                    delegate.mountedPath = filename;
+                    mListeners.put(nonce, delegate);
+                } else if (status == OnObbStateChangeListener.UNMOUNTED) {
+                    for (int i = mListeners.size() - 1; i >= 0; i--) {
+                        if (filename.equals(mListeners.valueAt(i).mountedPath)) mListeners.removeAt(i);
+                    }
+                }
             }
 
             if (delegate != null) {
@@ -475,6 +485,8 @@ public class StorageManager {
         private final Handler mHandler;
 
         private final int nonce;
+        /** DiamaneOS: the path of the image its mount mounted, kept for the image's end. */
+        String mountedPath;
 
         ObbListenerDelegate(OnObbStateChangeListener listener) {
             nonce = getNextNonce();
