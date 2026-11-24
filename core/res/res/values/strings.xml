@@ -4292,6 +4292,33 @@
     <!-- Automotive specific notification body when external media is unmountable (corrupt) [CHAR LIMIT=NONE] -->
     <string name="ext_media_unmountable_notification_message" product="automotive">You may need to reformat the device. Tap to eject.</string>
 
+    <!-- DiamaneOS: notification title when a card was unmounted, but not everything could be written to it first. [CHAR LIMIT=NONE] -->
+    <string name="ext_media_not_written_back_notification_title_sd">Not all changes reached this SD card</string>
+    <!-- DiamaneOS: the same for a USB drive. [CHAR LIMIT=NONE] -->
+    <string name="ext_media_not_written_back_notification_title_usb">Not all changes reached this USB drive</string>
+    <!-- DiamaneOS: the same for other storage devices. [CHAR LIMIT=NONE] -->
+    <string name="ext_media_not_written_back_notification_title">Not all changes reached this storage device</string>
+    <!-- DiamaneOS: notification text for the titles above. [CHAR LIMIT=NONE] -->
+    <string name="ext_media_not_written_back_notification_message">Files changed last may be incomplete. Check them on a computer.</string>
+    <!-- DiamaneOS: notification title when a card is mounted read-only because it needs a check. [CHAR LIMIT=NONE] -->
+    <string name="ext_media_read_only_notification_title_sd">This SD card is read-only</string>
+    <!-- DiamaneOS: the same for a USB drive. [CHAR LIMIT=NONE] -->
+    <string name="ext_media_read_only_notification_title_usb">This USB drive is read-only</string>
+    <!-- DiamaneOS: the same for other storage devices. [CHAR LIMIT=NONE] -->
+    <string name="ext_media_read_only_notification_title">This storage device is read-only</string>
+    <!-- DiamaneOS: notification text for the titles above. [CHAR LIMIT=NONE] -->
+    <string name="ext_media_read_only_notification_message">Its files can be read. It needs a check on a computer before it can be written to.</string>
+    <!-- DiamaneOS: notification text when the filesystem VM could not open a card. [CHAR LIMIT=NONE] -->
+    <string name="ext_media_unopenable_notification_message">Use a computer to check it.</string>
+    <!-- DiamaneOS: storage status for the same. [CHAR LIMIT=NONE] -->
+    <string name="ext_media_status_not_written_back">Not all changes written</string>
+    <!-- DiamaneOS: notification title when the filesystem VM could not open an SD card. No format offer. [CHAR LIMIT=NONE] -->
+    <string name="ext_media_unopenable_notification_title_sd">This SD card could not be opened</string>
+    <!-- DiamaneOS: notification title when the filesystem VM could not open a USB drive. No format offer. [CHAR LIMIT=NONE] -->
+    <string name="ext_media_unopenable_notification_title_usb">This USB drive could not be opened</string>
+    <!-- DiamaneOS: notification title when the filesystem VM could not open other external storage. [CHAR LIMIT=NONE] -->
+    <string name="ext_media_unopenable_notification_title">This storage device could not be opened</string>
+
     <!-- Notification title when external media is unsupported [CHAR LIMIT=30] -->
     <string name="ext_media_unsupported_notification_title"><xliff:g id="name" example="SD card">%s</xliff:g> detected </string>
     <!-- Automotive specific notification title when external media is unsupported [CHAR LIMIT=30] -->
@@ -4362,6 +4389,8 @@
     <string name="ext_media_status_bad_removal">Removed unsafely</string>
     <!-- Short summary of storage media status when unmountable [CHAR LIMIT=32] -->
     <string name="ext_media_status_unmountable">Corrupted</string>
+    <!-- DiamaneOS: short summary of storage media status when the filesystem VM could not open it [CHAR LIMIT=32] -->
+    <string name="ext_media_status_unopenable">Could not be opened</string>
     <!-- Short summary of storage media status when unsupported [CHAR LIMIT=32] -->
     <string name="ext_media_status_unsupported">Unsupported</string>
     <!-- Short summary of storage media status when ejecting [CHAR LIMIT=32] -->
