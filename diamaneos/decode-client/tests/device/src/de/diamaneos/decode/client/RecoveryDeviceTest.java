@@ -91,6 +91,48 @@ public class RecoveryDeviceTest {
     }
 
     @Test
+    public void clientRebindsAndDecodesAgain() throws Exception {
+        decodeOnNewBinding();
+        decodeOnNewBinding();
+    }
+
+    private void decodeOnNewBinding() throws Exception {
+        final var connected = new java.util.concurrent.ArrayBlockingQueue<android.os.IBinder>(1);
+        final android.content.ServiceConnection connection = new android.content.ServiceConnection() {
+            @Override
+            public void onServiceConnected(android.content.ComponentName name, android.os.IBinder binder) {
+                connected.offer(binder);
+            }
+
+            @Override
+            public void onServiceDisconnected(android.content.ComponentName name) {}
+        };
+        final android.content.Intent intent = new android.content.Intent().setComponent(
+                new android.content.ComponentName(SERVICE, SERVICE + ".DecodeService"));
+        assertTrue(mContext.bindService(intent, connection, Context.BIND_AUTO_CREATE));
+        final java.io.File image = java.io.File.createTempFile("rebind", ".png", mContext.getCacheDir());
+        try {
+            final var service = de.diamaneos.sanitizer.decode.IDecodeService.Stub.asInterface(
+                    connected.poll(10, TimeUnit.SECONDS));
+            assertNotNull("decode service did not connect", service);
+            java.nio.file.Files.write(image.toPath(), newPng());
+            try (ParcelFileDescriptor fd = ParcelFileDescriptor.open(image, ParcelFileDescriptor.MODE_READ_ONLY)) {
+                final var request = new de.diamaneos.sanitizer.decode.DecodeRequest();
+                request.file = fd;
+                request.ownerPackage = mContext.getPackageName();
+                request.ownerUser = mContext.getUserId();
+                request.forUid = -1;
+                final var reply = service.probe(request);
+                assertNotNull(reply);
+                assertEquals(de.diamaneos.sanitizer.decode.IDecodeService.STATUS_OK, reply.status);
+            }
+        } finally {
+            mContext.unbindService(connection);
+            image.delete();
+        }
+    }
+
+    @Test
     public void listenersAreToldWhenTheServiceAnswersAgain() throws Exception {
         assumeTrue("no decode service here", shell("pm path " + SERVICE).contains("package:"));
         assumeTrue("needs a debuggable build", "1".equals(shell("getprop ro.debuggable").trim()));

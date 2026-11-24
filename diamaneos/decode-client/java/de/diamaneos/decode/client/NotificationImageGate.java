@@ -266,32 +266,28 @@ public final class NotificationImageGate {
         return false;
     }
 
-    // The posting app is on the system image, as the notification service recorded it in the notification.
-    private static boolean isSystemImageApp(Notification n) {
-        if (n.extras == null) {
-            return false;
+    /** The application info the notification service recorded in {@code n}, or null. Typed read. */
+    public static ApplicationInfo appInfoOf(Notification n) {
+        if (n == null || n.extras == null) {
+            return null;
         }
         try {
-            final ApplicationInfo ai = n.extras.getParcelable(Notification.EXTRA_BUILDER_APPLICATION_INFO,
-                    ApplicationInfo.class);
-            return ai != null && (ai.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
+            return n.extras.getParcelable(Notification.EXTRA_BUILDER_APPLICATION_INFO, ApplicationInfo.class);
         } catch (RuntimeException e) {
-            return false;
+            return null;
         }
+    }
+
+    // The posting app is on the system image, as the notification service recorded it in the notification.
+    private static boolean isSystemImageApp(Notification n) {
+        final ApplicationInfo ai = appInfoOf(n);
+        return ai != null && (ai.flags & ApplicationInfo.FLAG_SYSTEM) != 0;
     }
 
     // The APK of the posting app, as the notification service and SystemUI recorded it in the notification.
     private static String sourceDir(Notification n) {
-        if (n.extras == null) {
-            return null;
-        }
-        try {
-            final ApplicationInfo ai = n.extras.getParcelable(Notification.EXTRA_BUILDER_APPLICATION_INFO,
-                    ApplicationInfo.class);
-            return ai == null ? null : ai.sourceDir;
-        } catch (RuntimeException e) {
-            return null;
-        }
+        final ApplicationInfo ai = appInfoOf(n);
+        return ai == null ? null : ai.sourceDir;
     }
 
     // What is needed to look up and record icons known to name no app bitmap file.

@@ -805,7 +805,8 @@ public class DecodeGateDeviceTest {
                 got.set(BitmapFactory.decodeByteArray(png, 0, png.length));
                 times[index] = SystemClock.uptimeMillis() - start;
             });
-            assertTrue("main thread took " + times[i] + " ms", times[i] <= 2 * DecodeGate.MAIN_MS + MARGIN_MS);
+            // The whole call, its probe and its pixels, within the main thread's time.
+            assertTrue("main thread took " + times[i] + " ms", times[i] <= DecodeGate.MAIN_MS + MARGIN_MS);
             assertRedBlue(got.get(), W, H);
         }
         Log.i(TAG, "main thread, BitmapFactory, VM up: " + Arrays.toString(times) + " ms");
@@ -1076,8 +1077,9 @@ public class DecodeGateDeviceTest {
     // The answer's name (with "!" when it carries no pixels) goes to {@code answers}.
     private boolean call(ParcelFileDescriptor bytes, String origin, String name, int box,
             java.util.List<String> answers) {
+        try (DecodeGate.Input input = DecodeGate.snapshot(new android.content.res.AssetFileDescriptor(bytes, 0, -1))) {
         final android.os.Bundle extras = new android.os.Bundle();
-        extras.putParcelable(DecodeGate.EXTRA_FD, bytes);
+        extras.putParcelable(DecodeGate.EXTRA_FD, input.fd());
         extras.putInt(DecodeGate.EXTRA_WIDTH, box);
         extras.putInt(DecodeGate.EXTRA_HEIGHT, box);
         extras.putLong(DecodeGate.EXTRA_TIME, DecodeGate.SERVER_MS);
@@ -1092,6 +1094,9 @@ public class DecodeGateDeviceTest {
         final android.os.Bundle taken = mContext.getContentResolver().call(DecodeGate.URI, DecodeGate.METHOD_DECODE,
                 null, extras);
         return taken != null && taken.getBoolean(DecodeGate.EXTRA_TAKEN);
+        } catch (java.io.IOException e) {
+            throw new AssertionError("test input staging", e);
+        }
     }
 
     @Test

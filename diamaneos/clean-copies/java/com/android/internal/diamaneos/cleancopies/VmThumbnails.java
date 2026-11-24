@@ -22,7 +22,6 @@ import android.app.ActivityThread;
 import android.content.ContentInterface;
 import android.content.ContentResolver;
 import android.content.Context;
-import android.content.res.AssetFileDescriptor;
 import android.graphics.Bitmap;
 import android.graphics.ImageDecoder;
 import android.graphics.Matrix;
@@ -32,14 +31,9 @@ import android.os.Bundle;
 import android.os.CancellationSignal;
 import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
-import android.system.ErrnoException;
-import android.system.Os;
-import android.system.OsConstants;
-import android.system.StructStat;
 import android.util.Log;
 import android.util.Size;
 
-import java.io.FileDescriptor;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -71,12 +65,13 @@ public final class VmThumbnails {
     /** With no thumbnail: the decode service did not answer, ask again once it does. */
     public static final String EXTRA_LATER = "later";
 
-    /** How long a load waits for the decode service to answer again before it fails. */
+    /** Total retry window including all attempts, each with its own five second entry deadline. */
     static final long MAX_WAIT_MS = 60_000;
 
-    // A part of a regular file (an EXIF thumbnail) is copied into a memory file of at most this size: the decode
-    // service's limit for bytes it holds in memory (IDecodeService.MAX_BUFFERED_BYTES).
-    private static final int MAX_PART_BYTES = 32 * 1024 * 1024;
+    public static final String EXTRA_DEADLINE = "thumbnailDeadline";
+    public static final String EXTRA_DELEGATE = "thumbnailDelegate";
+    public static final String EXTRA_MEDIA_USER = "de.diamaneos.vmdecode.media_user";
+    private static final long ATTEMPT_MS = 5000;
 
     private static volatile boolean sForced;
     private static final AtomicInteger sMade = new AtomicInteger();
@@ -105,55 +100,50 @@ public final class VmThumbnails {
      */
     public static @NonNull Bitmap load(@NonNull ContentInterface content, @NonNull Uri uri, @NonNull Size size,
             @Nullable CancellationSignal signal, int allocator) throws IOException {
-        final int mark = CleanCopyGate.decodeAnswersMark();
-        try {
-            return loadOnce(content, uri, size, signal, allocator);
-        } catch (LaterException e) {
-            // The decode service did not answer: once it does (the system server tells this process), the provider
-            // is asked again, the bytes it gave may have been a stream that is spent.
-            if (!CleanCopyGate.awaitDecodeAnswers(mark, MAX_WAIT_MS,
-                    () -> signal != null && signal.isCanceled())) {
-                throw e;
+        final long end = android.os.SystemClock.uptimeMillis() + MAX_WAIT_MS;
+        long wait = 1000;
+        while (true) {
+            final int mark = CleanCopyGate.decodeAnswersMark();
+            try {
+                return loadOnce(content, uri, size, signal, allocator,
+                        Math.min(end, android.os.SystemClock.uptimeMillis() + ATTEMPT_MS));
+            } catch (LaterException e) {
+                final long left = end - android.os.SystemClock.uptimeMillis();
+                if (left <= 0) throw e;
+                CleanCopyGate.awaitDecodeAnswers(mark, Math.min(wait, left),
+                        () -> signal != null && signal.isCanceled());
+                if (signal != null) signal.throwIfCanceled();
+                wait = Math.min(wait * 2, 5000);
             }
-            if (signal != null) {
-                signal.throwIfCanceled();
-            }
-            return loadOnce(content, uri, size, signal, allocator);
         }
     }
 
     /** No thumbnail because the decode service did not answer: worth asking once more when it does. */
-    private static final class LaterException extends IOException {
+    static final class LaterException extends IOException {
         LaterException(String message) {
             super(message);
         }
     }
 
+    static final class MissingException extends java.io.FileNotFoundException {
+        MissingException() { super("Thumbnail item no longer exists"); }
+    }
+
     private static @NonNull Bitmap loadOnce(@NonNull ContentInterface content, @NonNull Uri uri,
-            @NonNull Size size, @Nullable CancellationSignal signal, int allocator) throws IOException {
+            @NonNull Size size, @Nullable CancellationSignal signal, int allocator, long end) throws IOException {
+        final Uri sourceUri = sourceUri(content, uri);
         final Bundle opts = new Bundle();
         opts.putParcelable(ContentResolver.EXTRA_SIZE, new Point(size.getWidth(), size.getHeight()));
-        final AssetFileDescriptor afd;
-        try {
-            afd = content.openTypedAssetFile(uri, "image/*", opts, signal);
-        } catch (IOException e) {
-            throw e;
-        } catch (Exception e) {
-            // As ImageDecoder's source hands on a failed open.
-            throw new IOException(e);
-        }
-        if (afd == null) {
-            throw new FileNotFoundException("no thumbnail");
-        }
+        final int delegate = android.app.ActivityThread.isSystem()
+                && android.os.Binder.getCallingPid() != android.os.Process.myPid()
+                ? android.os.Binder.getCallingUid() : android.os.Process.myUid();
+        final GateOwner principal = GateOwner.of(
+                android.content.ContentProvider.getUserIdFromUri(sourceUri), delegate, 100000);
         final int orientation;
         Bitmap bitmap;
-        try (AssetFileDescriptor asset = afd) {
-            final Bundle extras = asset.getExtras();
-            orientation = extras != null ? extras.getInt(DocumentsContract.EXTRA_ORIENTATION, 0) : 0;
-            if (signal != null) {
-                signal.throwIfCanceled();
-            }
-            bitmap = decode(asset, uri.getAuthority(), size);
+        try (ThumbnailWork.Source source = ThumbnailWork.open(content, sourceUri, opts, signal, end)) {
+            orientation = source.orientation;
+            bitmap = decode(source, sourceUri.getAuthority(), size, end, signal, principal.forUid);
         }
 
         // The provider's orientation extra, as ContentResolver.loadThumbnail applies it (EXIF thumbnails do not
@@ -177,41 +167,73 @@ public final class VmThumbnails {
         return bitmap;
     }
 
-    // The bytes behind {@code asset} decoded in the VM by the system server, at most {@code size}.
-    private static Bitmap decode(AssetFileDescriptor asset, String authority, Size size) throws IOException {
-        final Context context = context();
-        try (ParcelFileDescriptor bytes = handOver(asset)) {
-            final Bundle request = new Bundle();
-            request.putParcelable(CleanCopyClient.EXTRA_FD, bytes);
-            request.putInt(CleanCopyClient.EXTRA_WIDTH, size.getWidth());
-            request.putInt(CleanCopyClient.EXTRA_HEIGHT, size.getHeight());
-            request.putString(EXTRA_AUTHORITY, authority);
-            final Bundle reply;
-            try {
-                reply = context.getContentResolver().call(CleanCopyClient.URI, METHOD_THUMBNAIL, null, request);
-            } catch (RuntimeException e) {
-                throw new IOException("thumbnail not made in the VM: " + e, e);
-            }
-            final Bitmap bitmap = reply == null ? null
-                    : reply.getParcelable(CleanCopyClient.EXTRA_BITMAP, Bitmap.class);
-            if (bitmap == null) {
-                final String why = "thumbnail not made in the VM: "
-                        + (reply == null ? "no reply" : reply.getString(EXTRA_ERROR));
-                if (reply != null && reply.getBoolean(EXTRA_LATER)) {
-                    throw new LaterException(why);
-                }
-                throw new IOException(why);
-            }
-            sMade.incrementAndGet();
-            if (Log.isLoggable(TAG, Log.DEBUG)) {
-                Log.d(TAG, "thumbnail from " + authority + " made in the VM: " + bitmap.getWidth() + "x"
-                        + bitmap.getHeight());
-            }
-            return bitmap;
+    // The admitted source reaches the broker under the same deadline and captured delegate.
+    private static Bitmap decode(ThumbnailWork.Source source, String authority, Size size, long end,
+            CancellationSignal signal, int delegate) throws IOException {
+        final Bundle request = new Bundle();
+        request.putParcelable(CleanCopyClient.EXTRA_FD, source.bytes);
+        request.putInt(CleanCopyClient.EXTRA_WIDTH, size.getWidth());
+        request.putInt(CleanCopyClient.EXTRA_HEIGHT, size.getHeight());
+        request.putString(EXTRA_AUTHORITY, authority);
+        request.putLong(EXTRA_DEADLINE, end);
+        request.putInt(EXTRA_DELEGATE, delegate);
+        if (source.mediaUser >= 0) request.putInt(EXTRA_MEDIA_USER, source.mediaUser);
+        final Bundle reply = ThumbnailWork.broker(context(), source.providerUid, request, end, signal);
+        final Bitmap bitmap = reply == null ? null
+                : reply.getParcelable(CleanCopyClient.EXTRA_BITMAP, Bitmap.class);
+        if (source.failure() != null) {
+            if (bitmap != null) bitmap.recycle();
+            throw source.failure();
         }
+        if (bitmap == null) {
+            if (reply != null && reply.getBoolean(EXTRA_LATER)) throw new LaterException("Thumbnail unavailable");
+            throw new IOException("Thumbnail not made in the VM");
+        }
+        sMade.incrementAndGet();
+        return bitmap;
     }
 
-    private static Context context() throws IOException {
+    private static Uri sourceUri(ContentInterface content, Uri uri) throws IOException {
+        if (!ContentResolver.SCHEME_CONTENT.equals(uri.getScheme())
+                || uri.getAuthority() == null || uri.getAuthority().isEmpty()) {
+            throw new IOException("Thumbnail source must name a content provider");
+        }
+        for (int depth = 0; content instanceof ContentResolver; depth++) {
+            final ContentInterface source = ContentResolver.getThumbnailSource((ContentResolver) content);
+            if (source == content) break;
+            if (depth >= 16) throw new IOException("Thumbnail source wrappers exceed the limit");
+            content = source;
+        }
+        int user = android.content.ContentProvider.getUserIdFromUri(uri, -1);
+        if (uri.getUserInfo() != null && user < 0) {
+            throw new IOException("Thumbnail source user must be concrete");
+        }
+        final int captured;
+        final boolean bound;
+        if (content instanceof android.content.ContentProviderClient) {
+            captured = android.content.ContentProviderClient.getThumbnailUserId((android.content.ContentProviderClient) content);
+            bound = true;
+        } else if (content instanceof android.content.ContentProvider) {
+            final Context context = ((android.content.ContentProvider) content).getContext();
+            if (context == null) throw new IOException("Thumbnail provider is not attached");
+            captured = context.getUserId();
+            bound = true;
+        } else if (content instanceof ContentResolver) {
+            captured = ContentResolver.getThumbnailSourceUser((ContentResolver) content);
+            bound = false;
+        } else {
+            throw new IOException("Thumbnail source capability is not identified");
+        }
+        if (bound && user >= 0 && user != captured) {
+            throw new IOException("Thumbnail URI user conflicts with its provider capability");
+        }
+        if (user < 0) user = captured;
+        if (user < 0) throw new IOException("Thumbnail source user is not explicit");
+        return android.content.ContentProvider.maybeAddUserId(
+                android.content.ContentProvider.getUriWithoutUserId(uri), user);
+    }
+
+    static Context context() throws IOException {
         Context context = ActivityThread.currentApplication();
         if (context == null) {
             final ActivityThread thread = ActivityThread.currentActivityThread();
@@ -223,122 +245,4 @@ public final class VmThumbnails {
         return context;
     }
 
-    /**
-     * The bytes as the decode service takes them: a stream as it is (the service reads it with its own deadline and
-     * limit), a regular file or a part of one (an EXIF thumbnail) copied into a memory file here, or fed into a pipe
-     * when it is larger than a memory file may be. The provider's file itself never leaves this process: the system
-     * server and the decode service read only what this process copied (a file on shared storage is a FUSE file that
-     * neither may read).
-     */
-    private static ParcelFileDescriptor handOver(AssetFileDescriptor asset) throws IOException {
-        final ParcelFileDescriptor pfd = asset.getParcelFileDescriptor();
-        final long offset = asset.getStartOffset();
-        long length = asset.getDeclaredLength();
-        final StructStat st;
-        try {
-            st = Os.fstat(pfd.getFileDescriptor());
-        } catch (ErrnoException e) {
-            throw new IOException("thumbnail not readable", e);
-        }
-        if (!OsConstants.S_ISREG(st.st_mode)) {
-            if (offset != 0) {
-                throw new IOException("thumbnail at an offset into a stream");
-            }
-            return pfd.dup();
-        }
-        if (length < 0) {
-            length = st.st_size - offset;
-        }
-        if (offset < 0 || length <= 0 || offset > st.st_size - length) {
-            throw new IOException("thumbnail part out of range");
-        }
-        if (length > MAX_PART_BYTES) {
-            if (length > MAX_PIPED_BYTES) {
-                throw new IOException("thumbnail file too large");
-            }
-            return pipeFrom(pfd.dup(), offset, length);
-        }
-        return copyToMemory(pfd.getFileDescriptor(), offset, (int) length);
-    }
-
-    // A file larger than this is not handed over at all: the decode service's limit for what it reads
-    // (IDecodeService.MAX_INPUT_BYTES).
-    private static final long MAX_PIPED_BYTES = 256L * 1024 * 1024;
-
-    // A pipe fed with {@code length} bytes of {@code source} from {@code offset} by a thread of its own, which owns and
-    // closes {@code source}. The decode service reads it under its own deadline: when it stops reading, the write
-    // fails and the thread ends.
-    private static ParcelFileDescriptor pipeFrom(ParcelFileDescriptor source, long offset, long length)
-            throws IOException {
-        final ParcelFileDescriptor[] pipe;
-        try {
-            pipe = ParcelFileDescriptor.createPipe();
-        } catch (IOException e) {
-            source.close();
-            throw e;
-        }
-        final Thread feed = new Thread(() -> {
-            try (ParcelFileDescriptor in = source; ParcelFileDescriptor out = pipe[1]) {
-                final byte[] buffer = new byte[64 * 1024];
-                long done = 0;
-                while (done < length) {
-                    final int n = Os.pread(in.getFileDescriptor(), buffer, 0,
-                            (int) Math.min(buffer.length, length - done), offset + done);
-                    if (n <= 0) {
-                        return;
-                    }
-                    int written = 0;
-                    while (written < n) {
-                        written += Os.write(out.getFileDescriptor(), buffer, written, n - written);
-                    }
-                    done += n;
-                }
-            } catch (ErrnoException | IOException e) {
-                // The reader stopped (its deadline) or the file went: the service sees a short stream.
-            }
-        }, "VmThumbnailFeed");
-        feed.setDaemon(true);
-        try {
-            feed.start();
-        } catch (Throwable e) {
-            source.close();
-            pipe[1].close();
-            pipe[0].close();
-            throw new IOException("thumbnail not handed over", e);
-        }
-        return pipe[0];
-    }
-
-    private static ParcelFileDescriptor copyToMemory(FileDescriptor source, long offset, int length)
-            throws IOException {
-        FileDescriptor memory = null;
-        try {
-            memory = Os.memfd_create("thumbnail", OsConstants.MFD_CLOEXEC);
-            final byte[] buffer = new byte[Math.min(64 * 1024, length)];
-            int done = 0;
-            while (done < length) {
-                final int n = Os.pread(source, buffer, 0, Math.min(buffer.length, length - done), offset + done);
-                if (n <= 0) {
-                    throw new IOException("thumbnail shorter than declared");
-                }
-                int written = 0;
-                while (written < n) {
-                    written += Os.write(memory, buffer, written, n - written);
-                }
-                done += n;
-            }
-            Os.lseek(memory, 0, OsConstants.SEEK_SET);
-            return ParcelFileDescriptor.dup(memory);
-        } catch (ErrnoException e) {
-            throw new IOException("thumbnail not copied", e);
-        } finally {
-            if (memory != null) {
-                try {
-                    Os.close(memory);
-                } catch (ErrnoException ignored) {
-                    // Closed.
-                }
-            }
-        }
-    }
 }

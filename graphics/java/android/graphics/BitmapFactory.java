@@ -526,6 +526,8 @@ public class BitmapFactory {
      */
     public static Bitmap decodeFile(String pathName, Options opts) {
         validate(opts);
+        // DiamaneOS: acquire the file within the public call's deadline.
+        if (DecodeGate.gates()) return GatedDecodes.bitmapFactory(pathName, opts);
         Bitmap bm = null;
         FileDescriptor fd = null;
         try {

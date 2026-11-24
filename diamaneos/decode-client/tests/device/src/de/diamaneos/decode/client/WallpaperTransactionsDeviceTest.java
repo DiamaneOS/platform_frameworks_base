@@ -19,7 +19,7 @@ package de.diamaneos.decode.client;
 import static org.junit.Assert.*;
 
 import android.app.IWallpaperManager;
-import android.app.WallpaperDescription;
+import android.app.wallpaper.WallpaperDescription;
 import android.app.WallpaperManager;
 import android.content.Context;
 import android.graphics.Bitmap;
@@ -62,10 +62,7 @@ public class WallpaperTransactionsDeviceTest {
     }
 
     private static String shell(String cmd) throws Exception {
-        try (ParcelFileDescriptor fd = InstrumentationRegistry.getInstrumentation().getUiAutomation()
-                .executeShellCommand(cmd); InputStream in = new ParcelFileDescriptor.AutoCloseInputStream(fd)) {
-            return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
-        }
+        return DeviceShell.run(cmd);
     }
 
     @After
@@ -92,16 +89,25 @@ public class WallpaperTransactionsDeviceTest {
             second = null;
             final long end = SystemClock.uptimeMillis() + 40000;
             Bitmap crop = null;
+            int descriptors = 0;
+            int encodedBytes = 0;
             while (crop == null && SystemClock.uptimeMillis() < end) {
                 try (ParcelFileDescriptor fd = WallpaperManager.getInstance(context)
                         .getWallpaperFile(WallpaperManager.FLAG_SYSTEM)) {
                     if (fd != null) {
-                        crop = BitmapFactory.decodeFileDescriptor(fd.getFileDescriptor());
+                        descriptors++;
+                        try (InputStream input = new ParcelFileDescriptor.AutoCloseInputStream(fd)) {
+                            final byte[] bytes = input.readNBytes(32 * 1024 * 1024 + 1);
+                            assertTrue("synthetic crop exceeds the test read bound", bytes.length <= 32 * 1024 * 1024);
+                            encodedBytes = bytes.length;
+                            crop = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+                        }
                     }
                 }
                 if (crop == null) SystemClock.sleep(250);
             }
-            assertNotNull("new set never received a crop", crop);
+            assertNotNull("new set never received a crop, descriptors=" + descriptors + " bytes=" + encodedBytes
+                    + (crop == null ? " " + shell("logcat -d -v raw -s WallpaperVm:V") : ""), crop);
             assertEquals("old descriptor replaced the new set", 0xff0000ff,
                     crop.getPixel(crop.getWidth() / 2, crop.getHeight() / 2));
             crop.recycle();

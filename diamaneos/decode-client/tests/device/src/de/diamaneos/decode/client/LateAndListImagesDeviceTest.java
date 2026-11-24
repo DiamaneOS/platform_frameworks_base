@@ -165,6 +165,14 @@ public class LateAndListImagesDeviceTest {
     }
 
     @Test
+    public void workProfileXmlMiss_fillsItsPresentation() throws Exception {
+        assertTrue("run in the test work profile", mContext.getUserId() != 0);
+        final Drawable xml = xmlBitmapOfALateLayout(mContext, mPackage);
+        assertTrue("expected a cold XML drawable miss", xml instanceof DrawableWrapper);
+        assertTrue("the work drawable did not fill", ((DrawableWrapper) xml).getDrawable() instanceof BitmapDrawable);
+    }
+
+    @Test
     public void lateImages_packageDrawable_bitmapIconIsNeverNull() throws Exception {
         // A PNG icon of a package (an autofill service's): shown at once, empty, then filled in. Never null, so the
         // save UI always shows.
@@ -195,7 +203,7 @@ public class LateAndListImagesDeviceTest {
         final android.util.TypedValue value = new android.util.TypedValue();
         mContext.getResources().getValue(R.mipmap.vm_test_icon, value, true);
         final String key = AppResourceImages.keyOf(mContext.getApplicationInfo().sourceDir,
-                value.string.toString(), Bitmap.DENSITY_NONE, width, height);
+                value.string.toString(), Bitmap.DENSITY_NONE, width, height, mContext.getUserId());
         final Bitmap blue = Bitmap.createBitmap(6, 6, Bitmap.Config.ARGB_8888);
         blue.eraseColor(0xff0000ff);
         store.save(key, blue, null);

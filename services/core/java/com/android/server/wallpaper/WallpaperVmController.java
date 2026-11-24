@@ -20,6 +20,8 @@ import android.content.Context;
 import android.graphics.Point;
 import android.os.FileObserver;
 import android.os.Handler;
+import android.os.ParcelFileDescriptor;
+import android.os.SELinux;
 import android.util.Slog;
 import android.util.SparseArray;
 import android.view.Display;
@@ -27,12 +29,13 @@ import android.view.DisplayInfo;
 
 import com.android.server.ServiceThread;
 
+import de.diamaneos.decode.client.FreshWallpaperInput;
 import de.diamaneos.decode.client.WallpaperBox;
+import de.diamaneos.decode.client.WallpaperSets;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.List;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -44,7 +47,9 @@ import java.util.function.Function;
  * held, and retries it while the VM is unavailable. Until a source is clean no crop is made from it and the default
  * wallpaper shows. When the clean copy comes after a failed first try, {@code showClean} (given by the service, run
  * under its lock) makes the crop, stores the crop hints and binds the image wallpaper again: the service's own update
- * path does not run twice for one event.
+ * path does not run twice for one event. A task works on the generation of the file its event saw: its clean copy is
+ * put in place, its hints carried over and the update run under the service's lock only while the file is still that
+ * generation, so an older image never replaces a newer one or comes back after a clear.
  */
 final class WallpaperVmController {
     /** Keep close events from retired input descriptors out of the directory watch. */
@@ -62,7 +67,9 @@ final class WallpaperVmController {
     private final WallpaperVmSanitizer mSanitizer;
     private final Handler mHandler;
     // Stored wallpapers waiting for the VM, by source path, so a second check does not queue them twice.
-    private final Set<String> mMigrating = ConcurrentHashMap.newKeySet();
+    private final de.diamaneos.decode.client.WallpaperMigrations mMigrating =
+            new de.diamaneos.decode.client.WallpaperMigrations();
+    private final WallpaperSets mSets = new WallpaperSets();
 
     /**
      * {@code lock} is the service's lock, {@code showCleanLocked} (run under it) makes the crop of a wallpaper whose
@@ -81,18 +88,14 @@ final class WallpaperVmController {
     }
 
     /**
-     * A file event in a wallpaper directory. True when it was handled here: a rename this class made, or an image
-     * an app wrote, which is made clean first and then shown. False when the service handles it as before
+     * A file event in a wallpaper directory. True when it was handled here: an image an app wrote is made clean
+     * first and then shown. False when the service handles it as before
      * ({@code update}, its own update path, is not run here then).
      *
      * @param dataForEvent the wallpaper data of the event, for the lock wallpaper or the system one
      */
     boolean onEvent(int event, String path, File dir, File systemFile, File lockFile,
             Function<Boolean, WallpaperData> dataForEvent, Runnable update) {
-        if (event == FileObserver.MOVED_TO && mSanitizer.consumeOwnMove(dir, path)) {
-            // The clean copy from the VM moved into place: the task that made it goes on.
-            return true;
-        }
         final File changed = new File(dir, path);
         final boolean lock = lockFile.equals(changed);
         final boolean imageWritten = (event == FileObserver.CLOSE_WRITE || event == FileObserver.MOVED_TO)
@@ -101,6 +104,15 @@ final class WallpaperVmController {
             return false;
         }
         final WallpaperData wallpaper = dataForEvent.apply(lock);
+        if (event == FileObserver.MOVED_TO && lock && wallpaper != null) {
+            // The service moved the home and lock image to the lock paths, its crop with it (a home-only image is
+            // set over a shared one): no new image. Its clean crop stays, a missing one is made again from the
+            // clean source, an unclean source is made clean first. The service's update leaves the move alone.
+            synchronized (mLock) {
+                migrateIfNeededLocked(wallpaper);
+            }
+            return false;
+        }
         // The crop of the image this one replaces goes at once: the app's set completes before the VM has answered
         // (WallpaperObserver.completeSoon), and until then the wallpaper file is the default, not the old image.
         if (wallpaper != null) {
@@ -111,7 +123,11 @@ final class WallpaperVmController {
         // The first try that works runs the service's update, as for any new image. A try that works after a first
         // one failed (the update ran then and showed the default) shows the clean copy itself.
         final AtomicBoolean failedFirst = new AtomicBoolean();
-        cleanThen(changed, wallpaper, 0, stampOf(changed), () -> {
+        final String generation = WallpaperVmSanitizer.generation(changed);
+        if (generation == null) {
+            return true; // Gone already (cleared): nothing to make clean.
+        }
+        cleanThen(changed, wallpaper, 0, generation, () -> {
             if (!failedFirst.get()) {
                 update.run();
             } else if (wallpaper != null) {
@@ -129,7 +145,8 @@ final class WallpaperVmController {
     /**
      * A static wallpaper stored before images were decoded in the VM (or restored or moved without it): its crop is
      * removed right away, so nothing decodes it, and the VM re-makes it in the background. Until then the default
-     * wallpaper shows. Called with the service's lock held.
+     * wallpaper shows. A clean source whose crop is missing or not the system server's own gets its crop made again.
+     * Called with the service's lock held.
      */
     void migrateIfNeededLocked(WallpaperData wallpaper) {
         if (wallpaper == null || !wallpaper.sourceExists()) {
@@ -137,16 +154,29 @@ final class WallpaperVmController {
         }
         final File source = wallpaper.getWallpaperFile();
         if (WallpaperVmSanitizer.isClean(source)) {
+            // A crop not listed as the system server's own (made by an older build) is made again, so SystemUI
+            // decodes it without the VM. So is a missing one (a lock image whose crop went), else a cropped read
+            // finds no image.
+            if (!wallpaper.cropExists() || !WallpaperVmSanitizer.isOwnCrop(source, wallpaper.getCropFile())) {
+                Slog.i(TAG, "Wallpaper crop " + wallpaper.getCropFile().getName()
+                        + " is made again from its clean copy");
+                mHandler.post(() -> {
+                    synchronized (mLock) {
+                        mShowCleanLocked.accept(wallpaper);
+                    }
+                });
+            }
             return;
         }
         // Hide the crop made from the old source: the default shows until the VM has re-made it. The source stays.
         wallpaper.getCropFile().delete();
-        if (!mMigrating.add(source.getPath())) {
+        final String generation = WallpaperVmSanitizer.generation(source);
+        if (!mMigrating.begin(source.getPath(), generation)) {
             return;
         }
         Slog.i(TAG, "Wallpaper " + source.getName() + " is not a clean copy from the VM yet, hidden until it is");
-        cleanThen(source, wallpaper, 0, stampOf(source), () -> {
-            mMigrating.remove(source.getPath());
+        cleanThen(source, wallpaper, 0, generation, () -> {
+            mMigrating.retire(source.getPath(), generation);
             synchronized (mLock) {
                 mShowCleanLocked.accept(wallpaper);
             }
@@ -178,23 +208,58 @@ final class WallpaperVmController {
     }
 
     /** The wallpaper was cleared: the original kept beside its clean copy goes too. */
-    static void onCleared(WallpaperData wallpaper) {
-        WallpaperVmSanitizer.originalOf(wallpaper.getWallpaperFile()).delete();
+    void onCleared(WallpaperData wallpaper) {
+        final File source = wallpaper.getWallpaperFile();
+        mSets.begin(source.getPath());
+        mMigrating.clear(source.getPath());
+        WallpaperVmSanitizer.originalOf(source).delete();
+    }
+
+    boolean consumeOwnMove(File dir, String path) {
+        return mSanitizer.consumeOwnMove(dir, path);
+    }
+
+    /** A preparation failure leaves the previous source in place. */
+    ParcelFileDescriptor openForAppLocked(WallpaperData wallpaper, Runnable beforeReplace) throws IOException {
+        final File source = wallpaper.getWallpaperFile();
+        final ParcelFileDescriptor input = FreshWallpaperInput.replace(source, staged -> {
+            final String label = SELinux.fileSelabelLookup(source.getPath());
+            if (label == null || (!label.equals(SELinux.getFileContext(staged.getPath()))
+                    && !SELinux.setFileContext(staged.getPath(), label))) {
+                throw new IOException("could not label the next wallpaper source");
+            }
+            return ParcelFileDescriptor.open(staged, ParcelFileDescriptor.MODE_READ_WRITE);
+        }, staged -> {
+            if (beforeReplace != null) beforeReplace.run();
+            mSanitizer.moveToSource(staged, source);
+        });
+        mSets.begin(source.getPath());
+        mMigrating.clear(source.getPath());
+        WallpaperVmSanitizer.onOpenedForApp(source, input.getFileDescriptor());
+        return input;
     }
 
     /**
-     * Makes {@code source} a clean copy in the VM, carries {@code wallpaper}'s crop hints over, then runs
+     * Makes {@code source} a clean copy in the VM from its {@code generation} and, under the service's lock while the
+     * source is still that generation, puts it in place, carries {@code wallpaper}'s crop hints over and runs
      * {@code onClean}. When the first try fails, runs {@code onFirstFailure} (the default wallpaper shows: nothing
      * decodes a source that is not clean). While the VM is unavailable it tries again, the last delay repeating,
      * until the file changes. An image the VM refuses is kept and not tried again until the next boot or user switch.
-     * The source is never deleted here.
+     * A task whose file changed meanwhile ends without a trace: the newer image's task handles it. The source is never
+     * deleted here.
      */
-    private void cleanThen(File source, WallpaperData wallpaper, int attempt, long[] stamp, Runnable onClean,
+    private void cleanThen(File source, WallpaperData wallpaper, int attempt, String generation, Runnable onClean,
             Runnable onFirstFailure) {
+        cleanThen(source, wallpaper, attempt, generation, onClean, onFirstFailure, mSets.current(source.getPath()));
+    }
+
+    private void cleanThen(File source, WallpaperData wallpaper, int attempt, String generation, Runnable onClean,
+            Runnable onFirstFailure, long set) {
         final long delay = attempt == 0 ? 0 : RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length) - 1];
         mHandler.postDelayed(() -> {
-            if (!java.util.Arrays.equals(stamp, stampOf(source))) {
-                // A newer image replaced this one: its own task handles it.
+            if (!mSets.current(source.getPath(), set)
+                    || !generation.equals(WallpaperVmSanitizer.generation(source))) {
+                mMigrating.retire(source.getPath(), generation);
                 return;
             }
             final Point display = largestDisplaySize();
@@ -202,36 +267,66 @@ final class WallpaperVmController {
             synchronized (mLock) {
                 crops = wallpaper == null ? null : WallpaperVmSanitizer.cropHints(wallpaper);
             }
-            final WallpaperVmSanitizer.Outcome outcome = mSanitizer.sanitize(source, userOf(source, wallpaper),
-                    display.x, display.y, crops);
-            switch (outcome.result) {
-                case CLEAN:
-                    if (outcome.remade && wallpaper != null) {
-                        synchronized (mLock) {
+            final WallpaperVmSanitizer.Prepared prepared = mSanitizer.prepare(source, generation,
+                    userOf(source, wallpaper), display.x, display.y, crops);
+            WallpaperVmSanitizer.Outcome outcome = prepared.outcome;
+            if (outcome.result == WallpaperVmSanitizer.Result.CLEAN) {
+                final boolean current = !outcome.remade || mSanitizer.stillCurrent(prepared);
+                if (!current) {
+                    WallpaperVmSanitizer.discard(prepared);
+                    mMigrating.retire(source.getPath(), generation);
+                    return;
+                }
+                synchronized (mLock) {
+                    if (!mSets.current(source.getPath(), set)) {
+                        WallpaperVmSanitizer.discard(prepared);
+                        mMigrating.retire(source.getPath(), generation);
+                        return;
+                    }
+                    if (outcome.remade) {
+                        outcome = mSanitizer.publishLocked(prepared);
+                    } else if (!generation.equals(WallpaperVmSanitizer.generation(source))) {
+                        mMigrating.retire(source.getPath(), generation);
+                        return;
+                    }
+                    if (outcome.result == WallpaperVmSanitizer.Result.CLEAN) {
+                        if (outcome.remade && wallpaper != null) {
                             WallpaperVmSanitizer.mapCropHints(wallpaper, outcome);
                         }
+                        onClean.run();
+                        return;
                     }
-                    onClean.run();
-                    break;
+                }
+            }
+            switch (outcome.result) {
+                case STALE:
+                    mMigrating.retire(source.getPath(), generation);
+                    return;
                 case UNAVAILABLE:
                     if (attempt == 0) {
-                        onFirstFailure.run();
+                        firstFailureIfCurrent(source, generation, set, onFirstFailure);
                     }
-                    cleanThen(source, wallpaper, attempt + 1, stamp, onClean, onFirstFailure);
+                    cleanThen(source, wallpaper, attempt + 1, generation, onClean, onFirstFailure, set);
                     break;
                 default:
                     Slog.w(TAG, "Wallpaper image " + source.getName()
                             + " was not decoded in the VM, kept, default shown");
                     if (attempt == 0) {
-                        onFirstFailure.run();
+                        firstFailureIfCurrent(source, generation, set, onFirstFailure);
                     }
                     break;
             }
         }, delay);
     }
 
-    private static long[] stampOf(File file) {
-        return new long[] {file.length(), file.lastModified()};
+    /** A failed decode may update the pending crop only for its current set and input. */
+    private void firstFailureIfCurrent(File source, String generation, long set, Runnable failure) {
+        synchronized (mLock) {
+            if (mSets.current(source.getPath(), set)
+                    && generation.equals(WallpaperVmSanitizer.generation(source))) {
+                failure.run();
+            }
+        }
     }
 
     /**

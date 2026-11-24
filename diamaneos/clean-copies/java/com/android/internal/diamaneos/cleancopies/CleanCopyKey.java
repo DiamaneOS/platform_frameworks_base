@@ -20,8 +20,10 @@ import java.io.File;
 
 /**
  * The key a clean copy of an app's image file is kept under, the same in every process: the APK (path, time and size,
- * so an update is another key), the file in it, its density and the box it is made in. And which APKs are the
- * verified system image, whose files every process decodes as before. Plain Java, tested on the host.
+ * so an update is another key), the file in it, its density, the box it is made in and the Android user it is made
+ * for. The VM makes a copy as an image of that user, so a copy made for one user (a work profile) is never the answer
+ * to another user's ask, on disk or in a process's memory. And which APKs are the verified system image, whose files
+ * every process decodes as before. Plain Java, tested on the host.
  */
 public final class CleanCopyKey {
     /** How a key starts, followed by the APK's path. */
@@ -36,33 +38,82 @@ public final class CleanCopyKey {
 
     /**
      * The key of the file {@code file} of the APK at {@code apkPath}, decoded at {@code density} in a box of
-     * {@code maxWidth} x {@code maxHeight}. Null when the APK is not known: such a file is never kept, so two
-     * packages can never share a copy.
+     * {@code maxWidth} x {@code maxHeight} for the Android user {@code userId}. Null when the APK or the user is not
+     * known: such a file is never kept, so two packages or two users can never share a copy.
      */
-    public static String of(String apkPath, String file, int density, int maxWidth, int maxHeight) {
-        if (apkPath == null || file == null) {
+    public static String of(String apkPath, String file, int density, int maxWidth, int maxHeight, int userId) {
+        if (apkPath == null || file == null || userId < 0) {
             return null;
         }
         final File apk = new File(apkPath);
         return PREFIX + apkPath + ':' + apk.lastModified() + ':' + apk.length() + ':' + file + ':' + density
-                + ':' + maxWidth + 'x' + maxHeight;
+                + ':' + maxWidth + 'x' + maxHeight + USER + userId;
+    }
+
+    /** Adds the non-reusable user serial while keeping the user suffix readable by older parsers. */
+    public static String forSerial(String key, long serial) {
+        if (key == null || serial < 0) {
+            return null;
+        }
+        final int at = key.lastIndexOf(USER);
+        return at < 0 ? null : key.substring(0, at) + ":s" + serial + key.substring(at);
+    }
+
+    /** The user incarnation recorded in a key, or -1 for legacy keys. */
+    public static long serialOf(String key) {
+        if (key == null) {
+            return -1;
+        }
+        final int user = key.lastIndexOf(USER);
+        final int serial = key.lastIndexOf(":s", user);
+        try {
+            return serial < 0 || user < 0 ? -1 : Long.parseLong(key.substring(serial + 2, user));
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    // What ends a key or an identity: the user it is made for.
+    private static final String USER = ":u";
+
+    /** The user a key or an identity is made for, or -1. */
+    public static int userOf(String keyOrIdentity) {
+        if (keyOrIdentity == null) {
+            return -1;
+        }
+        final int at = keyOrIdentity.lastIndexOf(USER);
+        if (at < 0 || at + USER.length() >= keyOrIdentity.length()
+                || keyOrIdentity.length() - at - USER.length() > 9) {
+            return -1;
+        }
+        int user = 0;
+        for (int i = at + USER.length(); i < keyOrIdentity.length(); i++) {
+            final char c = keyOrIdentity.charAt(i);
+            if (c < '0' || c > '9') {
+                return -1;
+            }
+            user = user * 10 + (c - '0');
+        }
+        return user;
     }
 
     /**
-     * What a copy is a copy of, the same across app updates and users: the app the APK belongs to, the resource (as
-     * {@code Resources.getResourceName} names it), its variant ({@link #variant}) and the box. Null when one is not
-     * known or the name is not a drawable's or a mipmap's. Only the system server makes identities, from the package
-     * it finds the APK installed for, never from what an asker or the APK's own resource table says the package is.
-     * A copy whose exact key is not made yet (an update brought a new APK, or Android picks another file for the
-     * resource) shows the newest copy of the same identity meanwhile, which is made in the VM and safe, just older.
+     * What a copy is a copy of, the same across app updates: the app the APK belongs to, the resource (as
+     * {@code Resources.getResourceName} names it), its variant ({@link #variant}), the box and the user it is made for.
+     * Null when one is not known or the name is not a drawable's or a mipmap's. Only the system server makes
+     * identities, from the package it finds the APK installed for, never from what an asker or the APK's own resource
+     * table says the package is. A copy whose exact key is not made yet (an update brought a new APK, or Android picks
+     * another file for the resource) shows the newest copy of the same identity meanwhile, which is made in the VM
+     * for the same user and safe, just older.
      */
-    public static String identity(String ownerPackage, String resourceName, String file, int maxWidth,
+    public static String identity(String ownerPackage, int userId, String resourceName, String file, int maxWidth,
             int maxHeight) {
         if (ownerPackage == null || ownerPackage.isEmpty() || ownerPackage.length() > 255
-                || !resourceName(resourceName) || file == null) {
+                || !resourceName(resourceName) || file == null || userId < 0) {
             return null;
         }
-        return "res:" + ownerPackage + '/' + resourceName + '/' + variant(file) + '/' + maxWidth + 'x' + maxHeight;
+        return "res:" + ownerPackage + '/' + resourceName + '/' + variant(file) + '/' + maxWidth + 'x' + maxHeight
+                + USER + userId;
     }
 
     private static final java.util.regex.Pattern RESOURCE_NAME =
@@ -107,8 +158,18 @@ public final class CleanCopyKey {
                 && file.indexOf('\\') < 0;
     }
 
+    /** Package attribution for exact copies without a fallback resource identity. */
+    public static String ownership(String packageName, int user) {
+        return packageName == null || packageName.isEmpty() || packageName.indexOf(':') >= 0 || user < 0
+                ? null : "pkg:" + packageName + USER + user;
+    }
+
     /** The app of an identity, or null. */
     public static String ownerOf(String identity) {
+        if (identity != null && identity.startsWith("pkg:")) {
+            final int end = identity.indexOf(':', 4);
+            return end > 4 && userOf(identity) >= 0 ? identity.substring(4, end) : null;
+        }
         if (identity == null || !identity.startsWith("res:")) {
             return null;
         }

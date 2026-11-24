@@ -78,6 +78,17 @@ public final class VmIcons {
         return bitmap;
     }
 
+    private static final ThreadLocal<Boolean> sLocalWrites = new ThreadLocal<>();
+
+    static void localCacheWrites(boolean local) {
+        if (local) sLocalWrites.set(true);
+        else sLocalWrites.remove();
+    }
+
+    static boolean sharedCacheWrites() {
+        return sLocalWrites.get() == null;
+    }
+
     static void cachePut(String key, Bitmap bitmap) {
         // One image may take at most a quarter of the cache, so it cannot flush the others.
         if (pixels(bitmap) * 4 <= MAX_CACHE_ENTRY_BYTES) {
@@ -243,28 +254,6 @@ public final class VmIcons {
     }
 
     /**
-     * For a notification whose images could not be converted: the icon when it holds no compressed bytes from an app
-     * (pixels, a content URI that the viewer decodes in the VM, or a framework resource), otherwise null. Never
-     * decodes and never reads another package.
-     */
-    public static Icon withoutAppImage(Icon icon) {
-        if (icon == null) {
-            return null;
-        }
-        switch (icon.getType()) {
-            case Icon.TYPE_BITMAP:
-            case Icon.TYPE_ADAPTIVE_BITMAP:
-            case Icon.TYPE_URI:
-            case Icon.TYPE_URI_ADAPTIVE_BITMAP:
-                return icon;
-            case Icon.TYPE_RESOURCE:
-                return "android".equals(icon.getResPackage()) ? icon : null;
-            default:
-                return null;
-        }
-    }
-
-    /**
      * A context of {@code userId} made from {@code context}, for the calls of this class: an icon is the image of
      * the user of the context it is decoded with (VmDecode OWNER_USER). Null for no known user (below 0) or when it
      * cannot be made: then the icon is not decoded.
@@ -332,7 +321,7 @@ public final class VmIcons {
             }
             // Cached bitmaps are shared between views: an immutable copy, so nobody can draw into it.
             bitmap = immutable(bitmap);
-            if (key != null) {
+            if (sharedCacheWrites() && key != null) {
                 cachePut(key, bitmap);
             }
             return bitmap;
@@ -450,13 +439,16 @@ public final class VmIcons {
         return key.substring(0, window) + ":stable";
     }
 
-    // URI icons by user, owner and URI (as SystemUI's own image caches do), data icons by a hash of their bytes.
+    // URI icons by user, owner and URI (as SystemUI's own image caches do), data icons by user and a hash of their
+    // bytes: the VM made the image as one user's, never another user's answer.
     static String cacheKey(Icon icon, Context context, String ownerPackage, String box) {
         if (icon.getType() == Icon.TYPE_DATA) {
             try {
                 final MessageDigest digest = MessageDigest.getInstance("SHA-256");
                 digest.update(icon.getDataBytes(), icon.getDataOffset(), icon.getDataLength());
-                final StringBuilder hex = new StringBuilder("data:");
+                final StringBuilder hex = new StringBuilder("data:").append(context.getUserId()).append(":s")
+                        .append(com.android.internal.diamaneos.cleancopies.CleanCopyClient.userSerial(
+                                context, context.getUserId())).append(':');
                 for (byte b : digest.digest()) {
                     hex.append(Character.forDigit((b >> 4) & 0xf, 16)).append(Character.forDigit(b & 0xf, 16));
                 }
@@ -470,8 +462,12 @@ public final class VmIcons {
     }
 
     private static String uriKey(Icon icon, Context context, String ownerPackage, String box, long window) {
-        return "uri:" + context.getUserId() + ':' + ownerPackage + ':' + bounded(String.valueOf(icon.getUri())) + ':'
-                + box + ":t" + window;
+        final int sourceUser = android.content.ContentProvider.getUserIdFromUri(icon.getUri(), context.getUserId());
+        return "uri:" + context.getUserId() + ":s"
+                + com.android.internal.diamaneos.cleancopies.CleanCopyClient.userSerial(context, sourceUser)
+                + ":r" + com.android.internal.diamaneos.cleancopies.CleanCopyClient.userSerial(
+                        context, context.getUserId())
+                + ':' + ownerPackage + ':' + bounded(String.valueOf(icon.getUri())) + ':' + box + ":t" + window;
     }
 
     /** URIs longer than this are not opened: no image needs one, and its key would hold a lot of memory. */

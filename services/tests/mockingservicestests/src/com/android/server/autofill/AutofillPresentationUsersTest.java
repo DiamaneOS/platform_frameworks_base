@@ -30,8 +30,8 @@ public class AutofillPresentationUsersTest {
         return views;
     }
     private Slice slice(String uri) {
-        return new Slice.Builder(Uri.parse("content://test/presentation"))
-                .addIcon(Icon.createWithContentUri(uri), null, new String[0]).build();
+        return new Slice.Builder(Uri.parse("content://test/presentation"), null)
+                .addIcon(Icon.createWithContentUri(uri), null, java.util.List.of()).build();
     }
     @Test public void workQualifiedRemoteViews_surviveTheWorkSessionFilter() {
         RemoteViews work = views("content://10@images/icon");
@@ -50,7 +50,7 @@ public class AutofillPresentationUsersTest {
         assertNull(AutofillPresentationUsers.sanitizeSlice(slice("content://0@images/icon"), 10));
     }
     @Test public void nestedSlice_cannotHideAnotherUsersIcon() {
-        Slice nested = new Slice.Builder(Uri.parse("content://test/outer"))
+        Slice nested = new Slice.Builder(Uri.parse("content://test/outer"), null)
                 .addSubSlice(slice("content://0@images/icon"), null).build();
         assertNull(AutofillPresentationUsers.sanitizeSlice(nested, 10));
     }

@@ -34,13 +34,17 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * A provider of this test APK (not exported) that counts every open: a test sees whether a URI was opened at all.
  * It has no data, an open gets nothing to read, except for the icons a test puts in {@link #ICONS}: {@code icon/NAME}
- * opens their bytes, {@code icon-slow/NAME} opens them after {@link #SLOW_MS}.
+ * opens their bytes, {@code icon-slow/NAME} opens them after {@link #SLOW_MS}, {@code icon-late/NAME} after
+ * {@link #LATE_MS} (past an icon load's end).
  */
 public class ProbeProvider extends ContentProvider {
     public static final String AUTHORITY = "de.diamaneos.decode.client.tests.probe";
     public static final AtomicInteger OPENS = new AtomicInteger();
+    public static final Map<String, java.util.concurrent.atomic.AtomicLongArray> TIMINGS = new ConcurrentHashMap<>();
     public static final Map<String, byte[]> ICONS = new ConcurrentHashMap<>();
+    public static final Map<String, Integer> ORIENTATIONS = new ConcurrentHashMap<>();
     public static final long SLOW_MS = 1_000;
+    public static final long LATE_MS = com.android.internal.diamaneos.cleancopies.VmIconLoads.LOAD_MS + 1_000;
 
     @Override
     public boolean onCreate() {
@@ -52,10 +56,23 @@ public class ProbeProvider extends ContentProvider {
         OPENS.incrementAndGet();
         final java.util.List<String> path = uri.getPathSegments();
         final byte[] icon = path.size() == 2 ? ICONS.get(path.get(1)) : null;
-        if (icon != null && (path.get(0).equals("icon") || path.get(0).equals("icon-slow"))) {
-            if (path.get(0).equals("icon-slow")) {
+        if (path.size() == 2 && path.get(0).equals("icon-denied") && icon == null) {
+            throw new SecurityException("the test grant is not available yet");
+        }
+        if (icon != null && (path.get(0).equals("icon") || path.get(0).equals("icon-slow")
+                || path.get(0).equals("icon-late") || path.get(0).equals("icon-denied"))) {
+            final java.util.concurrent.atomic.AtomicLongArray timing = TIMINGS.get(path.get(1));
+            if (timing != null) {
+                timing.set(0, SystemClock.uptimeMillis());
+                timing.set(2, android.os.Binder.getCallingUid());
+                timing.set(3, android.os.Binder.getCallingPid());
+            }
+            if (path.get(0).equals("icon-late")) {
+                SystemClock.sleep(LATE_MS);
+            } else if (path.get(0).equals("icon-slow")) {
                 SystemClock.sleep(SLOW_MS);
             }
+            if (timing != null) timing.set(1, SystemClock.uptimeMillis());
             try {
                 final File file = File.createTempFile("probe-icon", ".bin", getContext().getCacheDir());
                 try (FileOutputStream out = new FileOutputStream(file)) {
@@ -69,6 +86,15 @@ public class ProbeProvider extends ContentProvider {
             }
         }
         throw new FileNotFoundException("probe: " + uri);
+    }
+
+    @Override
+    public android.content.res.AssetFileDescriptor openAssetFile(Uri uri, String mode) throws FileNotFoundException {
+        final android.os.Bundle extras = new android.os.Bundle();
+        extras.putInt(android.provider.DocumentsContract.EXTRA_ORIENTATION,
+                ORIENTATIONS.getOrDefault(uri.getLastPathSegment(), 0));
+        return new android.content.res.AssetFileDescriptor(openFile(uri, mode), 0,
+                android.content.res.AssetFileDescriptor.UNKNOWN_LENGTH, extras);
     }
 
     @Override

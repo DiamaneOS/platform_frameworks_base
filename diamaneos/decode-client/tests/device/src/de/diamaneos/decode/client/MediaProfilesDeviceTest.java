@@ -5,10 +5,13 @@ import static org.junit.Assert.*;
 import static org.junit.Assume.assumeTrue;
 import android.content.Context;
 import android.content.ContentResolver;
+import android.content.ContentProvider;
+import android.content.ContentProviderClient;
 import android.graphics.Bitmap;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.UserHandle;
+import android.provider.DocumentsContract;
 import android.util.Log;
 import android.util.Size;
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -33,6 +36,10 @@ public class MediaProfilesDeviceTest {
             final String document = args.getString("vmDocument");
             if (document != null) {
                 load(context.getContentResolver(), Uri.parse(document), args.getString("sourceUser"));
+                if (Boolean.parseBoolean(args.getString("acquiredClient", "false"))) {
+                    loadClient(context.getContentResolver(), Uri.parse(document),
+                            args.getString("sourceUser"));
+                }
             }
             final int user = Integer.parseInt(args.getString("resolverUser", "-1"));
             if (user >= 0) {
@@ -44,6 +51,24 @@ public class MediaProfilesDeviceTest {
         } finally {
             VmThumbnails.setForcedForTest(false);
             automation.dropShellPermissionIdentity();
+        }
+    }
+
+    private static void loadClient(ContentResolver resolver, Uri qualified, String sourceUser)
+            throws Exception {
+        try (ContentProviderClient client = resolver.acquireUnstableContentProviderClient(qualified)) {
+            assertNotNull(client);
+            assertEquals(Integer.parseInt(sourceUser), client.getThumbnailUserId());
+            final int made = VmThumbnails.madeForTest();
+            final Bitmap bitmap = DocumentsContract.getDocumentThumbnail(ContentResolver.wrap(client),
+                    ContentProvider.getUriWithoutUserId(qualified), new android.graphics.Point(128, 128), null);
+            try {
+                assertNotNull(bitmap);
+                assertTrue(bitmap.getWidth() > 0 && bitmap.getHeight() > 0);
+                assertEquals(made + 1, VmThumbnails.madeForTest());
+                Log.i("MediaProfilesProof", "VM acquired-client thumbnail expectedSourceUser="
+                        + sourceUser + " size=" + bitmap.getWidth() + "x" + bitmap.getHeight());
+            } finally { if (bitmap != null) bitmap.recycle(); }
         }
     }
 

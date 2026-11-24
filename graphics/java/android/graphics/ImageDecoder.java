@@ -290,6 +290,13 @@ public final class ImageDecoder implements AutoCloseable {
         @Override
         public ImageDecoder createImageDecoder(boolean preferAnimation) throws IOException {
             AssetFileDescriptor assetFd = null;
+            if (DecodeGate.gates()) {
+                // DiamaneOS: opened and read within the call's time, decoded in the protected VM (DecodeGate).
+                final AssetFileDescriptor[] exempt = new AssetFileDescriptor[1];
+                final GatedDecodes.Header header = GatedDecodes.header(mResolver, mUri, this, exempt);
+                return header != null ? gated(header)
+                        : createFromAssetFileDescriptor(exempt[0], preferAnimation, this);
+            }
             try {
                 if (ContentResolver.SCHEME_CONTENT.equals(mUri.getScheme())) {
                     assetFd = mResolver.openTypedAssetFileDescriptor(mUri,
@@ -329,16 +336,16 @@ public final class ImageDecoder implements AutoCloseable {
     @NonNull
     private static ImageDecoder createFromFile(@NonNull File file,
             boolean preferAnimation, @NonNull Source source) throws IOException {
-        FileInputStream stream = new FileInputStream(file);
-        FileDescriptor fd = stream.getFD();
-        if (DecodeGate.gates() && !DecodeGate.exempt(fd)) {
-            // DiamaneOS: in a gated process the bytes are decoded in the protected VM (DecodeGate).
-            try {
-                return gated(GatedDecodes.header(fd, 0, -1, source));
-            } finally {
-                IoUtils.closeQuietly(stream);
+        final FileInputStream[] exempt = new FileInputStream[1];
+        if (DecodeGate.gates()) {
+            // DiamaneOS: opened and read within the call's time, decoded in the protected VM (DecodeGate).
+            final GatedDecodes.Header header = GatedDecodes.header(file, source, exempt);
+            if (header != null) {
+                return gated(header);
             }
         }
+        FileInputStream stream = exempt[0] != null ? exempt[0] : new FileInputStream(file);
+        FileDescriptor fd = stream.getFD();
         try {
             Os.lseek(fd, 0, SEEK_CUR);
         } catch (ErrnoException e) {
@@ -649,6 +656,8 @@ public final class ImageDecoder implements AutoCloseable {
 
         @Override
         public ImageDecoder createImageDecoder(boolean preferAnimation) throws IOException {
+            // DiamaneOS: arbitrary callable sources require a worker and share the original operation.
+            if (DecodeGate.gates()) return gated(GatedDecodes.header(mCallable, this));
             AssetFileDescriptor assetFd = null;
             try {
                 assetFd = mCallable.call();

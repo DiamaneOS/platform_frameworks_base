@@ -55,6 +55,8 @@ import java.util.concurrent.atomic.AtomicReference;
 @RunWith(AndroidJUnit4.class)
 public class NotificationLogIconsDeviceTest {
     private final Context mContext = InstrumentationRegistry.getInstrumentation().getTargetContext();
+    private Object mPreviousGateApp;
+    private boolean mChangedGateApp;
 
     @Before
     public void gated() {
@@ -63,7 +65,15 @@ public class NotificationLogIconsDeviceTest {
     }
 
     @After
-    public void asBefore() {
+    public void asBefore() throws Exception {
+        if (mChangedGateApp) {
+            final java.lang.reflect.Field app = com.android.internal.diamaneos.cleancopies.CleanCopyGate.class
+                    .getDeclaredField("sApp");
+            app.setAccessible(true);
+            app.set(null, mPreviousGateApp);
+        }
+        android.content.res.ImageFileGates.setProcessDefault(null);
+        com.android.internal.diamaneos.cleancopies.CleanCopyGate.setModeForTest(-1);
         VmIconLoads.setForcedForTest(null);
         VmIconLoads.resetForTest();
     }
@@ -146,4 +156,91 @@ public class NotificationLogIconsDeviceTest {
         assertNotNull("the shown icon stayed blank", filled);
         assertEquals(color, filled.getPixel(filled.getWidth() / 2, filled.getHeight() / 2));
     }
+
+    @Test
+    public void aMissingWorkPackageContext_keepsTheNotificationsUser() {
+        final int work = workUser();
+        final byte[] bytes = png(0xff3579bd);
+        final Icon icon = Icon.createWithData(bytes, 0, bytes.length);
+        assertNotNull(shown(loadAsTheLog(icon, postedBy(0)), 15_000));
+        final int made = VmIconLoads.madeForTest();
+        final Notification notification = new Notification.Builder(mContext, "log").build();
+        final StatusBarNotification removed = new StatusBarNotification("de.diamaneos.removed", null,
+                2, null, UserHandle.getUid(work, UserHandle.getAppId(Process.myUid())), 0,
+                notification, UserHandle.of(work), null, System.currentTimeMillis());
+        assertEquals(mContext.getUserId(), removed.getPackageContext(mContext).getUserId());
+        assertNotNull(shown(loadAsTheLog(icon, removed), 15_000));
+        assertEquals("the explicit work user must survive the package fallback", made + 1,
+                VmIconLoads.madeForTest());
+    }
+
+    @Test
+    public void aWorkResourceIcon_fetchesTheSameUserItWatches() throws Exception {
+        workResource(false);
+    }
+
+    @Test
+    public void aWorkResourceIcon_refillsForTheSameUserItWatches() throws Exception {
+        workResource(true);
+    }
+
+    private void workResource(boolean refill) throws Exception {
+        final int work = workUser();
+        final java.lang.reflect.Field app = com.android.internal.diamaneos.cleancopies.CleanCopyGate.class
+                .getDeclaredField("sApp");
+        app.setAccessible(true);
+        mPreviousGateApp = app.get(null);
+        mChangedGateApp = true;
+        app.set(null, mContext);
+        final java.util.concurrent.atomic.AtomicBoolean ready = new java.util.concurrent.atomic.AtomicBoolean(!refill);
+        final java.util.List<Integer> requested = new java.util.concurrent.CopyOnWriteArrayList<>();
+        final com.android.internal.diamaneos.cleancopies.CleanCopyGate.Source source =
+                new com.android.internal.diamaneos.cleancopies.CleanCopyGate.Source() {
+            @Override public com.android.internal.diamaneos.cleancopies.CleanImageFile read(String key) {
+                boolean workKey = key.endsWith(":u" + work);
+                if (workKey && !ready.get()) return null;
+                Bitmap bitmap = Bitmap.createBitmap(24, 24, Bitmap.Config.ARGB_8888);
+                bitmap.eraseColor(workKey ? 0xff0000ff : 0xffff0000);
+                java.nio.ByteBuffer bytes = java.nio.ByteBuffer.allocate(24 * 24 * 4);
+                bitmap.copyPixelsToBuffer(bytes);
+                return new com.android.internal.diamaneos.cleancopies.CleanImageFile(key, "", 24, 24, 0,
+                        com.android.internal.diamaneos.cleancopies.CleanImageFile.COLOR_SRGB, null, null, bytes.array());
+            }
+            @Override public com.android.internal.diamaneos.cleancopies.CleanImageFile fallback(String apk,
+                    String file, int density, int width, int height, String resource, int user) { return null; }
+            @Override public void request(String key, String apk, String file, int density, int width,
+                    int height, String resource, int user) { requested.add(user); }
+        };
+        final android.content.res.ImageFileGate gate =
+                fixtureGate(source);
+        android.content.res.ImageFileGates.setProcessDefault(gate);
+        com.android.internal.diamaneos.cleancopies.CleanCopyGate.setModeForTest(
+                com.android.internal.diamaneos.cleancopies.CleanCopyGate.MODE_ALL);
+        final Icon resource = Icon.createWithResource(mContext,
+                de.diamaneos.decode.client.tests.R.drawable.vm_test_red);
+        final Drawable drawn = loadAsTheLog(resource, postedBy(work));
+        if (refill) {
+            assertTrue("the initial fetch must request the work copy", requested.contains(work));
+            assertTrue("the initial fetch must not request the parent", !requested.contains(0));
+            ready.set(true);
+            com.android.internal.diamaneos.cleancopies.CleanCopyGate.madeForTest(mContext.getPackageName(), work);
+        }
+        final Bitmap bitmap = shown(drawn, 5_000);
+        assertNotNull(bitmap);
+        assertEquals("the log fetched the personal copy", 0xff0000ff, bitmap.getPixel(12, 12));
+    }
+
+    private android.content.res.ImageFileGate fixtureGate(
+            com.android.internal.diamaneos.cleancopies.CleanCopyGate.Source source) throws Exception {
+        final Class<?> gate = com.android.internal.diamaneos.cleancopies.CleanCopyGate.class;
+        final Class<?> sourceType = com.android.internal.diamaneos.cleancopies.CleanCopyGate.Source.class;
+        try {
+            return (android.content.res.ImageFileGate) gate.getMethod("forTest", Context.class, sourceType,
+                    boolean.class).invoke(null, mContext, source, false);
+        } catch (NoSuchMethodException olderHelper) {
+            return (android.content.res.ImageFileGate) gate.getMethod("forTest", Context.class, sourceType,
+                    boolean.class, boolean.class).invoke(null, mContext, source, false, false);
+        }
+    }
+
 }

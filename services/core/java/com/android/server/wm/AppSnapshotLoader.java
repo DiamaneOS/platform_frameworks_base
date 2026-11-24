@@ -166,7 +166,11 @@ class AppSnapshotLoader {
             final Options options = new Options();
             options.inPreferredConfig = mPersistInfoProvider.use16BitFormat()
                     && !proto.isTranslucent ? Config.RGB_565 : Config.ARGB_8888;
-            final Bitmap bitmap = BitmapFactory.decodeFile(bitmapFile.getPath(), options);
+            final Bitmap bitmap;
+            // DiamaneOS: a snapshot is an image of its task's user, whoever asks for it (DecodeGate).
+            try (var owner = android.graphics.DecodeGate.ownerScope(userId)) {
+                bitmap = BitmapFactory.decodeFile(bitmapFile.getPath(), options);
+            }
             if (bitmap == null) {
                 Slog.w(TAG, "Failed to load bitmap: " + bitmapFile.getPath());
                 return null;

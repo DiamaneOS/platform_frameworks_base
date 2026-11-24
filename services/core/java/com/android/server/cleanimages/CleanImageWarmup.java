@@ -158,6 +158,16 @@ final class CleanImageWarmup {
                 queue(packageName, userId);
             }
         }, UserHandle.ALL, packages, null, mHandler);
+        // A removed user's copies go with it.
+        mContext.registerReceiverAsUser(new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                final int user = intent.getIntExtra(Intent.EXTRA_USER_HANDLE, -1);
+                if (user >= 0) {
+                    CleanImageMaker.get(mContext).forgetUser(user);
+                }
+            }
+        }, UserHandle.ALL, new IntentFilter(Intent.ACTION_USER_REMOVED), null, mHandler);
         // Installs before this point (early in the boot) are seen: the package map is made again.
         CleanImageMaker.get(mContext).packagesChanged();
         final IntentFilter config = new IntentFilter(Intent.ACTION_CONFIGURATION_CHANGED);
@@ -340,7 +350,7 @@ final class CleanImageWarmup {
             // The density as the load sees it: the decode service rewrote it for a load at another density, as
             // Resources does (see AppImages).
             final int density = bitmapDensity(files.densities[i]);
-            final String key = CleanCopyKey.of(apk, file, density, box[0], box[1]);
+            final String key = CleanCopyClient.key(mContext, apk, file, density, box[0], box[1], userId);
             if (key != null) {
                 keys.add(key);
                 maker.request(apk, file, density, box[0], box[1], resource, userId, false, stamp);
@@ -382,7 +392,7 @@ final class CleanImageWarmup {
     private String passState() {
         final Configuration config = mContext.getResources().getConfiguration();
         final int[] box = CleanCopyClient.box(mContext);
-        return PASS_VERSION + "|" + Build.FINGERPRINT + "|" + config.densityDpi + "|"
+        return PASS_VERSION + "|" + CleanImageMaker.COPY_GENERATION + "|" + Build.FINGERPRINT + "|" + config.densityDpi + "|"
                 + config.getLocales().toLanguageTags() + "|" + box[0] + "x" + box[1];
     }
 
@@ -508,7 +518,7 @@ final class CleanImageWarmup {
         if (state == null || generation != mPassGeneration || !mPassApps.isEmpty()) {
             return; // A newer pass took over, or this one has not listed every app yet.
         }
-        final int open = mPassListed ? CleanImageMaker.get(mContext).open(mPassKeys) : -1;
+        final int open = mPassListed ? CleanImageMaker.get(mContext).open(mPassKeys, Process.SYSTEM_UID) : -1;
         mPassState = null;
         if ((open != 0 && mChecks + 1 < MAX_ROUNDS) || !state.equals(passState())) {
             mChecks++;

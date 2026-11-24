@@ -109,7 +109,9 @@ final class DecodeClient {
                 mDownUntil = 0;
                 mLock.notifyAll();
             }
+            VmDecode.bindingChanged();
             recoveryEvent(); // a service (re)started: the recovery watch asks it now
+            watchIfDown(); // or, with none running, a new one does
         }
 
         @Override
@@ -170,17 +172,22 @@ final class DecodeClient {
      */
     <T> T call(int priority, long deadline, String owner, Call<T> call)
             throws VmDecode.UnavailableException, VmDecode.RejectedException {
+        return call(priority, deadline, owner, owner == null ? "" : owner, 0, call);
+    }
+
+    <T> T call(int priority, long deadline, String owner, String capacityLane, long bytes, Call<T> call)
+            throws VmDecode.UnavailableException, VmDecode.RejectedException {
         try {
             final T result = callOnce(priority, deadline, owner, call);
             answered();
+            VmDecode.served(capacityLane, bytes);
             return result;
         } catch (VmDecode.UnavailableException e) {
             // Whoever showed a placeholder for it can ask again once the service answers (VmDecode.unavailable).
             VmDecode.countUnavailable();
             if (e.isNoRoom()) {
                 // The service answered: no room for this image now. It is asked for again shortly.
-                answered();
-                VmDecode.noRoom();
+                VmDecode.noRoom(capacityLane, bytes);
             }
             throw e;
         }
@@ -200,9 +207,9 @@ final class DecodeClient {
             connectTimeout = Math.min(connectTimeout, left);
         }
         claimSlot(lane, SystemClock.uptimeMillis() + connectTimeout);
-        // The slot is released exactly once: by the task when it ran, otherwise by whoever wins "claimed" here.
+        // The slot is released exactly once: by the task when it ran, otherwise by whoever wins "claimed" here. The
+        // task that wins it has started.
         final AtomicBoolean claimed = new AtomicBoolean();
-        final AtomicBoolean started = new AtomicBoolean();
         final Bound bound;
         try {
             if (deadline > 0) {
@@ -229,15 +236,14 @@ final class DecodeClient {
             callTimeout = Math.min(callTimeout, Math.max(1, deadline - SystemClock.uptimeMillis()));
         }
         final long callStart = SystemClock.uptimeMillis();
-        // 0 running, 1 ended, 2 given up while it ran (a stuck call, counted until it ends).
-        final java.util.concurrent.atomic.AtomicInteger state = new java.util.concurrent.atomic.AtomicInteger();
+        // Running, ended, or given up while it ran (a stuck call, counted until it ends): StuckCalls, one lock.
+        final StuckCalls.Call tracked = mStuckCalls.begin(bound.generation, lane);
         final Future<T> future;
         try {
             future = mPool.submit(lane, isSystemLane(lane), () -> {
                 if (!claimed.compareAndSet(false, true)) {
                     return null; // given up before it started
                 }
-                started.set(true);
                 boolean answered = false;
                 try {
                     final T result = call.run(bound.service);
@@ -245,12 +251,9 @@ final class DecodeClient {
                     return result;
                 } finally {
                     releaseSlot(lane);
-                    if (state.getAndSet(1) == 2) {
-                        stuckEnded(bound.generation, lane);
-                        if (answered) {
-                            // Answered after its caller gave up: what was left out for it may be asked for again.
-                            VmDecode.lateAnswer();
-                        }
+                    if (mStuckCalls.end(tracked, answered)) {
+                        // Answered after its caller gave up: what was left out for it may be asked for again.
+                        VmDecode.lateAnswer();
                     }
                 }
             });
@@ -271,8 +274,14 @@ final class DecodeClient {
             }
             return result;
         } catch (TimeoutException e) {
-            if (claimed.compareAndSet(false, true)) {
-                releaseSlot(lane); // never started: only the queue was slow
+            final boolean neverStarted = claimed.compareAndSet(false, true);
+            if (neverStarted) {
+                releaseSlot(lane); // only the queue was slow
+            }
+            // Publish waiter loss before FutureTask can discard a completed result.
+            final int abandoned = neverStarted ? 0 : mStuckCalls.giveUp(tracked);
+            if (mStuckCalls.takeLateAnswer(tracked)) {
+                VmDecode.lateAnswer();
             }
             future.cancel(true);
             mPool.cancel(future); // its place in the fair queue goes too
@@ -286,8 +295,12 @@ final class DecodeClient {
             // never count as an app of their own, and the two-app rule waits until the service of a binding has
             // answered once (a VM still starting is slow, not wedged). Only the binding the call was made on is ever
             // dropped. A call that only waited in the queue ends that call.
-            if (started.get()) {
-                final int stuck = state.compareAndSet(0, 2) ? stuckStarted(bound.generation, lane) : 0;
+            if (!neverStarted) {
+                final int stuck = Math.max(0, abandoned);
+                if (stuck > 0) {
+                    // Calls of this owner that wait for a slot stop waiting (OwnerSlots asks hasStuckCalls).
+                    mOwnerCalls.wake();
+                }
                 boolean suspect = false;
                 if (callTimeout >= defaultCallTimeout) {
                     suspect = true;
@@ -317,14 +330,24 @@ final class DecodeClient {
             }
             throw new VmDecode.UnavailableException("decode service missed the deadline", e);
         } catch (InterruptedException e) {
-            if (claimed.compareAndSet(false, true)) {
+            final boolean neverStarted = claimed.compareAndSet(false, true);
+            if (neverStarted) {
                 releaseSlot(lane);
+            }
+            // Publish waiter loss before FutureTask can discard a completed result.
+            final int abandoned = neverStarted ? 0 : mStuckCalls.giveUp(tracked);
+            if (mStuckCalls.takeLateAnswer(tracked)) {
+                VmDecode.lateAnswer();
             }
             future.cancel(true);
             mPool.cancel(future); // its place in the fair queue goes too
-            if (started.get()) {
-                // The caller gave up while the call ran in the service: that it got no answer up to then is worth
-                // checking (a caller's own timeout often ends the wait first).
+            if (!neverStarted) {
+                // The caller gave up while the call ran in the service: stuck until it ends, as after a missed
+                // deadline (its late answer is news), and that it got no answer up to then is worth checking (a
+                // caller's own timeout often ends the wait first).
+                if (abandoned > 0) {
+                    mOwnerCalls.wake();
+                }
                 suspect();
             }
             Thread.currentThread().interrupt();
@@ -347,53 +370,16 @@ final class DecodeClient {
         }
     }
 
-    // Calls of a binding that missed their deadlines and still hold a call thread, guarded by mLock.
-    private int mStuckGeneration = -1;
-    private int mStuckCalls;
-
-    private int stuckStarted(int generation, String owner) {
-        final int stuck;
-        synchronized (mLock) {
-            if (mStuckGeneration != generation) {
-                mStuckGeneration = generation;
-                mStuckCalls = 0;
-                mStuckOwners.clear();
-            }
-            mStuckOwners.merge(owner, 1, Integer::sum);
-            stuck = ++mStuckCalls;
-        }
-        // Calls of this owner that wait for a slot stop waiting (outside mLock: OwnerSlots asks it).
-        mOwnerCalls.wake();
-        return stuck;
-    }
+    // Calls that run on a call thread, and those of them stuck past their callers' give-up (StuckCalls).
+    private final StuckCalls mStuckCalls = new StuckCalls();
 
     private void backOffStuckOwners(int generation) {
-        final java.util.List<String> owners;
-        synchronized (mLock) {
-            if (mStuckGeneration != generation) {
-                return;
-            }
-            owners = new java.util.ArrayList<>(mStuckOwners.keySet());
-        }
+        final java.util.List<String> owners = mStuckCalls.owners(generation);
         final long until = SystemClock.uptimeMillis() + BACK_OFF_MS;
         synchronized (mBackedOff) {
             for (String owner : owners) {
                 if (!owner.isEmpty()) {
                     mBackedOff.put(owner, until);
-                }
-            }
-        }
-    }
-
-    private void stuckEnded(int generation, String owner) {
-        synchronized (mLock) {
-            if (mStuckGeneration == generation && mStuckCalls > 0) {
-                mStuckCalls--;
-                final int left = mStuckOwners.getOrDefault(owner, 1) - 1;
-                if (left <= 0) {
-                    mStuckOwners.remove(owner);
-                } else {
-                    mStuckOwners.put(owner, left);
                 }
             }
         }
@@ -419,11 +405,13 @@ final class DecodeClient {
 
     // In the background, never on the caller's thread: asks the VM for the header of a one pixel PNG this process
     // wrote itself, through the same path as decode jobs (the service hands it to the VM). No answer within
-    // PROBE_MS, a failed binder call or an answer that the VM is not available: the binding is dropped.
+    // PROBE_MS, a failed binder call, an answer that the VM is not available or one that is not the image's header:
+    // the binding is dropped. "No room now" keeps it (the service runs). While a probe of this client is still in a
+    // call (of any binding), no other starts: its end is an event of the recovery watch.
     private void checkHealth(Bound bound) {
         synchronized (mLock) {
             if (bound.generation != mGeneration
-                    || (mHealthRunning && mHealthGeneration == bound.generation)) {
+                    || (mHealthRunning && mHealthGeneration == bound.generation) || mProbes.running()) {
                 return;
             }
             mHealthGeneration = bound.generation;
@@ -432,7 +420,7 @@ final class DecodeClient {
         try {
             final Thread health = new Thread(() -> {
                 try {
-                    if (!vmAnswers(bound)) {
+                    if (vmAnswers(bound) == HealthProbes.Verdict.DOWN) {
                         Log.w(TAG, "decode VM does not answer, binding dropped");
                         dropWedged(bound.generation);
                     }
@@ -455,71 +443,85 @@ final class DecodeClient {
         }
     }
 
-    private boolean vmAnswers(Bound bound) {
-        final java.util.concurrent.CompletableFuture<Boolean> answered =
+    // One probe of the VM with the health image, in the diagnostic slot: its verdict, DOWN when it gave no answer
+    // within PROBE_MS (the call may go on, holding the slot until it ends), or null when a probe of this client is
+    // still in a call or this thread was interrupted (no verdict).
+    private HealthProbes.Verdict vmAnswers(Bound bound) {
+        try {
+            return preparedProbe(bound);
+        } catch (Throwable e) {
+            // Construction failed before admission, or the started worker still holds its own slot.
+            return HealthProbes.Verdict.DOWN;
+        }
+    }
+
+    private HealthProbes.Verdict preparedProbe(Bound bound) {
+        final java.util.concurrent.CompletableFuture<HealthProbes.Verdict> answered =
                 new java.util.concurrent.CompletableFuture<>();
         // Set when the wait for the answer gave up: only then is the probe's end news for the recovery watch.
         final AtomicBoolean gaveUp = new AtomicBoolean();
-        try {
-            final Thread probe = new Thread(() -> {
-                android.os.ParcelFileDescriptor read = null;
-                try {
-                    final android.os.ParcelFileDescriptor[] pipe = android.os.ParcelFileDescriptor.createPipe();
-                    read = pipe[0];
-                    try (java.io.OutputStream out =
-                            new android.os.ParcelFileDescriptor.AutoCloseOutputStream(pipe[1])) {
-                        out.write(healthPng());
-                    }
-                    final de.diamaneos.sanitizer.decode.DecodeRequest request =
-                            new de.diamaneos.sanitizer.decode.DecodeRequest();
-                    request.file = read;
-                    request.ownerPackage = HEALTH_OWNER;
-                    // The client's own test image: of this process's user.
-                    request.ownerUser = android.os.UserHandle.myUserId();
-                    request.priority = IDecodeService.PRIORITY_USER_WAITING;
-                    request.mimeTypeHint = "image/png";
-                    final de.diamaneos.sanitizer.decode.ImageInfo info = bound.service.probe(request);
-                    answered.complete(info != null && info.status != IDecodeService.STATUS_UNAVAILABLE);
-                } catch (Throwable e) {
-                    answered.complete(false);
-                } finally {
-                    if (read != null) {
-                        try {
-                            read.close();
-                        } catch (java.io.IOException ignored) {
-                            // Nothing to do.
-                        }
-                    }
-                    // A probe stuck in a stopped service ends when the service answers or dies: the recovery watch
-                    // looks again then.
-                    mProbesRunning.decrementAndGet();
-                    if (gaveUp.get()) {
-                        recoveryEvent();
-                    }
-                }
-            }, "VmDecodeProbe");
-            probe.setDaemon(true);
-            mProbesRunning.incrementAndGet();
+        final Thread probe = new Thread(() -> {
+            android.os.ParcelFileDescriptor read = null;
             try {
-                probe.start();
+                final android.os.ParcelFileDescriptor[] pipe = android.os.ParcelFileDescriptor.createPipe();
+                read = pipe[0];
+                try (java.io.OutputStream out =
+                        new android.os.ParcelFileDescriptor.AutoCloseOutputStream(pipe[1])) {
+                    out.write(HealthProbes.fresh(healthPng()));
+                }
+                final de.diamaneos.sanitizer.decode.DecodeRequest request =
+                        new de.diamaneos.sanitizer.decode.DecodeRequest();
+                request.file = read;
+                request.ownerPackage = HEALTH_OWNER;
+                // The client's own test image: of this process's user.
+                request.ownerUser = android.os.UserHandle.myUserId();
+                request.priority = IDecodeService.PRIORITY_USER_WAITING;
+                request.mimeTypeHint = "image/png";
+                final de.diamaneos.sanitizer.decode.ImageInfo info = bound.service.probe(request);
+                answered.complete(info == null ? HealthProbes.Verdict.DOWN : HealthProbes.verdict(true,
+                        info.status == IDecodeService.STATUS_OK, info.status == IDecodeService.STATUS_NO_ROOM,
+                        info.width, info.height, info.format == IDecodeService.FORMAT_PNG));
             } catch (Throwable e) {
-                mProbesRunning.decrementAndGet();
-                throw e;
-            }
-            try {
-                return answered.get(PROBE_MS, TimeUnit.MILLISECONDS);
-            } catch (TimeoutException e) {
-                gaveUp.set(true);
-                if (answered.isDone() && mProbesRunning.get() == 0) {
-                    recoveryEvent(); // it ended just now
+                answered.complete(HealthProbes.Verdict.DOWN);
+            } finally {
+                if (read != null) {
+                    try {
+                        read.close();
+                    } catch (java.io.IOException ignored) {
+                        // Nothing to do.
+                    }
                 }
-                return false;
+                // A probe stuck in a stopped service ends when the service answers or dies: the slot is free only
+                // then, and the recovery watch looks again.
+                mProbes.ended();
+                if (gaveUp.get()) {
+                    recoveryEvent();
+                }
             }
+        }, "VmDecodeProbe");
+        probe.setDaemon(true);
+        if (!mProbes.start()) {
+            return null;
+        }
+        try {
+            probe.start();
+        } catch (Throwable e) {
+            mProbes.ended();
+            return HealthProbes.Verdict.DOWN;
+        }
+        try {
+            return answered.get(PROBE_MS, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            gaveUp.set(true);
+            if (answered.isDone() && !mProbes.running()) {
+                recoveryEvent(); // it ended just now
+            }
+            return HealthProbes.Verdict.DOWN;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return true;
-        } catch (Throwable e) {
-            return false;
+            return null;
+        } catch (ExecutionException e) {
+            return HealthProbes.Verdict.DOWN;
         }
     }
 
@@ -560,16 +562,12 @@ final class DecodeClient {
 
     // Whether a call of {@code lane} is stuck in the service past its deadline.
     private boolean hasStuckCalls(String lane) {
-        synchronized (mLock) {
-            return mStuckOwners.getOrDefault(lane, 0) > 0;
-        }
+        return mStuckCalls.hasStuck(lane);
     }
 
     // Owners turned away until a time (uptime), guarded by itself.
     private final Map<String, Long> mBackedOff = new HashMap<>();
     private static final long BACK_OFF_MS = 30_000;
-    // The owners of the calls stuck in the current binding, guarded by mLock.
-    private final Map<String, Integer> mStuckOwners = new HashMap<>();
 
     // The recovery watch. A call that failed for the service (no connection, no answer in time, the service's own
     // "unavailable", a dead binder) makes it suspect, and a watcher thread asks the VM for the health image. A "no
@@ -578,17 +576,16 @@ final class DecodeClient {
     // (VmDecode.addRecoveryListener), so what is blank is asked for again with no user action. A probe that answers
     // at once (a slow image, not the service) ends the suspicion and tells the state listeners only. The watcher
     // waits for events between probes: a connection made, a probe stuck in a stopped service that ended (it ends when
-    // the service answers or dies). A wait that grows up to RECOVERY_MAX_MS is the last resort,
-    // and after RECOVERY_TRIES probes the watch ends: the next call that the service answers ends the trouble then.
+    // the service answers or dies). A wait that grows (RecoveryWaits) is the last resort: a service still down after
+    // its tries is watched on slowly, so a late return is found, and a new binding wakes the watch or starts one.
     private final Object mRecovery = new Object();
     private boolean mDown; // a probe failed and nothing answered since, guarded by mRecovery
     private boolean mWatching; // guarded by mRecovery
     private int mRecoveryEvents; // guarded by mRecovery
-    private final java.util.concurrent.atomic.AtomicInteger mProbesRunning =
-            new java.util.concurrent.atomic.AtomicInteger();
-    private static final long RECOVERY_FIRST_MS = 1_000;
-    private static final long RECOVERY_MAX_MS = 30_000;
-    private static final int RECOVERY_TRIES = 20;
+    // The one diagnostic slot of the health probes, across bindings (HealthProbes).
+    private final HealthProbes mProbes = new HealthProbes();
+    private static final long RECOVERY_FIRST_MS = RecoveryWaits.FIRST_MS;
+    private static final long RECOVERY_MAX_MS = RecoveryWaits.MAX_MS;
 
     /** True while the service is known not to answer (a probe failed and nothing answered since). */
     boolean isDown() {
@@ -623,6 +620,16 @@ final class DecodeClient {
         }
     }
 
+    // A new binding while the service is known to be down and no watch runs: one starts.
+    private void watchIfDown() {
+        synchronized (mRecovery) {
+            if (!mDown || mWatching) {
+                return;
+            }
+        }
+        suspect();
+    }
+
     private void recoveryEvent() {
         synchronized (mRecovery) {
             mRecoveryEvents++;
@@ -630,22 +637,10 @@ final class DecodeClient {
         }
     }
 
-    // The service answered a call: a service that was down is back.
+    // An ordinary answer may be cached. Only a fresh health verdict settles a VM outage.
     private void answered() {
-        final boolean wasDown;
-        synchronized (mRecovery) {
-            wasDown = mDown;
-            mDown = false;
-        }
-        if (wasDown) {
-            try {
-                final Thread back = new Thread(() -> back(true), "VmDecodeBack");
-                back.setDaemon(true);
-                back.start();
-            } catch (Throwable e) {
-                back(true);
-            }
-        }
+        recoveryEvent();
+        watchIfDown();
     }
 
     private void watch() {
@@ -659,15 +654,15 @@ final class DecodeClient {
                 SystemClock.sleep(gap);
             }
             lastProbe = SystemClock.uptimeMillis();
-            final Boolean answers = probeForRecovery();
+            final HealthProbes.Verdict verdict = probeForRecovery();
             final boolean wasDown;
             synchronized (mRecovery) {
-                if (answers == null) {
+                if (verdict == null) {
                     // A probe is still running: its end is the next event.
                     final int seen = mRecoveryEvents;
                     final long end = SystemClock.uptimeMillis() + RECOVERY_MAX_MS;
                     long left;
-                    while (mRecoveryEvents == seen && mProbesRunning.get() > 0
+                    while (mRecoveryEvents == seen && mProbes.running()
                             && (left = end - SystemClock.uptimeMillis()) > 0) {
                         try {
                             mRecovery.wait(left);
@@ -678,13 +673,18 @@ final class DecodeClient {
                     }
                     continue;
                 }
-                if (answers) {
+                if (verdict == HealthProbes.Verdict.ANSWERS) {
                     wasDown = mDown;
                     mDown = false;
                     mWatching = false;
                 } else {
-                    mDown = true;
-                    if (++tries >= RECOVERY_TRIES) {
+                    // No room now: the service runs but its VM work is held up, no verdict on an outage (mDown
+                    // stays as it is) and no recovery yet. Down: no valid answer for the health image.
+                    if (verdict == HealthProbes.Verdict.DOWN) {
+                        mDown = true;
+                    }
+                    final long next = RecoveryWaits.next(++tries, wait, mDown);
+                    if (next == RecoveryWaits.END) {
                         mWatching = false;
                         return;
                     }
@@ -699,7 +699,7 @@ final class DecodeClient {
                             return;
                         }
                     }
-                    wait = Math.min(wait * 2, RECOVERY_MAX_MS);
+                    wait = next;
                     continue;
                 }
             }
@@ -723,17 +723,17 @@ final class DecodeClient {
         VmDecode.serviceAnswers(wasDown);
     }
 
-    // One probe of the VM for the watch: whether it answered, or null when an earlier probe (of the watch or of a
-    // health check) still runs, whose end is an event.
-    private Boolean probeForRecovery() {
-        if (mProbesRunning.get() > 0) {
+    // One probe of the VM for the watch: its verdict, or null when an earlier probe (of the watch or of a health
+    // check, of any binding) is still in a call, whose end is an event.
+    private HealthProbes.Verdict probeForRecovery() {
+        if (mProbes.running()) {
             return null;
         }
         final Bound bound;
         try {
             bound = connect(CONNECT_TIMEOUT_BACKGROUND_MS, true);
         } catch (VmDecode.UnavailableException | RuntimeException e) {
-            return false;
+            return HealthProbes.Verdict.DOWN;
         }
         return vmAnswers(bound);
     }

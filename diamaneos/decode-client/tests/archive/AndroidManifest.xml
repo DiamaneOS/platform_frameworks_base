@@ -1,0 +1,7 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="de.diamaneos.archive.icon.fixture">
+    <application android:label="Archive icon fixture" android:icon="@drawable/icon">
+        <activity android:name="de.diamaneos.archive.icon.IconActivity" android:exported="true">
+            <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
+        </activity>
+    </application>
+</manifest>

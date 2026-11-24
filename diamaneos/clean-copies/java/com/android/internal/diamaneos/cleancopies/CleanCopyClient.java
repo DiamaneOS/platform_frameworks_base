@@ -196,6 +196,142 @@ public final class CleanCopyClient {
         }
     }
 
+    private static final java.util.concurrent.ThreadPoolExecutor sShortcutInputs =
+            new java.util.concurrent.ThreadPoolExecutor(2, 2, 30, java.util.concurrent.TimeUnit.SECONDS,
+                    new java.util.concurrent.ArrayBlockingQueue<>(6), runnable -> {
+                        final Thread thread = new Thread(runnable, "CleanShortcutInput");
+                        thread.setDaemon(true);
+                        return thread;
+                    }, new java.util.concurrent.ThreadPoolExecutor.AbortPolicy());
+
+    private static final java.util.Set<String> sShortcutAuthorities = new java.util.HashSet<>();
+    private static int sShortcutWaiters; // guarded by sShortcutAuthorities
+
+    /** Loads the trusted file directly or opens the shortcut URI on an admitted worker. */
+    public static Bitmap shortcutIcon(Context context, android.content.pm.ShortcutInfo shortcut) {
+        if (shortcut == null || Looper.myLooper() == Looper.getMainLooper()
+                || android.os.Binder.getCallingPid() != Process.myPid()) {
+            return null;
+        }
+        final long deadline = android.os.SystemClock.uptimeMillis() + 1500;
+        try {
+            final android.content.pm.ILauncherApps apps = android.content.pm.ILauncherApps.Stub.asInterface(
+                    android.os.ServiceManager.getService(Context.LAUNCHER_APPS_SERVICE));
+            if (apps == null) return null;
+            final String caller = context.getOpPackageName();
+            final ParcelFileDescriptor file = apps.getShortcutIconFd(
+                    caller, shortcut.getPackage(), shortcut.getId(), shortcut.getUserId());
+            if (file != null) return shortcutInput(context, shortcut, caller, file, null, deadline);
+            final String named = apps.getShortcutIconUri(caller, shortcut.getPackage(), shortcut.getId(),
+                    shortcut.getUserId());
+            if (named == null) return null;
+            final Uri uri = Uri.parse(named);
+            if (!ContentResolver.SCHEME_CONTENT.equals(uri.getScheme())) return null;
+            return openShortcutUri(context, shortcut, caller, uri, deadline);
+        } catch (android.os.RemoteException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    private static Bitmap openShortcutUri(Context context, android.content.pm.ShortcutInfo shortcut,
+            String caller, Uri uri, long deadline) {
+        final String authority = android.content.ContentProvider.getAuthorityWithoutUserId(uri.getAuthority());
+        if (authority == null || authority.isEmpty()) return null;
+        final int user = android.content.ContentProvider.getUserIdFromUri(uri, shortcut.getUserId());
+        final String provider = user + "@" + authority;
+        final java.util.concurrent.FutureTask<Bitmap> task = new java.util.concurrent.FutureTask<>(
+                () -> android.os.SystemClock.uptimeMillis() < deadline
+                        ? shortcutInput(context, shortcut, caller, null, uri, deadline) : null);
+        synchronized (sShortcutAuthorities) {
+            if (!reserveShortcutProvider(provider, deadline)) return null;
+            try {
+                sShortcutInputs.execute(() -> {
+                    try {
+                        task.run();
+                    } finally {
+                        synchronized (sShortcutAuthorities) {
+                            sShortcutAuthorities.remove(provider);
+                            sShortcutAuthorities.notifyAll();
+                        }
+                    }
+                });
+            } catch (java.util.concurrent.RejectedExecutionException e) {
+                sShortcutAuthorities.remove(provider);
+                sShortcutAuthorities.notifyAll();
+                return null;
+            }
+        }
+        try {
+            return task.get(Math.max(0, deadline - android.os.SystemClock.uptimeMillis()),
+                    java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
+            // The caller has no image. The physical open keeps its authority until it exits.
+        }
+        task.cancel(true);
+        return null;
+    }
+
+    // Called under sShortcutAuthorities. Only callers for this provider wait here.
+    private static boolean reserveShortcutProvider(String provider, long deadline) {
+        if (sShortcutAuthorities.add(provider)) return true;
+        if (sShortcutWaiters >= 6) return false;
+        sShortcutWaiters++;
+        try {
+            do {
+                final long left = deadline - android.os.SystemClock.uptimeMillis();
+                if (left <= 0) return false;
+                sShortcutAuthorities.wait(left);
+            } while (!sShortcutAuthorities.add(provider));
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } finally {
+            sShortcutWaiters--;
+        }
+    }
+
+    private static Bitmap shortcutInput(Context context, android.content.pm.ShortcutInfo shortcut,
+            String caller, ParcelFileDescriptor file, Uri uri, long deadline) {
+        try (ParcelFileDescriptor input = file != null ? file : context.getContentResolver().openFileDescriptor(
+                android.content.ContentProvider.maybeAddUserId(uri, shortcut.getUserId()), "r")) {
+            if (input == null || android.os.SystemClock.uptimeMillis() >= deadline
+                    || Thread.currentThread().isInterrupted()) return null;
+            final Bundle extras = new Bundle();
+            extras.putParcelable(EXTRA_FD, input);
+            extras.putString(EXTRA_PACKAGE, shortcut.getPackage());
+            extras.putInt(EXTRA_USER, shortcut.getUserId());
+            extras.putString("shortcutId", shortcut.getId());
+            extras.putString("callingPackage", caller);
+            final Bundle reply = call(context, METHOD_SHORTCUT, extras);
+            final Bitmap made = reply == null ? null : reply.getParcelable(EXTRA_BITMAP, Bitmap.class);
+            if (Thread.currentThread().isInterrupted()) {
+                if (made != null) made.recycle();
+                return null;
+            }
+            return made;
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** The non-reusable serial of a live Android user, or -1 when it cannot be resolved. */
+    public static long userSerial(Context context, int user) {
+        try {
+            return user < 0 ? -1 : context.getSystemService(android.os.UserManager.class).getUserSerialNumber(user);
+        } catch (RuntimeException e) {
+            return -1;
+        }
+    }
+
+    /** An exact key for the current incarnation of the requested user. */
+    public static String key(Context context, String apk, String file, int density, int width, int height, int user) {
+        return CleanCopyKey.forSerial(CleanCopyKey.of(apk, file, density, width, height, user),
+                userSerial(context, user));
+    }
+
     /** The pixels of a checked copy as an immutable bitmap with its density, or null. No decoder runs. */
     public static Bitmap toBitmap(CleanImageFile image) {
         if (image == null) {

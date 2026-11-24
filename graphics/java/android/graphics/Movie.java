@@ -89,6 +89,8 @@ public class Movie {
     private static native void nativeDestructor(long nativeMovie);
 
     public static Movie decodeFile(String pathName) {
+        // DiamaneOS: acquire and verify the file within the entry budget.
+        if (DecodeGate.gates()) return GatedDecodes.movie(pathName);
         InputStream is;
         try {
             is = new FileInputStream(pathName);

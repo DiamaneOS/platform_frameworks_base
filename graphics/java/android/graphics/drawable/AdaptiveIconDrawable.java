@@ -143,6 +143,8 @@ public class AdaptiveIconDrawable extends Drawable implements Drawable.Callback 
 
     private Shader mLayersShader;
     private Bitmap mLayersBitmap;
+    // DiamaneOS: a gate foreground marks readiness without touching the drawing thread's cache.
+    private volatile boolean mVmIconReady;
 
     private final Rect mTmpOutRect = new Rect();
     private Rect mHotspotBounds;
@@ -396,10 +398,22 @@ public class AdaptiveIconDrawable extends Drawable implements Drawable.Callback 
         mLayersShader = null;
     }
 
+    /** @hide DiamaneOS: only the foreground still attached to this wrapper can mark its cache. */
+    public void onVmIconReady(@NonNull Drawable foreground) {
+        if (getForeground() == foreground && foreground.getCallback() == this) {
+            mVmIconReady = true;
+        }
+    }
+
     @Override
     public void draw(Canvas canvas) {
         if (mLayersBitmap == null) {
             return;
+        }
+        // DiamaneOS: rebuild on the drawing thread before compositing the gate's new pixels.
+        if (mVmIconReady) {
+            mVmIconReady = false;
+            mLayersShader = null;
         }
         if (mLayersShader == null) {
             mCanvas.setBitmap(mLayersBitmap);

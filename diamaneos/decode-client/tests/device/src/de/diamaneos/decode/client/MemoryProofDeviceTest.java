@@ -138,6 +138,7 @@ public class MemoryProofDeviceTest {
         System.gc();
         final long rss0 = rssKb();
         final long hwm0 = peakRssKb();
+        final long ledgerBefore = DecodeMemory.held();
         final Sampler sampler = new Sampler();
         sampler.start();
         final AtomicInteger made = new AtomicInteger();
@@ -159,7 +160,7 @@ public class MemoryProofDeviceTest {
                         }
                         Log.i(TAG, "client: " + d.bitmap.getWidth() + "x" + d.bitmap.getHeight() + " gain map "
                                 + d.bitmap.hasGainmap());
-                        d.bitmap.recycle();
+                        DecodeMemory.recycle(d.bitmap, null);
                     } catch (VmDecode.UnavailableException e) {
                         forNow.incrementAndGet();
                         Log.i(TAG, "client, for now: " + e.getMessage());
@@ -175,6 +176,36 @@ public class MemoryProofDeviceTest {
             for (Thread t : threads) {
                 t.join(60_000);
             }
+            // A provider turn follows complete HDR reply assembly while the input is still charged.
+            ProbeProvider.ICONS.put("memory-outer-turn", Files.readAllBytes(files.get(0).toPath()));
+            ProbeProvider.ORIENTATIONS.put("memory-outer-turn", 90);
+            try {
+                final Bitmap turned = VmDecode.loadThumbnail(mContext, mContext.getContentResolver(),
+                        android.net.Uri.parse("content://" + ProbeProvider.AUTHORITY + "/icon/memory-outer-turn"),
+                        mContext.getPackageName(), mContext.getUserId(), VmDecode.PRIORITY_USER_WAITING,
+                        4000, 4000, VmDecode.deadlineIn(30_000));
+                assertTrue("provider turn lost HDR", turned.hasGainmap());
+                Log.i(TAG, "provider HDR turn: " + turned.getWidth() + "x" + turned.getHeight()
+                        + ", live charged " + DecodeMemory.held() + ", RSS KiB " + rssKb() + ", peak KiB " + peakRssKb());
+                DecodeMemory.recycle(turned, null);
+            } finally {
+                ProbeProvider.ICONS.remove("memory-outer-turn");
+                ProbeProvider.ORIENTATIONS.remove("memory-outer-turn");
+            }
+
+            // An ImageDecoder reply is copied with its gain map before publication to the caller.
+            DecodeGate.setForcedForTest(true);
+            DecodeGate.resetForTest();
+            final Bitmap copiedHdr = android.graphics.ImageDecoder.decodeBitmap(
+                    android.graphics.ImageDecoder.createSource(files.get(0)), (decoder, info, source) -> {
+                        decoder.setTargetSize(2000, 1500);
+                        decoder.setAllocator(android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE);
+                    });
+            assertTrue("copied reply lost HDR", copiedHdr.hasGainmap());
+            Log.i(TAG, "copied HDR reply: " + copiedHdr.getWidth() + "x" + copiedHdr.getHeight()
+                    + ", live charged " + DecodeMemory.held() + ", RSS KiB " + rssKb() + ", peak KiB " + peakRssKb());
+            DecodeMemory.recycle(copiedHdr, null);
+
             // 2. The gate: BitmapFactory of the full 12 MP images (stripes at full detail), four at once.
             DecodeGate.setForcedForTest(true);
             DecodeGate.resetForTest();
@@ -186,7 +217,7 @@ public class MemoryProofDeviceTest {
                         if (b != null) {
                             made.incrementAndGet();
                             Log.i(TAG, "gate: " + b.getWidth() + "x" + b.getHeight());
-                            b.recycle();
+                            DecodeMemory.recycle(b, null);
                         } else {
                             forNow.incrementAndGet();
                         }
@@ -236,7 +267,13 @@ public class MemoryProofDeviceTest {
                 + (Debug.getNativeHeapAllocatedSize() >> 20) + " MiB");
         assertTrue(errors.toString(), errors.isEmpty());
         assertTrue("held " + sampler.most.get(), sampler.most.get() <= DecodeMemory.MAX_BYTES);
-        assertEquals(0, DecodeMemory.held());
+        DecodeGate.resetForTest();
+        final long until = SystemClock.uptimeMillis() + 6000;
+        while (DecodeMemory.held() > ledgerBefore && SystemClock.uptimeMillis() < until) {
+            System.gc();
+            SystemClock.sleep(50);
+        }
+        assertTrue("own live storage remained charged: " + DecodeMemory.held(), DecodeMemory.held() <= ledgerBefore);
         assertTrue("nothing made", made.get() > 0);
     }
 }

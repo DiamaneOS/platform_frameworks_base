@@ -18,6 +18,8 @@
     package="de.diamaneos.decode.client.tests">
     <!-- PostTimeDeviceTest posts a notification as an app. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- UserSwitchDialogDeviceTest gives a test user an icon for the user switching dialog. -->
+    <uses-permission android:name="android.permission.MANAGE_USERS" />
     <!-- WallpaperVmDeviceTest sets a wallpaper and reads back whether its crop was made. -->
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
     <uses-permission android:name="android.permission.READ_WALLPAPER_INTERNAL" />
@@ -31,15 +33,29 @@
          and mounts the SD card. -->
     <uses-permission android:name="android.permission.MOUNT_FORMAT_FILESYSTEMS" />
     <uses-permission android:name="android.permission.MOUNT_UNMOUNT_FILESYSTEMS" />
+    <!-- TaskIconOwnerDeviceTest reads another user's recent tasks and a task icon it did not make. -->
+    <uses-permission android:name="android.permission.REAL_GET_TASKS" />
+    <uses-permission android:name="android.permission.MANAGE_ACTIVITY_TASKS" />
+    <!-- The phone checks host a conversation widget of SystemUI (ProofWidgetHostActivity). -->
+    <uses-permission android:name="android.permission.BIND_APPWIDGET" />
     <!-- ClientContextDeviceTest makes a package context of another app. -->
     <queries>
         <package android:name="com.android.systemui" />
+        <package android:name="de.diamaneos.archive.icon.fixture" />
     </queries>
     <application>
+        <activity android:name="de.diamaneos.decode.client.AudienceHomeActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
         <!-- Counts opens, so a test sees whether a URI was opened at all. -->
         <provider
             android:name="de.diamaneos.decode.client.ProbeProvider"
             android:authorities="de.diamaneos.decode.client.tests.probe"
+            android:grantUriPermissions="true"
             android:exported="false" />
         <!-- An image whose colour names the user it was opened in (AutofillViewsDeviceTest). -->
         <provider
@@ -51,6 +67,37 @@
             android:name="de.diamaneos.decode.client.ThumbnailTestProvider"
             android:authorities="de.diamaneos.decode.client.tests.thumbnails"
             android:exported="false" />
+        <!-- A task with an icon of its own, started in a work profile (TaskIconOwnerDeviceTest). -->
+        <activity
+            android:name="de.diamaneos.decode.client.TaskIconActivity"
+            android:exported="false" />
+        <!-- The phone checks of the UI fixes (PhoneProofsDeviceTest): an autofill service, a form for it and a
+             host of SystemUI's conversation widget. -->
+        <service
+            android:name="de.diamaneos.decode.client.ProofAutofillService"
+            android:exported="true"
+            android:permission="android.permission.BIND_AUTOFILL_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.autofill.AutofillService" />
+            </intent-filter>
+        </service>
+        <activity
+            android:name="de.diamaneos.decode.client.ProofFormActivity"
+            android:exported="true" />
+        <activity
+            android:name="de.diamaneos.decode.client.ProofWidgetHostActivity"
+            android:exported="true" />
+        <!-- Conversation shortcuts need a launcher activity: on only while a phone check posts one (pm enable). -->
+        <activity-alias
+            android:name="de.diamaneos.decode.client.ProofLauncher"
+            android:targetActivity="de.diamaneos.decode.client.ProofFormActivity"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
     </application>
     <instrumentation
         android:name="androidx.test.runner.AndroidJUnitRunner"

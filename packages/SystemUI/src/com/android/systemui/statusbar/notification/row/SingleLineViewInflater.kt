@@ -16,7 +16,7 @@
 
 package com.android.systemui.statusbar.notification.row
 
-import de.diamaneos.decode.client.StoredIcons
+import de.diamaneos.decode.client.NotificationImageGate
 import de.diamaneos.decode.client.VmIcons
 import android.app.Notification
 import android.app.Notification.MessagingStyle
@@ -343,7 +343,7 @@ object SingleLineViewInflater {
         val userKey = user.getKeyOrName()
         // DiamaneOS: avatars are charged to the posting app. They are images of its user (VmDecode OWNER_USER),
         // decoded with a context of that user. Without the app's uid they are not decoded.
-        val posterInfo = StoredIcons.appInfoOf(notification)
+        val posterInfo = NotificationImageGate.appInfoOf(notification)
         val poster =
             posterInfo?.packageName ?: de.diamaneos.decode.client.VmDecode.unknownOwner("conversation")
         val avatarContext =

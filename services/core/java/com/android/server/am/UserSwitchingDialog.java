@@ -29,6 +29,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.BitmapShader;
 import android.graphics.Canvas;
+import android.graphics.GateRefill;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.Shader;
@@ -88,6 +89,8 @@ class UserSwitchingDialog extends Dialog {
     protected final Context mContext;
     private final int mTraceCookie;
     private final Boolean mIsLogout;
+    // DiamaneOS: the user's picture fills in once the protected VM made it, the default until then (GateRefill).
+    private final GateRefill mIconRefill;
 
     UserSwitchingDialog(Context context, UserInfo oldUser, UserInfo newUser, Handler handler,
             @Nullable String switchingFromUserMessage, @Nullable String switchingToUserMessage) {
@@ -97,6 +100,7 @@ class UserSwitchingDialog extends Dialog {
         mOldUser = oldUser;
         mNewUser = newUser;
         mHandler = handler;
+        mIconRefill = new GateRefill(r -> getWindow().getDecorView().post(r), this::reloadIcon); // DiamaneOS: GateRefill
         mSwitchingFromUserMessage = switchingFromUserMessage;
         mSwitchingToUserMessage = switchingToUserMessage;
         mDisableAnimations = SystemProperties.getBoolean(
@@ -157,8 +161,13 @@ class UserSwitchingDialog extends Dialog {
 
     private Bitmap getUserIconRounded() {
         final String iconPath = mIsLogout ? mOldUser.iconPath : mNewUser.iconPath;
-        final Bitmap bmp = ObjectUtils.getOrElse(BitmapFactory.decodeFile(iconPath),
-                defaultUserIcon(mNewUser.id));
+        final Bitmap decoded;
+        // DiamaneOS: the icon is an image of the user it belongs to, whatever thread shows it (DecodeGate), and it
+        // fills in once the VM made it, the default until then (GateRefill).
+        try (var owner = android.graphics.DecodeGate.ownerScope(mIsLogout ? mOldUser.id : mNewUser.id)) {
+            decoded = mIconRefill.load(() -> BitmapFactory.decodeFile(iconPath));
+        }
+        final Bitmap bmp = ObjectUtils.getOrElse(decoded, defaultUserIcon(mNewUser.id));
         final int w = bmp.getWidth();
         final int h = bmp.getHeight();
         final Bitmap bmpRounded = Bitmap.createBitmap(w, h, bmp.getConfig());
@@ -166,6 +175,14 @@ class UserSwitchingDialog extends Dialog {
         paint.setShader(new BitmapShader(bmp, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP));
         new Canvas(bmpRounded).drawRoundRect((new RectF(0, 0, w, h)), w / 2f, h / 2f, paint);
         return bmpRounded;
+    }
+
+    // DiamaneOS: the picture's answer is in (GateRefill): shown, if the dialog still is.
+    private void reloadIcon() {
+        final ImageView imageView = findViewById(R.id.icon);
+        if (imageView != null && isShowing()) {
+            imageView.setImageBitmap(getUserIconRounded());
+        }
     }
 
     private Bitmap defaultUserIcon(@UserIdInt int userId) {
@@ -205,6 +222,7 @@ class UserSwitchingDialog extends Dialog {
 
     @Override
     public void dismiss() {
+        mIconRefill.cancel(); // DiamaneOS: GateRefill
         super.dismiss();
         asyncTraceEnd("dialog", 0);
     }

@@ -144,7 +144,7 @@ public class LauncherActivityInfo {
                 // to apply downsampling protection and prevent OOMs.
                 // DiamaneOS: from clean copies (CleanCopyGate), the default icon while one is missing.
                 final int misses = CleanCopyGate.misses();
-                icon = CleanCopyGate.iconLoad(() ->
+                icon = CleanCopyGate.iconLoad(getUser().getIdentifier(), () ->
                         resources.getDrawableForDensityCapped(iconRes, density, /* theme= */ null));
                 if (CleanCopyGate.misses() != misses) {
                     icon = null;

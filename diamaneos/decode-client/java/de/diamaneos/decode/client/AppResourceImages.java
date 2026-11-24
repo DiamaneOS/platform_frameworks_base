@@ -34,6 +34,7 @@ import android.util.LruCache;
 import android.util.TypedValue;
 
 import com.android.internal.diamaneos.cleancopies.CleanCopyKey;
+import com.android.internal.diamaneos.cleancopies.CleanCopyClient;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -65,7 +66,8 @@ import java.util.function.BooleanSupplier;
  * header sets the box and the most pixels it can have, which are charged first: no file makes the VM return more than
  * the box (a nine-patch bigger than the box is shown plain). Nine-patches keep their stretching and optical insets:
  * the chunks are read and checked in Java. Fail closed: an image that cannot be made becomes empty, and the rest of
- * the layout still shows. Decoded files are cached by APK (path, time and size), file, density and box.
+ * the layout still shows. Decoded files are cached by APK (path, time and size), file, density, box and the gate's
+ * user: an image made for one user (a work profile's notification) is never another user's.
  */
 public final class AppResourceImages implements ImageFileGate {
     private static final String TAG = "VmDecode";
@@ -299,6 +301,19 @@ public final class AppResourceImages implements ImageFileGate {
         return cachedDrawable(res, key);
     }
 
+    // The current presentation's XML reload reads its own prepared components.
+    void useRound(AppResourceImages worker) {
+        final Map<String, Made> made = new HashMap<>();
+        if (worker != null) {
+            synchronized (worker.mLock) {
+                made.putAll(worker.mRound);
+            }
+        }
+        synchronized (mLock) {
+            mRound = made;
+        }
+    }
+
     /** The drawable of a file made before, found by its cache key, or null. */
     static Drawable cachedDrawable(Resources res, String key) {
         final Made made = key == null ? null : cached(key);
@@ -316,7 +331,8 @@ public final class AppResourceImages implements ImageFileGate {
             maxWidth = mMaxWidth;
             maxHeight = mMaxHeight;
         }
-        return key(apkPath, value.string.toString(), bitmapDensity(value), maxWidth, maxHeight);
+        return CleanCopyClient.key(mContext, apkPath, value.string.toString(), bitmapDensity(value),
+                maxWidth, maxHeight, mUserId);
     }
 
     private static Drawable drawable(Resources res, Made made) {
@@ -428,7 +444,7 @@ public final class AppResourceImages implements ImageFileGate {
             maxHeight = mMaxHeight;
         }
         final int density = bitmapDensity(value);
-        final String key = key(apkPath, file, density, maxWidth, maxHeight);
+        final String key = CleanCopyClient.key(mContext, apkPath, file, density, maxWidth, maxHeight, mUserId);
         final String roundKey = key != null ? key : "nocache:" + apkPath + ':' + file + ':' + density;
         synchronized (mLock) {
             final Made kept = mRound.get(roundKey);
@@ -512,7 +528,7 @@ public final class AppResourceImages implements ImageFileGate {
             }
         }
         // Charged before it is cached: a refused image is never kept.
-        if (key != null) {
+        if (key != null && VmIcons.sharedCacheWrites()) {
             VmIcons.cachePut(key, made.bitmap);
             sChunks.put(key, made.chunk != null ? made.chunk : NO_CHUNK);
             if (store != null) {
@@ -623,11 +639,14 @@ public final class AppResourceImages implements ImageFileGate {
                 VmDecode.PRIORITY_BACKGROUND);
     }
 
-    /** {@link #makeCopy} at {@code priority} (a copy a system process waits for). */
+    /**
+     * {@link #makeCopy} at {@code priority} (a copy a system process waits for). Made in a box whose copy always fits
+     * the store ({@code CleanImageFile.storableBox}), whatever its pixels: never made only to be refused.
+     */
     public static CleanCopies.Entry makeCopy(Context context, byte[] bytes, int density, int maxWidth, int maxHeight,
             String owner, int ownerUser, long timeoutMs, int priority)
             throws VmDecode.RejectedException, VmDecode.UnavailableException {
-        final int[] box = VmIcons.cacheableBox(maxWidth, maxHeight);
+        final int[] box = com.android.internal.diamaneos.cleancopies.CleanImageFile.storableBox(maxWidth, maxHeight);
         final ImagePlan plan = ImagePlan.of(bytes, bytes.length, box[0], box[1]);
         final Made made = decodePlanned(context, bytes, plan, density, owner, ownerUser, priority,
                 VmDecode.deadlineIn(timeoutMs));
@@ -636,17 +655,19 @@ public final class AppResourceImages implements ImageFileGate {
 
     /**
      * The key a gate caches and stores the file {@code file} of the APK at {@code apkPath} by, decoded at
-     * {@code density} in a box of {@code maxWidth} x {@code maxHeight}. Null when the APK is not known.
+     * {@code density} in a box of {@code maxWidth} x {@code maxHeight} for the user {@code userId}. Null when the
+     * APK or the user is not known.
      */
-    public static String keyOf(String apkPath, String file, int density, int maxWidth, int maxHeight) {
-        return key(apkPath, file, density, maxWidth, maxHeight);
+    public static String keyOf(String apkPath, String file, int density, int maxWidth, int maxHeight, int userId) {
+        final Context app = android.app.AppGlobals.getInitialApplication();
+        return app == null ? null : CleanCopyClient.key(app, apkPath, file, density, maxWidth, maxHeight, userId);
     }
 
-    // By APK (path, time and size, so an update decodes again), file in it, density and box, the key every process
-    // keeps clean copies under. Null when the APK is not known: such a file is never cached, so two packages can never
-    // share an entry.
-    private static String key(String apkPath, String file, int density, int maxWidth, int maxHeight) {
-        return CleanCopyKey.of(apkPath, file, density, maxWidth, maxHeight);
+    // By APK (path, time and size, so an update decodes again), file in it, density, box and user, the key every
+    // process keeps clean copies under. Null when the APK is not known: such a file is never cached, so two packages
+    // or two users can never share an entry.
+    private static String key(String apkPath, String file, int density, int maxWidth, int maxHeight, int userId) {
+        return CleanCopyKey.of(apkPath, file, density, maxWidth, maxHeight, userId);
     }
 
     private static int bitmapDensity(TypedValue value) {

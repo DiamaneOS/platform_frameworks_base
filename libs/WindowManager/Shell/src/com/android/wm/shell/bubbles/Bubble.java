@@ -134,6 +134,7 @@ public class Bubble implements BubbleViewProvider {
 
     @Nullable
     private BubbleViewInfoTask mInflationTask;
+    private BubbleIconMade mCurrentIconMade; // DiamaneOS
     private boolean mInflateSynchronously;
     private boolean mPendingIntentCanceled;
     private boolean mIsImportantConversation;
@@ -260,7 +261,7 @@ public class Bubble implements BubbleViewProvider {
         mFlags = 0;
         mUser = shortcutInfo.getUserHandle();
         mPackageName = shortcutInfo.getPackage();
-        mIcon = withoutAppImage(shortcutInfo.getIcon());
+        mIcon = shortcutInfo.getIcon();
         mDesiredHeight = desiredHeight;
         mDesiredHeightResId = desiredHeightResId;
         mTitle = title;
@@ -346,7 +347,7 @@ public class Bubble implements BubbleViewProvider {
         mLocusId = null;
         mFlags = 0;
         mUser = info.getUserHandle();
-        mIcon = withoutAppImage(info.getIcon());
+        mIcon = info.getIcon();
         mType = BubbleType.TYPE_SHORTCUT;
         mHasLauncherCategory = false;
         mKey = getBubbleKeyForShortcut(info);
@@ -791,7 +792,15 @@ public class Bubble implements BubbleViewProvider {
         mInflationTask.cancel();
     }
 
+    // DiamaneOS: checked on the main executor before a late icon schedules a refill.
+    boolean hasIconInfo(BubbleIconMade made) {
+        return mCurrentIconMade == made;
+    }
+
     void setViewInfo(BubbleViewInfoTask.BubbleViewInfo info) {
+        // DiamaneOS: an old shortcut callback cannot start another refill.
+        if (mCurrentIconMade != null) mCurrentIconMade.retire();
+        mCurrentIconMade = info.iconMade;
         setIsCleanupDeferred(false);
         if (!isInflated()) {
             mIconView = info.imageView;
@@ -871,7 +880,7 @@ public class Bubble implements BubbleViewProvider {
             mFlags = entry.getBubbleMetadata().getFlags();
             mDesiredHeight = entry.getBubbleMetadata().getDesiredHeight();
             mDesiredHeightResId = entry.getBubbleMetadata().getDesiredHeightResId();
-            mIcon = withoutAppImage(entry.getBubbleMetadata().getIcon());
+            mIcon = entry.getBubbleMetadata().getIcon();
 
             if (!mPendingIntentActive || mPendingIntent == null) {
                 if (mPendingIntent != null) {
@@ -898,25 +907,6 @@ public class Bubble implements BubbleViewProvider {
             // This will update the UI if needed
             setShowDot(showDot());
         }
-    }
-
-    /**
-     * A bubble icon that could name another app's compressed image is not loaded here: a URI, createWithData bytes,
-     * or a resource of any package but the framework (its bitmap files would be decoded here, in whatever
-     * configuration the bubble shows). The bubble shows the shortcut or app icon instead (DiamaneOS: images from apps
-     * are decoded only in the protected VM, the shortcut icon too, see BubbleViewInfoTask). Pixels and the framework's
-     * icons are kept.
-     */
-    private static Icon withoutAppImage(Icon icon) {
-        if (icon == null) {
-            return null;
-        }
-        final int type = icon.getType();
-        if (type == Icon.TYPE_RESOURCE) {
-            return "android".equals(icon.getResPackage()) ? icon : null;
-        }
-        return type == Icon.TYPE_URI || type == Icon.TYPE_URI_ADAPTIVE_BITMAP || type == Icon.TYPE_DATA
-                ? null : icon;
     }
 
     /**
@@ -1434,7 +1424,7 @@ public class Bubble implements BubbleViewProvider {
                     Person sender = latestMessage.getSenderPerson();
                     bubbleMessage.senderName = sender != null ? sender.getName() : null;
                     bubbleMessage.senderAvatar = null;
-                    bubbleMessage.senderIcon = sender != null ? withoutAppImage(sender.getIcon()) : null;
+                    bubbleMessage.senderIcon = sender != null ? sender.getIcon() : null;
                     return bubbleMessage;
                 }
             } else if (Notification.InboxStyle.class.equals(style)) {

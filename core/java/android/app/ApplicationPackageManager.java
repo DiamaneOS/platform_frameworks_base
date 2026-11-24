@@ -1917,12 +1917,6 @@ public class ApplicationPackageManager extends PackageManager {
     @Override
     public Drawable getDrawableInternal(String packageName, @DrawableRes int resId,
             @Nullable ApplicationInfo appInfo, boolean isIcon) {
-        final ResourceName name = new ResourceName(packageName, resId);
-        final Drawable cachedIcon = getCachedIcon(name);
-        if (cachedIcon != null) {
-            return cachedIcon;
-        }
-
         if (appInfo == null) {
             try {
                 appInfo = getApplicationInfo(packageName, sDefaultFlags);
@@ -1930,32 +1924,26 @@ public class ApplicationPackageManager extends PackageManager {
                 return null;
             }
         }
+        // DiamaneOS: resolve the requested user before consulting the shared drawable cache.
+        final ResourceName name = new ResourceName(packageName, resId, UserHandle.getUserId(appInfo.uid),
+                com.android.internal.diamaneos.cleancopies.CleanCopyClient.userSerial(
+                        mContext, UserHandle.getUserId(appInfo.uid)));
+        final Drawable cachedIcon = getCachedIcon(name);
+        if (cachedIcon != null) {
+            return cachedIcon;
+        }
 
         if (resId != 0) {
             try {
                 final Resources r = getResourcesForApplication(appInfo);
-                // DiamaneOS: an image of the app comes from its clean copy (CleanCopyGate). One without a copy yet
-                // is neither kept nor shown with holes: an icon shows the default icon and fills itself in once the
-                // copy is made (null in the launcher, which reloads its own), anything else is null. One shown from
-                // an older copy of the same resource (after an update) is not kept either.
-                final int misses = CleanCopyGate.misses();
-                final int provisional = CleanCopyGate.provisional();
-                final java.util.function.Supplier<Drawable> load = () -> isIcon
-                        ? r.getDrawableForDensityCapped(
-                                resId, /* density= */ 0, /* theme= */ null)
-                        : r.getDrawable(resId, null);
-                final Drawable dr = CleanCopyGate.iconLoad(load);
-                if (CleanCopyGate.misses() != misses) {
-                    return isIcon ? CleanCopyGate.fillingIcon(packageName,
-                            UserHandle.getUserId(appInfo.uid), () -> {
-                                final int before = CleanCopyGate.misses();
-                                final Drawable again = CleanCopyGate.iconLoad(load);
-                                return CleanCopyGate.misses() != before ? null : again;
-                            }) : null;
-                }
-                if (dr != null && CleanCopyGate.provisional() == provisional) {
-                    putCachedIcon(name, dr);
-                }
+                // DiamaneOS: an image of the app comes from its clean copy made for the app's user, an icon
+                // without its exact copy fills itself in, and only exact copies are kept (CleanCopyGate.appImage).
+                final Drawable dr = CleanCopyGate.appImage(packageName, UserHandle.getUserId(appInfo.uid), isIcon,
+                        () -> isIcon
+                                ? r.getDrawableForDensityCapped(
+                                        resId, /* density= */ 0, /* theme= */ null)
+                                : r.getDrawable(resId, null),
+                        drawable -> putCachedIcon(name, drawable));
 
                 if (false) {
                     RuntimeException e = new RuntimeException("here");
@@ -2485,10 +2473,18 @@ public class ApplicationPackageManager extends PackageManager {
     private static final class ResourceName {
         final String packageName;
         final int iconId;
+        final int userId; // DiamaneOS: drawable entries belong to this user incarnation.
+        final long userSerial;
 
         ResourceName(String _packageName, int _iconId) {
+            this(_packageName, _iconId, UserHandle.myUserId(), 0);
+        }
+
+        ResourceName(String _packageName, int _iconId, int user, long serial) {
             packageName = _packageName;
             iconId = _iconId;
+            userId = user;
+            userSerial = serial;
         }
 
         ResourceName(ApplicationInfo aInfo, int _iconId) {
@@ -2510,7 +2506,7 @@ public class ApplicationPackageManager extends PackageManager {
 
             ResourceName that = (ResourceName) o;
 
-            if (iconId != that.iconId) return false;
+            if (iconId != that.iconId || userId != that.userId || userSerial != that.userSerial) return false;
             return !(packageName != null ?
                      !packageName.equals(that.packageName) : that.packageName != null);
 
@@ -2521,7 +2517,7 @@ public class ApplicationPackageManager extends PackageManager {
             int result;
             result = packageName.hashCode();
             result = 31 * result + iconId;
-            return result;
+            return 31 * (31 * result + userId) + Long.hashCode(userSerial);
         }
 
         @Override

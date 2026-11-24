@@ -240,6 +240,8 @@ public final class ImageThreads {
             final ArrayDeque<Task> queue = mQueues.get(task.mOwner);
             if (queue != null && queue.remove(task)) {
                 mQueued--;
+                // DiamaneOS: wake refused widgets after a queued slot is released.
+                ImageCapacity.changed();
             }
         }
 
@@ -262,6 +264,8 @@ public final class ImageThreads {
                     final ArrayDeque<Task> queue = entry.getValue();
                     final Task task = queue.poll();
                     mQueued--;
+                    // DiamaneOS: capacity delivery runs outside this lane's lock.
+                    ImageCapacity.changed();
                     mRunning.add(owner);
                     mBusy++;
                     // The app goes to the back of the line.
@@ -281,6 +285,8 @@ public final class ImageThreads {
             mRunning.remove(task.mOwner);
             mBusy--;
             notifyAll();
+            // DiamaneOS: a healthy service also needs a retry after lane pressure.
+            ImageCapacity.changed();
         }
     }
 }

@@ -1,0 +1,3 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="de.diamaneos.copy.fixture">
+    <application android:icon="@drawable/probe" android:label="Copy test fixture" />
+</manifest>

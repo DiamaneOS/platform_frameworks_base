@@ -35,6 +35,9 @@ import android.system.StructStat;
 import android.util.Log;
 
 import com.android.internal.diamaneos.cleancopies.CleanCopyGate;
+import com.android.internal.diamaneos.cleancopies.CleanFileStream;
+import com.android.internal.diamaneos.cleancopies.GateLocks;
+import com.android.internal.diamaneos.cleancopies.GateOwner;
 import com.android.internal.diamaneos.cleancopies.VerifiedSystemFiles;
 
 import java.io.FileDescriptor;
@@ -51,20 +54,30 @@ import java.util.concurrent.atomic.AtomicInteger;
  * {@link #AUTHORITY}) has them probed or decoded by the decode service and sends the pixels back. Decoded here as
  * before are only a regular file on a verified read-only system partition, decided from the open file
  * ({@link VerifiedSystemFiles}), never from a path, an asset of an APK of the system image or of the process's own
- * ({@link #gatesStream}), and a clean copy's image. Other streams, byte arrays, buffers and memory are never exempt.
+ * ({@link #gatesStream}), a clean copy's image and a file the system server made from pixels of the VM
+ * ({@link CleanFileStream}). Other streams, byte arrays, buffers and memory are never exempt.
  *
  * <p>The bytes go over as a memory file of at most {@link #MAX_BYTES}, known by their SHA-256, handed to the system
  * server on the gate's own thread, so a caller never blocks in that call. Nothing is asked before the phone has
  * booted, while a known global lock is held, or in the system server before its provider runs: such a decode fails at
- * once. A thread waits only when it may ({@link #allowedWait}): the main thread of an app at most {@link #MAIN_MS},
- * an incoming binder call {@link #BINDER_MS}, a shared looper thread of an app {@link #LOOPER_MS}, another thread of an
- * app {@link #WORKER_MS}, another thread of the system server {@link #SYSTEM_WORKER_MS}. The system server's main
- * thread and shared looper threads never wait, no thread waits for {@link #NO_WAIT_MS} after a wait ran out, and at
- * most {@link #MAX_WAITING} threads of the process wait at once. A request not waited for still finishes in the
- * background, and its answer is kept ({@link #CACHE_BYTES}, an answer of more than half that is not), so the same call
- * for the same bytes is answered at once next time. A decode that fails, is refused or is not had in time gives what
- * the API gives for an image it cannot decode (null, or its decode exception). Nothing falls back to a decode in this
- * process. The gate's own threads (and the provider's) never go through it again.
+ * once. A public call has a time of its own, counted from its entry ({@link Op}), and every wait of it, for its input
+ * and for each answer it needs, ends within that time: the main thread of an app {@link #MAIN_MS}, an incoming binder
+ * call {@link #BINDER_MS}, a shared looper thread of an app {@link #LOOPER_MS}, another thread of an app
+ * {@link #WORKER_MS}, another thread of the system server {@link #SYSTEM_WORKER_MS} ({@link #allowedWait}). The system
+ * server's main thread and shared looper threads never wait, critical threads take no wait for {@link #NO_WAIT_MS} after a critical wait ran
+ * out, and at most {@link #MAX_WAITING} threads of the process wait at once. On the main thread, in a binder call and
+ * on a shared looper the input (a provider's open, a file's read, the hashing) runs on the gate's input threads within
+ * that time ({@link GateInput}). The memory a decode needs is reserved before it is allocated ({@link DecodeMemory}):
+ * one that does not fit now is a failure of the moment. A request not waited for still finishes in the background,
+ * and its answer is kept ({@link #CACHE_BYTES}, an answer of more than half that is not), so the same call for the
+ * same bytes is answered at once next time. A consumer that shows a placeholder meanwhile loads through a
+ * {@link GateRefill} and is told when the answer is in. A decode that fails, is refused or is not had in time gives
+ * what the API gives for an image it cannot decode (null, or its decode exception). Nothing falls back to a decode in
+ * this process. The gate's own threads (and the provider's) never go through it again.
+ *
+ * <p>Whose image a request is ({@link GateOwner}) is taken on the calling thread when it is made: the user a scope
+ * names ({@link #ownerScope}), in the system server also the caller of an incoming binder call. It travels with the
+ * request to the provider, and answers kept and requests under way are never shared between owners.
  *
  * @hide
  */
@@ -104,6 +117,13 @@ public final class DecodeGate {
     public static final String EXTRA_TIME = "time";
     /** The authority of a content URI the bytes came from (with its user, as the URI has it). */
     public static final String EXTRA_AUTHORITY = "authority";
+    /**
+     * The Android user whose image it is, when the caller knows it (a scope, a URI of another user): the provider
+     * takes it only from a caller that may act for that user.
+     */
+    public static final String EXTRA_OWNER_USER = "ownerUser";
+    /** The system server only (never over binder): the uid of the app it decodes for, from an incoming call. */
+    public static final String EXTRA_FOR_UID = "forUid";
     /** The package of the calling process, for the lane of bytes without a provider. */
     public static final String EXTRA_CALLER = "caller";
     public static final String EXTRA_BITMAP = "bitmap";
@@ -134,14 +154,14 @@ public final class DecodeGate {
 
     /** The longest a call waits on the main thread of an app. */
     public static final long MAIN_MS = 200;
-    /** After a wait ran out on any thread, no thread of the process waits for this long. */
+    /** Cooldown for critical threads after a critical wait runs out. */
     public static final long NO_WAIT_MS = 5_000;
     /** The longest a call waits in an incoming binder call. */
     public static final long BINDER_MS = 1_000;
     /** The longest a call waits on a shared looper thread of an app (its BackgroundThread, SystemUI's background). */
     public static final long LOOPER_MS = 1_000;
     /** The longest a call waits on another thread of an app. */
-    public static final long WORKER_MS = 4_000;
+    public static final long WORKER_MS = 15_000;
     /** The longest a call waits on another thread of the system server (not its main or a shared looper). */
     public static final long SYSTEM_WORKER_MS = 1_000;
     /** Threads of one process that may wait for the VM at once (well below a binder pool of 15 or 31). */
@@ -169,18 +189,17 @@ public final class DecodeGate {
     private static int sLogLines; // guarded by sLogLock
     // The gate's own threads (and the provider's), where nothing may go through the gate again.
     private static final ThreadLocal<Boolean> sInside = ThreadLocal.withInitial(() -> Boolean.FALSE);
-    // Set when a decode on this thread failed for the moment only (see takeNotNow).
-    private static final ThreadLocal<Boolean> sNotNow = ThreadLocal.withInitial(() -> Boolean.FALSE);
     private static final java.util.concurrent.Semaphore sWaiting =
             new java.util.concurrent.Semaphore(MAX_WAITING);
-    // Global locks of the system server no thread may wait for the VM while holding, and where to find more (by
-    // name), looked for at most once a second and given up LOCK_SOURCE_MS after boot.
-    private static final java.util.List<Object> sLocks = new java.util.concurrent.CopyOnWriteArrayList<>();
-    private static final java.util.Map<String, java.util.function.Supplier<Object>> sLockSources =
-            new java.util.concurrent.ConcurrentHashMap<>();
+    // Global locks of the system server no thread may wait for the VM while holding. A required one not found yet is
+    // looked for at most once a second for as long as it is missing, and meanwhile no system server thread waits
+    // (GateLocks). One still missing LOCK_SOURCE_MS after boot is logged once.
+    private static final GateLocks sLocks = new GateLocks();
     private static final long LOCK_SOURCE_MS = 60_000;
-    private static volatile long sLockSourcesAt;
     private static volatile long sBootedAt;
+    private static volatile boolean sLocksLogged;
+    // The user a scope names on this thread (ownerScope), GateOwner.UNKNOWN for none.
+    private static final ThreadLocal<Integer> sScopeUser = ThreadLocal.withInitial(() -> GateOwner.UNKNOWN);
     // Answers by request and bytes (see Call), and requests under way. An answer is charged its pixels, and for its
     // key, its bundle and the rest a fixed amount that covers them.
     private static final int ENTRY_BYTES = 2048;
@@ -199,6 +218,23 @@ public final class DecodeGate {
     private static volatile String sForcedPackage;
     private static volatile Long sWaitForTest;
     private static volatile long sForcedReadAt = -10_000;
+
+    static volatile Runnable inputFault;
+
+    public static void setInputFaultForTest(Runnable fault) {
+        debuggableOnly();
+        inputFault = fault;
+    }
+
+    public static int inputReadsForTest() {
+        debuggableOnly();
+        return GateInput.readsForTest();
+    }
+
+    public static int waitingForTest() {
+        debuggableOnly();
+        return MAX_WAITING - sWaiting.availablePermits();
+    }
 
     private DecodeGate() {
     }
@@ -231,17 +267,50 @@ public final class DecodeGate {
 
     /** The system server: a global lock (the activity manager's, the window manager's) no wait may happen under. */
     public static void registerGlobalLock(Object lock) {
-        if (lock != null && !sLocks.contains(lock)) {
-            sLocks.add(lock);
+        sLocks.register(lock);
+    }
+
+    /**
+     * The system server: a required global lock, found by {@code source} (null while it does not exist yet, as
+     * Telecom's before Telecom runs). Asked until it gives one, never given up: until then no system server thread
+     * waits for the VM, its decodes finish in the background.
+     */
+    public static void addGlobalLockSource(String name, java.util.function.Supplier<Object> source) {
+        sLocks.require(name, source);
+    }
+
+    /** A scope of {@link #ownerScope}: closing it ends it. */
+    public static final class OwnerScope implements AutoCloseable {
+        private final int mPrevious;
+
+        private OwnerScope(int previous) {
+            mPrevious = previous;
+        }
+
+        @Override
+        public void close() {
+            sScopeUser.set(mPrevious);
         }
     }
 
     /**
-     * The system server: where a global lock made later is found (Telecom's), asked until it gives one. One still
-     * missing a minute after boot is logged as an error and no longer asked.
+     * The images this thread decodes until the scope is closed are of Android user {@code userId}: for a component
+     * that knows whose image it loads (the user switching dialog, another user's icon). Outside the system server the
+     * provider accepts an unverified descriptor only for the submitting process's own user. Nested scopes restore
+     * the outer one.
      */
-    public static void addGlobalLockSource(String name, java.util.function.Supplier<Object> source) {
-        sLockSources.put(name, source);
+    public static OwnerScope ownerScope(int userId) {
+        final OwnerScope scope = new OwnerScope(sScopeUser.get());
+        sScopeUser.set(userId >= 0 ? userId : GateOwner.UNKNOWN);
+        return scope;
+    }
+
+    // Whose image a request made on this thread now is: the scope's user, and in the system server the incoming
+    // binder call's caller (the delegate, and the user when no scope names one).
+    private static GateOwner owner() {
+        final int calling = sLocal != null && Binder.getCallingPid() != Process.myPid()
+                ? Binder.getCallingUid() : GateOwner.UNKNOWN;
+        return GateOwner.of(sScopeUser.get(), calling, android.os.UserHandle.PER_USER_RANGE);
     }
 
     /** Marks this thread as the gate's own (the provider's): nothing on it goes through the gate again. */
@@ -251,19 +320,21 @@ public final class DecodeGate {
 
     /** True when {@code fd} is a regular file of a verified read-only system partition: decoded here as before. */
     public static boolean exempt(FileDescriptor fd) {
-        return VerifiedSystemFiles.holds(fd);
+        // Descriptor metadata may enter a provider. Short-wait callers leave that decision to the input worker.
+        return (!critical() || sInside.get()) && VerifiedSystemFiles.holds(fd);
     }
 
     /**
      * True when this process gates and takes {@code in}'s bytes to the VM: every stream but an asset of an APK of the
-     * system image or of this process's own (every APK it can come from, as the clean copy gate decides) and a clean
-     * copy's image (made in this process from pixels of the VM).
+     * system image or of this process's own (every APK it can come from, as the clean copy gate decides), a clean
+     * copy's image (made in this process from pixels of the VM) and a file the system server made from pixels of the
+     * VM, read and checked against its recorded hash ({@link CleanFileStream}).
      */
     public static boolean gatesStream(InputStream in) {
         if (in == null || !gates()) {
             return false; // no stream, no bytes: the API answers it as before (null, or its own exception)
         }
-        if (in instanceof CleanCopyGate.CleanImageStream) {
+        if (in instanceof CleanCopyGate.CleanImageStream || in instanceof CleanFileStream) {
             return false;
         }
         if (in instanceof android.content.res.AssetManager.AssetInputStream) {
@@ -330,14 +401,113 @@ public final class DecodeGate {
         sAnswers.evictAll();
     }
 
-    /** Why there is no image: refused (the bytes) or not had (the VM down, out of time, too large). */
+    /**
+     * Why there is no image: refused (the bytes, or too large ever), not had for now (the VM down, out of time, no
+     * room now: {@link #again}), or not had in this way (a stream this thread may not read, neither).
+     */
     static final class Failure extends Exception {
         final boolean refused;
+        final boolean again;
+        long memory;
 
-        Failure(boolean refused, String message) {
+        Failure(boolean refused, boolean again, String message) {
             super(message);
             this.refused = refused;
+            this.again = again;
         }
+    }
+
+    /**
+     * One public decode call (a BitmapFactory or BitmapRegionDecoder call, an ImageDecoder from its source to its
+     * close): its entry deadline, captured user and refill registration. Allocation helpers keep the memory charges
+     * with the pixels they create. Every
+     * wait of the call, for its input and for each of its answers, ends at {@link #end}: on a thread that must not wait
+     * long ({@link #allowedWait}) the whole call is that short, whatever it reads and asks.
+     */
+    static final class Op implements AutoCloseable {
+        final long end;
+        /** The main thread, an incoming binder call or a shared looper: input is read off this thread. */
+        final boolean critical;
+        final GateRefill refill;
+        final GateOwner owner;
+        private final String mInputUser;
+        private volatile boolean mPermit;
+
+        Op(long wait, boolean critical, GateRefill refill) {
+            this(wait, critical, refill, DecodeGate.owner());
+        }
+
+        Op(long wait, boolean critical, GateRefill refill, GateOwner owner) {
+            this.owner = owner;
+            mInputUser = owner.key();
+            this.end = SystemClock.uptimeMillis() + Math.max(0, wait);
+            this.critical = critical;
+            this.refill = refill;
+            mPermit = wait > 0 && sWaiting.tryAcquire();
+        }
+
+        /** Milliseconds left to wait, 0 when none. */
+        long left() {
+            return mPermit ? Math.max(0, end - SystemClock.uptimeMillis()) : 0;
+        }
+
+        String inputKey(String source) {
+            return refill != null ? mInputUser + ':' + source : null;
+        }
+
+        String inputKey(Object source, String part) {
+            return refill != null ? refill.inputKey(source, mInputUser + ':' + part) : null;
+        }
+
+        Failure received(Failure failure) {
+            if (refill != null) {
+                refill.failed(failure.again);
+                if (failure.memory > 0) refill.needs(failure.memory);
+            }
+            return failure;
+        }
+
+        /** Checks the complete plan before allocation, each allocation carries its own charge. */
+        void checkFit(long bytes) throws Failure {
+            try {
+                DecodeMemory.checkFit(bytes);
+            } catch (DecodeMemory.NoRoomException e) {
+                throw received(noRoom(e));
+            }
+        }
+
+        @Override
+        public synchronized void close() {
+            if (mPermit) {
+                mPermit = false;
+                sWaiting.release();
+            }
+        }
+    }
+
+    /** A public decode call starts on this thread now: its time is what this thread may wait. */
+    static Op begin() {
+        return new Op(allowedWait(), critical(), GateRefill.current());
+    }
+
+    /** Begins with the user of a source acquired through a resolver. */
+    static Op beginForUser(int user) {
+        final GateOwner current = owner();
+        return new Op(allowedWait(), critical(), GateRefill.current(),
+                GateOwner.of(user, current.forUid, android.os.UserHandle.PER_USER_RANGE));
+    }
+
+    /** A retained source keeps its user, and a new Binder consumer supplies its own delegate. */
+    static Op beginForSource(GateOwner source) {
+        return new Op(allowedWait(), critical(), GateRefill.current(),
+                source.forSource(owner().forUid, android.os.UserHandle.PER_USER_RANGE));
+    }
+
+    // The main thread, an incoming binder call or a shared looper thread: the threads with short waits.
+    private static boolean critical() {
+        final Looper looper = Looper.myLooper();
+        return ActivityThread.isSystem() || looper == Looper.getMainLooper() || Binder.getCallingPid() != Process.myPid()
+                || (looper != null && SHARED_LOOPERS.contains(Thread.currentThread().getName()));
     }
 
     /** A decoded image: upright, the clockwise turn the file asked for, and whether it asked for a mirror first. */
@@ -353,202 +523,45 @@ public final class DecodeGate {
         }
     }
 
-    /** The bytes of one image in a memory file of this process, read from its start by the VM. */
+    /**
+     * The bytes of one image in a memory file of this process, read from its start by the VM ({@link GateInput} reads
+     * them). The decode that read them holds them and so does each send to the system server under way: their memory
+     * stays reserved ({@link DecodeMemory}) until the last of them closes.
+     */
     static final class Bytes implements AutoCloseable {
         private final ParcelFileDescriptor mFd;
         private final byte[] mHead;
         private final String mDigest;
+        private final DecodeMemory.Reservation mMemory;
+        private final AtomicInteger mHolders; // shared by every holder of these bytes
+        private final java.util.concurrent.atomic.AtomicBoolean mClosed =
+                new java.util.concurrent.atomic.AtomicBoolean();
 
-        private Bytes(ParcelFileDescriptor fd, byte[] head, String digest) {
+        Bytes(ParcelFileDescriptor fd, byte[] head, String digest, DecodeMemory.Reservation memory) {
             mFd = fd;
             mHead = head;
             mDigest = digest;
+            mMemory = memory;
+            mHolders = new AtomicInteger(1);
         }
 
-        // SHA-256 of what goes into the memory file, for the cache.
-        private static java.security.MessageDigest newDigest() throws Failure {
-            try {
-                return java.security.MessageDigest.getInstance("SHA-256");
-            } catch (java.security.NoSuchAlgorithmException e) {
-                throw new Failure(false, "no SHA-256");
-            }
+        private Bytes(Bytes shared) {
+            mFd = shared.mFd;
+            mHead = shared.mHead;
+            mDigest = shared.mDigest;
+            mMemory = shared.mMemory;
+            mHolders = shared.mHolders;
+            mHolders.incrementAndGet();
         }
 
-        // Bytes of a caller's array, a piece at a time copied first, so what is hashed is what is sent.
-        static Bytes of(byte[] data, int offset, int length) throws Failure {
-            mayAsk();
-            if (length > MAX_BYTES) {
-                throw new Failure(true, "larger than the decode limit");
-            }
-            if (length <= 0) {
-                throw new Failure(true, "no bytes");
-            }
-            final java.security.MessageDigest digest = newDigest();
-            final FileDescriptor memory = memory();
-            try {
-                final byte[] piece = new byte[Math.min(length, 64 * 1024)];
-                byte[] head = null;
-                int done = 0;
-                while (done < length) {
-                    final int n = Math.min(piece.length, length - done);
-                    System.arraycopy(data, offset + done, piece, 0, n);
-                    if (head == null) {
-                        head = java.util.Arrays.copyOf(piece, Math.min(n, 32));
-                    }
-                    digest.update(piece, 0, n);
-                    int written = 0;
-                    while (written < n) {
-                        written += Os.write(memory, piece, written, n - written);
-                    }
-                    done += n;
-                }
-                return done(memory, head, digest);
-            } catch (ErrnoException | java.io.InterruptedIOException e) {
-                closeQuietly(memory);
-                throw new Failure(false, "bytes not copied: " + e.getMessage());
-            }
+        /** The memory reserved for the bytes. */
+        long reserved() {
+            return mMemory.bytes();
         }
 
-        static Bytes of(ByteBuffer buffer) throws Failure {
-            mayAsk();
-            final ByteBuffer view = buffer.duplicate();
-            final int length = view.remaining();
-            if (length > MAX_BYTES) {
-                throw new Failure(true, "larger than the decode limit");
-            }
-            final byte[] data = new byte[length];
-            view.get(data);
-            return of(data, 0, length);
-        }
-
-        /** Reads {@code in} to its end (at most {@link #MAX_BYTES}). The stream is left open. */
-        static Bytes of(InputStream in) throws Failure {
-            mayAsk();
-            final java.security.MessageDigest digest = newDigest();
-            final FileDescriptor memory = memory();
-            try {
-                final byte[] buffer = new byte[64 * 1024];
-                final byte[] head = new byte[32];
-                int total = 0;
-                int n;
-                while ((n = in.read(buffer)) > 0) {
-                    if (total < head.length) {
-                        System.arraycopy(buffer, 0, head, total, Math.min(n, head.length - total));
-                    }
-                    total += n;
-                    if (total > MAX_BYTES) {
-                        throw new Failure(true, "larger than the decode limit");
-                    }
-                    digest.update(buffer, 0, n);
-                    int written = 0;
-                    while (written < n) {
-                        written += Os.write(memory, buffer, written, n - written);
-                    }
-                }
-                if (total == 0) {
-                    throw new Failure(true, "no bytes");
-                }
-                return done(memory, java.util.Arrays.copyOf(head, Math.min(total, head.length)), digest);
-            } catch (IOException | ErrnoException e) {
-                closeQuietly(memory);
-                throw new Failure(false, "stream not read: " + e.getMessage());
-            } catch (Failure e) {
-                closeQuietly(memory);
-                throw e;
-            }
-        }
-
-        /**
-         * The bytes of {@code fd} from {@code offset} ({@code -1}: its current position) for {@code length} bytes
-         * ({@code -1}: to its end), read without moving its position. A descriptor that cannot be read at an offset
-         * (a pipe, a socket) is read as a stream from where it is.
-         */
-        static Bytes of(FileDescriptor fd, long offset, long length) throws Failure {
-            mayAsk();
-            final StructStat st;
-            final long start;
-            try {
-                st = Os.fstat(fd);
-                start = offset >= 0 ? offset : Os.lseek(fd, 0, OsConstants.SEEK_CUR);
-            } catch (ErrnoException e) {
-                return of(new java.io.FileInputStream(fd) {
-                    @Override
-                    public void close() {
-                        // The caller owns the descriptor.
-                    }
-                });
-            }
-            if (!OsConstants.S_ISREG(st.st_mode)) {
-                return of(new java.io.FileInputStream(fd) {
-                    @Override
-                    public void close() {
-                        // The caller owns the descriptor.
-                    }
-                });
-            }
-            final long end = length >= 0 ? Math.min(st.st_size, start + length) : st.st_size;
-            if (end - start > MAX_BYTES) {
-                throw new Failure(true, "larger than the decode limit");
-            }
-            if (end <= start) {
-                throw new Failure(true, "no bytes");
-            }
-            final java.security.MessageDigest digest = newDigest();
-            final FileDescriptor memory = memory();
-            try {
-                final byte[] buffer = new byte[(int) Math.min(64 * 1024, end - start)];
-                byte[] head = null;
-                long at = start;
-                while (at < end) {
-                    final int n = Os.pread(fd, buffer, 0, (int) Math.min(buffer.length, end - at), at);
-                    if (n <= 0) {
-                        break;
-                    }
-                    if (head == null) {
-                        head = java.util.Arrays.copyOf(buffer, Math.min(n, 32));
-                    }
-                    digest.update(buffer, 0, n);
-                    int written = 0;
-                    while (written < n) {
-                        written += Os.write(memory, buffer, written, n - written);
-                    }
-                    at += n;
-                }
-                if (head == null) {
-                    throw new Failure(true, "no bytes");
-                }
-                return done(memory, head, digest);
-            } catch (ErrnoException | java.io.InterruptedIOException e) {
-                closeQuietly(memory);
-                throw new Failure(false, "file not read: " + e.getMessage());
-            } catch (Failure e) {
-                closeQuietly(memory);
-                throw e;
-            }
-        }
-
-        private static FileDescriptor memory() throws Failure {
-            try {
-                return Os.memfd_create("decode-gate", OsConstants.MFD_CLOEXEC);
-            } catch (ErrnoException e) {
-                throw new Failure(false, "no memory file: " + e.getMessage());
-            }
-        }
-
-        private static Bytes done(FileDescriptor memory, byte[] head, java.security.MessageDigest digest)
-                throws Failure {
-            try {
-                Os.lseek(memory, 0, OsConstants.SEEK_SET);
-                final StringBuilder hex = new StringBuilder(64);
-                for (byte b : digest.digest()) {
-                    hex.append(Character.forDigit((b >> 4) & 0xf, 16)).append(Character.forDigit(b & 0xf, 16));
-                }
-                return new Bytes(ParcelFileDescriptor.dup(memory), head, hex.toString());
-            } catch (ErrnoException | IOException e) {
-                throw new Failure(false, "no memory file: " + e.getMessage());
-            } finally {
-                closeQuietly(memory);
-            }
+        /** The same bytes for another holder, which closes its own. */
+        Bytes share() {
+            return new Bytes(this);
         }
 
         /** The first bytes, for the MIME type. */
@@ -614,12 +627,28 @@ public final class DecodeGate {
             return mFd;
         }
 
+        // A send under way holds the bytes until it handed them over.
+        void retain() {
+            mHolders.incrementAndGet();
+        }
+
+        void release() {
+            if (mHolders.decrementAndGet() == 0) {
+                try {
+                    mFd.close();
+                } catch (IOException ignored) {
+                    // Closed.
+                } finally {
+                    mMemory.close();
+                }
+            }
+        }
+
+        /** The decode that read them is done with them (once, however often it is called). */
         @Override
         public void close() {
-            try {
-                mFd.close();
-            } catch (IOException ignored) {
-                // Closed.
+            if (mClosed.compareAndSet(false, true)) {
+                release();
             }
         }
     }
@@ -646,6 +675,147 @@ public final class DecodeGate {
         }
     }
 
+    static Movie trustedMovie(InputStream stream) {
+        final boolean inside = sInside.get();
+        sInside.set(Boolean.TRUE);
+        try { return Movie.decodeStream(stream); }
+        finally { sInside.set(inside); }
+    }
+
+    // Only an independently opened descriptor verified by the input worker reaches this path.
+    static Bitmap trustedBitmap(FileDescriptor fd, BitmapFactory.Options opts) {
+        final boolean inside = sInside.get();
+        sInside.set(Boolean.TRUE);
+        try {
+            return BitmapFactory.decodeFileDescriptor(fd, null, opts);
+        } finally {
+            sInside.set(inside);
+        }
+    }
+
+    /** Captures a URI or data source user and the incoming server delegate before any worker hop. */
+    public static GateOwner iconUser(int sourceUser) {
+        return GateOwner.of(sourceUser, ActivityThread.isSystem() ? owner().forUid : GateOwner.UNKNOWN,
+                android.os.UserHandle.PER_USER_RANGE);
+    }
+
+    /** Data icons retain a scoped source user or the incoming server user's capture. */
+    public static GateOwner iconDataUser(int defaultUser) {
+        final GateOwner captured = owner();
+        return GateOwner.of(captured.user >= 0 ? captured.user : defaultUser, captured.forUid,
+                android.os.UserHandle.PER_USER_RANGE);
+    }
+
+    /** Local icon dispatch preserves the captured server delegate. Remote calls use transport authentication. */
+    public static Bundle submitIcon(ContentResolver resolver, GateOwner user, Bundle extras) {
+        final Local local = sLocal;
+        if (local != null) {
+            extras.putInt(EXTRA_OWNER_USER, user.user);
+            extras.putInt(EXTRA_FOR_UID, user.forUid);
+            return local.call(METHOD_DECODE, extras);
+        }
+        return resolver.call(URI, METHOD_DECODE, null, extras);
+    }
+
+    /** A public icon call shares the gate's process wait permit and entry deadline. */
+    public static final class Wait implements AutoCloseable {
+        private final Op op;
+        private Wait(Op op) { this.op = op; }
+        public long left() { return op.left(); }
+        @Override public void close() { op.close(); }
+    }
+
+    public static Wait waiting() {
+        final Op op = begin();
+        try {
+            return new Wait(op);
+        } catch (RuntimeException | Error e) {
+            op.close();
+            throw e;
+        }
+    }
+
+    /** Shared caller and real-provider admission for a dedicated icon input worker. */
+    public static final class ProviderInput implements AutoCloseable {
+        private final GateInput.ProviderPlace caller;
+        private final GateInput.ProviderPlace provider;
+        private ProviderInput(GateInput.ProviderPlace caller, GateInput.ProviderPlace provider) {
+            this.caller = caller;
+            this.provider = provider;
+        }
+        private boolean closed;
+        @Override public synchronized void close() {
+            if (closed) return;
+            closed = true;
+            provider.close();
+            caller.close();
+        }
+    }
+
+    private static void snapshotThread() throws IOException {
+        final Looper looper = Looper.myLooper();
+        if (looper == Looper.getMainLooper() || Binder.getCallingPid() != Process.myPid()
+                || (looper != null && SHARED_LOOPERS.contains(Thread.currentThread().getName()))) {
+            throw new IOException("a dedicated input worker is required");
+        }
+    }
+
+    public static ProviderInput provider(ContentResolver resolver, Uri uri, GateOwner user) throws IOException {
+        snapshotThread();
+        GateInput.ProviderPlace caller = null;
+        GateInput.ProviderPlace provider = null;
+        boolean transferred = false;
+        try {
+            caller = GateInput.caller(user.forUid >= 0 ? user.forUid : Process.myUid());
+            provider = GateInput.provider(resolver, uri);
+            final ProviderInput input = new ProviderInput(caller, provider);
+            transferred = true;
+            return input;
+        } catch (Failure e) {
+            throw new IOException(e.getMessage(), e);
+        } finally {
+            if (!transferred) {
+                if (provider != null) provider.close();
+                if (caller != null) caller.close();
+            }
+        }
+    }
+
+    /** An immutable staged input, charged until the producer has handed its descriptor over. */
+    public static final class Input implements AutoCloseable {
+        private final Bytes bytes;
+        private Input(Bytes bytes) { this.bytes = bytes; }
+        public ParcelFileDescriptor fd() { return bytes.fd(); }
+        @Override public void close() { bytes.close(); }
+    }
+
+    public static Input snapshot(android.content.res.AssetFileDescriptor fd) throws IOException {
+        snapshotThread();
+        try (Op op = new Op(0, false, null)) {
+            return snapshotInput(GateInput.of(op, fd.getFileDescriptor(), fd.getStartOffset(), fd.getDeclaredLength()));
+        } catch (Failure e) {
+            throw new IOException(e.getMessage(), e);
+        }
+    }
+
+    public static Input snapshot(byte[] data) throws IOException {
+        snapshotThread();
+        try (Op op = new Op(0, false, null)) {
+            return snapshotInput(GateInput.of(op, data, 0, data.length));
+        } catch (Failure e) {
+            throw new IOException(e.getMessage(), e);
+        }
+    }
+
+    private static Input snapshotInput(Bytes bytes) {
+        try {
+            return new Input(bytes);
+        } catch (RuntimeException | Error e) {
+            bytes.close();
+            throw e;
+        }
+    }
+
     /** An animation from the VM: frames one below the other in one bitmap. */
     static final class Frames {
         final Bitmap frames;
@@ -666,8 +836,8 @@ public final class DecodeGate {
     }
 
     /** The probe of {@code bytes} in the VM, with the turn the file asks for when {@code turn} (else 0). */
-    static Info probe(Bytes bytes, boolean turn) throws Failure {
-        final Bundle r = request(turn ? METHOD_HEADER : METHOD_PROBE, bytes, 0, 0);
+    static Info probe(Op op, Bytes bytes, boolean turn) throws Failure {
+        final Bundle r = request(op, turn ? METHOD_HEADER : METHOD_PROBE, bytes, 0, 0);
         final int width = r.getInt(EXTRA_WIDTH);
         final int height = r.getInt(EXTRA_HEIGHT);
         final int rotation = r.getInt(EXTRA_ROTATION);
@@ -679,10 +849,10 @@ public final class DecodeGate {
     }
 
     /** {@code bytes} decoded in the VM to fit {@code maxWidth} x {@code maxHeight}, upright. */
-    static Decoded decode(Bytes bytes, int maxWidth, int maxHeight) throws Failure {
+    static Decoded decode(Op op, Bytes bytes, int maxWidth, int maxHeight) throws Failure {
         final int boxW = Math.max(1, Math.min(MAX_BOX, maxWidth));
         final int boxH = Math.max(1, Math.min(MAX_BOX, maxHeight));
-        final Bundle r = request(METHOD_DECODE, bytes, boxW, boxH);
+        final Bundle r = request(op, METHOD_DECODE, bytes, boxW, boxH);
         final Bitmap bitmap = r.getParcelable(EXTRA_BITMAP, Bitmap.class);
         final int rotation = r.getInt(EXTRA_ROTATION);
         if (bitmap == null || !quarterTurn(rotation) || bitmap.getWidth() > boxW || bitmap.getHeight() > boxH) {
@@ -696,7 +866,8 @@ public final class DecodeGate {
      * detail and sampled by {@code sample} as Android's region decoder samples it (at most ceil(width / sample) x
      * ceil(height / sample)), never turned.
      */
-    static Bitmap region(Bytes bytes, int left, int top, int width, int height, int sample) throws Failure {
+    static Bitmap region(Op op, Bytes bytes, int left, int top, int width, int height, int sample)
+            throws Failure {
         final int outW = (int) (((long) width + sample - 1) / sample);
         final int outH = (int) (((long) height + sample - 1) / sample);
         if (left < 0 || top < 0 || width < 1 || height < 1 || sample < 1 || sample > MAX_REGION_SAMPLE
@@ -704,7 +875,7 @@ public final class DecodeGate {
                 || (long) outW * outH > MAX_VM_PIXELS) {
             throw failed(true, "region out of bounds");
         }
-        final Bundle r = request(METHOD_REGION, bytes, width, height, left, top, sample);
+        final Bundle r = request(op, METHOD_REGION, bytes, width, height, left, top, sample);
         final Bitmap bitmap = r.getParcelable(EXTRA_BITMAP, Bitmap.class);
         if (bitmap == null || bitmap.getWidth() > outW || bitmap.getHeight() > outH) {
             throw failed(false, "bad region reply");
@@ -713,10 +884,10 @@ public final class DecodeGate {
     }
 
     /** The frames of an animation (GIF, WebP) decoded in the VM, each fitting the box. */
-    static Frames frames(Bytes bytes, int maxWidth, int maxHeight) throws Failure {
+    static Frames frames(Op op, Bytes bytes, int maxWidth, int maxHeight) throws Failure {
         final int boxW = Math.max(1, Math.min(MAX_BOX, maxWidth));
         final int boxH = Math.max(1, Math.min(MAX_BOX, maxHeight));
-        final Bundle r = request(METHOD_FRAMES, bytes, boxW, boxH);
+        final Bundle r = request(op, METHOD_FRAMES, bytes, boxW, boxH);
         final Bitmap frames = r.getParcelable(EXTRA_BITMAP, Bitmap.class);
         final int count = r.getInt(EXTRA_FRAME_COUNT);
         final int[] durations = r.getIntArray(EXTRA_DURATIONS);
@@ -737,17 +908,39 @@ public final class DecodeGate {
         final String key;
         final long end;
         private Bundle mAnswer; // guarded by this
+        private boolean mSettled;
+        // Refill registrations of callers that were not answered in time. Guarded by this.
+        private java.util.ArrayList<GateRefill> mRefills;
 
         Call(String key, long end) {
             this.key = key;
             this.end = end;
         }
 
-        synchronized void answer(Bundle answer) {
-            if (mAnswer == null) {
-                mAnswer = answer != null ? answer : new Bundle();
-                notifyAll();
+        // Gives the answer to its waiters, and returns the refills to tell (null: none, or answered before).
+        synchronized java.util.List<GateRefill> answer(Bundle answer) {
+            if (mSettled) return null;
+            mSettled = true;
+            mAnswer = answer != null ? answer : new Bundle();
+            notifyAll();
+            final java.util.List<GateRefill> refills = mRefills;
+            mRefills = null;
+            return refills;
+        }
+
+        // A refill waits for this call's answer: null, or the answer when it came already.
+        synchronized Bundle addRefill(GateRefill refill) {
+            if (mAnswer != null) {
+                return mAnswer;
             }
+            if (mRefills == null) {
+                mRefills = new java.util.ArrayList<>(1);
+            }
+            if (!mRefills.contains(refill)) {
+                mRefills.add(refill);
+                refill.waitsFor();
+            }
+            return null;
         }
 
         synchronized Bundle await(long until) {
@@ -791,22 +984,25 @@ public final class DecodeGate {
     }
 
     /**
-     * How long this thread may wait for the VM now. In an app: the main thread MAIN_MS, an incoming binder call
-     * BINDER_MS, a shared looper thread LOOPER_MS, any other thread WORKER_MS. In the system server: none on the main
-     * thread and the shared looper threads, BINDER_MS in an incoming binder call, SYSTEM_WORKER_MS on any other thread
-     * (a service's own thread, a worker). None for NO_WAIT_MS after a wait ran out, and none when MAX_WAITING threads
-     * of the process wait already (taken in {@link #request}), so at most MAX_WAITING binder threads of a pool of 15
-     * (an app) or 31 (the system server) ever wait.
+     * The time of a public call starting on this thread now. In an app: the main thread MAIN_MS, an incoming binder
+     * call BINDER_MS, a shared looper thread LOOPER_MS, any other thread WORKER_MS. In the system server: none on the
+     * main thread and the shared looper threads, BINDER_MS in an incoming binder call, SYSTEM_WORKER_MS on any other
+     * thread (a service's own thread, a worker). Critical threads take no wait during NO_WAIT_MS after a critical
+     * wait ran out, and no wait when MAX_WAITING threads of the process wait already (taken in {@link #request}), so at most MAX_WAITING binder
+     * threads of a pool of 15 (an app) or 31 (the system server) ever wait.
      */
     private static long allowedWait() {
         final Long forced = sWaitForTest;
         if (forced != null) {
             return forced;
         }
-        if (SystemClock.uptimeMillis() < sNoWaitUntil) {
+        if (critical() && SystemClock.uptimeMillis() < sNoWaitUntil) {
             return 0;
         }
         final boolean system = ActivityThread.isSystem();
+        if (system && !sLocks.complete()) {
+            return 0; // a required global lock is not known yet: no system server thread waits (GateLocks)
+        }
         final Looper looper = Looper.myLooper();
         if (looper == Looper.getMainLooper()) {
             return system ? 0 : MAIN_MS;
@@ -818,6 +1014,12 @@ public final class DecodeGate {
             return system ? 0 : LOOPER_MS;
         }
         return system ? SYSTEM_WORKER_MS : WORKER_MS;
+    }
+
+    private static void timedOut(Op op) {
+        if (sWaitForTest == null && op.critical) {
+            sNoWaitUntil = SystemClock.uptimeMillis() + NO_WAIT_MS;
+        }
     }
 
     // Looper threads that many callers share (the system server's UiThread, DisplayThread, AnimationThread, FgThread,
@@ -839,94 +1041,92 @@ public final class DecodeGate {
     }
 
     private static boolean holdsGlobalLock() {
-        if (!sLockSources.isEmpty()) {
-            findLocks();
-        }
-        for (Object lock : sLocks) {
-            if (Thread.holdsLock(lock)) {
-                return true;
+        if (!sLocks.complete()) {
+            final long now = SystemClock.uptimeMillis();
+            sLocks.find(now);
+            if (!sLocks.complete() && !sLocksLogged && sBooted && now - sBootedAt > LOCK_SOURCE_MS) {
+                sLocksLogged = true;
+                Log.e(TAG, "not found yet: " + sLocks.missing() + ", no system server thread waits for the VM");
             }
         }
-        return false;
-    }
-
-    // Asks the lock sources, at most once a second. One still missing LOCK_SOURCE_MS after boot is given up, loudly.
-    private static void findLocks() {
-        final long now = SystemClock.uptimeMillis();
-        if (now - sLockSourcesAt < 1_000) {
-            return;
-        }
-        sLockSourcesAt = now;
-        for (java.util.Map.Entry<String, java.util.function.Supplier<Object>> source : sLockSources.entrySet()) {
-            Object lock = null;
-            try {
-                lock = source.getValue().get();
-            } catch (RuntimeException e) {
-                // Not there yet.
-            }
-            if (lock != null) {
-                registerGlobalLock(lock);
-                sLockSources.remove(source.getKey());
-            } else if (sBooted && now - sBootedAt > LOCK_SOURCE_MS) {
-                sLockSources.remove(source.getKey());
-                Log.e(TAG, source.getKey() + " was not found: its holders may wait for the VM");
-            }
-        }
+        return sLocks.heldHere();
     }
 
     /**
-     * The answer of the system server's provider to {@code method} for {@code bytes}: from the cache when this request
-     * was answered before, else asked (unless it is under way already) and waited for as long as this thread may
-     * ({@link #allowedWait}). A request not waited for, or not answered in time, still finishes in the background and
-     * its answer is kept, so the same call is answered at once next time.
+     * The answer of the system server's provider to {@code method} for {@code bytes}: from the cache (or held for the
+     * call's refill registration) when this request was answered before, else asked (unless it is under way already)
+     * and waited for until the call's end ({@link Op#end}). A request not waited for, or not answered in time, still
+     * finishes in the background and its answer is kept, so the same call is answered at once next time, and the
+     * call's refill registration (if any) is told.
      */
-    private static Bundle request(String method, Bytes bytes, int width, int height) throws Failure {
-        return request(method, bytes, width, height, 0, 0, 0);
+    private static Bundle request(Op op, String method, Bytes bytes, int width, int height) throws Failure {
+        return request(op, method, bytes, width, height, 0, 0, 0);
     }
 
     // As above, with a region's left, top and sample size (0 for other methods), all of them in the cache key.
-    private static Bundle request(String method, Bytes bytes, int width, int height, int left, int top, int sample)
-            throws Failure {
+    private static Bundle request(Op op, String method, Bytes bytes, int width, int height, int left, int top,
+            int sample) throws Failure {
         mayAsk();
-        final String key = method + ':' + width + 'x' + height + '@' + left + ',' + top + '/' + sample + ':'
-                + bytes.digest();
-        final Bundle cached = sAnswers.get(key);
+        // Whose image this is, taken here on the calling thread: part of the key, so an answer made for one owner is
+        // never given to another, and sent with the request.
+        final GateOwner owner = op.owner;
+        final String key = owner.key() + ':' + method + ':' + width + 'x' + height + '@' + left + ',' + top + '/'
+                + sample + ':' + bytes.digest();
+        Bundle cached = sAnswers.get(key);
+        if (cached == null && op.refill != null) {
+            cached = op.refill.held(key);
+        }
         if (cached != null) {
             sCacheHits.incrementAndGet();
             return answerOf(cached);
         }
         final Call call;
         boolean send = false;
+        final java.util.List<Call> expired;
         synchronized (sCalls) {
+            final long now = SystemClock.uptimeMillis();
             final Call running = sCalls.get(key);
-            if (running != null && SystemClock.uptimeMillis() < running.end) {
+            if (running != null && now < running.end) {
                 call = running;
+                expired = null;
             } else {
-                call = new Call(key, SystemClock.uptimeMillis() + SERVER_MS + 500);
+                expired = dropExpiredCallsLocked(now);
+                call = new Call(key, now + SERVER_MS + 500);
                 sCalls.put(key, call);
                 send = true;
             }
         }
-        if (send) {
-            send(method, bytes, width, height, left, top, sample, call);
-        }
-        long wait = allowedWait();
-        boolean permit = false;
-        if (wait > 0) {
-            permit = sWaiting.tryAcquire();
-            if (!permit) {
-                wait = 0;
+        if (expired != null) {
+            for (Call gone : expired) {
+                finish(gone, error("no answer in time")); // its waiters and refills learn it now
             }
         }
-        final Bundle answer;
+        if (send) {
+            final java.lang.ref.WeakReference<Call> expiration = new java.lang.ref.WeakReference<>(call);
+            GateRefill.timerForGate().postAtTime(() -> {
+                final Call started = expiration.get();
+                if (started == null) return;
+                boolean pending;
+                synchronized (sCalls) {
+                    pending = sCalls.get(started.key) == started;
+                    if (pending) sCalls.remove(started.key);
+                }
+                if (pending) finish(started, error("no answer in time"));
+                synchronized (started) { started.mAnswer = null; }
+            }, call.end);
+            send(method, bytes, width, height, left, top, sample, owner, call);
+        }
+        long wait = op.left();
+        Bundle answer;
         sInside.set(Boolean.TRUE);
         try {
-            answer = wait > 0 ? call.await(SystemClock.uptimeMillis() + wait) : call.await(0);
+            answer = wait > 0 ? call.await(op.end) : call.await(0);
         } finally {
             sInside.set(Boolean.FALSE);
-            if (permit) {
-                sWaiting.release();
-            }
+        }
+        if (answer == null && op.refill != null) {
+            // Its answer comes to the refill, which reloads then (or it came just now).
+            answer = call.addRefill(op.refill);
         }
         if (answer != null && answer.getString(EXTRA_ERROR) == null) {
             (METHOD_PROBE.equals(method) || METHOD_HEADER.equals(method) ? sProbes : sDecodes).incrementAndGet();
@@ -936,12 +1136,35 @@ public final class DecodeGate {
                 sNotWaited.incrementAndGet();
                 throw notNow("not waited for here, finishing in the background");
             }
-            if (sWaitForTest == null) {
-                sNoWaitUntil = SystemClock.uptimeMillis() + NO_WAIT_MS;
-            }
+            timedOut(op);
             throw notNow("missed its time, finishing in the background");
         }
         return answerOf(answer);
+    }
+
+    // Requests whose time is over (their callback never came) leave the table: each only as itself, so a newer call
+    // of the same key stays. Returns them (null: none). Guarded by sCalls.
+    private static java.util.List<Call> dropExpiredCallsLocked(long now) {
+        java.util.List<Call> expired = null;
+        final java.util.Iterator<java.util.Map.Entry<String, Call>> it = sCalls.entrySet().iterator();
+        while (it.hasNext()) {
+            final Call call = it.next().getValue();
+            if (call.end <= now) {
+                it.remove();
+                if (expired == null) {
+                    expired = new java.util.ArrayList<>();
+                }
+                expired.add(call);
+            }
+        }
+        return expired;
+    }
+
+    /** Tests: requests under way in this process. */
+    public static int callsForTest() {
+        synchronized (sCalls) {
+            return sCalls.size();
+        }
     }
 
     // An answer for one caller: an error as a Failure, pixels as a copy of their own (the cache keeps the original).
@@ -954,19 +1177,31 @@ public final class DecodeGate {
         if (bitmap == null) {
             return answer;
         }
-        final Bitmap copy = bitmap.copy(bitmap.getConfig(), false);
-        if (copy == null) {
-            throw failed(false, "no memory for the pixels");
+        try (DecodeMemory.Reservation memory = DecodeMemory.reserve(DecodeMemory.bitmapBytes(bitmap))) {
+            final Bitmap copy = bitmap.copy(bitmap.getConfig(), false);
+            if (copy == null) throw notNow("no memory for the pixels");
+            try {
+                final Bundle mine = new Bundle(answer);
+                mine.putParcelable(EXTRA_BITMAP, copy);
+                DecodeMemory.keep(copy, memory);
+                return mine;
+            } catch (RuntimeException | Error e) {
+                DecodeMemory.recycle(copy, null);
+                throw e;
+            }
+        } catch (DecodeMemory.NoRoomException e) {
+            throw e.later ? notNow(e.getMessage()) : failed(true, e.getMessage());
+        } catch (OutOfMemoryError e) {
+            throw notNow("no memory for the copied pixels");
         }
-        final Bundle mine = new Bundle(answer);
-        mine.putParcelable(EXTRA_BITMAP, copy);
-        return mine;
     }
 
     // Hands the request to the system server on a sender thread, whose callback answers {@code call} and fills the
     // cache. The caller's bytes are its own until it returns, so the descriptor is copied here.
     private static void send(String method, Bytes bytes, int width, int height, int left, int top, int sample,
-            Call call) {
+            GateOwner owner, Call call) {
+        final java.util.concurrent.atomic.AtomicInteger dispatch = new java.util.concurrent.atomic.AtomicInteger();
+        final String caller = ActivityThread.currentPackageName();
         final ParcelFileDescriptor fd;
         try {
             fd = bytes.fd().dup();
@@ -974,11 +1209,24 @@ public final class DecodeGate {
             finish(call, error("descriptor not passed"));
             return;
         }
-        final String caller = ActivityThread.currentPackageName();
+        bytes.retain(); // their memory stays reserved while the send holds them
         try {
-            senders().execute(() -> sendNow(method, fd, width, height, left, top, sample, caller, call));
-        } catch (java.util.concurrent.RejectedExecutionException e) {
-            closeQuietly(fd);
+            senders().execute(() -> {
+                if (!dispatch.compareAndSet(0, 1)) return;
+                try {
+                    sendNow(method, fd, width, height, left, top, sample, caller, owner, call);
+                } finally {
+                    if (dispatch.compareAndSet(1, 2)) {
+                        bytes.release();
+                        closeQuietly(fd);
+                    }
+                }
+            });
+        } catch (RuntimeException | Error e) {
+            if (dispatch.compareAndSet(0, 2)) {
+                bytes.release();
+                closeQuietly(fd);
+            }
             finish(call, error("too many requests waiting to be sent"));
         }
     }
@@ -1001,7 +1249,7 @@ public final class DecodeGate {
     }
 
     private static void sendNow(String method, ParcelFileDescriptor fd, int width, int height, int left, int top,
-            int sample, String caller, Call call) {
+            int sample, String caller, GateOwner owner, Call call) {
         final Bundle extras = new Bundle();
         extras.putParcelable(EXTRA_FD, fd);
         extras.putInt(EXTRA_WIDTH, width);
@@ -1015,6 +1263,9 @@ public final class DecodeGate {
         if (caller != null) {
             extras.putString(EXTRA_CALLER, caller);
         }
+        if (owner.user >= 0) {
+            extras.putInt(EXTRA_OWNER_USER, owner.user);
+        }
         extras.putBinder(EXTRA_CALLBACK, new IRemoteCallback.Stub() {
             @Override
             public void sendResult(Bundle result) {
@@ -1027,6 +1278,7 @@ public final class DecodeGate {
         try {
             final Local local = sLocal;
             if (local != null) {
+                extras.putInt(EXTRA_FOR_UID, owner.forUid); // same process only: never sent over binder
                 taken = local.call(method, extras);
             } else if (!ActivityThread.isSystem()) {
                 final Context context = context();
@@ -1051,16 +1303,38 @@ public final class DecodeGate {
         return b;
     }
 
-    // What an answer is charged in the cache.
+    // What an answer is charged in the cache: its pixels, its gain map's pixels, and a fixed amount for the rest.
     private static int entryBytes(Bundle answer) {
         final Bitmap b = answer.getParcelable(EXTRA_BITMAP, Bitmap.class);
-        return ENTRY_BYTES + (b == null ? 0 : b.getAllocationByteCount());
+        if (b == null) {
+            return ENTRY_BYTES;
+        }
+        long bytes = ENTRY_BYTES + (long) b.getAllocationByteCount();
+        final Gainmap gainmap = b.hasGainmap() ? b.getGainmap() : null;
+        if (gainmap != null && gainmap.getGainmapContents() != null) {
+            bytes += gainmap.getGainmapContents().getAllocationByteCount();
+        }
+        return (int) Math.min(Integer.MAX_VALUE, bytes);
+    }
+
+    /** Tests: what an answer is charged in the gate's cache of answers. */
+    public static int cacheChargeForTest(Bundle answer) {
+        return entryBytes(answer);
     }
 
     // An answer arrived: kept (pixels, sizes, and the VM's refusals, never a passing failure, never one above half the
     // cache, which would push out everything else and then itself), then given out.
     private static void finish(Call call, Bundle answer) {
-        final Bundle a = answer != null ? answer : error("no answer");
+        Bundle a = answer != null ? answer : error("no answer");
+        final Bitmap bitmap = a.getParcelable(EXTRA_BITMAP, Bitmap.class);
+        if (bitmap != null) {
+            try {
+                DecodeMemory.keep(bitmap);
+            } catch (DecodeMemory.NoRoomException | OutOfMemoryError e) {
+                DecodeMemory.recycle(bitmap, null);
+                a = error("no room to retain the reply pixels");
+            }
+        }
         if ((a.getString(EXTRA_ERROR) == null || a.getBoolean(EXTRA_REFUSED)) && entryBytes(a) <= CACHE_BYTES / 2) {
             sAnswers.put(call.key, a);
         }
@@ -1069,27 +1343,41 @@ public final class DecodeGate {
                 sCalls.remove(call.key);
             }
         }
-        call.answer(a);
+        final java.util.List<GateRefill> refills = call.answer(a);
+        if (refills != null) {
+            for (GateRefill refill : refills) {
+                refill.answered(call.key, a);
+            }
+        }
     }
 
     // A failure of the moment (the VM not asked yet, not answered in time, unavailable): the same image can be had later.
-    private static Failure notNow(String why) {
-        sNotNow.set(Boolean.TRUE);
-        return failed(false, why);
+    static Failure notNow(String why) {
+        return failure(false, true, why);
     }
 
-    /**
-     * True when a decode on this thread failed since the last call because the VM could not answer then (before boot,
-     * out of time, unavailable), not because it refused the bytes: the same image can be had later, so a caller that
-     * showed something else meanwhile (the default wallpaper) can load it again. Clears the mark.
-     */
-    public static boolean takeNotNow() {
-        final boolean notNow = sNotNow.get();
-        sNotNow.set(Boolean.FALSE);
-        return notNow;
+    static Failure noRoom(DecodeMemory.NoRoomException e) {
+        final Failure failure = e.later ? notNow(e.getMessage()) : failed(true, e.getMessage());
+        failure.memory = e.later ? e.bytes : 0;
+        final GateRefill refill = GateRefill.current();
+        if (refill != null && e.later) refill.needs(e.bytes);
+        return failure;
+    }
+
+    // The image is not had this way (asking again the same way gives nothing), though the bytes were not refused.
+    static Failure notThisWay(String why) {
+        return failure(false, false, why);
     }
 
     static Failure failed(boolean refused, String why) {
+        return failure(refused, !refused, why);
+    }
+
+    private static Failure failure(boolean refused, boolean again, String why) {
+        final GateRefill refill = GateRefill.current();
+        if (refill != null) {
+            refill.failed(again);
+        }
         sFailures.incrementAndGet();
         final long minute = SystemClock.uptimeMillis() / 60_000;
         synchronized (sLogLock) {
@@ -1101,7 +1389,7 @@ public final class DecodeGate {
                 Log.w(TAG, "image not decoded in the protected VM, none shown: " + why);
             }
         }
-        return new Failure(refused, why);
+        return new Failure(refused, again, why);
     }
 
     private static Context context() {

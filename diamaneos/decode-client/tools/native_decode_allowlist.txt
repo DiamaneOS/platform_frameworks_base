@@ -1,139 +1,332 @@
-# Allowlist of native-decode call sites for native_decode_scan.py (one line per file):
-#   <calls> <path> | <why they are fine>
+# Allowlist of native-decode call sites for native_decode_scan.py, one entry per file:
+#   <path> | <why its calls are fine>
+#       <each call site: its source line, spaces collapsed, listed once per occurrence>
 # "left open" lines are broadcast radio station images (design note): every other image an app hands over at run time
 # goes through the VM or an image gate. Launcher and manifest icons the package manager loads come from clean copies
 # made in the VM (the clean icon cache): in SystemUI and the system server every app image file goes through the
 # process gate (CleanCopyGate), which never decodes one. Lines without an image ("no image") are package contexts
-# and resources used for strings, ids or settings, which the scan lists because they could load an image. A rebase that adds a call fails the scan until the
-# call is converted or its line is justified here.
-1 libs/WindowManager/Shell/src/com/android/wm/shell/bubbles/Bubble.java | reads a dimension the app names for its bubble, no image
-1 libs/WindowManager/Shell/src/com/android/wm/shell/bubbles/BubbleController.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
-1 libs/WindowManager/Shell/src/com/android/wm/shell/bubbles/BubbleViewInfoTask.java | the bubble icon after Bubble.withoutAppImage (VM pixels, framework icons or the app icon)
-2 libs/WindowManager/Shell/src/com/android/wm/shell/bubbles/appinfo/PackageManagerBubbleAppInfoProvider.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
-1 libs/WindowManager/Shell/src/com/android/wm/shell/bubbles/bar/BubbleBarMenuView.java | the bubble icon after Bubble.withoutAppImage (VM pixels, framework icons or the app icon)
-1 libs/WindowManager/Shell/src/com/android/wm/shell/pip/phone/PipMenuView.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image (the action icons go through PipActionIcons)
-3 libs/WindowManager/Shell/src/com/android/wm/shell/pip/tv/TvPipNotificationController.java | TV only, launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
-1 libs/WindowManager/Shell/src/com/android/wm/shell/pip2/phone/PipMenuView.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image (the action icons go through PipActionIcons)
-2 libs/WindowManager/Shell/src/com/android/wm/shell/startingsurface/SplashscreenContentDrawer.java | the app's package context behind the splash gate (image files only from clean copies made in the VM, SplashImages), and the upstream high-density icon loader, no longer called (the splash's app icon comes through SplashImages.appIcon)
-1 libs/WindowManager/Shell/src/com/android/wm/shell/startingsurface/SplashscreenWindowCreator.java | the app's package context behind the splash gate (image files only from clean copies made in the VM, SplashImages)
-1 packages/SystemUI/src/com/android/keyguard/KeyguardSliceView.java | slices of SystemUI's own KeyguardSliceProvider
-1 packages/SystemUI/src/com/android/systemui/DessertCaseView.java | SystemUI's own resources or files, nothing an app hands over
-1 packages/SystemUI/src/com/android/systemui/accessibility/hearingaid/HearingDevicesToolItemParser.java | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
-2 packages/SystemUI/src/com/android/systemui/ambientcue/data/repository/AmbientCueRepository.kt | images of a system-only source (privileged system service or SystemUI itself), not an app (ambient cue service)
-1 packages/SystemUI/src/com/android/systemui/biometrics/ui/BiometricPromptLogoProvider.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
-1 packages/SystemUI/src/com/android/systemui/brightness/ui/viewmodel/BrightnessSliderViewModel.kt | SystemUI's own resources or files, nothing an app hands over
-1 packages/SystemUI/src/com/android/systemui/clipboardoverlay/ClipboardModel.kt | our code: loadThumbnail decodes in the VM through ClipboardImageLoader
-3 packages/SystemUI/src/com/android/systemui/clipboardoverlay/ClipboardOverlayView.java | two of SystemUI's own icons, and the text classifier's action icons (system service, app launcher icons)
-1 packages/SystemUI/src/com/android/systemui/controls/management/AppAdapter.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
-1 packages/SystemUI/src/com/android/systemui/controls/ui/ControlsUiControllerImpl.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
-1 packages/SystemUI/src/com/android/systemui/dreams/ui/viewmodel/DreamSwitcherDialogViewModel.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate), dream service icons
-1 packages/SystemUI/src/com/android/systemui/flashlight/ui/viewmodel/FlashlightSliderViewModel.kt | SystemUI's own resources or files, nothing an app hands over
-1 packages/SystemUI/src/com/android/systemui/globalactions/GlobalActionsDialogLite.java | the user's own picture file, written by the system
-1 packages/SystemUI/src/com/android/systemui/keyboard/shortcut/ui/viewmodel/ShortcutHelperViewModel.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
-1 packages/SystemUI/src/com/android/systemui/keyguard/WorkLockActivity.java | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
-1 packages/SystemUI/src/com/android/systemui/keyguard/smartspace/LockscreenSmartspaceGeneralView.java | images of a system-only source (privileged system service or SystemUI itself), not an app (smartspace service)
-1 packages/SystemUI/src/com/android/systemui/media/RingtonePlayer.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
-1 packages/SystemUI/src/com/android/systemui/media/controls/domain/pipeline/LegacyMediaDataManagerImpl.kt | SystemUI's own resources or files, nothing an app hands over
-2 packages/SystemUI/src/com/android/systemui/media/controls/domain/pipeline/Media3ActionFactory.kt | through ImageLoaderImpl, which decodes app images in the VM (LoaderImages)
-1 packages/SystemUI/src/com/android/systemui/media/controls/domain/pipeline/MediaDataLoader.kt | SystemUI's own resources or files, nothing an app hands over
-1 packages/SystemUI/src/com/android/systemui/media/controls/domain/pipeline/MediaDataProcessor.kt | SystemUI's own resources or files, nothing an app hands over
-2 packages/SystemUI/src/com/android/systemui/media/controls/shared/MediaProcessingHelper.kt | its images were converted before (VM pixels or gated resources), see the media pipeline and MediaIconSafety
-4 packages/SystemUI/src/com/android/systemui/media/controls/ui/controller/MediaControlPanel.java | one launcher icon (from clean copies made in the VM: the process gate), the others: its images were converted before (VM pixels or gated resources), see the media pipeline and MediaIconSafety
-1 packages/SystemUI/src/com/android/systemui/media/dialog/MediaOutputDialogDelegate.kt | the header icon converted before (MediaSwitchingController, AppIcons)
-4 packages/SystemUI/src/com/android/systemui/media/dialog/MediaSwitchingController.kt | two launcher icons (from clean copies made in the VM: the process gate), two icons converted before (VmIcons and AppIcons)
-4 packages/SystemUI/src/com/android/systemui/media/remedia/data/repository/MediaRepository.kt | one launcher icon (from clean copies made in the VM: the process gate), the others: its images were converted before (VM pixels or gated resources), see the media pipeline and MediaIconSafety
-1 packages/SystemUI/src/com/android/systemui/media/taptotransfer/common/MediaTttUtils.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
-1 packages/SystemUI/src/com/android/systemui/mediaprojection/appselector/data/BadgedAppIconLoader.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
-1 packages/SystemUI/src/com/android/systemui/mediaprojection/appselector/data/BasicAppIconLoader.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
-2 packages/SystemUI/src/com/android/systemui/mediaprojection/appselector/data/RecentTaskThumbnailLoader.kt | task snapshots the system made (no app image file)
-2 packages/SystemUI/src/com/android/systemui/mediaprojection/appselector/view/RecentTaskViewHolder.kt | launcher icons (from clean copies made in the VM: the process gate) and task snapshots the system made
-1 packages/SystemUI/src/com/android/systemui/navigationbar/NavigationModeController.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
-1 packages/SystemUI/src/com/android/systemui/navigationbar/gestural/EdgeBackGestureHandler.java | resources of the navigation bar overlay (system), a dimension, no image
-1 packages/SystemUI/src/com/android/systemui/navigationbar/views/buttons/KeyButtonView.java | SystemUI's own resources or files, nothing an app hands over (navigation bar buttons)
-1 packages/SystemUI/src/com/android/systemui/people/PeopleTileViewHelper.java | an icon put in the people widget's views, drawn by the widget host (the launcher, or the hub through its gated host view)
-1 packages/SystemUI/src/com/android/systemui/personalcontext/attribution/AttributionDialogComposable.kt | images of a system-only source (privileged system service or SystemUI itself), not an app (personal context attribution)
-3 packages/SystemUI/src/com/android/systemui/privacy/PrivacyDialogDelegateV2.kt | permission group icons of the permission controller (system module)
-1 packages/SystemUI/src/com/android/systemui/qs/FgsManagerController.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
-1 packages/SystemUI/src/com/android/systemui/qs/panels/data/repository/AppIconRepository.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
-2 packages/SystemUI/src/com/android/systemui/qs/panels/data/repository/IconAndNameCustomRepository.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate), tile service icons
-1 packages/SystemUI/src/com/android/systemui/qs/panels/domain/interactor/TextFeedbackInteractor.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
-1 packages/SystemUI/src/com/android/systemui/screencapture/common/data/repository/ScreenCaptureIconRepository.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
-2 packages/SystemUI/src/com/android/systemui/screencapture/common/data/repository/ScreenCaptureThumbnailRepository.kt | task snapshots the system made (no app image file)
-1 packages/SystemUI/src/com/android/systemui/screencapture/common/domain/interactor/ScreenCaptureIconInteractor.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
-3 packages/SystemUI/src/com/android/systemui/screencapture/common/domain/interactor/ScreenCaptureThumbnailInteractor.kt | task and display snapshots the system made (no app image file)
-1 packages/SystemUI/src/com/android/systemui/screencapture/common/ui/compose/LoadDrawable.kt | SystemUI's own resources or files, nothing an app hands over
-1 packages/SystemUI/src/com/android/systemui/screencapture/common/ui/compose/LoadIcon.kt | SystemUI's own resources or files, nothing an app hands over
-1 packages/SystemUI/src/com/android/systemui/screencapture/common/ui/viewmodel/AppContentViewModel.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate), only when the app gave no content icon
-1 packages/SystemUI/src/com/android/systemui/screencapture/common/ui/viewmodel/DisplayViewModel.kt | display snapshots the system made (no app image file)
-2 packages/SystemUI/src/com/android/systemui/screencapture/common/ui/viewmodel/RecentTaskViewModel.kt | launcher icons (from clean copies made in the VM: the process gate) and task snapshots the system made
-1 packages/SystemUI/src/com/android/systemui/screenshot/WorkProfileMessageController.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
-1 packages/SystemUI/src/com/android/systemui/screenshot/appclips/InternalBacklinksData.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
-1 packages/SystemUI/src/com/android/systemui/screenshot/message/PackageLabelIconProvider.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
-2 packages/SystemUI/src/com/android/systemui/screenshot/scroll/ImageLoader.java | SystemUI's own resources or files, nothing an app hands over (scroll capture tiles)
-1 packages/SystemUI/src/com/android/systemui/statusbar/StatusBarIconView.java | icons from AppIcons.forView (gated copies or VM pixels) or system icons
-1 packages/SystemUI/src/com/android/systemui/statusbar/notification/row/ExpandableNotificationRowDragController.java | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
-1 packages/SystemUI/src/com/android/systemui/statusbar/notification/row/PartialConversationInfo.java | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
-1 packages/SystemUI/src/com/android/systemui/statusbar/notification/row/RowImageInflater.kt | our code: a log text only (the load is VmIcons.loadDrawableNoWait)
-3 packages/SystemUI/src/com/android/systemui/statusbar/notification/row/SingleLineViewInflater.kt | our code: VmIcons.loadDrawable decodes in the VM
-1 packages/SystemUI/src/com/android/systemui/statusbar/notification/row/icon/AppIconHelper.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
-1 packages/SystemUI/src/com/android/systemui/statusbar/policy/RemoteInputView.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image (the attachment preview goes through RemoteInputImages)
-2 packages/SystemUI/src/com/android/systemui/statusbar/policy/SecurityControllerImpl.java | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate), and a context of its own package for another user
-2 packages/SystemUI/src/com/android/systemui/statusbar/policy/SmartReplyStateInflater.kt | our code: only icons that need no VM load here, the others go to VmIcons.decode (and a log text)
-1 packages/SystemUI/src/com/android/systemui/statusbar/policy/UserInfoControllerImpl.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
-1 packages/SystemUI/src/com/android/systemui/statusbar/quickactions/media/ui/viewmodel/MediaControlChipViewModel.kt | its images were converted before (VM pixels or gated resources), see the media pipeline and MediaIconSafety
-1 packages/SystemUI/src/com/android/systemui/statusbar/systemstatusicons/ui/compose/SystemStatusIcons.kt | icons set through StatusBarManager.setIcon (a system permission)
-1 packages/SystemUI/src/com/android/systemui/toast/SystemUIToast.java | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
-1 packages/SystemUI/src/com/android/systemui/tuner/ShortcutParser.java | reads an app's static shortcuts XML (labels, intents), its icons go through the gate (tuner)
-4 packages/SystemUI/src/com/android/systemui/volume/domain/interactor/AudioOutputInteractor.kt | SystemUI's own resources or files, nothing an app hands over (device icons)
-1 services/autofill/java/com/android/server/autofill/FieldClassificationStrategy.java | reads the package's metadata, labels or resource ids, no image is drawn
-1 services/companion/java/com/android/server/companion/CompanionDeviceShellCommand.java | cmd companion, adb only (design note)
-1 services/companion/java/com/android/server/companion/datatransfer/crossdevicesync/notification/NotificationConfig.java | a resource package of the system, strings for its notices
-1 services/core/java/com/android/server/StorageManagerService.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
-1 services/core/java/com/android/server/accounts/AccountManagerService.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
-1 services/core/java/com/android/server/am/AppProfiler.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
-1 services/core/java/com/android/server/am/ServiceRecord.java | the app's context to build its foreground service notice: references to its resources, nothing drawn here
-1 services/core/java/com/android/server/am/UserSwitchingDialog.java | the user's own picture, a file the system wrote
-1 services/core/java/com/android/server/app/GameManagerService.java | reads the package's metadata, labels or resource ids, no image is drawn
-1 services/core/java/com/android/server/app/GameServiceProviderSelectorImpl.java | reads the package's metadata, labels or resource ids, no image is drawn
-1 services/core/java/com/android/server/appinteraction/AppInteractionServiceImpl.java | checks that a package is installed, no resources are read
-1 services/core/java/com/android/server/biometrics/sensors/fingerprint/FingerprintService.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
-1 services/core/java/com/android/server/broadcastradio/aidl/RadioModule.java | left open: station images from a broadcast radio HAL, decoded in the system server, only with such a HAL (design note)
-1 services/core/java/com/android/server/broadcastradio/hal1/Tuner.java | left open: station images from a broadcast radio HAL, decoded in the system server, only with such a HAL (design note)
-1 services/core/java/com/android/server/broadcastradio/hal2/RadioModule.java | left open: station images from a broadcast radio HAL, decoded in the system server, only with such a HAL (design note)
-1 services/core/java/com/android/server/content/SyncManager.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
-1 services/core/java/com/android/server/gpu/GpuService.java | the GPU driver package (system), its metadata, no image
-2 services/core/java/com/android/server/input/KeyboardGlyphManager.java | reads the package's metadata, labels or resource ids, no image is drawn
-1 services/core/java/com/android/server/input/KeyboardLayoutManager.java | reads the package's metadata, labels or resource ids, no image is drawn
-2 services/core/java/com/android/server/inputmethod/InputMethodDrawsNavBarResourceMonitor.java | the framework's own resources (a setting), and a log text
-1 services/core/java/com/android/server/locales/LocaleManagerBackupHelper.java | reads the package's metadata, labels or resource ids, no image is drawn
-1 services/core/java/com/android/server/locales/LocaleManagerService.java | reads the package's metadata, labels or resource ids, no image is drawn
-1 services/core/java/com/android/server/locales/LocaleManagerShellCommand.java | reads the package's metadata, labels or resource ids, no image is drawn (adb only)
-2 services/core/java/com/android/server/notification/GroupHelper.java | the app's launcher icon, for the monochrome summary icon (from clean copies made in the VM: the process gate)
-1 services/core/java/com/android/server/notification/EventConditionProvider.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
-1 services/core/java/com/android/server/notification/ValidateNotificationPeople.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image (contact lookups)
-2 services/core/java/com/android/server/notification/ZenModeHelper.java | resource names and ids of mode icons, no image (SystemUI loads them through ZenModeAppIcons)
-1 services/core/java/com/android/server/om/OverlayManagerShellCommand.java | reads the package's metadata, labels or resource ids, no image is drawn (adb only)
-2 services/core/java/com/android/server/pm/InstantAppRegistry.java | icon files the system wrote for instant apps, and their launcher icons (from clean copies made in the VM: the process gate)
-1 services/core/java/com/android/server/pm/ModuleInfoProvider.java | reads the package's metadata, labels or resource ids, no image is drawn
-3 services/core/java/com/android/server/pm/PackageArchiver.java | icons the system stored at archiving from launcher icons (from clean copies made in the VM: the process gate), and an installer label
-1 services/core/java/com/android/server/pm/PackageInstallerService.java | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate), the installer's notice
-1 services/core/java/com/android/server/pm/PackageInstallerSession.java | the session icon file the system wrote from pixels the installer handed over
-1 services/core/java/com/android/server/pm/PackageManagerShellCommand.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image (adb only)
-1 services/core/java/com/android/server/pm/ShortcutService.java | resource names and ids of shortcut icons, no image
-1 services/core/java/com/android/server/policy/LegacyGlobalActions.java | the user's own picture, a file the system wrote
-1 services/core/java/com/android/server/policy/PermissionPolicyService.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
-1 services/core/java/com/android/server/rollback/Rollback.java | the caller's package context for a permission check, no image
-1 services/core/java/com/android/server/rollback/RollbackManagerServiceImpl.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
-1 services/core/java/com/android/server/textclassifier/IconsContentProvider.java | text classifier action icons, app launcher icons through Icon (from clean copies made in the VM: the process gate)
-2 services/core/java/com/android/server/trust/TrustManagerService.java | reads the package's metadata, labels or resource ids, no image is drawn
-1 services/core/java/com/android/server/tv/TvInputManagerService.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image (TV only)
-1 services/core/java/com/android/server/tv/TvInputManagerShellCommand.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image (TV only, adb)
-6 services/core/java/com/android/server/wallpaper/WallpaperCropper.java | only a clean copy made in the VM is decoded (WallpaperVmSanitizer.isClean guards)
-1 services/core/java/com/android/server/wallpaper/WallpaperDataParser.java | copies a wallpaper resource's bytes into the wallpaper file, which the VM cleans before anything decodes it
-1 services/core/java/com/android/server/wallpaper/WallpaperManagerService.java | the system's default wallpaper (system image), cropped for an app
-3 services/core/java/com/android/server/wm/ActivityRecord.java | the app's context for flags, a splash theme id and resource configurations, no image
-1 services/core/java/com/android/server/wm/ActivityTaskManagerService.java | the app's context for its label in the heavy-weight notice, no image
-1 services/core/java/com/android/server/wm/AppCompatRecreateOnConfigChangePolicy.java | the app's context for configuration flags, no image
-1 services/core/java/com/android/server/wm/AppSnapshotLoader.java | task snapshot files the system wrote
-2 services/core/java/com/android/server/wm/LaunchWarningWindow.java | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
-1 services/core/java/com/android/server/wm/TaskPersister.java | task description files the system wrote
+# and resources used for strings, ids or settings, which the scan lists because they could load an image. A rebase
+# that adds or changes a call fails the scan until the call is converted or its entry is justified here.
+libs/WindowManager/Shell/src/com/android/wm/shell/bubbles/Bubble.java | reads a dimension the app names for its bubble, no image
+    .getPackageManager().getResourcesForApplication(pkg);
+libs/WindowManager/Shell/src/com/android/wm/shell/bubbles/BubbleController.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
+    context.createPackageContextAsUser(context.getPackageName(),
+libs/WindowManager/Shell/src/com/android/wm/shell/bubbles/BubbleViewInfoTask.java | the bubble icon through the decode gate (data and URI icons in the VM, app resources from clean copies)
+    bubbleDrawable = b.getIcon().loadDrawable(c);
+libs/WindowManager/Shell/src/com/android/wm/shell/bubbles/appinfo/PackageManagerBubbleAppInfoProvider.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+    val appIcon = appInfo.loadUnbadgedIcon(pm)
+    val activityInfoIcon = icon?.loadDrawable(context)
+libs/WindowManager/Shell/src/com/android/wm/shell/bubbles/bar/BubbleBarMenuView.java | the bubble icon through the decode gate (data and URI icons in the VM, app resources from clean copies)
+    mBubbleIconView.setImageIcon(bubble.getIcon());
+libs/WindowManager/Shell/src/com/android/wm/shell/common/TvWindowMenuActionButton.java | TV only, a PiP menu action icon: URI icons are refused before the load, data icons go through the decode gate (VmIconLoads, in the VM), app resources come from clean copies made in the VM (CleanCopyGate)
+    icon.loadDrawableAsync(mContext, d -> {
+libs/WindowManager/Shell/src/com/android/wm/shell/pip/phone/PipMenuView.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image (the action icons go through PipActionIcons)
+    mContextForUser = mContext.createPackageContextAsUser(mContext.getPackageName(),
+libs/WindowManager/Shell/src/com/android/wm/shell/pip/tv/TvPipNotificationController.java | TV only, launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+    mActivityIcon = getActivityIcon();
+    private Bitmap getActivityIcon() {
+    drawable = mPackageManager.getActivityIcon(componentName);
+libs/WindowManager/Shell/src/com/android/wm/shell/pip2/phone/PipMenuView.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image (the action icons go through PipActionIcons)
+    mContextForUser = mContext.createPackageContextAsUser(mContext.getPackageName(),
+libs/WindowManager/Shell/src/com/android/wm/shell/startingsurface/SplashscreenContentDrawer.java | the app's package context behind the splash gate (image files only from clean copies made in the VM, SplashImages), and the upstream high-density icon loader, no longer called (the splash's app icon comes through SplashImages.appIcon)
+    context = context.createPackageContextAsUser(activityInfo.packageName,
+    .getResourcesForApplication(activityInfo.applicationInfo);
+libs/WindowManager/Shell/src/com/android/wm/shell/startingsurface/SplashscreenWindowCreator.java | the app's package context behind the splash gate (image files only from clean copies made in the VM, SplashImages)
+    windowContext = SplashImages.gate(mContext, mContext.createPackageContextAsUser(
+packages/SystemUI/src/com/android/keyguard/KeyguardSliceView.java | slices of SystemUI's own KeyguardSliceProvider
+    iconDrawable = icon.getIcon().loadDrawable(mContext);
+packages/SystemUI/src/com/android/systemui/DessertCaseView.java | SystemUI's own resources or files, nothing an app hands over
+    loaded = BitmapFactory.decodeResource(res, resid, opts);
+packages/SystemUI/src/com/android/systemui/accessibility/hearingaid/HearingDevicesToolItemParser.java | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+    : activityInfoList.get(i).loadIcon(packageManager),
+packages/SystemUI/src/com/android/systemui/ambientcue/data/repository/AmbientCueRepository.kt | images of a system-only source (privileged system service or SystemUI itself), not an app (ambient cue service)
+    (chip.icon?.loadDrawable(applicationContext)
+    (chip.icon?.loadDrawable(applicationContext)
+packages/SystemUI/src/com/android/systemui/biometrics/ui/BiometricPromptLogoProvider.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+    icon = icon ?: packageManager.getApplicationIcon(appInfo)
+packages/SystemUI/src/com/android/systemui/brightness/ui/viewmodel/BrightnessSliderViewModel.kt | SystemUI's own resources or files, nothing an app hands over
+    .loadDrawable(
+packages/SystemUI/src/com/android/systemui/clipboardoverlay/ClipboardModel.kt | DiamaneOS code: loadThumbnail decodes in the VM through ClipboardImageLoader
+    fun loadThumbnail(context: Context): Bitmap? {
+packages/SystemUI/src/com/android/systemui/clipboardoverlay/ClipboardOverlayView.java | two of SystemUI's own icons, and the text classifier's action icons (system service, app launcher icons)
+    R.drawable.ic_baseline_devices_24).loadDrawable(
+    R.drawable.ic_screenshot_share).loadDrawable(mContext),
+    new ActionButtonAppearance(action.getIcon().loadDrawable(mContext),
+packages/SystemUI/src/com/android/systemui/clipboardoverlay/ClipboardVmThumbnail.kt | DiamaneOS code: VmDecode.loadThumbnail decodes the clipboard image in the VM
+    VmDecode.loadThumbnail(context, resolver, uri, owner, ownerUser, priority, maxWidth, maxHeight, deadline)
+packages/SystemUI/src/com/android/systemui/controls/management/AppAdapter.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+    icon.setImageDrawable(data.loadIcon())
+packages/SystemUI/src/com/android/systemui/controls/ui/ControlsUiControllerImpl.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+    it.loadIcon(),
+packages/SystemUI/src/com/android/systemui/dreams/ui/viewmodel/DreamSwitcherDialogViewModel.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate), dream service icons
+    it.toUiState { icon -> icon.loadDrawableAsUser(context, userTracker.userId) }
+packages/SystemUI/src/com/android/systemui/flashlight/ui/viewmodel/FlashlightSliderViewModel.kt | SystemUI's own resources or files, nothing an app hands over
+    .loadDrawable(
+packages/SystemUI/src/com/android/systemui/globalactions/GlobalActionsDialogLite.java | the user's own picture file, written by the system
+    Drawable icon = user.iconPath != null ? Drawable.createFromPath(user.iconPath)
+packages/SystemUI/src/com/android/systemui/keyboard/shortcut/ui/viewmodel/ShortcutHelperViewModel.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+    userContext.packageManager.getApplicationIcon(type.packageName)
+packages/SystemUI/src/com/android/systemui/keyguard/WorkLockActivity.java | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+    return mUserManager.getBadgedIconForUser(mPackageManager.getApplicationIcon(
+packages/SystemUI/src/com/android/systemui/keyguard/smartspace/LockscreenSmartspaceGeneralView.java | images of a system-only source (privileged system service or SystemUI itself), not an app (smartspace service)
+    iconDrawable = icon.getIcon().loadDrawable(mContext);
+packages/SystemUI/src/com/android/systemui/media/RingtonePlayer.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
+    return mContext.createPackageContextAsUser(mContext.getPackageName(), 0, user);
+packages/SystemUI/src/com/android/systemui/media/controls/domain/pipeline/LegacyMediaDataManagerImpl.kt | SystemUI's own resources or files, nothing an app hands over
+    Icon.createWithResource(context, iconId).setTint(themeText).loadDrawable(context),
+packages/SystemUI/src/com/android/systemui/media/controls/domain/pipeline/Media3ActionFactory.kt | through ImageLoaderImpl, which decodes app images in the VM (LoaderImages)
+    return imageLoader.loadDrawable(source, size, size)
+    return runBlocking { imageLoader.loadDrawable(source, size, size) }
+packages/SystemUI/src/com/android/systemui/media/controls/domain/pipeline/MediaDataLoader.kt | SystemUI's own resources or files, nothing an app hands over
+    Icon.createWithResource(context, iconId).setTint(themeText).loadDrawable(context),
+packages/SystemUI/src/com/android/systemui/media/controls/domain/pipeline/MediaDataProcessor.kt | SystemUI's own resources or files, nothing an app hands over
+    Icon.createWithResource(context, iconId).setTint(themeText).loadDrawable(context),
+packages/SystemUI/src/com/android/systemui/media/controls/shared/MediaProcessingHelper.kt | its images were converted before (VM pixels or gated resources), see the media pipeline and MediaIconSafety
+    val newDrawable = new.loadDrawable(context)
+    val oldDrawable = old.loadDrawable(context)
+packages/SystemUI/src/com/android/systemui/media/controls/ui/controller/MediaControlPanel.java | one launcher icon (from clean copies made in the VM: the process gate), the others: its images were converted before (VM pixels or gated resources), see the media pipeline and MediaIconSafety
+    appIconView.setImageIcon(data.getAppIcon());
+    return mContext.getPackageManager().getApplicationIcon(appInfo);
+    Drawable artworkDrawable = artworkIcon.loadDrawable(mContext);
+    Drawable drawable = icon.loadDrawable(mContext);
+packages/SystemUI/src/com/android/systemui/media/dialog/MediaOutputDialogDelegate.kt | the header icon converted before (MediaSwitchingController, AppIcons)
+    mHeaderIcon.setImageIcon(icon)
+packages/SystemUI/src/com/android/systemui/media/dialog/MediaSwitchingController.kt | one launcher icon for the dialog user (from clean copies made in the VM: the process gate), two icons converted before (VmIcons and AppIcons)
+    return dialogPackageManager().getApplicationIcon(packageName) // DiamaneOS
+    ?.loadDrawable(mContext)
+    val drawable = shown.loadDrawable(mContext) ?: return null
+packages/SystemUI/src/com/android/systemui/media/remedia/data/repository/MediaRepository.kt | one launcher icon (from clean copies made in the VM: the process gate), the others: its images were converted before (VM pixels or gated resources), see the media pipeline and MediaIconSafety
+    appIcon?.loadDrawable(applicationContext)?.let { drawable ->
+    artwork?.loadDrawable(applicationContext)?.let { drawable ->
+    val icon = applicationContext.packageManager.getApplicationIcon(appInfo)
+    it.loadDrawable(applicationContext)?.let { artworkDrawable ->
+packages/SystemUI/src/com/android/systemui/media/taptotransfer/common/MediaTttUtils.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+    MediaTttIcon.Loaded(packageManager.getApplicationIcon(appPackageName)),
+packages/SystemUI/src/com/android/systemui/mediaprojection/appselector/data/BadgedAppIconLoader.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+    basicAppIconLoader.loadIcon(userId, componentName) ?: return@withContext null
+packages/SystemUI/src/com/android/systemui/mediaprojection/appselector/data/BasicAppIconLoader.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+    packageManagerWrapper.getActivityInfo(component, userId)?.loadIcon(packageManager)
+packages/SystemUI/src/com/android/systemui/mediaprojection/appselector/data/RecentTaskThumbnailLoader.kt | task snapshots the system made (no app image file)
+    suspend fun loadThumbnail(taskId: Int): ThumbnailData?
+    override suspend fun loadThumbnail(taskId: Int): ThumbnailData? =
+packages/SystemUI/src/com/android/systemui/mediaprojection/appselector/view/RecentTaskViewHolder.kt | launcher icons (from clean copies made in the VM: the process gate) and task snapshots the system made
+    val icon = iconLoader.loadIcon(task.userId, task.userType, component)
+    val thumbnail = thumbnailLoader.loadThumbnail(task.taskId)
+packages/SystemUI/src/com/android/systemui/navigationbar/NavigationModeController.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
+    return mContext.createPackageContextAsUser(mContext.getPackageName(),
+packages/SystemUI/src/com/android/systemui/navigationbar/gestural/EdgeBackGestureHandler.java | resources of the navigation bar overlay (system), a dimension, no image
+    Resources resources = manager.getResourcesForApplication(
+packages/SystemUI/src/com/android/systemui/navigationbar/views/buttons/KeyButtonView.java | SystemUI's own resources or files, nothing an app hands over (navigation bar buttons)
+    return params[0].loadDrawable(mContext);
+packages/SystemUI/src/com/android/systemui/people/PeopleTileViewHelper.java | an icon put in the people widget's views, drawn by the widget host (the launcher, or the hub through its gated host view)
+    views.setImageViewIcon(R.id.status_icon, statusIcon);
+packages/SystemUI/src/com/android/systemui/personalcontext/attribution/AttributionDialogComposable.kt | images of a system-only source (privileged system service or SystemUI itself), not an app (personal context attribution)
+    val attributionSourceIcon = attributionLine.icon?.loadDrawable(ctx)
+packages/SystemUI/src/com/android/systemui/privacy/PrivacyDialogDelegateV2.kt | permission group icons of the permission controller (system module)
+    val icon = packageManager.loadDrawable(groupInfo.packageName, groupInfo.icon)
+    private fun PackageManager.loadDrawable(pkg: String, @DrawableRes resId: Int): Drawable? {
+    getResourcesForApplication(pkg).getDrawable(resId, null)?.mutate()
+packages/SystemUI/src/com/android/systemui/qs/FgsManagerController.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+    packageManager.getApplicationIcon(ai),
+packages/SystemUI/src/com/android/systemui/qs/panels/data/repository/AppIconRepository.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+    return applicationInfo.loadUnbadgedIcon(context.packageManager)?.let {
+packages/SystemUI/src/com/android/systemui/qs/panels/data/repository/IconAndNameCustomRepository.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate), tile service icons
+    val icon = it.loadIcon(packageManager)?.scaleDownIfBitmap()
+    appIconRepository.loadIcon(it.applicationInfo)?.scaleDownIfBitmap()
+packages/SystemUI/src/com/android/systemui/qs/panels/domain/interactor/TextFeedbackInteractor.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+    serviceInfo.loadIcon(packageManager)
+packages/SystemUI/src/com/android/systemui/qs/tiles/QuickAccessWalletTile.java | the wallet card image only when it is a bitmap Icon (pixels the wallet app already decoded, sent as a bitmap, never compressed bytes), every other type is dropped
+    mCardViewDrawable = mSelectedCard.getCardImage().loadDrawable(mContext);
+packages/SystemUI/src/com/android/systemui/screencapture/common/data/repository/ScreenCaptureIconRepository.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+    ?.loadIcon(packageManager)
+packages/SystemUI/src/com/android/systemui/screencapture/common/data/repository/ScreenCaptureThumbnailRepository.kt | task snapshots the system made (no app image file)
+    suspend fun loadThumbnail(taskId: Int): Result<Bitmap>
+    override suspend fun loadThumbnail(taskId: Int): Result<Bitmap> =
+packages/SystemUI/src/com/android/systemui/screencapture/common/domain/interactor/ScreenCaptureIconInteractor.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+    repository.loadIcon(task.component, task.userId)
+packages/SystemUI/src/com/android/systemui/screencapture/common/domain/interactor/ScreenCaptureThumbnailInteractor.kt | task and display snapshots the system made (no app image file)
+    suspend fun loadThumbnail(task: ScreenCaptureRecentTask): Result<Bitmap> =
+    repository.loadThumbnail(task.taskId)
+    suspend fun loadThumbnail(display: ScreenCaptureDisplay): Result<Bitmap> =
+packages/SystemUI/src/com/android/systemui/screencapture/common/ui/compose/LoadDrawable.kt | SystemUI's own resources or files, nothing an app hands over
+    value = viewModel.loadDrawable(context = context, resId = resId)
+packages/SystemUI/src/com/android/systemui/screencapture/common/ui/compose/LoadIcon.kt | SystemUI's own resources or files, nothing an app hands over
+    val drawable = viewModel.loadDrawable(context = context, resId = resId)
+packages/SystemUI/src/com/android/systemui/screencapture/common/ui/viewmodel/AppContentViewModel.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate), only when the app gave no content icon
+    context.packageManager.getApplicationIcon(model.packageName)
+packages/SystemUI/src/com/android/systemui/screencapture/common/ui/viewmodel/DisplayViewModel.kt | display snapshots the system made (no app image file)
+    thumbnail = thumbnailInteractor.loadThumbnail(model)
+packages/SystemUI/src/com/android/systemui/screencapture/common/ui/viewmodel/RecentTaskViewModel.kt | launcher icons (from clean copies made in the VM: the process gate) and task snapshots the system made
+    launchTraced { icon = iconInteractor.loadIcon(model) }
+    launchTraced { thumbnail = thumbnailInteractor.loadThumbnail(model) }
+packages/SystemUI/src/com/android/systemui/screenshot/WorkProfileMessageController.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+    val icon = packageManager.getActivityIcon(fileManager)
+packages/SystemUI/src/com/android/systemui/screenshot/appclips/InternalBacklinksData.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+    val topActivityAppIcon: Drawable by lazy { topActivityInfo.loadIcon(packageManager) }
+packages/SystemUI/src/com/android/systemui/screenshot/message/PackageLabelIconProvider.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+    val icon = packageManager.getActivityIcon(componentName)
+packages/SystemUI/src/com/android/systemui/screenshot/scroll/ImageLoader.java | SystemUI's own resources or files, nothing an app hands over (scroll capture tiles)
+    result.mBitmap = BitmapFactory.decodeStream(in);
+    result.mBitmap = BitmapFactory.decodeStream(in);
+packages/SystemUI/src/com/android/systemui/statusbar/StatusBarIconView.java | icons from AppIcons.forView (gated copies or VM pixels) or system icons
+    final Drawable iconDrawable = statusBarIcon.icon.loadDrawableAsUser(context, userId);
+packages/SystemUI/src/com/android/systemui/statusbar/notification/row/ExpandableNotificationRowDragController.java | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+    pkgicon = pm.getApplicationIcon(info);
+packages/SystemUI/src/com/android/systemui/statusbar/notification/row/PartialConversationInfo.java | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+    mPkgIcon = mPm.getApplicationIcon(info);
+packages/SystemUI/src/com/android/systemui/statusbar/notification/row/RowImageInflater.kt | DiamaneOS code: a log text only (the load is VmIcons.loadDrawableNoWait)
+    ?: return ImageResult.Empty("Icon.loadDrawable() returned null for $icon")
+packages/SystemUI/src/com/android/systemui/statusbar/notification/row/SingleLineViewInflater.kt | DiamaneOS code: VmIcons.loadDrawable decodes in the VM
+    avatarContext?.let { VmIcons.loadDrawable(conversationIcon, it, poster, VM_PERSON_MAX_PX) }
+    avatarContext?.let { VmIcons.loadDrawable(secondLastIcon, it, poster, VM_PERSON_MAX_PX) },
+    avatarContext?.let { VmIcons.loadDrawable(lastIcon, it, poster, VM_PERSON_MAX_PX) },
+packages/SystemUI/src/com/android/systemui/statusbar/notification/row/icon/AppIconHelper.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+    .loadUnbadgedIcon(pm)
+packages/SystemUI/src/com/android/systemui/statusbar/policy/RemoteInputView.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image (the attachment preview goes through RemoteInputImages)
+    userContext = mContext.createPackageContextAsUser(
+packages/SystemUI/src/com/android/systemui/statusbar/policy/SecurityControllerImpl.java | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate), and a context of its own package for another user
+    return (info == null) ? null : info.loadIcon(mPackageManager);
+    Context userContext = mContext.createPackageContextAsUser(mContext.getPackageName(),
+packages/SystemUI/src/com/android/systemui/statusbar/policy/SmartReplyStateInflater.kt | DiamaneOS code: only icons that need no VM load here, the others go to VmIcons.decode (and a log text)
+    return icon.loadDrawable(packageContext)
+    checkNotNull(bitmap) { "ImageDecoder.decodeBitmap() returned null" }
+packages/SystemUI/src/com/android/systemui/statusbar/policy/UserInfoControllerImpl.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
+    currentUserContext = mContext.createPackageContextAsUser("android", 0,
+packages/SystemUI/src/com/android/systemui/statusbar/quickactions/media/ui/viewmodel/MediaControlChipViewModel.kt | its images were converted before (VM pixels or gated resources), see the media pipeline and MediaIconSafety
+    appIcon?.loadDrawable(applicationContext)?.let {
+packages/SystemUI/src/com/android/systemui/statusbar/systemstatusicons/ui/compose/SystemStatusIcons.kt | icons set through StatusBarManager.setIcon (a system permission)
+    this.icon.loadDrawableAsUser(context, userId)
+packages/SystemUI/src/com/android/systemui/toast/SystemUIToast.java | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+    Resources res = mContext.getPackageManager().getResourcesForApplication(
+packages/SystemUI/src/com/android/systemui/tuner/ShortcutParser.java | reads an app's static shortcuts XML (labels, intents), its icons go through the gate (tuner)
+    mResources = mContext.getPackageManager().getResourcesForApplication(mPkg);
+packages/SystemUI/src/com/android/systemui/volume/domain/interactor/AudioOutputInteractor.kt | SystemUI's own resources or files, nothing an app hands over (device icons)
+    icon = deviceIconInteractor.loadIcon(device),
+    icon = deviceIconInteractor.loadIcon(type),
+    icon = deviceIconInteractor.loadIcon(type),
+    icon = deviceIconInteractor.loadIcon(this),
+packages/SystemUI/src/com/android/systemui/wallet/ui/WalletScreenController.java | wallet card image and card icon only when they are bitmap Icons (pixels the wallet app already decoded, sent as a bitmap, never compressed bytes), every other type is dropped
+    mCardDrawable = mWalletCard.getCardImage().loadDrawable(context);
+    mIconDrawable = icon.loadDrawable(context);
+services/autofill/java/com/android/server/autofill/FieldClassificationStrategy.java | reads the package's metadata, labels or resource ids, no image is drawn
+    res = pm.getResourcesForApplication(serviceInfo.applicationInfo);
+services/companion/java/com/android/server/companion/CompanionDeviceShellCommand.java | cmd companion, adb only (design note)
+    mService.getContext().getPackageManager().getApplicationIcon(
+services/companion/java/com/android/server/companion/datatransfer/crossdevicesync/notification/NotificationConfig.java | a resource package of the system, strings for its notices
+    return mContext.createPackageContext(
+services/core/java/com/android/server/StorageManagerService.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
+    Context userContext = mContext.createPackageContextAsUser("system", 0,
+services/core/java/com/android/server/accounts/AccountManagerService.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
+    return mContext.createPackageContextAsUser(mContext.getPackageName(), 0, user);
+services/core/java/com/android/server/am/AppProfiler.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
+    ctx = mService.mContext.createPackageContextAsUser("android", 0,
+services/core/java/com/android/server/am/ServiceRecord.java | the app's context to build its foreground service notice: references to its resources, nothing drawn here
+    ctx = ams.mContext.createPackageContextAsUser(
+services/core/java/com/android/server/am/UserSwitchingDialog.java | the user's own picture, a file the system wrote, through the decode gate as that user's image, filled in by its refill registration
+    decoded = mIconRefill.load(() -> BitmapFactory.decodeFile(iconPath));
+services/core/java/com/android/server/app/GameManagerService.java | reads the package's metadata, labels or resource ids, no image is drawn
+    final Resources resources = packageManager.getResourcesForApplication(
+services/core/java/com/android/server/app/GameServiceProviderSelectorImpl.java | reads the package's metadata, labels or resource ids, no image is drawn
+    Resources resources = mPackageManager.getResourcesForApplication(
+services/core/java/com/android/server/appinteraction/AppInteractionServiceImpl.java | checks that a package is installed, no resources are read
+    mContext.createPackageContextAsUser(packageName, /* flags= */ 0, user);
+services/core/java/com/android/server/biometrics/sensors/fingerprint/FingerprintService.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
+    final Context promptContext = context.createPackageContextAsUser(
+services/core/java/com/android/server/broadcastradio/aidl/RadioModule.java | left open: station images from a broadcast radio HAL, decoded in the system server, only with such a HAL (design note)
+    return BitmapFactory.decodeByteArray(rawImage, 0, rawImage.length);
+services/core/java/com/android/server/broadcastradio/hal1/Tuner.java | left open: station images from a broadcast radio HAL, decoded in the system server, only with such a HAL (design note)
+    return BitmapFactory.decodeByteArray(rawImage, 0, rawImage.length);
+services/core/java/com/android/server/broadcastradio/hal2/RadioModule.java | left open: station images from a broadcast radio HAL, decoded in the system server, only with such a HAL (design note)
+    return BitmapFactory.decodeByteArray(rawImage, 0, rawImage.length);
+services/core/java/com/android/server/content/SyncManager.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
+    return mContext.createPackageContextAsUser(mContext.getPackageName(), 0, user);
+services/core/java/com/android/server/gpu/GpuService.java | the GPU driver package (system), its metadata, no image
+    final Context driverContext = mContext.createPackageContext(mProdDriverPackageName,
+services/core/java/com/android/server/input/KeyboardGlyphManager.java | reads the package's metadata, labels or resource ids, no image is drawn
+    Resources resources = pm.getResourcesForApplication(receiver.applicationInfo);
+    Resources resources = pm.getResourcesForApplication(receiver.applicationInfo);
+services/core/java/com/android/server/input/KeyboardLayoutManager.java | reads the package's metadata, labels or resource ids, no image is drawn
+    Resources resources = pm.getResourcesForApplication(receiver.applicationInfo);
+services/core/java/com/android/server/inputmethod/InputMethodDrawsNavBarResourceMonitor.java | the framework's own resources (a setting), and a log text
+    .getResourcesForApplication(SYSTEM_PACKAGE_NAME)
+    Slog.e(TAG, "getResourcesForApplication(\"" + SYSTEM_PACKAGE_NAME + "\") failed",
+services/core/java/com/android/server/locales/LocaleManagerBackupHelper.java | reads the package's metadata, labels or resource ids, no image is drawn
+    mContext.createPackageContextAsUser(packageName, 0, UserHandle.of(userId)));
+services/core/java/com/android/server/locales/LocaleManagerService.java | reads the package's metadata, labels or resource ids, no image is drawn
+    mContext.createPackageContextAsUser(appPackageName, /* flags= */ 0,
+services/core/java/com/android/server/locales/LocaleManagerShellCommand.java | reads the package's metadata, labels or resource ids, no image is drawn (adb only)
+    mContext.createPackageContextAsUser(packageName, /* flags= */ 0,
+services/core/java/com/android/server/notification/EventConditionProvider.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
+    return context.createPackageContextAsUser(context.getPackageName(), 0, user);
+services/core/java/com/android/server/notification/GroupHelper.java | the app's launcher icon, for the monochrome summary icon (from clean copies made in the VM: the process gate)
+    final Drawable appIcon = mPackageManager.getApplicationIcon(pkg);
+    Slog.e(TAG, "Failed to getApplicationIcon() in getMonochromeAppIcon()", e);
+services/core/java/com/android/server/notification/ValidateNotificationPeople.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image (contact lookups)
+    context = mBaseContext.createPackageContextAsUser("android", 0, userHandle);
+services/core/java/com/android/server/notification/ZenModeHelper.java | resource names and ids of mode icons, no image (SystemUI loads them through ZenModeAppIcons)
+    final Resources res = mPm.getResourcesForApplication(packageName);
+    final Resources res = mPm.getResourcesForApplication(packageName);
+services/core/java/com/android/server/om/OverlayManagerShellCommand.java | reads the package's metadata, labels or resource ids, no image is drawn (adb only)
+    .getResourcesForApplication(packageToLoad);
+services/core/java/com/android/server/pm/ArchivedIconReads.java | archive icon and export bytes use the process VM gate with the source user captured from their per-user server archive path
+    return BitmapFactory.decodeFile(file.toString());
+services/core/java/com/android/server/pm/InstantAppRegistry.java | icon files the system wrote for instant apps, and their launcher icons (from clean copies made in the VM: the process gate)
+    return BitmapFactory.decodeFile(iconFile.toString());
+    .loadIcon(mContext.getPackageManager());
+services/core/java/com/android/server/pm/ModuleInfoProvider.java | reads the package's metadata, labels or resource ids, no image is drawn
+    Context packageContext = mContext.createPackageContext(mPackageName, 0);
+services/core/java/com/android/server/pm/PackageArchiver.java | icons the system stored at archiving from launcher icons (from clean copies made in the VM: the process gate), and an installer label
+    final Context userContext = context.createPackageContextAsUser(
+services/core/java/com/android/server/pm/PackageInstallerService.java | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate), the installer's notice
+    packageInfo.applicationInfo.loadIcon(pm),
+services/core/java/com/android/server/pm/PackageInstallerSession.java | the session icon file the system wrote from pixels the installer handed over
+    params.appIcon = BitmapFactory.decodeFile(appIconFile.getAbsolutePath());
+services/core/java/com/android/server/pm/PackageManagerShellCommand.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image (adb only)
+    shellPackageContext = mContext.createPackageContextAsUser(
+services/core/java/com/android/server/pm/ShortcutService.java | resource names and ids of shortcut icons, no image
+    .getPackageManager().getResourcesForApplication(packageName);
+services/core/java/com/android/server/policy/LegacyGlobalActions.java | the user's own picture, a file the system wrote
+    Drawable icon = user.iconPath != null ? Drawable.createFromPath(user.iconPath)
+services/core/java/com/android/server/policy/PermissionPolicyService.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
+    return context.createPackageContextAsUser(context.getPackageName(), 0, user);
+services/core/java/com/android/server/rollback/Rollback.java | the caller's package context for a permission check, no image
+    pkgContext = context.createPackageContextAsUser(callerPackageName, 0,
+services/core/java/com/android/server/rollback/RollbackManagerServiceImpl.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
+    return mContext.createPackageContextAsUser(mContext.getPackageName(), 0, user);
+services/core/java/com/android/server/textclassifier/IconsContentProvider.java | text classifier action icons, app launcher icons through Icon (from clean copies made in the VM: the process gate)
+    .loadDrawableAsUser(getContext(), userId);
+services/core/java/com/android/server/trust/TrustManagerService.java | reads the package's metadata, labels or resource ids, no image is drawn
+    agentInfo.icon = resolveInfo.loadIcon(pm);
+    Resources res = pm.getResourcesForApplication(resolveInfo.serviceInfo.applicationInfo);
+services/core/java/com/android/server/tv/TvInputManagerService.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image (TV only)
+    context = mContext.createPackageContextAsUser("android", 0, user);
+services/core/java/com/android/server/tv/TvInputManagerShellCommand.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image (TV only, adb)
+    Context userContext = serviceContext.createPackageContextAsUser(
+services/core/java/com/android/server/wallpaper/WallpaperCropper.java | only a clean copy made in the VM is decoded (WallpaperVmSanitizer.isClean guards)
+    ImageDecoder.Source source = ImageDecoder.createSource(ByteBuffer.wrap(imageBytes));
+    Bitmap cropped = ImageDecoder.decodeBitmap(source, (decoder, info, src) -> {
+    BitmapFactory.decodeStream(clean.again(), null, options); // DiamaneOS
+    ImageDecoder.createSource(null, clean.again(), Bitmap.DENSITY_NONE); // DiamaneOS
+    Bitmap cropped = ImageDecoder.decodeBitmap(srcData, (decoder, info, src) -> {
+    BitmapFactory.decodeStream(clean, null, options);
+services/core/java/com/android/server/wallpaper/WallpaperDataParser.java | copies a wallpaper resource's bytes into the wallpaper file, which the VM cleans before anything decodes it
+    Context c = mContext.createPackageContext(pkg, Context.CONTEXT_RESTRICTED);
+services/core/java/com/android/server/wallpaper/WallpaperManagerService.java | the system's default wallpaper (system image), cropped for an app
+    Context context = mContext.createPackageContextAsUser(
+services/core/java/com/android/server/wm/ActivityRecord.java | the app's context for flags, a splash theme id and resource configurations, no image
+    appContext = mAtmService.mContext.createPackageContextAsUser(
+    .createPackageContext(packageName, 0);
+    Resources packageResources = mAtmService.mContext.createPackageContextAsUser(
+services/core/java/com/android/server/wm/ActivityTaskManagerService.java | the app's context for its label in the heavy-weight notice, no image
+    Context context = mContext.createPackageContext(proc.mInfo.packageName, 0);
+services/core/java/com/android/server/wm/AppCompatRecreateOnConfigChangePolicy.java | the app's context for configuration flags, no image
+    .createPackageContextAsUser(mActivityRecord.packageName,
+services/core/java/com/android/server/wm/AppSnapshotLoader.java | task snapshot files the system wrote
+    bitmap = BitmapFactory.decodeFile(bitmapFile.getPath(), options);
+services/core/java/com/android/server/wm/LaunchWarningWindow.java | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+    icon.setImageDrawable(next.info.applicationInfo.loadIcon(context.getPackageManager()));
+    icon.setImageDrawable(cur.info.applicationInfo.loadIcon(context.getPackageManager()));
+services/core/java/com/android/server/wm/TaskPersister.java | task description files the system wrote
+    return BitmapFactory.decodeFile(filename);
+services/core/java/com/android/server/cleanimages/VmDecodeProvider.java | userdebug-only timing fixture restricted to the platform decode test package, the URI Icon uses the same bounded protected-VM route as production
+    android.graphics.drawable.Icon.createWithContentUri(extras.getString("uri")).loadDrawable(getContext());

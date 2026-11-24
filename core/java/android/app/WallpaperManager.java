@@ -854,7 +854,11 @@ public class WallpaperManager {
                     if (pfd != null) {
                         BitmapFactory.Options options = new BitmapFactory.Options();
                         options.inJustDecodeBounds = true;
-                        BitmapFactory.decodeFileDescriptor(pfd.getFileDescriptor(), null, options);
+                        // DiamaneOS: a file the system server made from VM pixels is read as it is.
+                        try (InputStream is = com.android.internal.diamaneos.cleancopies.CleanFileStream
+                                .openWallpaper(pfd, params)) {
+                            BitmapFactory.decodeStream(is, null, options);
+                        }
                         dimensions = new Rect(0, 0, options.outWidth, options.outHeight);
                     }
                 } catch (RemoteException ex) {
@@ -906,7 +910,9 @@ public class WallpaperManager {
                 if (pfd == null) {
                     return null;
                 }
-                try (InputStream is = new ParcelFileDescriptor.AutoCloseInputStream(pfd)) {
+                // DiamaneOS: a file the system server made from VM pixels is read as it is.
+                try (InputStream is = com.android.internal.diamaneos.cleancopies.CleanFileStream
+                        .openWallpaper(pfd, params)) {
                     ImageDecoder.Source src = ImageDecoder.createSource(context.getResources(), is,
                         /* density= */ 0);
                     return ImageDecoder.decodeBitmap(src, ((decoder, info, source) -> {

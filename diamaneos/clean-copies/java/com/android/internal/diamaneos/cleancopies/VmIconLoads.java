@@ -19,6 +19,7 @@ package com.android.internal.diamaneos.cleancopies;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.app.ActivityThread;
+import android.content.ContentProvider;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.res.AssetFileDescriptor;
@@ -28,6 +29,7 @@ import android.graphics.BlendMode;
 import android.graphics.Bitmap;
 import android.graphics.ColorFilter;
 import android.graphics.DecodeGate;
+import android.graphics.GateRefill;
 import android.graphics.drawable.AdaptiveIconDrawable;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
@@ -44,6 +46,7 @@ import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.os.Process;
 import android.os.SystemClock;
+import android.os.UserHandle;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
@@ -78,10 +81,12 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * <p>A load on the main thread or in an incoming binder call waits at most {@link #SHORT_WAIT_MS} (and the main thread
  * at most {@link #MAIN_BUDGET_MS} in any second, none for {@link #NO_WAIT_MS} after a wait ran out): an icon not made
- * by then is a blank drawable that fills itself in on the main thread once its pixels arrive. Other threads wait
- * until the load's end ({@link #LOAD_MS} from its start). An icon that cannot be made is blank (a data icon) or
+ * by then is a blank drawable that fills itself in on its view thread once its pixels arrive. Other threads wait
+ * until the load's end ({@link #LOAD_MS} from its start). A list that draws many icons on its main thread uses
+ * {@link #loadAsUserNoWait}: no wait at all, each icon fills in. An icon that cannot be made is blank (a data icon) or
  * null (a URI icon, as {@code Icon} gives for a URI it cannot open or decode), never a decode here. Made icons are
- * kept for reuse (data icons by their bytes, URI icons for up to a minute).
+ * kept for reuse (data icons by their bytes, URI icons for up to a minute). URI opens over the limits wait in a queue
+ * for a free one, within the load's time.
  *
  * @hide
  */
@@ -112,6 +117,8 @@ public final class VmIconLoads {
     // never answers holds one each, so a hung provider holds at most its own.
     private static final int MAX_OPENS = 16;
     private static final int MAX_OPENS_PER_AUTHORITY = 2;
+    // URI loads waiting for a free open, started in order as opens end. Past this many a load fails at once.
+    private static final int MAX_QUEUED_OPENS = 128;
     // A URI icon is reused for at most two windows of this length (its content can change).
     private static final long URI_WINDOW_MS = 30_000;
     private static final int CACHE_BYTES = 8 * 1024 * 1024;
@@ -133,7 +140,10 @@ public final class VmIconLoads {
     private static final HashMap<String, Pending> sPending = new HashMap<>(); // guarded by itself
     private static int sOpens; // guarded by sPending
     private static final HashMap<String, Integer> sOpensOf = new HashMap<>(); // by authority, guarded by sPending
+    // URI loads waiting for an open: {Pending, Request}. Guarded by sPending.
+    private static final ArrayList<Object[]> sQueuedOpens = new ArrayList<>();
     private static final AtomicInteger sUnhashed = new AtomicInteger();
+    private static volatile Runnable sBeforeSendForTest;
 
     private static final Object sMainLock = new Object();
     private static long sMainWindowStart; // guarded by sMainLock
@@ -145,6 +155,13 @@ public final class VmIconLoads {
     private static ThreadPoolExecutor sWorkers; // guarded by VmIconLoads.class
     private static Handler sTimer; // guarded by VmIconLoads.class
     private static Handler sMain; // guarded by VmIconLoads.class
+
+    private static final ImageAttempts<Pending> sAttempts = new ImageAttempts<>();
+
+    private static Pending newest(Pending pending) {
+        final Pending latest = sAttempts.latest(pending.stableKey);
+        return latest != null ? latest : pending;
+    }
 
     private VmIconLoads() {
     }
@@ -162,8 +179,7 @@ public final class VmIconLoads {
             return forced;
         }
         // A system app's process with the clean copy gate, not the system server (which has a gate too).
-        return CleanCopyGate.isActive() && ActivityThread.currentActivityThread() != null
-                && !ActivityThread.isSystem();
+        return CleanCopyGate.isActive() && ActivityThread.currentActivityThread() != null;
     }
 
     /**
@@ -175,6 +191,14 @@ public final class VmIconLoads {
             throw new SecurityException("debuggable builds only");
         }
         sForced = forced;
+    }
+
+    /** Tests on debuggable builds: runs on the sending thread right before a load's bytes are handed over. */
+    public static void setBeforeSendForTest(@Nullable Runnable beforeSend) {
+        if (!android.os.Build.IS_DEBUGGABLE) {
+            throw new SecurityException("debuggable builds only");
+        }
+        sBeforeSendForTest = beforeSend;
     }
 
     /** Tests: how many icons this process got from the VM. */
@@ -196,6 +220,7 @@ public final class VmIconLoads {
         sRefused.evictAll();
         synchronized (sPending) {
             sPending.clear();
+            sQueuedOpens.clear();
         }
         sNoWaitUntil = 0;
         synchronized (sMainLock) {
@@ -210,6 +235,12 @@ public final class VmIconLoads {
      * (a data icon that could not be made), or null (a URI icon that could not be opened or made, as before).
      */
     public static @Nullable Drawable load(@NonNull Icon icon, @NonNull Context context) {
+        try (DecodeGate.Wait wait = DecodeGate.waiting()) {
+            return load(icon, context, wait);
+        }
+    }
+
+    private static Drawable load(Icon icon, Context context, DecodeGate.Wait wait) {
         final Resources res = context.getResources();
         final boolean adaptive = icon.getType() == Icon.TYPE_URI_ADAPTIVE_BITMAP;
         final Request request = Request.of(icon, context.getContentResolver(), context.getPackageName());
@@ -225,17 +256,72 @@ public final class VmIconLoads {
         }
         final boolean shortWait = mustNotWaitLong();
         final Pending pending = start(request);
-        final Result result = await(pending, shortWait);
+        final Result result = await(pending, shortWait, wait);
         if (result != null) {
             if (result.bitmap != null) {
                 return shaped(new BitmapDrawable(res, result.bitmap), adaptive);
             }
+            if (result.forNow()) {
+                return shaped(new Filling(pending, res), adaptive);
+            }
             return failed(icon, res, result.opened);
         }
-        if (shortWait) {
-            return shaped(new Filling(pending, res), adaptive);
+        return shaped(new Filling(pending, res), adaptive);
+    }
+
+    /**
+     * {@code Icon.loadDrawableAsUser} for a list drawn on the main thread: a data or URI icon in a process where
+     * {@link #applies} is never waited for. It is the picture made before, or a blank drawable that fills itself in
+     * once the VM has made it. An app resource icon whose clean copy is not made yet is blank too and fills in once
+     * the copies are made. Every other icon loads as {@code Icon} loads it.
+     */
+    public static @Nullable Drawable loadAsUserNoWait(@NonNull Icon icon, @NonNull Context context, int userId) {
+        if (userId < 0) {
+            return failed(icon, context.getResources(), false);
         }
-        return failed(icon, res, true);
+        if (!handles(icon.getType())) {
+            final int missed = CleanCopyGate.misses();
+            final Drawable drawable = CleanCopyGate.iconLoad(userId, () -> icon.loadDrawableAsUser(context, userId));
+            if (icon.getType() != Icon.TYPE_RESOURCE || CleanCopyGate.misses() == missed || !applies()) {
+                return drawable;
+            }
+            final String resPackage = icon.getResPackage() == null || icon.getResPackage().isEmpty()
+                    ? context.getPackageName() : icon.getResPackage();
+            final Filling filling = new Filling(null, context.getResources(), () -> {
+                final int before = CleanCopyGate.misses();
+                final Drawable again = CleanCopyGate.iconLoad(userId, () -> icon.loadDrawableAsUser(context, userId));
+                return CleanCopyGate.misses() == before ? again : null;
+            });
+            CleanCopyGate.whenMade(filling, resPackage, userId);
+            filling.onMade(resPackage, userId); // Recheck after subscribing to a completion that raced the miss.
+            return filling;
+        }
+        final Resources res = context.getResources();
+        final boolean adaptive = icon.getType() == Icon.TYPE_URI_ADAPTIVE_BITMAP;
+        final Context userContext;
+        try {
+            userContext = context.getUserId() == userId ? context
+                    : context.createContextAsUser(UserHandle.of(userId), 0);
+        } catch (RuntimeException e) {
+            return failed(icon, res, false);
+        }
+        final Request request = Request.of(icon, userContext.getContentResolver(), context.getPackageName());
+        if (request == null) {
+            return failed(icon, res, false);
+        }
+        final Bitmap made = sCache.get(request.key);
+        if (made != null) {
+            return shaped(new BitmapDrawable(res, made), adaptive);
+        }
+        if (refused(request)) {
+            return failed(icon, res, true);
+        }
+        final Pending pending = start(request);
+        final Result result = pending.result();
+        if (result != null && result.bitmap == null && !result.forNow()) {
+            return failed(icon, res, result.opened);
+        }
+        return shaped(new Filling(pending, res), adaptive);
     }
 
     /**
@@ -255,6 +341,12 @@ public final class VmIconLoads {
      * decoded an Icon's bytes itself. Waits as {@link #load} does, and gives null where it would fill in later.
      */
     public static @Nullable Bitmap bitmap(@NonNull Icon icon, @NonNull ContentResolver resolver) {
+        try (DecodeGate.Wait wait = DecodeGate.waiting()) {
+            return bitmap(icon, resolver, wait);
+        }
+    }
+
+    private static Bitmap bitmap(Icon icon, ContentResolver resolver, DecodeGate.Wait wait) {
         final int type = icon.getType();
         if (type != Icon.TYPE_DATA && type != Icon.TYPE_URI && type != Icon.TYPE_URI_ADAPTIVE_BITMAP) {
             return null;
@@ -267,13 +359,13 @@ public final class VmIconLoads {
         if (made != null || refused(request)) {
             return made;
         }
-        final Result result = await(start(request), mustNotWaitLong());
+        final Result result = await(start(request), mustNotWaitLong(), wait);
         return result != null ? result.bitmap : null;
     }
 
     // True while the VM's refusal of what {@code request} names holds.
     private static boolean refused(Request request) {
-        final Long until = sRefused.get(request.stableKey);
+        final Long until = sRefused.get(request.key);
         return until != null && SystemClock.uptimeMillis() < until;
     }
 
@@ -309,20 +401,56 @@ public final class VmIconLoads {
         return new BitmapDrawable(res, blank);
     }
 
-    /** What to load: the bytes or the URI, and the keys it is kept under. */
+    /**
+     * What to load: the bytes or the URI, whose image it is, and the keys it is kept under. The owner is the user the
+     * icon is loaded for (the resolver's), or the user a URI names: the system server takes it only from a process
+     * that may act for that user. It is part of every key, so one user's icon is never another's. A data icon known
+     * by a hash of its bytes carries the copy that was hashed, and that copy is what is sent: the icon's own array can
+     * change meanwhile.
+     */
+    private static long userSerial(int user) {
+        final Context app = android.app.AppGlobals.getInitialApplication();
+        return app == null ? -1 : CleanCopyClient.userSerial(app, user);
+    }
+
     private static final class Request {
         final Icon icon;
         final ContentResolver resolver;
         final String caller;
+        final int ownerUser;
         final String key;
         final String stableKey;
+        final IconUsers users;
+        GateOwner gateUser;
+        volatile byte[] data; // the hashed copy of a data icon's bytes, else null
 
-        private Request(Icon icon, ContentResolver resolver, String caller, String key, String stableKey) {
+        private Request(Icon icon, ContentResolver resolver, String caller, int ownerUser, String key,
+                String stableKey, byte[] data, IconUsers users) {
             this.icon = icon;
             this.resolver = resolver;
             this.caller = caller;
+            this.ownerUser = ownerUser;
             this.key = key;
             this.stableKey = stableKey;
+            this.data = data;
+            this.users = users;
+            gateUser = DecodeGate.iconUser(ownerUser);
+        }
+
+        boolean current() {
+            return users.current(VmIconLoads::userSerial);
+        }
+
+        // The same icon asked for again: a URI's key is that of the current window (its content can change).
+        static Request again(Request r) {
+            if (r.icon.getType() == Icon.TYPE_DATA) {
+                return r;
+            }
+            final long window = SystemClock.uptimeMillis() / URI_WINDOW_MS;
+            final Request next = new Request(r.icon, r.resolver, r.caller, r.ownerUser,
+                    r.stableKey + ":t" + window, r.stableKey, null, r.users);
+            next.gateUser = r.gateUser;
+            return next;
         }
 
         // The authority a URI icon is opened from ("" for a file or a path), for the opens under way.
@@ -341,25 +469,56 @@ public final class VmIconLoads {
                     logLimited("icon bytes not sent to the VM: " + length + " bytes");
                     return null;
                 }
-                final String key = "data:" + dataKey(icon);
-                return new Request(icon, resolver, caller, key, key);
+                final GateOwner captured = DecodeGate.iconDataUser(resolver.getUserId());
+                final int user = captured.user;
+                // Copied once, and the copy hashed and sent: a key always names the bytes sent under it.
+                byte[] data = null;
+                if (length <= Math.min(MAX_HASHED_BYTES, 1 << 20)) {
+                    try (android.graphics.DecodeMemory.Reservation memory = android.graphics.DecodeMemory.reserve(length)) {
+                        data = java.util.Arrays.copyOfRange(icon.getDataBytes(), icon.getDataOffset(), icon.getDataOffset() + length);
+                        android.graphics.DecodeMemory.keepBytes(data, memory);
+                    } catch (android.graphics.DecodeMemory.NoRoomException | OutOfMemoryError ignored) {
+                        data = null;
+                        // The worker retries a unique request when the caller cannot stage it now.
+                    }
+                }
+                final IconUsers users = new IconUsers(user, resolver.getUserId(), VmIconLoads::userSerial);
+                if (!users.current(VmIconLoads::userSerial)) return null;
+                final String key = "data:" + captured.key() + ':' + user + ':' + users.key() + ':' + dataKey(data);
+                return new Request(icon, resolver, caller, user, key, key, data, users);
             }
             final String uri = icon.getUriString();
             if (uri == null || uri.length() > MAX_URI_CHARS
                     || ContentResolver.SCHEME_ANDROID_RESOURCE.equals(icon.getUri().getScheme())) {
                 return null;
             }
-            final String stable = "uri:" + resolver.getUserId() + ':' + icon.getType() + ':' + uri;
+            final int user = ContentProvider.getUserIdFromUri(icon.getUri(), resolver.getUserId());
+            final IconUsers users = new IconUsers(user, resolver.getUserId(), VmIconLoads::userSerial);
+            if (!users.current(VmIconLoads::userSerial)) return null;
+            final String stable = "uri:" + DecodeGate.iconUser(user).key() + ':' + resolver.getUserId() + ':' + user + ':' + users.key() + ':'
+                    + icon.getType() + ':' + uri;
             final long window = SystemClock.uptimeMillis() / URI_WINDOW_MS;
-            return new Request(icon, resolver, caller, stable + ":t" + window, stable);
+            return new Request(icon, resolver, caller, user, stable + ":t" + window, stable, null, users);
         }
 
-        private static String dataKey(Icon icon) {
-            final int length = icon.getDataLength();
-            if (length <= MAX_HASHED_BYTES) {
+        synchronized byte[] snapshot() throws android.graphics.DecodeMemory.NoRoomException {
+            if (data == null) {
+                try (android.graphics.DecodeMemory.Reservation memory = android.graphics.DecodeMemory.reserve(icon.getDataLength())) {
+                    final byte[] copy = java.util.Arrays.copyOfRange(icon.getDataBytes(), icon.getDataOffset(),
+                            icon.getDataOffset() + icon.getDataLength());
+                    android.graphics.DecodeMemory.keepBytes(copy, memory);
+                    data = copy;
+                }
+            }
+            return data;
+        }
+
+        // The hash of a data icon's copied bytes, or a key of its own for one not copied (too large to hash here).
+        private static String dataKey(byte[] data) {
+            if (data != null) {
                 try {
                     final MessageDigest digest = MessageDigest.getInstance("SHA-256");
-                    digest.update(icon.getDataBytes(), icon.getDataOffset(), length);
+                    digest.update(data);
                     final StringBuilder hex = new StringBuilder();
                     for (byte b : digest.digest()) {
                         hex.append(Character.forDigit((b >> 4) & 0xf, 16)).append(Character.forDigit(b & 0xf, 16));
@@ -378,34 +537,56 @@ public final class VmIconLoads {
     private static final class Result {
         final Bitmap bitmap; // null when there is none
         final boolean opened; // false: a URI that could not be opened
+        final boolean refused; // the VM refused the bytes themselves
 
-        Result(Bitmap bitmap, boolean opened) {
+        Result(Bitmap bitmap, boolean opened, boolean refused) {
             this.bitmap = bitmap;
             this.opened = opened;
+            this.refused = refused;
+        }
+
+        // No pixels for a reason of the moment (out of time, the VM busy or down): the same icon may be had later.
+        boolean forNow() {
+            return bitmap == null && !refused;
         }
     }
 
-    /** A load under way, shared by every caller of the same key, and what fills in once it ends. */
+    /**
+     * A load under way, shared by every caller of the same key, and what fills in once it ends. A load that ended
+     * without pixels for a reason of the moment keeps its filling drawables: pixels that still come for it (the system
+     * server's late answer) fill them in, and each of them asks again later ({@link Filling#leftOut}).
+     */
     static final class Pending {
+        final Request request;
         final String key;
         final String stableKey;
         final long end;
         final CancellationSignal cancel = new CancellationSignal();
+        ImageAttempts.Ticket<Pending> ticket;
         private Result mResult; // guarded by this
+        private boolean mResolved; // no reply remains outstanding, guarded by this
         private final List<WeakReference<Filling>> mFillings = new ArrayList<>(); // guarded by this
 
         Pending(Request request) {
+            this.request = request;
             key = request.key;
             stableKey = request.stableKey;
             end = SystemClock.uptimeMillis() + LOAD_MS;
         }
 
         synchronized Result result() {
-            return mResult;
+            return request.current() ? mResult : new Result(null, false, true);
+        }
+
+        // True while pixels may still come for it: under way, or ended for the moment (out of time, the VM busy),
+        // so a late open is still sent and its pixels fill in what waits for them.
+        boolean wantsPixels() {
+            if (!request.current() || !sAttempts.current(ticket)) return false;
+            synchronized (this) { return !mResolved; }
         }
 
         synchronized Result await(long until) {
-            while (mResult == null) {
+            while (mResult == null && request.current()) {
                 final long left = until - SystemClock.uptimeMillis();
                 if (left <= 0) {
                     return null;
@@ -414,37 +595,72 @@ public final class VmIconLoads {
                     wait(left);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
-                    return mResult;
+                    return result();
                 }
             }
-            return mResult;
+            return result();
         }
 
-        // A filling drawable to fill in once the load ends. False when it ended already.
-        synchronized boolean listen(Filling filling) {
-            if (mResult != null) {
-                return false;
+        // A filling drawable to fill in once the load ends. False when it ended already (with pixels or for good).
+        boolean listen(Filling filling) {
+            if (!request.current()) return false;
+            synchronized (sAttempts) {
+                if (!sAttempts.current(ticket)) {
+                    final Pending next = newest(this);
+                    if (next == this) return false;
+                    main().post(() -> filling.follow(this, next));
+                    return true;
+                }
+                synchronized (this) {
+                    if (mResult != null && !mResult.forNow()) return false;
+                    mFillings.add(new WeakReference<>(filling));
+                    return mResult == null;
+                }
             }
-            mFillings.add(new WeakReference<>(filling));
-            return true;
+        }
+
+        void followedBy(Pending next) {
+            sPending.remove(key, this);
+            timer().removeCallbacksAndMessages(this);
+            final List<Filling> followers = new ArrayList<>();
+            synchronized (this) {
+                for (WeakReference<Filling> ref : mFillings) {
+                    final Filling filling = ref.get();
+                    if (filling != null) followers.add(filling);
+                }
+                mFillings.clear();
+                notifyAll();
+            }
+            main().post(() -> { for (Filling filling : followers) filling.follow(this, next); });
         }
 
         void finish(Bitmap bitmap, boolean opened, boolean refused, String why) {
+            finish(bitmap, opened, refused, why, false);
+        }
+
+        void finish(Bitmap bitmap, boolean opened, boolean refused, String why, boolean awaitingReply) {
+            final Bitmap admitted;
+            final boolean retired;
             final List<Filling> fillings = new ArrayList<>();
+            final Result result;
+            synchronized (sAttempts) {
+            if (!sAttempts.current(ticket)) return;
             synchronized (this) {
-                if (mResult != null) {
-                    return;
-                }
+                retired = !request.current();
+                admitted = retired ? null : bitmap;
+                if (mResolved || (mResult != null && awaitingReply)) return;
+                mResolved = !awaitingReply || retired;
                 // Counted, kept and refused before a waiting caller wakes up, so what it reads next (the count, the
                 // cache, the refusal) already holds this load.
-                if (bitmap != null) {
+                if (admitted != null) {
                     sMade.incrementAndGet();
-                    sCache.put(key, bitmap);
-                } else if (refused) {
-                    sRefused.put(stableKey, stableKey.startsWith("uri:")
+                    sCache.put(key, admitted);
+                } else if (refused && !retired) {
+                    sRefused.put(key, key.startsWith("uri:")
                             ? SystemClock.uptimeMillis() + URI_WINDOW_MS : Long.MAX_VALUE);
                 }
-                mResult = new Result(bitmap, opened);
+                result = new Result(admitted, opened && !retired, refused || retired);
+                mResult = result;
                 notifyAll();
                 for (WeakReference<Filling> ref : mFillings) {
                     final Filling f = ref.get();
@@ -452,23 +668,33 @@ public final class VmIconLoads {
                         fillings.add(f);
                     }
                 }
-                mFillings.clear();
+                ticket.delivered = false;
+            }
             }
             synchronized (sPending) {
                 if (sPending.get(key) == this) {
                     sPending.remove(key);
                 }
             }
-            if (bitmap == null) {
+            if (!result.forNow()) timer().removeCallbacksAndMessages(this);
+            if (admitted == null) {
                 logLimited("icon not made in the VM, blank shown: " + why);
             }
-            if (!fillings.isEmpty() && bitmap != null) {
-                main().post(() -> {
-                    for (Filling f : fillings) {
-                        f.fill(bitmap);
+            main().post(() -> {
+                for (Filling f : fillings) {
+                    if (admitted != null && request.current()) f.fill(this, admitted);
+                    else if (result.refused) f.refused(this);
+                    else if (result.forNow()) f.leftOut(this);
+                }
+                synchronized (sAttempts) {
+                    synchronized (this) {
+                        if (mResult == result) {
+                            if (!result.forNow()) mFillings.clear();
+                            if (mResolved && sAttempts.current(ticket)) ticket.delivered = true;
+                        }
                     }
-                });
-            }
+                }
+            });
         }
     }
 
@@ -481,12 +707,24 @@ public final class VmIconLoads {
                 return running;
             }
             pending = new Pending(request);
+            synchronized (sAttempts) {
+                final Pending old = newest(pending);
+                pending.ticket = sAttempts.begin(request.stableKey, pending);
+                if (pending.ticket == null) {
+                    pending.mResult = new Result(null, false, false);
+                    return pending;
+                }
+                if (old != pending) old.followedBy(pending);
+            }
             sPending.put(request.key, pending);
         }
         // Whatever happens, the load ends at its end.
         timer().postAtTime(() -> {
+            synchronized (sPending) {
+                final boolean wasQueued = sQueuedOpens.removeIf(entry -> entry[0] == pending);
+                pending.finish(null, true, false, "out of time", !wasQueued);
+            }
             pending.cancel.cancel();
-            pending.finish(null, true, false, "out of time");
         }, pending, pending.end);
         if (request.icon.getType() == Icon.TYPE_DATA) {
             try {
@@ -495,39 +733,85 @@ public final class VmIconLoads {
                 pending.finish(null, true, false, "too many icons waiting");
             }
         } else {
-            final String authority = request.authority();
             synchronized (sPending) {
-                final int ofAuthority = sOpensOf.getOrDefault(authority, 0);
-                if (sOpens >= MAX_OPENS || ofAuthority >= MAX_OPENS_PER_AUTHORITY) {
-                    pending.finish(null, true, false, "too many opens under way");
+                if (pending.result() != null) {
+                    pending.finish(null, false, false, "no longer needed");
                     return pending;
                 }
-                sOpens++;
-                sOpensOf.put(authority, ofAuthority + 1);
-            }
-            final Thread opener = new Thread(() -> {
-                try {
-                    open(pending, request);
-                } finally {
-                    synchronized (sPending) {
-                        sOpens--;
-                        final int left = sOpensOf.getOrDefault(authority, 1) - 1;
-                        if (left <= 0) {
-                            sOpensOf.remove(authority);
-                        } else {
-                            sOpensOf.put(authority, left);
-                        }
+                if (!mayOpen(request.authority())) {
+                    if (sQueuedOpens.size() >= MAX_QUEUED_OPENS) {
+                        pending.finish(null, true, false, "too many opens waiting");
+                    } else {
+                        sQueuedOpens.add(new Object[] {pending, request});
                     }
+                    return pending;
                 }
-            }, "VmIconOpen");
-            opener.setDaemon(true);
-            opener.start();
+                countOpen(request.authority(), 1);
+            }
+            startOpener(pending, request);
         }
         return pending;
     }
 
+    // True when an open of authority may start now. Guarded by sPending.
+    private static boolean mayOpen(String authority) {
+        return sOpens < MAX_OPENS && sOpensOf.getOrDefault(authority, 0) < MAX_OPENS_PER_AUTHORITY;
+    }
+
+    // Guarded by sPending.
+    private static void countOpen(String authority, int delta) {
+        sOpens += delta;
+        final int now = sOpensOf.getOrDefault(authority, 0) + delta;
+        if (now <= 0) {
+            sOpensOf.remove(authority);
+        } else {
+            sOpensOf.put(authority, now);
+        }
+    }
+
+    private static void startOpener(Pending pending, Request request) {
+        final Thread opener = new Thread(() -> {
+            try {
+                open(pending, request);
+            } finally {
+                final List<Object[]> next = new ArrayList<>();
+                synchronized (sPending) {
+                    countOpen(request.authority(), -1);
+                    // Queued loads that may open now, in order. Those already ended (out of time) are dropped.
+                    for (int i = 0; i < sQueuedOpens.size(); ) {
+                        final Object[] queued = sQueuedOpens.get(i);
+                        final String authority = ((Request) queued[1]).authority();
+                        if (((Pending) queued[0]).result() != null) {
+                            sQueuedOpens.remove(i);
+                            ((Pending) queued[0]).finish(null, false, false, "no longer needed");
+                        } else if (mayOpen(authority)) {
+                            sQueuedOpens.remove(i);
+                            countOpen(authority, 1);
+                            next.add(queued);
+                        } else {
+                            i++;
+                        }
+                    }
+                }
+                for (Object[] queued : next) {
+                    startOpener((Pending) queued[0], (Request) queued[1]);
+                }
+            }
+        }, "VmIconOpen");
+        opener.setDaemon(true);
+        opener.start();
+    }
+
     // Opens the URI with this process's own access, as Icon opens it, and sends what it gives.
     private static void open(Pending pending, Request request) {
+        try (DecodeGate.ProviderInput input = DecodeGate.provider(request.resolver, request.icon.getUri(), request.gateUser)) {
+            openAdmitted(pending, request);
+        } catch (IOException | OutOfMemoryError e) {
+            pending.finish(null, false, false, "input admission unavailable");
+        }
+    }
+
+    private static void openAdmitted(Pending pending, Request request) {
         final Uri uri = request.icon.getUri();
         final String scheme = uri.getScheme();
         AssetFileDescriptor afd = null;
@@ -538,6 +822,9 @@ public final class VmIconLoads {
                 afd = new AssetFileDescriptor(ParcelFileDescriptor.open(new File(request.icon.getUriString()),
                         ParcelFileDescriptor.MODE_READ_ONLY), 0, AssetFileDescriptor.UNKNOWN_LENGTH);
             }
+        } catch (SecurityException e) {
+            pending.finish(null, false, false, "the URI was denied");
+            return;
         } catch (FileNotFoundException | RuntimeException e) {
             pending.finish(null, false, false, "the URI could not be opened: " + e.getClass().getSimpleName());
             return;
@@ -546,9 +833,10 @@ public final class VmIconLoads {
             pending.finish(null, false, false, "the URI gave nothing");
             return;
         }
-        if (pending.result() != null) {
+        if (!pending.wantsPixels()) {
             closeQuietly(afd);
-            return; // Opened too late.
+            pending.finish(null, false, false, "no longer needed");
+            return;
         }
         try {
             send(pending, request, afd);
@@ -559,20 +847,27 @@ public final class VmIconLoads {
 
     // Hands the bytes (data, or what the URI opened) to the system server with a callback for the pixels.
     private static void send(Pending pending, Request request, AssetFileDescriptor afd) {
-        if (pending.result() != null) {
+        if (!pending.wantsPixels()) {
+            pending.finish(null, false, false, "no longer needed");
             return;
         }
-        final ParcelFileDescriptor bytes;
+        final Runnable beforeSend = sBeforeSendForTest;
+        if (beforeSend != null) {
+            beforeSend.run();
+        }
+        if (!pending.wantsPixels()) {
+            pending.finish(null, false, false, "no longer needed");
+            return;
+        }
+        final DecodeGate.Input input;
         try {
-            bytes = afd == null
-                    ? memoryFile(request.icon.getDataBytes(), request.icon.getDataOffset(),
-                            request.icon.getDataLength())
-                    : handOver(afd);
-        } catch (IOException e) {
-            pending.finish(null, true, false, "bytes not handed over: " + e.getMessage());
+            input = afd != null ? DecodeGate.snapshot(afd) : DecodeGate.snapshot(request.snapshot());
+        } catch (IOException | android.graphics.DecodeMemory.NoRoomException | OutOfMemoryError e) {
+            pending.finish(null, true, false, "bytes not handed over: " + e.getClass().getSimpleName());
             return;
         }
-        try (ParcelFileDescriptor owned = bytes) {
+        try (DecodeGate.Input owned = input) {
+            final ParcelFileDescriptor bytes = input.fd();
             final Bundle extras = new Bundle();
             extras.putParcelable(DecodeGate.EXTRA_FD, bytes);
             extras.putInt(DecodeGate.EXTRA_WIDTH, MAX_SIDE);
@@ -584,6 +879,7 @@ public final class VmIconLoads {
             if (afd != null) {
                 extras.putString(DecodeGate.EXTRA_AUTHORITY, request.authority());
             }
+            extras.putInt(DecodeGate.EXTRA_OWNER_USER, request.ownerUser);
             extras.putBinder(DecodeGate.EXTRA_CALLBACK, new IRemoteCallback.Stub() {
                 @Override
                 public void sendResult(Bundle reply) {
@@ -596,106 +892,40 @@ public final class VmIconLoads {
                         pending.finish(null, true, false, "the reply is larger than asked for");
                         return;
                     }
+                    if (bitmap != null) {
+                        try { android.graphics.DecodeMemory.keep(bitmap); }
+                        catch (android.graphics.DecodeMemory.NoRoomException | OutOfMemoryError e) {
+                            android.graphics.DecodeMemory.recycle(bitmap, null);
+                            pending.finish(null, true, false, "no room for the returned icon");
+                            return;
+                        }
+                    }
                     pending.finish(bitmap, true, reply != null && reply.getBoolean(DecodeGate.EXTRA_REFUSED),
                             reply == null ? "no reply" : reply.getString(DecodeGate.EXTRA_ERROR));
                 }
             }.asBinder());
             final Bundle reply;
             try {
-                reply = request.resolver.call(DecodeGate.URI, DecodeGate.METHOD_DECODE, null, extras);
+                reply = DecodeGate.submitIcon(request.resolver, request.gateUser, extras);
             } catch (RuntimeException e) {
                 pending.finish(null, true, false, "the system server did not take it: " + e);
                 return;
             }
             if (reply == null || !reply.getBoolean(DecodeGate.EXTRA_TAKEN)) {
-                pending.finish(null, true, false,
+                pending.finish(null, true, reply != null && reply.getBoolean(DecodeGate.EXTRA_REFUSED),
                         reply == null ? "the system server did not take it" : reply.getString(DecodeGate.EXTRA_ERROR));
-            }
-        } catch (IOException e) {
-            // Closing this process's copy of the descriptor failed: the system server has its own.
-        }
-    }
-
-    /**
-     * The bytes behind {@code asset} as the decode service takes them: a whole file or a stream as it is (the service
-     * reads it with its own deadline and limit), a part of a regular file copied into a memory file here.
-     */
-    private static ParcelFileDescriptor handOver(AssetFileDescriptor asset) throws IOException {
-        final ParcelFileDescriptor pfd = asset.getParcelFileDescriptor();
-        final long offset = asset.getStartOffset();
-        long length = asset.getDeclaredLength();
-        final StructStat st;
-        try {
-            st = Os.fstat(pfd.getFileDescriptor());
-        } catch (ErrnoException e) {
-            throw new IOException("not readable", e);
-        }
-        if (!OsConstants.S_ISREG(st.st_mode)) {
-            if (offset != 0) {
-                throw new IOException("an offset into a stream");
-            }
-            return pfd.dup();
-        }
-        if (offset == 0 && (length < 0 || length == st.st_size)) {
-            return pfd.dup();
-        }
-        if (length < 0) {
-            length = st.st_size - offset;
-        }
-        if (offset < 0 || length <= 0 || length > MAX_DATA_BYTES || offset > st.st_size - length) {
-            throw new IOException("a part out of range");
-        }
-        final byte[] part = new byte[(int) length];
-        int done = 0;
-        try {
-            while (done < length) {
-                final int n = Os.pread(pfd.getFileDescriptor(), part, done, (int) length - done, offset + done);
-                if (n <= 0) {
-                    throw new IOException("shorter than declared");
-                }
-                done += n;
-            }
-        } catch (ErrnoException e) {
-            throw new IOException("not read", e);
-        }
-        return memoryFile(part, 0, part.length);
-    }
-
-    // The bytes in a memory file, read from its start.
-    private static ParcelFileDescriptor memoryFile(byte[] data, int offset, int length) throws IOException {
-        if (data == null || offset < 0 || length <= 0 || offset > data.length - length) {
-            throw new IOException("bad byte range");
-        }
-        FileDescriptor memory = null;
-        try {
-            memory = Os.memfd_create("icon", OsConstants.MFD_CLOEXEC);
-            int written = 0;
-            while (written < length) {
-                written += Os.write(memory, data, offset + written, length - written);
-            }
-            Os.lseek(memory, 0, OsConstants.SEEK_SET);
-            return ParcelFileDescriptor.dup(memory);
-        } catch (ErrnoException e) {
-            throw new IOException("no memory file", e);
-        } finally {
-            if (memory != null) {
-                try {
-                    Os.close(memory);
-                } catch (ErrnoException ignored) {
-                    // Closed.
-                }
             }
         }
     }
 
     // Waits for {@code pending}: a short wait (within the main thread's budget) or until the load's end.
-    private static Result await(Pending pending, boolean shortWait) {
+    private static Result await(Pending pending, boolean shortWait, DecodeGate.Wait scope) {
         if (!shortWait) {
-            return pending.await(pending.end);
+            return pending.await(Math.min(pending.end, SystemClock.uptimeMillis() + scope.left()));
         }
         final boolean main = Looper.myLooper() == Looper.getMainLooper();
         final long now = SystemClock.uptimeMillis();
-        long wait = now < sNoWaitUntil ? 0 : SHORT_WAIT_MS;
+        long wait = now < sNoWaitUntil ? 0 : Math.min(SHORT_WAIT_MS, scope.left());
         if (main && wait > 0) {
             synchronized (sMainLock) {
                 if (now - sMainWindowStart >= MAIN_WINDOW_MS) {
@@ -719,13 +949,22 @@ public final class VmIconLoads {
     }
 
     /**
-     * A blank picture until the load it waits for ends with pixels, then those pixels, filled in on the main thread.
-     * Tint, colour filter and alpha set meanwhile are kept for the picture.
+     * A blank picture until the load it waits for ends with pixels, then those pixels on the attached view's thread.
+     * Tint, colour filter and alpha set meanwhile are kept for the picture. A load that ended without pixels for a
+     * reason of the moment is asked for again later through a refill registration ({@link GateRefill}: a few times,
+     * waiting longer each time, while this drawable is still used), and pixels that still come for it fill it in. A
+     * refused icon stays blank.
      */
-    static final class Filling extends DrawableWrapper {
-        private final Pending mPending;
+    static final class Filling extends DrawableWrapper implements CleanCopyGate.MadeListener {
+        private volatile Pending mPending; // null: an app resource icon waiting for its clean copy.
         private final Resources mRes;
-        private boolean mFilled;
+        private final java.util.function.Supplier<Drawable> mReload; // that icon's load, null while still missing
+        private GateRefill mRefill; // guarded by this
+        private volatile boolean mFilled;
+        private Drawable mReadyPicture; // guarded by this, retained until the first valid binding
+        private Pending mReadySource; // guarded by this
+        private boolean mReadyNotified; // guarded by this
+        private int mBinding; // guarded by this, 0 unseen, 1 first attachment queued, 2 attachment observed
         private ColorStateList mTint;
         private boolean mHasTint;
         private BlendMode mBlendMode;
@@ -734,23 +973,309 @@ public final class VmIconLoads {
         private int mAlpha = -1;
 
         Filling(Pending pending, Resources res) {
-            super(blank(res));
-            mPending = pending;
-            mRes = res;
+            this(pending, res, null);
+            pending = mPending;
             if (!pending.listen(this)) {
                 final Result result = pending.result();
                 if (result != null && result.bitmap != null) {
-                    fill(result.bitmap);
+                    fill(pending, result.bitmap);
+                } else if (result != null && result.forNow()) {
+                    leftOut();
                 }
             }
         }
 
-        void fill(Bitmap bitmap) {
-            if (mFilled) {
+        void follow(Pending old, Pending next) {
+            final GateRefill retired;
+            final Pending latest = newest(next);
+            synchronized (this) {
+                if (mFilled || mPending != old) return;
+                mPending = latest;
+                retired = mRefill;
+                mRefill = null;
+            }
+            if (retired != null) retired.cancel();
+            if (!latest.listen(this)) {
+                final Result result = latest.result();
+                if (result != null && result.bitmap != null) fill(latest, result.bitmap);
+                else if (result != null && result.forNow()) leftOut(latest);
+                else if (result != null && result.refused) refused(latest);
+            }
+        }
+
+        void leftOut(Pending source) {
+            if (mPending == source && sAttempts.current(source.ticket)) leftOut();
+        }
+
+        void refused(Pending source) {
+            final GateRefill retired;
+            synchronized (sAttempts) {
+                if (!sAttempts.current(source.ticket)) return;
+                synchronized (this) {
+                    if (mPending != source) return;
+                    retired = mRefill;
+                    mRefill = null;
+                }
+            }
+            if (retired != null) retired.cancel();
+        }
+
+        void fill(Pending source, Bitmap bitmap) {
+            ready(source, new BitmapDrawable(mRes, bitmap));
+        }
+
+        private void fillOnViewThread(Pending source, Drawable picture) {
+            synchronized (sAttempts) {
+                if (source != null && !sAttempts.current(source.ticket)) return;
+                synchronized (this) {
+                    if (mFilled || (source != null && mPending != source)) return;
+                    mFilled = true;
+                    mPending = null;
+                }
+            }
+            finishFill(picture);
+        }
+
+        // Its load ended without pixels for a reason of the moment: asked for again later (any thread).
+        void leftOut() {
+            final GateRefill refill;
+            synchronized (this) {
+                if (mFilled || mPending == null) {
+                    return;
+                }
+                if (mRefill == null) {
+                    final WeakReference<Filling> self = new WeakReference<>(this);
+                    mRefill = new GateRefill(r -> main().post(r), () -> {
+                        final Filling f = self.get();
+                        if (f != null) {
+                            f.loadAgain();
+                        }
+                    });
+                }
+                refill = mRefill;
+            }
+            refill.retryLater();
+        }
+
+        // On the main thread: the icon is loaded again, unless it was filled or is refused by now.
+        private void loadAgain() {
+            final Pending old = mPending;
+            if (mFilled || old == null || !old.request.current()) {
                 return;
             }
-            mFilled = true;
-            final Drawable picture = new BitmapDrawable(mRes, bitmap);
+            final Pending next = newest(old);
+            if (next != old) {
+                follow(old, next);
+                return;
+            }
+            final Request request = old.request;
+            final Bitmap made = sCache.get(request.key);
+            if (made != null && sAttempts.current(old.ticket)) {
+                fill(old, made);
+                return;
+            }
+            if (VmIconLoads.refused(request)) {
+                final GateRefill refill;
+                synchronized (this) {
+                    refill = mRefill;
+                }
+                if (refill != null) {
+                    refill.cancel();
+                }
+                return;
+            }
+            final Pending pending = start(Request.again(request));
+            mPending = pending;
+            if (!pending.listen(this)) {
+                final Result result = pending.result();
+                if (result != null && result.bitmap != null) {
+                    fill(pending, result.bitmap);
+                } else if (result != null && result.forNow()) {
+                    leftOut();
+                }
+            }
+        }
+
+        Filling(Pending pending, Resources res, java.util.function.Supplier<Drawable> reload) {
+            super(blank(res));
+            mPending = pending != null ? newest(pending) : null;
+            mRes = res;
+            mReload = reload;
+        }
+
+        // Copies of the app's images were made (on the clean copy gate's thread): the icon loads again.
+        @Override
+        public void onMade(String packageName, int userId) {
+            if (mReload == null || mFilled) {
+                return;
+            }
+            final Drawable loaded = mReload.get();
+            if (loaded != null) {
+                main().post(() -> fill(loaded));
+            }
+        }
+
+        void fill(Bitmap bitmap) {
+            fill(new BitmapDrawable(mRes, bitmap));
+        }
+
+        void fill(Drawable picture) {
+            ready(null, picture);
+        }
+
+        private void ready(Pending source, Drawable picture) {
+            synchronized (this) {
+                if (mFilled || (source != null && mPending != source)) return;
+                mReadySource = source;
+                mReadyPicture = picture;
+                mReadyNotified = false;
+            }
+            final Drawable.Callback callback = getCallback();
+            if (callback instanceof AdaptiveIconDrawable) {
+                ((AdaptiveIconDrawable) callback).onVmIconReady(this);
+            }
+            bindReadyPicture();
+        }
+
+        private Drawable.Callback callbackHost() {
+            Drawable.Callback callback = getCallback();
+            while (callback instanceof Drawable) {
+                callback = ((Drawable) callback).getCallback();
+            }
+            return callback;
+        }
+
+        private android.view.View callbackView() {
+            final Drawable.Callback callback = callbackHost();
+            return callback instanceof android.view.View ? (android.view.View) callback : null;
+        }
+
+        private void notifyReadyHost() {
+            Drawable target = this;
+            Drawable.Callback callback = target.getCallback();
+            while (callback instanceof Drawable) {
+                target = (Drawable) callback;
+                callback = target.getCallback();
+            }
+            if (callback == null || callback instanceof android.view.View) return;
+            synchronized (this) {
+                if (mReadyPicture == null || mReadyNotified) return;
+                mReadyNotified = true;
+            }
+            final Drawable picture = target;
+            final Drawable.Callback host = callback;
+            main().post(() -> {
+                if (callbackHost() == host) host.invalidateDrawable(picture);
+            });
+        }
+
+        private void bindReadyPicture() {
+            final Drawable.Callback host = callbackHost();
+            if (host == null) return;
+            final android.view.View view = host instanceof android.view.View ? (android.view.View) host : null;
+            if (view == null) {
+                notifyReadyHost();
+                return;
+            }
+            final Handler handler = view.getHandler();
+            final Drawable picture;
+            final Pending source;
+            synchronized (this) {
+                if (handler == null) {
+                    if (mBinding == 0) {
+                        mBinding = 1;
+                        final WeakReference<Filling> self = new WeakReference<>(this);
+                        view.post(() -> {
+                            final Filling filling = self.get();
+                            if (filling == null) return;
+                            synchronized (filling) { filling.mBinding = 2; }
+                            if (filling.callbackView() == view) filling.bindReadyPicture();
+                        });
+                    } else if (mBinding == 2) {
+                        mReadyPicture = null;
+                        mReadySource = null;
+                    }
+                    return;
+                }
+                mBinding = 2;
+                picture = mReadyPicture;
+                source = mReadySource;
+                mReadyPicture = null;
+                mReadySource = null;
+            }
+            if (picture == null) return;
+            handler.post(() -> {
+                if (callbackHost() == host && view.isAttachedToWindow() && view.getHandler() == handler) {
+                    fillOnViewThread(source, picture);
+                }
+            });
+        }
+
+        @Override public int getIntrinsicWidth() {
+            bindReadyPicture();
+            synchronized (this) {
+                return mReadyPicture != null ? mReadyPicture.getIntrinsicWidth() : super.getIntrinsicWidth();
+            }
+        }
+
+        @Override public int getIntrinsicHeight() {
+            bindReadyPicture();
+            synchronized (this) {
+                return mReadyPicture != null ? mReadyPicture.getIntrinsicHeight() : super.getIntrinsicHeight();
+            }
+        }
+
+        @Override public void draw(android.graphics.Canvas canvas) {
+            bindReadyPicture();
+            // An unmounted drawable can also be consumed directly by an offscreen caller.
+            if (callbackView() == null) {
+                final Drawable picture;
+                final Pending source;
+                synchronized (this) {
+                    picture = mReadyPicture;
+                    source = mReadySource;
+                    mReadyPicture = null;
+                    mReadySource = null;
+                }
+                if (picture != null) {
+                    synchronized (sAttempts) {
+                        if (source != null && (!sAttempts.current(source.ticket) || mPending != source)) return;
+                    }
+                    try {
+                        final Drawable shown = styled(picture);
+                        shown.setBounds(getBounds());
+                        shown.draw(canvas);
+                    } finally {
+                        synchronized (this) {
+                            if (!mFilled && mReadyPicture == null && (source == null || mPending == source)) {
+                                mReadyPicture = picture;
+                                mReadySource = source;
+                            }
+                        }
+                        bindReadyPicture();
+                    }
+                    return;
+                }
+            }
+            super.draw(canvas);
+        }
+
+        private void finishFill(Drawable picture) {
+            synchronized (this) {
+                if (mRefill != null) {
+                    mRefill.cancel();
+                }
+            }
+            setDrawable(styled(picture));
+            // A view sized to the blank picture takes the new size.
+            final android.view.View view = callbackView();
+            if (view != null) {
+                view.requestLayout();
+            }
+        }
+
+        private Drawable styled(Drawable picture) {
+            picture = picture.mutate();
             if (mHasTint) {
                 picture.setTintList(mTint);
             }
@@ -763,11 +1288,7 @@ public final class VmIconLoads {
             if (mAlpha >= 0) {
                 picture.setAlpha(mAlpha);
             }
-            setDrawable(picture);
-            // A view sized to the blank picture takes the new size.
-            if (getCallback() instanceof android.view.View) {
-                ((android.view.View) getCallback()).requestLayout();
-            }
+            return picture;
         }
 
         @Override
@@ -798,7 +1319,10 @@ public final class VmIconLoads {
 
         @Override
         public ConstantState getConstantState() {
-            return new FillingState(mPending, mRes);
+            synchronized (this) {
+                if (mPending != null) return new FillingState(mPending, mRes);
+                return mReadyPicture != null ? mReadyPicture.getConstantState() : super.getConstantState();
+            }
         }
     }
 
@@ -808,7 +1332,7 @@ public final class VmIconLoads {
         private final Resources mRes;
 
         FillingState(Pending pending, Resources res) {
-            mPending = pending;
+            mPending = pending != null ? newest(pending) : null;
             mRes = res;
         }
 

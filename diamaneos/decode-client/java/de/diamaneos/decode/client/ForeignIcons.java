@@ -73,6 +73,9 @@ public final class ForeignIcons {
 
     // Icons being made in the background, or failed and waiting for their next try.
     private static final Backoff sMaking = new Backoff();
+    // Keys whose last make failed because the service did not answer: askers during the wait ask again after it.
+    private static final java.util.Set<String> sUnanswered = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private static final int MAX_UNANSWERED = 512;
     // Everyone waiting for an icon being made: all are told, not only the first.
     private static final Waiters sWaiters = new Waiters();
     private static final Handler sMain = new Handler(Looper.getMainLooper());
@@ -355,18 +358,23 @@ public final class ForeignIcons {
 
     // Makes work's result on an image thread in the background (once at a time, with retries spaced out) and returns
     // null now: the next call finds it in the cache. Everyone who asked meanwhile with a callback is told on the main
-    // thread once it is made.
+    // thread once it is made, or after the backoff's wait when the service did not answer (so they ask again).
     private static <T> T later(String owner, String key, Supplier<T> work, Runnable onMade) {
         if (key == null) {
             return null;
         }
         askAgainLater(sWaiters.add(key, owner, null, onMade));
         if (!sMaking.start(key, SystemClock.uptimeMillis())) {
+            final long wait = sMaking.waitLeft(key, SystemClock.uptimeMillis());
+            if (onMade != null && wait > 0 && sUnanswered.contains(key)) {
+                sMain.postDelayed(() -> Waiters.runSafely(onMade), wait);
+            }
             return null;
         }
         final ImageThreads.Task task = ImageThreads.execute(owner, () -> {
             T made = null;
             VmIcons.beginKeptTracking();
+            final int unavailable = VmDecode.unavailableCount();
             try {
                 made = work.get();
             } catch (Throwable e) {
@@ -378,11 +386,21 @@ public final class ForeignIcons {
                 // and it is made again only after the backoff's wait.
                 sMaking.failed(key, SystemClock.uptimeMillis());
             } else if (made != null) {
+                sUnanswered.remove(key);
                 sMaking.succeeded(key);
                 for (Waiters.Waiter w : waiters) {
                     sMain.post(() -> Waiters.runSafely(w.onMade));
                 }
+            } else if (VmDecode.unavailableCount() != unavailable) {
+                // The service did not answer (down, starting, busy): asked again after the backoff's wait.
+                if (sUnanswered.size() >= MAX_UNANSWERED) {
+                    sUnanswered.clear();
+                }
+                sUnanswered.add(key);
+                final long wait = sMaking.failed(key, SystemClock.uptimeMillis());
+                sMain.postDelayed(() -> sWaiters.tell(waiters), wait);
             } else {
+                sUnanswered.remove(key);
                 sMaking.failed(key, SystemClock.uptimeMillis());
             }
         }, () -> {

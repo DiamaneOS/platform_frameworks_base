@@ -28,10 +28,12 @@ import de.diamaneos.decode.client.ForeignIcons
 import de.diamaneos.decode.client.ImageBudget
 import de.diamaneos.decode.client.ImageThreads
 import de.diamaneos.decode.client.NotificationImageGate
+import de.diamaneos.decode.client.RetryTurns
 import de.diamaneos.decode.client.VmDecode
 import java.util.Collections
 import java.util.WeakHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.function.IntSupplier
 
 /**
  * DiamaneOS: the images of one notification row inflation. Every app image in the notification is decoded in the
@@ -40,8 +42,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * their images are made ahead of the inflation. URIs inside the app's layouts are opened only when the app may read
  * them itself. Nothing waits for the VM on the inflation thread every notification shares: the inflation starts once
  * the images are made ([start]). If converting fails, every app image is removed and the notification still shows.
- * A row whose images were left out because the decode service did not answer is inflated again once it answers
- * ([VmDecode.addRecoveryListener]), so its images fill in with no user action.
+ * A row whose images (message images included) were left out because the decode service did not answer is inflated
+ * again once it answers ([VmDecode.addRecoveryListener]), so its images fill in with no user action.
  * The inflation reads the checked copy through [sourceOf], so no upstream signature changes for it.
  */
 class NotificationRowImages(
@@ -115,6 +117,14 @@ class NotificationRowImages(
      */
     fun prepare() {
         val sbn = entry.sbn
+        // The message images load apart from this work: one left out for the decode service asks for the same
+        // inflation again.
+        row.imageResolver?.outcomes()?.let { outcomes ->
+            outcomes.setRetry(
+                { leftOut(row, true, outcomes.capacityWakes(), outcomes.capacityObserved()) },
+                { inlineLeftOutRows.done(row) },
+            )
+        }
         val packageContext = sbn.getPackageContext(context)
         var imageGate: NotificationImageGate? = null
         val unavailable = VmDecode.unavailableCount()
@@ -164,11 +174,11 @@ class NotificationRowImages(
             // What the image work took is settled with the app's quota.
             imageGate?.finish(urgentImages)
         }
-        checkedNotification?.let { sources[sbn.notification] = it }
+        checkedNotification?.let { remember(sbn.notification, it) }
         if (VmDecode.unavailableCount() != unavailable && !imagesCancelled.get()) {
             leftOut(row)
         } else if (!imagesCancelled.get()) {
-            leftOutRows.remove(row)
+            leftOutRows.done(row)
         }
     }
 
@@ -217,41 +227,47 @@ class NotificationRowImages(
             Collections.synchronizedMap(WeakHashMap())
 
         // The checked copy of each notification (by identity: Notification has no equals of its own) whose images
-        // were made, for the inflation code to read. Gone with the notification.
+        // were made, for the inflation code to read. Gone with the notification: a notification that needed no
+        // change maps to SAME, as a value naming its own key would keep it for good.
         private val sources: MutableMap<Notification, Notification> = Collections.synchronizedMap(WeakHashMap())
+        private val SAME = Notification()
 
-        // Rows with images left out for the decode service, and how often each was inflated again for it (a row is
-        // inflated again at most MAX_RECOVERY_REBINDS times, so an image the VM can never make in time is not asked
-        // for again and again).
-        private val leftOutRows: MutableMap<ExpandableNotificationRow, Int> =
-            Collections.synchronizedMap(WeakHashMap())
+        private fun remember(notification: Notification, checked: Notification) {
+            sources[notification] = if (checked === notification) SAME else checked
+        }
+
+        // Rows with images left out for the decode service and their turns (RetryTurns): a row is inflated again at
+        // most MAX_RECOVERY_REBINDS times, so an image the VM can never make in time is not asked for again and again,
+        // and again as often after each genuine change of the service (an outage that ended, room again).
+        private val leftOutRows = RetryTurns<ExpandableNotificationRow>(MAX_RECOVERY_REBINDS)
+        // Inline work ends independently of prepare. Success there cannot erase its missing URIs.
+        private val inlineLeftOutRows = RetryTurns<ExpandableNotificationRow>(MAX_RECOVERY_REBINDS)
         private const val MAX_RECOVERY_REBINDS = 3
         private val main = Handler(Looper.getMainLooper())
         private val recoveryListening = AtomicBoolean()
 
-        private fun leftOut(row: ExpandableNotificationRow) {
-            synchronized(leftOutRows) {
-                val rebinds = leftOutRows[row] ?: 0
-                if (rebinds >= MAX_RECOVERY_REBINDS) {
-                    return
-                }
-                leftOutRows[row] = rebinds
-            }
+        private fun leftOut(
+            row: ExpandableNotificationRow,
+            inline: Boolean = false,
+            capacity: IntSupplier? = VmDecode.capacityWakes(),
+            observed: Int = capacity?.asInt ?: 0,
+        ) {
+            (if (inline) inlineLeftOutRows else leftOutRows).leftOut(row, VmDecode.wakes(), capacity, observed)
             if (recoveryListening.compareAndSet(false, true)) {
                 VmDecode.addRecoveryListener { main.post { rebindLeftOut() } }
             }
+            // A lane event may have arrived before the main-thread callback registered this row.
+            if (capacity != null && capacity.asInt != observed) {
+                main.post { rebindLeftOut() }
+            }
         }
 
-        // The decode service answers again: every row with images left out is inflated again (on the main thread).
+        // The decode service answers again: every row with images left out and turns left is inflated again (on the
+        // main thread).
         private fun rebindLeftOut() {
-            val rows =
-                synchronized(leftOutRows) {
-                    leftOutRows.entries
-                        .filter { it.value < MAX_RECOVERY_REBINDS }
-                        .map { it.key to it.value }
-                }
-            for ((row, rebinds) in rows) {
-                synchronized(leftOutRows) { leftOutRows[row] = rebinds + 1 }
+            val wakes = VmDecode.wakes()
+            val rows = (leftOutRows.due(wakes) + inlineLeftOutRows.due(wakes)).toSet()
+            for (row in rows) {
                 row.rebindForMissingImages()
             }
         }
@@ -262,6 +278,12 @@ class NotificationRowImages(
          */
         @JvmStatic
         fun sourceOf(notification: Notification, context: Context): Notification =
-            sources[notification] ?: NotificationImageGate.strippedCopy(context, notification)
+            sources[notification].let { checked ->
+                when {
+                    checked == null -> NotificationImageGate.strippedCopy(context, notification)
+                    checked === SAME -> notification
+                    else -> checked
+                }
+            }
     }
 }

@@ -155,7 +155,7 @@ public class CleanCopyGateDeviceTest {
         assertEquals(mContext.getPackageName() + ":drawable/vm_test_red", source.resources.get(0));
         final int[] box = CleanCopyClient.box(mContext);
         assertTrue(source.requests.get(0).startsWith("rfile:" + mContext.getApplicationInfo().sourceDir + ":"));
-        assertTrue(source.requests.get(0).endsWith(":" + box[0] + "x" + box[1]));
+        assertTrue(source.requests.get(0).endsWith(":" + box[0] + "x" + box[1] + ":u" + mContext.getUserId()));
     }
 
     @Test
@@ -435,7 +435,7 @@ public class CleanCopyGateDeviceTest {
         final int[] box = CleanCopyClient.box(mContext);
         assertEquals(1, source.requests.size());
         assertTrue(source.requests.get(0), source.requests.get(0).endsWith(
-                ":" + expected + ":" + box[0] + "x" + box[1]));
+                ":" + expected + ":" + box[0] + "x" + box[1] + ":u" + mContext.getUserId()));
     }
 
     /** With the process gate, the package manager gives null (the caller's default) for an icon without a copy. */
@@ -453,5 +453,30 @@ public class CleanCopyGateDeviceTest {
         assertTrue("then the copy", made instanceof BitmapDrawable);
         assertEquals(0xff0000ff, ((BitmapDrawable) made).getBitmap().getPixel(4, 2));
         assertFalse(source.requests.isEmpty());
+    }
+
+    @Test
+    public void ownAssetsAreTheBaseAndSplitsOnly() {
+        // An app whose base and split are its own, which also loads a shared library, a resource directory and an
+        // overlay from outside the system image.
+        final android.content.pm.ApplicationInfo app = new android.content.pm.ApplicationInfo();
+        app.packageName = "de.diamaneos.example";
+        app.sourceDir = "/data/app/~~x/de.diamaneos.example-1/base.apk";
+        app.publicSourceDir = app.sourceDir;
+        app.splitSourceDirs = new String[] {"/data/app/~~x/de.diamaneos.example-1/split_more.apk"};
+        app.splitPublicSourceDirs = app.splitSourceDirs;
+        app.sharedLibraryFiles = new String[] {"/data/app/~~y/com.example.library-2/base.apk"};
+        app.resourceDirs = new String[] {"/data/resource-cache/de.diamaneos.example.resources.apk"};
+        app.overlayPaths = new String[] {"/data/resource-cache/de.diamaneos.example.overlay.frro"};
+        final List<String> extra = java.util.Arrays.asList(app.sharedLibraryFiles[0], app.resourceDirs[0],
+                app.overlayPaths[0]);
+        // What the exemption took before: every path the app loads.
+        assertTrue(java.util.Arrays.asList(app.getAllApkPaths()).containsAll(extra));
+        assertTrue(CleanCopyGate.apkDecodesHere(app, app.sourceDir));
+        assertTrue(CleanCopyGate.apkDecodesHere(app, app.splitSourceDirs[0]));
+        for (String path : extra) {
+            assertFalse(path, CleanCopyGate.apkDecodesHere(app, path));
+        }
+        assertTrue(CleanCopyGate.apkDecodesHere(app, "/system/framework/framework-res.apk"));
     }
 }

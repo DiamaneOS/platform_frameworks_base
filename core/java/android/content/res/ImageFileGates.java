@@ -32,7 +32,7 @@ public final class ImageFileGates {
 
     // Drawables of gated APKs a gate made wholly of exact copies, by Resources implementation and gate (weakly):
     // never shared with plain loads or other gates.
-    private static final java.util.WeakHashMap<ResourcesImpl, java.util.WeakHashMap<ImageFileGate, DrawableCache>>
+    private static final java.util.WeakHashMap<ResourcesImpl, java.util.WeakHashMap<ImageFileGate, java.util.Map<Long, DrawableCache>>>
             sGatedCaches = new java.util.WeakHashMap<>();
 
     private ImageFileGates() {
@@ -43,17 +43,20 @@ public final class ImageFileGates {
     static DrawableCache cacheFor(@NonNull ResourcesImpl impl, @NonNull ImageFileGate gate) {
         synchronized (sGatedCaches) {
             return sGatedCaches.computeIfAbsent(impl, i -> new java.util.WeakHashMap<>())
-                    .computeIfAbsent(gate, g -> new DrawableCache());
+                    .computeIfAbsent(gate, g -> new java.util.HashMap<>())
+                    .computeIfAbsent(gate.cacheScope(), u -> new DrawableCache());
         }
     }
 
     /** {@code impl}'s configuration changed: its gated caches drop what the change touches. */
     static void onConfigurationChange(@NonNull ResourcesImpl impl, int configChanges) {
         synchronized (sGatedCaches) {
-            final java.util.WeakHashMap<ImageFileGate, DrawableCache> caches = sGatedCaches.get(impl);
+            final java.util.WeakHashMap<ImageFileGate, java.util.Map<Long, DrawableCache>> caches = sGatedCaches.get(impl);
             if (caches != null) {
-                for (DrawableCache cache : caches.values()) {
-                    cache.onConfigurationChange(configChanges);
+                for (java.util.Map<Long, DrawableCache> users : caches.values()) {
+                    for (DrawableCache cache : users.values()) {
+                        cache.onConfigurationChange(configChanges);
+                    }
                 }
             }
         }

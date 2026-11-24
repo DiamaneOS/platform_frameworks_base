@@ -265,11 +265,11 @@ constructor(
         return try {
             cachesForCurrentLook().skeleton.getOrFetchAppIcon(
                 packageName = packageName,
-                userHandle = null, // these aren't badged, so they don't need to be sharded by user
+                // DiamaneOS: by user, as the clean copy its pixels come from is made for one user.
+                userHandle = userHandle,
                 drawableInstanceKey = "SKELETON",
                 createDrawable = createDrawable,
-                // DiamaneOS: shared by all users, so stamped without the per-user enabled state.
-                stamp = appIconStamp(sysuiContext, packageName, userHandle, perUser = false),
+                stamp = appIconStamp(sysuiContext, packageName, userHandle), // DiamaneOS
             ) {
                 fetchAppIconBitmapInfo(skeletonIconFactory, packageName, userHandle)
             }
@@ -287,12 +287,14 @@ constructor(
         userHandle: UserHandle,
     ): BitmapInfo {
         // DiamaneOS: an app image without a clean copy yet (the decode service down or slow) loads as Android's
-        // default icon (CleanCopyGate). Such an icon is drawn but not kept in the caches.
+        // default icon (CleanCopyGate), one from an older copy as that. Such an icon is drawn but not kept in the
+        // caches.
         val misses = CleanCopyGate.misses()
+        val provisional = CleanCopyGate.provisional()
         val icon = appIconHelper.getUnbadgedIcon(packageName, userHandle)
         val options = iconOptions(appIconHelper.getUserIconInfo(userHandle))
         val info = iconFactory.createBadgedIconBitmap(icon, options)
-        if (CleanCopyGate.misses() != misses) {
+        if (CleanCopyGate.misses() != misses || CleanCopyGate.provisional() != provisional) {
             throw NotMade(info)
         }
         return info

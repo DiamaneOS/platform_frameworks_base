@@ -49,7 +49,10 @@ internal fun appIconStamp(
         val locales = context.resources.configuration.locales.toLanguageTags()
         // The enabled state is per user: left out for a cache shared by all users.
         val enabled = if (perUser) info.enabled.toString() else ""
-        "${info.sourceDir}:${info.icon}:$enabled:$overlays:$locales"
+        // DiamaneOS: a recycled numeric user ID never inherits a previous user's drawable state.
+        val serial = context.getSystemService(android.os.UserManager::class.java)
+            ?.getUserSerialNumber(userHandle.identifier) ?: -1
+        "${info.sourceDir}:${info.icon}:$enabled:$overlays:$locales:s$serial"
     } catch (e: Exception) {
         ""
     }
