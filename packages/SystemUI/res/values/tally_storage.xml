@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copyright (C) 2026 The DiamaneOS Project
+  SPDX-License-Identifier: Apache-2.0
+
+  Strings of the storage notice for a volume that waits for a protected VM place (StorageNotification).
+-->
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <!-- Notification title: the SD card is not opened yet, the phone runs as many protected VMs as it can. [CHAR LIMIT=NONE] -->
+    <string name="tally_storage_waiting_title_sd">"This SD card is waiting"</string>
+    <!-- The same for a USB drive. [CHAR LIMIT=NONE] -->
+    <string name="tally_storage_waiting_title_usb">"This USB drive is waiting"</string>
+    <!-- The same for other storage devices. [CHAR LIMIT=NONE] -->
+    <string name="tally_storage_waiting_title">"This storage device is waiting"</string>
+    <!-- Notification text for the titles above: why it waits and what makes room. [CHAR LIMIT=NONE] -->
+    <string name="tally_storage_waiting_message">"Not enough memory is free right now. Eject another drive to open this one."</string>
+</resources>
