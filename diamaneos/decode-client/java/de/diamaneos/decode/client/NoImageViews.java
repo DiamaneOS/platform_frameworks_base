@@ -20,9 +20,6 @@ import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.Intent;
 import android.content.IntentSender;
-import android.graphics.Color;
-import android.graphics.drawable.ColorDrawable;
-import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.Bundle;
@@ -90,30 +87,6 @@ public final class NoImageViews {
             }
         }
         return true;
-    }
-
-    /**
-     * The drawable {@code resId} of {@code packageName} for {@code userId}, without decoding any of its image files:
-     * vectors and the system image's files load, its bitmap files do not. Null when nothing but an empty image is
-     * left, or it cannot be loaded.
-     */
-    public static Drawable packageDrawable(Context context, String packageName, int userId, int resId) {
-        if (resId == 0 || packageName == null) {
-            return null;
-        }
-        try {
-            final Context app = context.createPackageContextAsUser(packageName, 0, android.os.UserHandle.of(userId));
-            final Drawable drawable = context(app).getDrawable(resId);
-            return drawable == null || isEmpty(drawable) ? null : drawable;
-        } catch (Exception e) {
-            Log.w(TAG, "drawable of " + packageName + " not loaded: " + e);
-            return null;
-        }
-    }
-
-    /** True for the empty image a gate gives for a bitmap file it did not make. */
-    public static boolean isEmpty(Drawable drawable) {
-        return drawable instanceof ColorDrawable && ((ColorDrawable) drawable).getColor() == Color.TRANSPARENT;
     }
 
     // Resources and package contexts from the gated context. Starts, system services (the window manager, layout

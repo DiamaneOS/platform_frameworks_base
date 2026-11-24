@@ -98,7 +98,8 @@ public final class CleanImageMaker {
     private static final long BACKGROUND_TIMEOUT_MS = 4_000;
     // A file the VM could not make now (down, busy) or that is not installed yet is tried again after this, then
     // twice as long each time up to RETRY_MAX_MS, at most RETRY_ATTEMPTS times. A file that ran out of time twice is
-    // not tried again until the next start.
+    // not tried again until the next start. When the decode service answers again after an outage, every file that
+    // waits for a retry or was given up is tried at once (serviceAnswers).
     private static final long RETRY_MS = 60_000;
     private static final long RETRY_MAX_MS = 30 * 60_000;
     private static final int RETRY_ATTEMPTS = 8;
@@ -139,8 +140,11 @@ public final class CleanImageMaker {
     // Files to try again, by key, and the time of the next try (guarded by mLock).
     private final LinkedHashMap<String, Request> mRetry = new LinkedHashMap<>();
     private boolean mRetryScheduled; // guarded by mLock
-    // Files the VM refused, or that failed too often (not tried again until the next start).
+    // Files the VM refused (not tried again until the next start).
     private final LruCache<String, Boolean> mRefused = new LruCache<>(4096);
+    // Files that ran out of time twice or failed too often: not tried again until the next start, or until the decode
+    // service answers again after an outage (the outage, not the file, may have made them fail).
+    private final LruCache<String, Boolean> mGaveUp = new LruCache<>(4096);
     // Warm-up files that did not fit their APK's cap (a system process that asks for one may still have it made).
     private final LruCache<String, Boolean> mCapped = new LruCache<>(4096);
     // Apps with copies made since they were last told, by package and user (guarded by mLock).
@@ -179,6 +183,31 @@ public final class CleanImageMaker {
         urgent.start();
         mUrgentHandler = new Handler(urgent.getLooper());
         mShortcuts.allowCoreThreadTimeOut(true);
+        VmDecode.addStateListener(this::serviceAnswers);
+    }
+
+    // The decode service answers (on the client's thread). After an outage the files that wait for a retry and those
+    // given up are tried now, on the maker's threads. Either way the watching processes are told, so a thumbnail that
+    // waits for the service (VmThumbnails) tries again.
+    private void serviceAnswers(boolean wasDown) {
+        if (wasDown) {
+            mHandler.post(() -> {
+                mGaveUp.evictAll();
+                final List<Request> due;
+                synchronized (mLock) {
+                    due = new ArrayList<>(mRetry.values());
+                    mRetry.clear();
+                }
+                for (Request request : due) {
+                    request.timeouts = 0;
+                    enqueue(request);
+                }
+                Log.i(TAG, "decode service back: " + due.size() + " files tried again");
+            });
+        }
+        final Bundle answers = new Bundle();
+        answers.putBoolean(CleanCopyClient.EXTRA_DECODE_ANSWERS, true);
+        mHandler.post(() -> broadcastToWatchers(answers));
     }
 
     /** Reads the store's index on its own thread, early, so no binder thread waits for it. */
@@ -337,7 +366,8 @@ public final class CleanImageMaker {
             resource = null;
         }
         final String key = AppResourceImages.keyOf(apk, file, density, width, height);
-        if (key == null || mRefused.get(key) != null || (!urgent && mCapped.get(key) != null)) {
+        if (key == null || mRefused.get(key) != null || mGaveUp.get(key) != null
+                || (!urgent && mCapped.get(key) != null)) {
             return;
         }
         final Request request = new Request(apk, file, density, width, height, resource, user, key, urgent,
@@ -493,7 +523,7 @@ public final class CleanImageMaker {
         for (int i = 0; i < keys.size(); i++) {
             final String key = keys.get(i);
             if (key != null && !CleanCopyKey.isSystemImage(CleanCopyKey.apkOf(key)) && !mStore.has(key)
-                    && mRefused.get(key) == null && mCapped.get(key) == null) {
+                    && mRefused.get(key) == null && mGaveUp.get(key) == null && mCapped.get(key) == null) {
                 open++;
             }
         }
@@ -505,6 +535,7 @@ public final class CleanImageMaker {
         if (apk != null) {
             mStore.forgetApk(apk);
             mRefused.evictAll();
+            mGaveUp.evictAll();
             mCapped.evictAll();
             synchronized (mLock) {
                 mRetry.clear();
@@ -608,7 +639,7 @@ public final class CleanImageMaker {
             if (spent >= timeout - 100 && ++request.timeouts >= TIMEOUT_ATTEMPTS) {
                 // Out of time twice: a file this slow is not tried again until the next start.
                 logLimited("out of time twice, not tried again: " + owner.packageName + " " + request.file);
-                mRefused.put(request.key, Boolean.TRUE);
+                mGaveUp.put(request.key, Boolean.TRUE);
                 return;
             }
             failed(request);
@@ -668,7 +699,7 @@ public final class CleanImageMaker {
             request.attempts++;
             if (request.attempts > RETRY_ATTEMPTS) {
                 mRetry.remove(request.key);
-                mRefused.put(request.key, Boolean.TRUE);
+                mGaveUp.put(request.key, Boolean.TRUE);
                 return;
             }
             request.due = SystemClock.elapsedRealtime()
@@ -746,11 +777,16 @@ public final class CleanImageMaker {
         final Bundle made = new Bundle();
         made.putString(CleanCopyClient.EXTRA_PACKAGE, owner);
         made.putInt(CleanCopyClient.EXTRA_USER, user);
+        broadcastToWatchers(made);
+    }
+
+    // Sends {@code data} to every watching process. On the maker's thread (one broadcast at a time).
+    private void broadcastToWatchers(Bundle data) {
         final int count = mWatchers.beginBroadcast();
         try {
             for (int i = 0; i < count; i++) {
                 try {
-                    mWatchers.getBroadcastItem(i).sendResult(made);
+                    mWatchers.getBroadcastItem(i).sendResult(data);
                 } catch (RemoteException e) {
                     // Gone: the list drops it.
                 }

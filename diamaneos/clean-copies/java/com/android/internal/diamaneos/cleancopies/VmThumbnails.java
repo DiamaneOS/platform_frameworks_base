@@ -51,8 +51,11 @@ import java.util.concurrent.atomic.AtomicInteger;
  * grants, as Android opens it, and decoded in the protected VM by the system server (CleanImageProvider, method
  * {@link #METHOD_THUMBNAIL}), charged to the provider's package. The provider's orientation extra is applied here as
  * Android applies it, and the file's own orientation is applied in the VM as Android's decoder applies it. When the VM
- * cannot make the thumbnail, the load fails with the IOException callers already handle. Nothing of it is decoded in
- * this process.
+ * cannot make the thumbnail, the load fails with the IOException callers already handle. When the decode service did
+ * not answer, the load waits on the caller's (background) thread until the system server says the service answers
+ * again, at most {@link #MAX_WAIT_MS} and only while the caller has not cancelled it, and loads once more: callers ask
+ * for a thumbnail once, so what showed a placeholder during an outage fills in when it ends. Nothing of it is decoded
+ * in this process.
  *
  * @hide
  */
@@ -65,6 +68,11 @@ public final class VmThumbnails {
     public static final String EXTRA_AUTHORITY = "authority";
     /** Why the system server gave no thumbnail. */
     public static final String EXTRA_ERROR = "error";
+    /** With no thumbnail: the decode service did not answer, ask again once it does. */
+    public static final String EXTRA_LATER = "later";
+
+    /** How long a load waits for the decode service to answer again before it fails. */
+    static final long MAX_WAIT_MS = 60_000;
 
     // A part of a regular file (an EXIF thumbnail) is copied into a memory file of at most this size: the decode
     // service's limit for bytes it holds in memory (IDecodeService.MAX_BUFFERED_BYTES).
@@ -97,6 +105,32 @@ public final class VmThumbnails {
      */
     public static @NonNull Bitmap load(@NonNull ContentInterface content, @NonNull Uri uri, @NonNull Size size,
             @Nullable CancellationSignal signal, int allocator) throws IOException {
+        final int mark = CleanCopyGate.decodeAnswersMark();
+        try {
+            return loadOnce(content, uri, size, signal, allocator);
+        } catch (LaterException e) {
+            // The decode service did not answer: once it does (the system server tells this process), the provider
+            // is asked again, the bytes it gave may have been a stream that is spent.
+            if (!CleanCopyGate.awaitDecodeAnswers(mark, MAX_WAIT_MS,
+                    () -> signal != null && signal.isCanceled())) {
+                throw e;
+            }
+            if (signal != null) {
+                signal.throwIfCanceled();
+            }
+            return loadOnce(content, uri, size, signal, allocator);
+        }
+    }
+
+    /** No thumbnail because the decode service did not answer: worth asking once more when it does. */
+    private static final class LaterException extends IOException {
+        LaterException(String message) {
+            super(message);
+        }
+    }
+
+    private static @NonNull Bitmap loadOnce(@NonNull ContentInterface content, @NonNull Uri uri,
+            @NonNull Size size, @Nullable CancellationSignal signal, int allocator) throws IOException {
         final Bundle opts = new Bundle();
         opts.putParcelable(ContentResolver.EXTRA_SIZE, new Point(size.getWidth(), size.getHeight()));
         final AssetFileDescriptor afd;
@@ -161,8 +195,12 @@ public final class VmThumbnails {
             final Bitmap bitmap = reply == null ? null
                     : reply.getParcelable(CleanCopyClient.EXTRA_BITMAP, Bitmap.class);
             if (bitmap == null) {
-                throw new IOException("thumbnail not made in the VM: "
-                        + (reply == null ? "no reply" : reply.getString(EXTRA_ERROR)));
+                final String why = "thumbnail not made in the VM: "
+                        + (reply == null ? "no reply" : reply.getString(EXTRA_ERROR));
+                if (reply != null && reply.getBoolean(EXTRA_LATER)) {
+                    throw new LaterException(why);
+                }
+                throw new IOException(why);
             }
             sMade.incrementAndGet();
             if (Log.isLoggable(TAG, Log.DEBUG)) {
@@ -186,8 +224,11 @@ public final class VmThumbnails {
     }
 
     /**
-     * The bytes as the decode service takes them: a whole file or a stream as it is (the service reads it with its
-     * own deadline and limit), a part of a regular file (an EXIF thumbnail) copied into a memory file here.
+     * The bytes as the decode service takes them: a stream as it is (the service reads it with its own deadline and
+     * limit), a regular file or a part of one (an EXIF thumbnail) copied into a memory file here, or fed into a pipe
+     * when it is larger than a memory file may be. The provider's file itself never leaves this process: the system
+     * server and the decode service read only what this process copied (a file on shared storage is a FUSE file that
+     * neither may read).
      */
     private static ParcelFileDescriptor handOver(AssetFileDescriptor asset) throws IOException {
         final ParcelFileDescriptor pfd = asset.getParcelFileDescriptor();
@@ -205,16 +246,67 @@ public final class VmThumbnails {
             }
             return pfd.dup();
         }
-        if (offset == 0 && (length < 0 || length == st.st_size)) {
-            return pfd.dup();
-        }
         if (length < 0) {
             length = st.st_size - offset;
         }
-        if (offset < 0 || length <= 0 || length > MAX_PART_BYTES || offset > st.st_size - length) {
+        if (offset < 0 || length <= 0 || offset > st.st_size - length) {
             throw new IOException("thumbnail part out of range");
         }
+        if (length > MAX_PART_BYTES) {
+            if (length > MAX_PIPED_BYTES) {
+                throw new IOException("thumbnail file too large");
+            }
+            return pipeFrom(pfd.dup(), offset, length);
+        }
         return copyToMemory(pfd.getFileDescriptor(), offset, (int) length);
+    }
+
+    // A file larger than this is not handed over at all: the decode service's limit for what it reads
+    // (IDecodeService.MAX_INPUT_BYTES).
+    private static final long MAX_PIPED_BYTES = 256L * 1024 * 1024;
+
+    // A pipe fed with {@code length} bytes of {@code source} from {@code offset} by a thread of its own, which owns and
+    // closes {@code source}. The decode service reads it under its own deadline: when it stops reading, the write
+    // fails and the thread ends.
+    private static ParcelFileDescriptor pipeFrom(ParcelFileDescriptor source, long offset, long length)
+            throws IOException {
+        final ParcelFileDescriptor[] pipe;
+        try {
+            pipe = ParcelFileDescriptor.createPipe();
+        } catch (IOException e) {
+            source.close();
+            throw e;
+        }
+        final Thread feed = new Thread(() -> {
+            try (ParcelFileDescriptor in = source; ParcelFileDescriptor out = pipe[1]) {
+                final byte[] buffer = new byte[64 * 1024];
+                long done = 0;
+                while (done < length) {
+                    final int n = Os.pread(in.getFileDescriptor(), buffer, 0,
+                            (int) Math.min(buffer.length, length - done), offset + done);
+                    if (n <= 0) {
+                        return;
+                    }
+                    int written = 0;
+                    while (written < n) {
+                        written += Os.write(out.getFileDescriptor(), buffer, written, n - written);
+                    }
+                    done += n;
+                }
+            } catch (ErrnoException | IOException e) {
+                // The reader stopped (its deadline) or the file went: the service sees a short stream.
+            }
+        }, "VmThumbnailFeed");
+        feed.setDaemon(true);
+        try {
+            feed.start();
+        } catch (Throwable e) {
+            source.close();
+            pipe[1].close();
+            pipe[0].close();
+            throw new IOException("thumbnail not handed over", e);
+        }
+        return pipe[0];
     }
 
     private static ParcelFileDescriptor copyToMemory(FileDescriptor source, long offset, int length)

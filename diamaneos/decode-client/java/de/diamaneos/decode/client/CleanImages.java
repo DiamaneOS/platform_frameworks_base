@@ -21,7 +21,6 @@ import android.content.Context;
 import com.android.internal.diamaneos.cleancopies.CleanCopyClient;
 import com.android.internal.diamaneos.cleancopies.CleanImageFile;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -31,8 +30,6 @@ import java.util.List;
  */
 public final class CleanImages implements CleanCopies {
     private static CleanImages sInstance;
-    // Per thread: the keys missed since trackMisses(), or null when not tracking.
-    private static final ThreadLocal<ArrayList<String>> sTracked = new ThreadLocal<>();
 
     private final Context mContext;
 
@@ -66,23 +63,7 @@ public final class CleanImages implements CleanCopies {
     @Override
     public void missed(String key, String apkPath, String file, int density, int maxWidth, int maxHeight,
             String resourceName, int userId) {
-        final ArrayList<String> tracked = sTracked.get();
-        if (key != null && tracked != null && tracked.size() < 256 && !tracked.contains(key)) {
-            tracked.add(key);
-        }
         CleanCopyClient.request(mContext, key, apkPath, file, density, maxWidth, maxHeight, resourceName, userId);
-    }
-
-    /** Starts collecting, on this thread, the keys of the files gates miss. */
-    public static void trackMisses() {
-        sTracked.set(new ArrayList<>());
-    }
-
-    /** The keys missed on this thread since {@link #trackMisses}, and stops collecting. */
-    public static List<String> trackedMisses() {
-        final ArrayList<String> tracked = sTracked.get();
-        sTracked.remove();
-        return tracked != null ? tracked : new ArrayList<>();
     }
 
     /** How many of {@code keys} have no copy yet and were not refused by the VM: files that may still be made. */

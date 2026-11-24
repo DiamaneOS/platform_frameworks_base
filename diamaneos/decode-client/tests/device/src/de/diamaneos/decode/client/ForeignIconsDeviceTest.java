@@ -19,7 +19,6 @@ package de.diamaneos.decode.client;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import android.content.Context;
@@ -27,7 +26,6 @@ import android.graphics.Bitmap;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
-import android.net.Uri;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -65,17 +63,6 @@ public class ForeignIconsDeviceTest {
         }
         final Bitmap b = ((BitmapDrawable) d).getBitmap();
         return b.getWidth() == 7 && b.getHeight() == 3;
-    }
-
-    @Test
-    public void pixelsOnly_showsPixels_andNothingThatNeedsADecoder() {
-        final Bitmap pixels = Bitmap.createBitmap(5, 5, Bitmap.Config.ARGB_8888);
-        assertTrue(ForeignIcons.pixelsOnly(mContext, Icon.createWithBitmap(pixels)) instanceof BitmapDrawable);
-        assertNull(ForeignIcons.pixelsOnly(mContext, oracleIcon()));
-        assertNull(ForeignIcons.pixelsOnly(mContext,
-                Icon.createWithContentUri(Uri.parse("content://de.diamaneos.decode.client.tests.none/a.png"))));
-        assertNull(ForeignIcons.pixelsOnly(mContext, Icon.createWithResource(mPackage, R.drawable.vm_test_red)));
-        assertNull(ForeignIcons.pixelsOnly(mContext, null));
     }
 
     @Test

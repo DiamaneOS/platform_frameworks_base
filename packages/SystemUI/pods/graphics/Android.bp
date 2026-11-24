@@ -28,7 +28,7 @@ java_library {
     static_libs: [
         "com.android.systemui.graphics_api",
         "SystemUISharedLib",
-        "diamaneos-decode-client",
+        "diamaneos-decode-client", // DiamaneOS: images from apps decoded in the protected VM
     ],
     visibility: [
         "//vendor:__subpackages__",

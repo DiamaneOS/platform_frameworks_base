@@ -88,12 +88,25 @@ public class CleanCopyKeyTest {
     @Test
     public void systemImage_onlyVerifiedPartitions() {
         assertTrue(CleanCopyKey.isSystemImage("/system/app/A/A.apk"));
+        assertTrue(CleanCopyKey.isSystemImage("/system/framework/framework-res.apk"));
+        assertTrue(CleanCopyKey.isSystemImage("/system_ext/priv-app/SystemUI/SystemUI.apk"));
+        assertTrue(CleanCopyKey.isSystemImage("/product/overlay/Theme.apk"));
+        assertTrue(CleanCopyKey.isSystemImage("/vendor/overlay/Device.apk"));
+        assertTrue(CleanCopyKey.isSystemImage("/odm/overlay/Odm.apk"));
         assertTrue(CleanCopyKey.isSystemImage("/apex/com.android.permission/priv-app/P/P.apk"));
         assertFalse(CleanCopyKey.isSystemImage("/data/app/~~x/p-y/base.apk"));
+        assertFalse(CleanCopyKey.isSystemImage("/data/resource-cache/x.frro"));
+        assertFalse(CleanCopyKey.isSystemImage("/mnt/expand/uuid/app/x/base.apk"));
         assertFalse(CleanCopyKey.isSystemImage("/system/../data/app/a.apk"));
+        assertFalse(CleanCopyKey.isSystemImage("/system/./app/A.apk"));
         assertFalse(CleanCopyKey.isSystemImage("/system//x.apk"));
+        assertFalse(CleanCopyKey.isSystemImage("/system/app/.."));
+        assertFalse(CleanCopyKey.isSystemImage("/system/app/A.apk\0/data"));
         assertFalse(CleanCopyKey.isSystemImage("system/x.apk"));
+        assertFalse(CleanCopyKey.isSystemImage("/system"));
         assertFalse(CleanCopyKey.isSystemImage("/system/"));
+        assertFalse(CleanCopyKey.isSystemImage("/systemx/app/A.apk"));
+        assertFalse(CleanCopyKey.isSystemImage(""));
         assertFalse(CleanCopyKey.isSystemImage(null));
     }
 }

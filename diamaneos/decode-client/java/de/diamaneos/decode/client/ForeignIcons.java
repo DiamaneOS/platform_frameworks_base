@@ -131,18 +131,6 @@ public final class ForeignIcons {
     }
 
     /**
-     * {@code icon} as a drawable only when it is pixels already (a bitmap or adaptive bitmap icon), which needs no
-     * decoder, else null: for callers that show nothing else (wallet cards).
-     */
-    public static Drawable pixelsOnly(Context context, Icon icon) {
-        if (icon == null
-                || (icon.getType() != Icon.TYPE_BITMAP && icon.getType() != Icon.TYPE_ADAPTIVE_BITMAP)) {
-            return null;
-        }
-        return icon.loadDrawable(context);
-    }
-
-    /**
      * {@code icon} as a drawable, never waiting: what was made before, or null while an image thread makes it for
      * {@code ownerPackage} (the app that handed it over, whose quota pays). {@code onMade}, if not null, runs on the
      * main thread once it is made, so the caller can load it again. {@code context} is the caller's own (SystemUI or
@@ -153,7 +141,7 @@ public final class ForeignIcons {
         if (icon == null) {
             return null;
         }
-        if (!needsWork(icon)) {
+        if (!NotificationImageGate.needsGate(icon)) {
             return icon.loadDrawable(context);
         }
         if (icon.getType() == Icon.TYPE_RESOURCE) {
@@ -190,7 +178,7 @@ public final class ForeignIcons {
      */
     public static Icon safeIconNoWait(Context context, Icon icon, int userId, String ownerPackage, int maxPx,
             Runnable onMade) {
-        if (icon == null || !needsWork(icon)) {
+        if (icon == null || !NotificationImageGate.needsGate(icon)) {
             return icon;
         }
         if (icon.getType() == Icon.TYPE_RESOURCE) {
@@ -365,11 +353,6 @@ public final class ForeignIcons {
         }
     }
 
-    // Icons that would need a decode of an app's bytes here: URI, data and app resource icons.
-    private static boolean needsWork(Icon icon) {
-        return VmIcons.needsVm(icon) || AppIcons.isAppResource(icon);
-    }
-
     // Makes work's result on an image thread in the background (once at a time, with retries spaced out) and returns
     // null now: the next call finds it in the cache. Everyone who asked meanwhile with a callback is told on the main
     // thread once it is made.
@@ -417,7 +400,7 @@ public final class ForeignIcons {
 
     // On an image thread: the icon made within the app's quota.
     private static Drawable loadHere(Context context, Icon icon, int userId, String ownerPackage, int maxPx) {
-        if (!needsWork(icon)) {
+        if (!NotificationImageGate.needsGate(icon)) {
             return icon.loadDrawable(context);
         }
         final java.util.ArrayDeque<String> charged = sChargedForTest;

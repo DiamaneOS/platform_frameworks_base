@@ -45,7 +45,6 @@ public final class GatedAnimation extends Drawable implements Animatable2 {
     private final int mHeight;
     private final Rect mCrop;
     private final int[] mDurations;
-    private final int mLoops;
     private final Paint mPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
     private final Rect mSource = new Rect();
     private final RectF mTarget = new RectF();
@@ -53,7 +52,7 @@ public final class GatedAnimation extends Drawable implements Animatable2 {
     private int mFrame;
     private int mPlayed;
     private boolean mRunning;
-    private int mRepeatCount;
+    private final int mRepeatCount;
 
     private final Runnable mNext = new Runnable() {
         @Override
@@ -85,7 +84,6 @@ public final class GatedAnimation extends Drawable implements Animatable2 {
         mHeight = height;
         mCrop = crop;
         mDurations = durations;
-        mLoops = loops;
         // As AnimatedImageDrawable: the file's loop count, REPEAT_INFINITE for one that plays forever.
         mRepeatCount = loops == 0 ? -1 : loops - 1;
     }
@@ -93,16 +91,6 @@ public final class GatedAnimation extends Drawable implements Animatable2 {
     private int duration(int frame) {
         final int d = mDurations[frame];
         return d <= SHORT_FRAME_MS ? SHORT_FRAME_SHOWN_MS : d;
-    }
-
-    /** As AnimatedImageDrawable#setRepeatCount: -1 plays forever. */
-    public void setRepeatCount(int repeatCount) {
-        mRepeatCount = Math.max(-1, repeatCount);
-    }
-
-    /** As AnimatedImageDrawable#getRepeatCount. */
-    public int getRepeatCount() {
-        return mRepeatCount;
     }
 
     @Override

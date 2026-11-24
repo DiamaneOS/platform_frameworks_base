@@ -39,7 +39,7 @@ class SmartspaceAppWidgetHostView private constructor(context: Context, private 
         setPadding(0, 0, 0, 0)
     }
 
-    // DiamaneOS: the hub's smartspace timers come from the smartspace service, which no build of ours connects (no
+    // DiamaneOS: the hub's smartspace timers come from the smartspace service, which no DiamaneOS build connects (no
     // hub data plugin is bound, so CommunalSmartspaceController never opens a session). Should one ever be bound,
     // the images the views carry (icons, links, bitmaps) are left out, and their layout's image files are empty.
     override fun updateAppWidget(remoteViews: RemoteViews?) {

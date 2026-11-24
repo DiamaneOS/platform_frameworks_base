@@ -158,15 +158,6 @@ public final class AppResourceImages implements ImageFileGate {
         return sMisses.get()[0] > 0;
     }
 
-    /**
-     * True when a load on this thread since {@link #beginTracking} could not make an app image for a reason other than
-     * the VM refusing the file (the VM down, out of time or budget): trying again later may make it.
-     */
-    static boolean missedForNow() {
-        final int[] counts = sMisses.get();
-        return counts[0] > counts[2];
-    }
-
     private static Made missing() {
         sMisses.get()[0]++;
         return null;
@@ -278,7 +269,7 @@ public final class AppResourceImages implements ImageFileGate {
 
     @Override
     public boolean decodesHere(String apkPath) {
-        return SystemImagePaths.isSystemImage(apkPath);
+        return CleanCopyKey.isSystemImage(apkPath);
     }
 
     @Override
@@ -688,7 +679,6 @@ public final class AppResourceImages implements ImageFileGate {
         return out.toByteArray();
     }
 
-    // A PNG this process writes from checked pixels, for callers that decode a stream themselves.
     /**
      * A made image as the bytes a {@code <bitmap>} or a stream decoder gets. A PNG, whose encoder writes the colour
      * profile of any colour space other than sRGB (Display P3 stays Display P3). An Ultra HDR photo, which a PNG cannot

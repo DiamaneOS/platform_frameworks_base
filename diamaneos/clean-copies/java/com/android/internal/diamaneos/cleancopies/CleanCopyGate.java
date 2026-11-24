@@ -244,10 +244,15 @@ public final class CleanCopyGate implements ImageFileGate {
                 final boolean watched = CleanCopyClient.watch(app, new android.os.IRemoteCallback.Stub() {
                     @Override
                     public void sendResult(android.os.Bundle data) {
-                        if (data != null) {
-                            made(data.getString(CleanCopyClient.EXTRA_PACKAGE),
-                                    data.getInt(CleanCopyClient.EXTRA_USER, -1));
+                        if (data == null) {
+                            return;
                         }
+                        if (data.getBoolean(CleanCopyClient.EXTRA_DECODE_ANSWERS)) {
+                            decodeAnswers();
+                            return;
+                        }
+                        made(data.getString(CleanCopyClient.EXTRA_PACKAGE),
+                                data.getInt(CleanCopyClient.EXTRA_USER, -1));
                     }
                 });
                 if (!watched && ++mTries < 20) {
@@ -255,6 +260,74 @@ public final class CleanCopyGate implements ImageFileGate {
                 }
             }
         });
+    }
+
+    // How often the system server said its decode service answers again (after calls failed for it), guarded by
+    // sAnswersLock.
+    private static final Object sAnswersLock = new Object();
+    private static int sAnswers;
+
+    private static void decodeAnswers() {
+        CleanCopyClient.decodeAnswers();
+        synchronized (sAnswersLock) {
+            sAnswers++;
+            sAnswersLock.notifyAll();
+        }
+    }
+
+    /**
+     * A mark to pass to {@link #awaitDecodeAnswers}, taken before a request to the system server's decode work: an
+     * answer sent after it ends the wait at once. Starts the watch of this process if it has not started.
+     */
+    public static int decodeAnswersMark() {
+        watching();
+        synchronized (sAnswersLock) {
+            return sAnswers;
+        }
+    }
+
+    /**
+     * Waits on this (background) thread until the system server says its decode service answers again after {@code
+     * mark}, at most {@code timeoutMs}, or until {@code cancelled} says so (checked at least every half second). True
+     * when it answers. Never on the main thread or on a binder call: false there at once.
+     */
+    public static boolean awaitDecodeAnswers(int mark, long timeoutMs, java.util.function.BooleanSupplier cancelled) {
+        if (Looper.myLooper() == Looper.getMainLooper() || android.os.Binder.isDirectlyHandlingTransaction()
+                || sApp == null) {
+            return false;
+        }
+        final long end = SystemClock.uptimeMillis() + timeoutMs;
+        synchronized (sAnswersLock) {
+            while (sAnswers == mark) {
+                final long left = end - SystemClock.uptimeMillis();
+                if (left <= 0 || (cancelled != null && cancelled.getAsBoolean())) {
+                    return false;
+                }
+                try {
+                    sAnswersLock.wait(Math.min(left, 500));
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
+
+    /** Told (on a background thread) when copies of an app's images were made, see {@link #whenMade}. */
+    public interface MadeListener {
+        void onMade(String packageName, int userId);
+    }
+
+    /**
+     * Has {@code listener}, held weakly (the caller keeps it, a drawable or a view), told when copies of {@code
+     * packageName}'s images for {@code userId} were made: what it showed without them can load again.
+     */
+    public static void whenMade(MadeListener listener, String packageName, int userId) {
+        if (listener == null || packageName == null || sApp == null) {
+            return;
+        }
+        addWaiter(new Waiter(listener, packageName, userId));
     }
 
     // Copies of {@code packageName} for {@code user} were made: its hosted widgets are applied again, its filling
@@ -277,6 +350,18 @@ public final class CleanCopyGate implements ImageFileGate {
             if (target instanceof android.appwidget.AppWidgetHostView) {
                 final android.appwidget.AppWidgetHostView view = (android.appwidget.AppWidgetHostView) target;
                 view.post(view::reapplyForCleanCopies);
+            } else if (target instanceof MadeListener) {
+                final MadeListener listener = (MadeListener) target;
+                final android.os.Handler handler;
+                synchronized (CleanCopyGate.class) {
+                    handler = sMadeHandler;
+                }
+                final Runnable tell = () -> listener.onMade(packageName, user);
+                if (handler != null) {
+                    handler.post(tell);
+                } else {
+                    new Thread(tell, "CleanCopiesMade").start();
+                }
             } else if (target instanceof FillingIcon) {
                 final FillingIcon icon = (FillingIcon) target;
                 final Runnable refill = () -> {
@@ -365,7 +450,6 @@ public final class CleanCopyGate implements ImageFileGate {
     private final Context mContext;
     private final Source mSource;
     private final Set<String> mOwnApks = new HashSet<>();
-    private final int mMode;
     private final boolean mWaits;
     private volatile long mNoWaitUntil;
     private boolean mKnownBoxOnly;
@@ -392,10 +476,9 @@ public final class CleanCopyGate implements ImageFileGate {
         }
     }
 
-    private CleanCopyGate(Context context, Source source, int mode, boolean waits) {
+    private CleanCopyGate(Context context, Source source, boolean waits) {
         mContext = context;
         mSource = source;
-        mMode = mode;
         mWaits = waits;
         final ApplicationInfo own = context.getApplicationInfo();
         if (own != null) {
@@ -433,7 +516,7 @@ public final class CleanCopyGate implements ImageFileGate {
                     CleanCopyClient.request(app, key, apkPath, file, density, maxWidth, maxHeight, resourceName,
                             userId);
                 }
-            }, mode, mode == MODE_LAUNCHER));
+            }, mode == MODE_LAUNCHER));
             sMode = mode;
             Log.i(TAG, "apps' images in " + name + " come from clean copies"
                     + (mode == MODE_LAUNCHER ? " (launcher)" : ""));
@@ -447,10 +530,10 @@ public final class CleanCopyGate implements ImageFileGate {
 
     /**
      * A gate for tests: {@code source} instead of the system server, and the test's own APK treated as any app's (a
-     * process gate decodes its own APK's files as before). {@code launcher}: the launcher's gate.
+     * process gate decodes its own APK's files as before). {@code waits}: icon loads wait for a missing copy.
      */
-    public static ImageFileGate forTest(Context context, Source source, boolean launcher, boolean waits) {
-        final CleanCopyGate gate = new CleanCopyGate(context, source, launcher ? MODE_LAUNCHER : MODE_ALL, waits);
+    public static ImageFileGate forTest(Context context, Source source, boolean waits) {
+        final CleanCopyGate gate = new CleanCopyGate(context, source, waits);
         gate.mOwnApks.clear();
         return gate;
     }
@@ -461,7 +544,7 @@ public final class CleanCopyGate implements ImageFileGate {
      * images here are empty.
      */
     public static void installForSystemServer(Context systemContext, Source source) {
-        final CleanCopyGate gate = new CleanCopyGate(systemContext, source, MODE_ALL, false);
+        final CleanCopyGate gate = new CleanCopyGate(systemContext, source, false);
         gate.mKnownBoxOnly = true;
         ImageFileGates.setProcessDefault(gate);
         sActive = true;
@@ -922,9 +1005,9 @@ public final class CleanCopyGate implements ImageFileGate {
         return result;
     }
 
-    // The chunk as a file stores it (network order) from the device format.
+    // The chunk as a file stores it (network order) from the device format, to go right after IHDR (8 signature +
+    // 25 IHDR bytes).
     private static byte[] fileChunk(byte[] deviceChunk) {
-        // The chunk as a file stores it (network order), right after IHDR (8 signature + 25 IHDR bytes).
         final ByteBuffer in = ByteBuffer.wrap(deviceChunk).order(ByteOrder.nativeOrder());
         final ByteBuffer data = ByteBuffer.allocate(deviceChunk.length).order(ByteOrder.BIG_ENDIAN);
         data.put(deviceChunk, 0, 4);

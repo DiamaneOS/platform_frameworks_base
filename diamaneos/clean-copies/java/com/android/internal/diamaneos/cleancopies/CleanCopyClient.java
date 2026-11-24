@@ -42,7 +42,7 @@ import java.util.List;
 
 /**
  * The clean copies the system server keeps, seen from any system process: a copy is read through the system
- * server's provider as a file of ours ({@link CleanImageFile}, checked here, no decoder runs), and a file without one
+ * server's provider as a {@link CleanImageFile} (checked here, no decoder runs), and a file without one
  * is asked for in the background, so the system server makes it in the VM. Only system processes may use the
  * provider. Never on the main thread.
  *
@@ -70,6 +70,11 @@ public final class CleanCopyClient {
      */
     public static final String METHOD_WATCH = "watch";
     public static final String EXTRA_CALLBACK = "callback";
+    /**
+     * In what a watcher is sent: the system server's decode service answers again after calls failed for it (a
+     * thumbnail that waits for it tries again).
+     */
+    public static final String EXTRA_DECODE_ANSWERS = "decodeAnswers";
     /** The resource a file is loaded as ({@code Resources.getResourceName}), for the stand-in of its copy. */
     public static final String EXTRA_RESOURCE = "resource";
     /** In a fallback reply: the key of the newest copy of the same resource, the closest in density. */
@@ -272,6 +277,16 @@ public final class CleanCopyClient {
         extras.putStringArrayList(EXTRA_KEYS, new ArrayList<>(keys));
         final Bundle reply = call(context, METHOD_STATUS, extras);
         return reply != null ? reply.getInt(EXTRA_OPEN, keys.size()) : keys.size();
+    }
+
+    /**
+     * The system server's decode service answers again: files asked for during the outage may be asked for again at
+     * once (their requests may have run out of time while it did not answer).
+     */
+    static void decodeAnswers() {
+        synchronized (sAsked) {
+            sAsked.evictAll();
+        }
     }
 
     /** Removes the copies of the APK at {@code apkPath}, for tests that want them made again. */

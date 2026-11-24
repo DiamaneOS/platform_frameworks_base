@@ -53,6 +53,11 @@ import java.util.function.Consumer;
  * <p>Only the latest update of a widget waits for an image thread: a newer one, {@link #setApp} and {@link #cancel}
  * drop the older one before it runs and stop it if it does, and it never delivers.
  *
+ * <p>An update whose images were left out because the decode service did not answer is checked again from the same
+ * views once the service answers ({@link VmDecode#addRecoveryListener}), at most {@link #MAX_RECOVERY_CHECKS} times,
+ * unless a newer update or {@link #cancel} came first: the blank images fill in without waiting for the app's next
+ * update.
+ *
  * <p>The launcher uses {@link #forLauncher}: its process gate ({@link CleanCopyGate}) already serves the app's resource
  * images from clean copies, so the host view keeps its own context and nothing is made ahead for it. Icons, links and
  * list items in the update are re-made in the VM as above.
@@ -83,6 +88,15 @@ public final class WidgetImages {
     private ApplicationInfo mAppInfo; // the widget app's, when the host was given it, guarded by mLock
     private AtomicBoolean mCancelled = new AtomicBoolean(); // the latest update's, guarded by mLock
     private ImageThreads.Task mTask; // the latest update's, guarded by mLock
+    // The latest update when its images were left out for the decode service, to check again once it answers, and how
+    // often it was checked again. Guarded by mLock.
+    private Runnable mCheckAgain;
+    private int mRecoveryChecks;
+    static final int MAX_RECOVERY_CHECKS = 3;
+    // The hosts with an update to check again, weakly.
+    private static final java.util.Set<WidgetImages> sLeftOut =
+            java.util.Collections.synchronizedSet(java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>()));
+    private static final AtomicBoolean sRecoveryListening = new AtomicBoolean();
 
     /** For a host view made with {@code themed} (the view's own context, its theme kept). */
     public WidgetImages(Context themed) {
@@ -159,6 +173,7 @@ public final class WidgetImages {
     }
 
     private void cancelLocked() {
+        mCheckAgain = null;
         mCancelled.set(true);
         if (mTask != null) {
             mTask.cancel();
@@ -172,6 +187,13 @@ public final class WidgetImages {
      * never delivers.
      */
     public void prepare(RemoteViews views, Executor executor, Consumer<RemoteViews> done) {
+        synchronized (mLock) {
+            mRecoveryChecks = 0;
+        }
+        prepareChecked(views, executor, done);
+    }
+
+    private void prepareChecked(RemoteViews views, Executor executor, Consumer<RemoteViews> done) {
         final String owner;
         final int userId;
         final AppResourceImages gate;
@@ -194,6 +216,7 @@ public final class WidgetImages {
                 return;
             }
             final DisplayMetrics metrics = mHost.getResources().getDisplayMetrics();
+            final int unavailable = VmDecode.unavailableCount();
             RemoteViews checked = null;
             try {
                 checked = check(NotificationImageGate.forNotification(mHost, owner, userId,
@@ -203,6 +226,9 @@ public final class WidgetImages {
                 Log.w(TAG, "widget views not checked, not shown: " + e);
             }
             final RemoteViews result = checked;
+            if (VmDecode.unavailableCount() != unavailable) {
+                leftOut(cancelled, () -> prepareChecked(views, executor, done));
+            }
             if (!cancelled.get()) {
                 executor.execute(() -> {
                     if (!cancelled.get()) {
@@ -233,6 +259,43 @@ public final class WidgetImages {
                 mTask = task;
             } else {
                 task.cancel();
+            }
+        }
+    }
+
+    // The update of {@code cancelled} left images out for the decode service: checked again once it answers, while it
+    // is still the latest update.
+    private void leftOut(AtomicBoolean cancelled, Runnable checkAgain) {
+        synchronized (mLock) {
+            if (mCancelled != cancelled || cancelled.get() || mRecoveryChecks >= MAX_RECOVERY_CHECKS) {
+                return;
+            }
+            mCheckAgain = checkAgain;
+        }
+        sLeftOut.add(this);
+        if (sRecoveryListening.compareAndSet(false, true)) {
+            VmDecode.addRecoveryListener(WidgetImages::checkLeftOutAgain);
+        }
+    }
+
+    // The decode service answers again: every host's latest update with images left out is checked again.
+    private static void checkLeftOutAgain() {
+        final java.util.List<WidgetImages> hosts;
+        synchronized (sLeftOut) {
+            hosts = new java.util.ArrayList<>(sLeftOut);
+            sLeftOut.clear();
+        }
+        for (WidgetImages host : hosts) {
+            final Runnable again;
+            synchronized (host.mLock) {
+                again = host.mCheckAgain;
+                host.mCheckAgain = null;
+                if (again != null) {
+                    host.mRecoveryChecks++;
+                }
+            }
+            if (again != null) {
+                again.run();
             }
         }
     }

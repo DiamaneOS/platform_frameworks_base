@@ -27,7 +27,8 @@ public final class DecodeChecks {
 
     private static boolean status(int s) {
         return s == IDecodeService.STATUS_OK || s == IDecodeService.STATUS_UNAVAILABLE
-                || s == IDecodeService.STATUS_UNSUPPORTED || s == IDecodeService.STATUS_INVALID;
+                || s == IDecodeService.STATUS_UNSUPPORTED || s == IDecodeService.STATUS_INVALID
+                || s == IDecodeService.STATUS_NO_ROOM;
     }
 
     private static boolean format(int f) {

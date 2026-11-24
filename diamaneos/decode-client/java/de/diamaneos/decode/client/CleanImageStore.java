@@ -42,7 +42,7 @@ import java.util.function.Predicate;
  * An app update, another theme, density or night mode, or an overlay makes Android pick another file or another APK,
  * so it is another key: a stale copy is never taken for the exact file. The system server keeps the store (in
  * /data/system, which no app can reach) and hands its files to other system processes ({@link CleanImages}). The format
- * is ours ({@link CleanImageFile}): reading one back runs no image decoder, only zlib over data the system server
+ * is that of {@link CleanImageFile}: reading one back runs no image decoder, only zlib over data the system server
  * wrote, after its SHA-256 and key are checked.
  *
  * <p>Each copy also names the resource it is of ({@code CleanCopyKey.identity}). While the exact copy of a file is

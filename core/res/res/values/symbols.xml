@@ -3275,6 +3275,7 @@
   <java-symbol type="string" name="ext_media_status_mounted_ro" />
   <java-symbol type="string" name="ext_media_status_bad_removal" />
   <java-symbol type="string" name="ext_media_status_unmountable" />
+  <!-- DiamaneOS: the notices of the filesystem VM for SD cards and USB drives. -->
   <java-symbol type="string" name="ext_media_status_unopenable" />
   <java-symbol type="string" name="ext_media_status_not_written_back" />
   <java-symbol type="string" name="ext_media_not_written_back_notification_title" />

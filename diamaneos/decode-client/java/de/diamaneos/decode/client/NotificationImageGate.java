@@ -591,11 +591,7 @@ public final class NotificationImageGate {
      * (its bitmap files decoded in the VM, XML parsed as usual).
      */
     static boolean needsGate(Icon icon) {
-        return VmIcons.needsVm(icon) || isAppResource(icon);
-    }
-
-    private static boolean isAppResource(Icon icon) {
-        return icon != null && icon.getType() == Icon.TYPE_RESOURCE && !"android".equals(icon.getResPackage());
+        return VmIcons.needsVm(icon) || AppIcons.isAppResource(icon);
     }
 
     /**

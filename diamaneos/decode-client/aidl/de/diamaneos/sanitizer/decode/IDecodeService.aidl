@@ -28,8 +28,9 @@ import de.diamaneos.sanitizer.decode.Thumbnail;
  * privileged, allowlisted) and the service also checks the calling package against its own list.
  *
  * Fail closed: STATUS_UNAVAILABLE means the VM could not do the work in time (not running, refused, restarting, queue
- * full). The caller shows a placeholder or stores no value and asks again later. It never decodes the file itself.
- * There is no switch that turns this off.
+ * full). STATUS_NO_ROOM means the service had no memory for this request while other large images held it. Either
+ * way the caller shows a placeholder or stores no value and asks again: later, or shortly after STATUS_NO_ROOM. It
+ * never decodes the file itself. There is no switch that turns this off.
  */
 interface IDecodeService {
     const int STATUS_OK = 0;
@@ -39,6 +40,11 @@ interface IDecodeService {
     const int STATUS_UNSUPPORTED = 2;
     /** Broken or hostile file, or a limit was hit. Treat as undecodable, do not retry. */
     const int STATUS_INVALID = 3;
+    /**
+     * No memory for this request now: other large images hold the service's budget. The VM works and nothing is known
+     * about the file. Ask again shortly, never decode in the caller.
+     */
+    const int STATUS_NO_ROOM = 4;
 
     const int PRIORITY_USER_WAITING = 0;
     const int PRIORITY_BACKGROUND = 1;

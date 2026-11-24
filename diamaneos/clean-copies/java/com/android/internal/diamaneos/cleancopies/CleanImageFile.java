@@ -30,7 +30,7 @@ import java.util.zip.Inflater;
 
 /**
  * One clean copy of an app's image file as the system server keeps it on disk: the pixels the VM made, never a file
- * format an image decoder reads. The layout is ours: a header, the raw pixels (ARGB_8888 as
+ * format an image decoder reads. The layout: a header, the raw pixels (ARGB_8888 as
  * {@code Bitmap.copyPixelsToBuffer} writes them) compressed with zlib, and a SHA-256 over all of it. A file is taken
  * only when its hash, its key and every field check out, so a damaged or foreign file is never shown. Plain Java,
  * tested on the host.

@@ -612,7 +612,7 @@ public final class VmIconLoads {
                         reply == null ? "the system server did not take it" : reply.getString(DecodeGate.EXTRA_ERROR));
             }
         } catch (IOException e) {
-            // Closing our copy of the descriptor failed: the system server has its own.
+            // Closing this process's copy of the descriptor failed: the system server has its own.
         }
     }
 
