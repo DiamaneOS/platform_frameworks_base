@@ -34,5 +34,7 @@
         <permission name="android.permission.PERSONAL_CONTEXT_RECEIVE_INSIGHTS"/>
         <permission name="android.permission.PERSONAL_CONTEXT_HOST_INSIGHT_SURFACE"/>
         <permission name="android.permission.PERSONAL_CONTEXT_READ_SETTINGS"/>
+        <!-- DiamaneOS: images of home screen widgets decoded in the protected VM. -->
+        <permission name="de.diamaneos.sanitizer.permission.DECODE"/>
     </privapp-permissions>
 </permissions>

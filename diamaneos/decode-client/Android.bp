@@ -69,6 +69,7 @@ java_library {
         "//frameworks/base/services/companion",
         "//frameworks/base/packages/SystemUI:__subpackages__",
         "//frameworks/base/libs/WindowManager/Shell",
+        "//packages/apps/Launcher3",
     ],
 }
 
