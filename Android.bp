@@ -85,6 +85,7 @@ filegroup {
         ":framework-telephony-sources",
         ":framework-wifi-annotations",
         ":framework-wifi-non-updatable-sources",
+        ":diamaneos-clean-copies-sources", // DiamaneOS: clean copies of apps images (diamaneos/clean-copies)
         ":PacProcessor-aidl-sources",
         ":ProxyHandler-aidl-sources",
         ":vcn-utils-platform-sources",

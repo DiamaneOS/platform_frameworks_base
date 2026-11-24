@@ -1452,7 +1452,7 @@ public class Resources {
     public InputStream openRawResource(@RawRes int id, TypedValue value)
             throws NotFoundException {
         final InputStream in = mResourcesImpl.openRawResource(id, value);
-        final ImageFileGate gate = mImageFileGate;
+        final ImageFileGate gate = ImageFileGates.effective(mImageFileGate); // DiamaneOS: or the process's gate
         if (gate == null) {
             return in;
         }

@@ -325,6 +325,65 @@ public final class VmDecode {
         }
     }
 
+    /**
+     * The image files an app's splash screens and launcher icons name (the clean icon cache's warm-up), resolved in
+     * the decode service's process: only names, checked here (same lengths, at most the service's maximum, plain
+     * relative file names). Only the system server may ask. At background priority.
+     */
+    public static de.diamaneos.sanitizer.decode.AppImageFiles listAppImageFiles(Context context,
+            de.diamaneos.sanitizer.decode.AppImagesRequest request, long deadline)
+            throws UnavailableException, RejectedException {
+        checkNotMainThread();
+        return client(context).call(PRIORITY_BACKGROUND, deadline, null, service -> {
+            final de.diamaneos.sanitizer.decode.AppImageFiles files = service.listAppImageFiles(request);
+            if (files == null) {
+                throw new RejectedException("no reply");
+            }
+            checkStatus(files.status);
+            final int n = files.files == null ? -1 : files.files.length;
+            if (n < 0 || n > IDecodeService.MAX_APP_IMAGE_FILES || files.apkPaths == null
+                    || files.apkPaths.length != n || files.densities == null || files.densities.length != n
+                    || (files.resources != null && files.resources.length != n)) {
+                throw new RejectedException("app image list breaks the contract");
+            }
+            // Entries that break it are left out, one by one (the caller checks them against the app's APKs and
+            // resource names again): one odd entry does not cost the app its other files.
+            final java.util.List<Integer> kept = new java.util.ArrayList<>();
+            for (int i = 0; i < n; i++) {
+                final String file = files.files[i];
+                final String apk = files.apkPaths[i];
+                final String resource = files.resources == null ? null : files.resources[i];
+                if (file != null && apk != null && !file.isEmpty() && file.charAt(0) != '/' && !file.contains("..")
+                        && file.indexOf('\0') < 0 && file.length() < 1024 && apk.startsWith("/")
+                        && !apk.contains("/../") && apk.indexOf('\0') < 0 && apk.length() < 1024
+                        && files.densities[i] >= 0 && files.densities[i] <= 0xffff
+                        && (resource == null || resource.length() <= 256)) {
+                    kept.add(i);
+                }
+            }
+            if (kept.size() == n) {
+                return files;
+            }
+            final de.diamaneos.sanitizer.decode.AppImageFiles checked =
+                    new de.diamaneos.sanitizer.decode.AppImageFiles();
+            checked.status = files.status;
+            checked.files = new String[kept.size()];
+            checked.apkPaths = new String[kept.size()];
+            checked.densities = new int[kept.size()];
+            checked.resources = files.resources == null ? null : new String[kept.size()];
+            for (int j = 0; j < kept.size(); j++) {
+                final int i = kept.get(j);
+                checked.files[j] = files.files[i];
+                checked.apkPaths[j] = files.apkPaths[i];
+                checked.densities[j] = files.densities[i];
+                if (checked.resources != null) {
+                    checked.resources[j] = files.resources[i];
+                }
+            }
+            return checked;
+        });
+    }
+
     /** Decodes compressed image bytes held in memory, for example an Icon made with createWithData. */
     public static Bitmap decodeBytes(Context context, byte[] data, int offset, int length, String ownerPackage,
             int priority, int maxWidth, int maxHeight, long deadline)

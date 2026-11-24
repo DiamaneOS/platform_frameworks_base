@@ -193,6 +193,9 @@ public class AppWidgetHostView extends FrameLayout implements AppWidgetHost.AppW
     public void setAppWidget(int appWidgetId, AppWidgetProviderInfo info) {
         mAppWidgetId = appWidgetId;
         mInfo = info;
+        // DiamaneOS: in the launcher a widget's images come from clean copies, and it is applied again once copies
+        // of the app the system's provider info names were made (CleanCopyGate).
+        com.android.internal.diamaneos.cleancopies.CleanCopyGate.hostedWidget(this, info);
 
         // We add padding to the AppWidgetHostView if necessary
         Rect padding = getDefaultPadding();
@@ -563,6 +566,18 @@ public class AppWidgetHostView extends FrameLayout implements AppWidgetHost.AppW
     public void updateAppWidget(RemoteViews remoteViews) {
         mLastInflatedRemoteViews = remoteViews;
         applyRemoteViews(remoteViews, true);
+    }
+
+    /**
+     * DiamaneOS: applies the last views again (copies of the widget's images were made), keeping its state. On the main
+     * thread.
+     *
+     * @hide
+     */
+    public void reapplyForCleanCopies() {
+        if (mLastInflatedRemoteViews != null) {
+            reapplyLastRemoteViews();
+        }
     }
 
     /**

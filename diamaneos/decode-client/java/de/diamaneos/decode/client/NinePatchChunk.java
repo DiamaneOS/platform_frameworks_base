@@ -156,6 +156,22 @@ public final class NinePatchChunk {
         return chunk;
     }
 
+    /**
+     * The checked chunk of a {@code width} x {@code height} image from the chunk data a PNG file holds ("npTc", and
+     * "npLb" or null), as {@link CleanImageStore} keeps them, or null when it does not hold together. Optical insets
+     * that do not hold together are left out, as {@link #fromPng} does.
+     */
+    public static NinePatchChunk fromChunks(byte[] npTc, byte[] npLb, int width, int height) {
+        if (npTc == null || width < 1 || height < 1 || width > MAX_SIDE || height > MAX_SIDE) {
+            return null;
+        }
+        final NinePatchChunk chunk = parse(npTc, 0, npTc.length, width, height);
+        if (chunk != null && npLb != null) {
+            chunk.mOpticalInsets = parseInsets(npLb, 0, npLb.length, width, height);
+        }
+        return chunk;
+    }
+
     // Optical insets as a PNG stores them: left, top, right, bottom, in the device's own byte order. Unlike npTc,
     // aapt writes them with memcpy of host ints and Android's reader (NinePatchPeeker) reads them the same way.
     private static int[] parseInsets(byte[] b, int start, int length, int width, int height) {

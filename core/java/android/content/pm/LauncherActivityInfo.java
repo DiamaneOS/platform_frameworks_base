@@ -31,6 +31,7 @@ import android.text.TextUtils;
 import android.util.DisplayMetrics;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.diamaneos.cleancopies.CleanCopyGate;
 
 import java.util.Objects;
 
@@ -141,7 +142,13 @@ public class LauncherActivityInfo {
                         getActivityInfo().applicationInfo);
                 // Since this is loading the activity's icon, we use the capped resource API
                 // to apply downsampling protection and prevent OOMs.
-                icon = resources.getDrawableForDensityCapped(iconRes, density, /* theme= */ null);
+                // DiamaneOS: from clean copies (CleanCopyGate), the default icon while one is missing.
+                final int misses = CleanCopyGate.misses();
+                icon = CleanCopyGate.iconLoad(() ->
+                        resources.getDrawableForDensityCapped(iconRes, density, /* theme= */ null));
+                if (CleanCopyGate.misses() != misses) {
+                    icon = null;
+                }
             } catch (NameNotFoundException | Resources.NotFoundException exc) {
             }
         }

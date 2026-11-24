@@ -16,6 +16,8 @@
 
 package de.diamaneos.sanitizer.decode;
 
+import de.diamaneos.sanitizer.decode.AppImageFiles;
+import de.diamaneos.sanitizer.decode.AppImagesRequest;
 import de.diamaneos.sanitizer.decode.DecodeRequest;
 import de.diamaneos.sanitizer.decode.Frames;
 import de.diamaneos.sanitizer.decode.ImageInfo;
@@ -80,6 +82,9 @@ interface IDecodeService {
     /** Thumbnail.gainmapParams: this many values. */
     const int GAINMAP_PARAMS = 17;
 
+    /** AppImageFiles: at most this many files for one app. */
+    const int MAX_APP_IMAGE_FILES = 256;
+
     /** Header only: format, size, animation, from at most MAX_PROBE_BYTES. No pixels are decoded. */
     ImageInfo probe(in DecodeRequest request);
 
@@ -110,4 +115,12 @@ interface IDecodeService {
      * that length, or an empty array when the handle is gone or has no gain map.
      */
     byte[] readGainmapStripe(long handle, int index);
+
+    /**
+     * The image files an app's splash screens and launcher icons name, for the clean icon cache. Resolved here (the
+     * app's resource table and XML drawables, attribute references only, nothing inflated or decoded), so the system
+     * server parses none of the app's XML. Only the system server may call it. Last, so callers built before it keep
+     * their transaction numbers.
+     */
+    AppImageFiles listAppImageFiles(in AppImagesRequest request);
 }

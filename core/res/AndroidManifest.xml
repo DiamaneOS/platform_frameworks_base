@@ -44,6 +44,8 @@
     <protected-broadcast android:name="android.intent.action.PACKAGE_REMOVED_INTERNAL" />
     <protected-broadcast android:name="android.intent.action.PACKAGE_FULLY_REMOVED" />
     <protected-broadcast android:name="android.intent.action.PACKAGE_CHANGED" />
+    <!-- DiamaneOS: copies of an app's images were made (the clean icon cache). -->
+    <protected-broadcast android:name="de.diamaneos.action.CLEAN_COPIES_MADE" />
     <protected-broadcast android:name="android.intent.action.PACKAGE_FULLY_LOADED" />
     <protected-broadcast android:name="android.intent.action.PACKAGE_ENABLE_ROLLBACK" />
     <protected-broadcast android:name="android.intent.action.CANCEL_ENABLE_ROLLBACK" />
@@ -11365,6 +11367,15 @@
         <provider
             android:name="com.android.server.textclassifier.IconsContentProvider"
             android:authorities="com.android.textclassifier.icons"
+            android:singleUser="true"
+            android:enabled="true"
+            android:exported="true">
+        </provider>
+
+        <!-- DiamaneOS: clean copies of apps' image files, made in the protected VM, for system processes. -->
+        <provider
+            android:name="com.android.server.cleanimages.CleanImageProvider"
+            android:authorities="de.diamaneos.cleanimages"
             android:singleUser="true"
             android:enabled="true"
             android:exported="true">

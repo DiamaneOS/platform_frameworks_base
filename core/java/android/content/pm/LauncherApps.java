@@ -78,6 +78,7 @@ import android.util.Pair;
 import android.window.IDumpCallback;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.diamaneos.cleancopies.CleanCopyGate;
 import com.android.internal.util.function.pooled.PooledLambda;
 
 import java.io.IOException;
@@ -1790,6 +1791,10 @@ public class LauncherApps {
             final ParcelFileDescriptor pfd = getShortcutIconFd(shortcut);
             return loadDrawableFromFileDescriptor(pfd, shortcut.hasAdaptiveBitmap());
         } else if (shortcut.hasIconUri()) {
+            if (CleanCopyGate.isActive()) {
+                // DiamaneOS: the URI opened here with this caller's grant as before, its picture decoded in the VM.
+                return CleanCopyGate.shortcutUriIcon(mContext, shortcut, () -> getUriShortcutIconFd(shortcut));
+            }
             final ParcelFileDescriptor pfd = getUriShortcutIconFd(shortcut);
             return loadDrawableFromFileDescriptor(pfd, shortcut.hasAdaptiveBitmap());
         } else if (shortcut.hasIconResource()) {
@@ -1891,7 +1896,11 @@ public class LauncherApps {
             final Resources res = mContext.getPackageManager().getResourcesForApplication(ai);
             // Since this private helper is exclusively used to load shortcut icons, we use
             // the capped resource API to apply downsampling protection and prevent OOMs.
-            return res.getDrawableForDensityCapped(resId, density, /* theme= */ null);
+            // DiamaneOS: from clean copies (CleanCopyGate), none while one is missing.
+            final int misses = CleanCopyGate.misses();
+            final Drawable icon = CleanCopyGate.iconLoad(() ->
+                    res.getDrawableForDensityCapped(resId, density, /* theme= */ null));
+            return CleanCopyGate.misses() != misses ? null : icon;
         } catch (NameNotFoundException | Resources.NotFoundException e) {
             return null;
         }
