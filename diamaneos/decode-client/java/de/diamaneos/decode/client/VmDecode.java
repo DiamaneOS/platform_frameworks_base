@@ -29,6 +29,7 @@ import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.os.SystemClock;
+import android.provider.DocumentsContract;
 import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
@@ -284,15 +285,41 @@ public final class VmDecode {
     public static Bitmap decodeUri(Context context, ContentResolver resolver, Uri uri, String ownerPackage,
             int priority, int maxWidth, int maxHeight, long deadline)
             throws UnavailableException, RejectedException {
+        return decodeUri(context, resolver, uri, ownerPackage, priority, maxWidth, maxHeight, deadline, false);
+    }
+
+    /**
+     * The thumbnail behind a URI as {@code ContentResolver.loadThumbnail} gives it: {@link #decodeUri}, then turned by
+     * the provider's orientation extra ({@code DocumentsContract.EXTRA_ORIENTATION}, which a provider sends with an
+     * EXIF thumbnail, as the thumbnail does not carry the turn of its image) as Android turns it.
+     */
+    public static Bitmap loadThumbnail(Context context, ContentResolver resolver, Uri uri, String ownerPackage,
+            int priority, int maxWidth, int maxHeight, long deadline)
+            throws UnavailableException, RejectedException {
+        return decodeUri(context, resolver, uri, ownerPackage, priority, maxWidth, maxHeight, deadline, true);
+    }
+
+    private static Bitmap decodeUri(Context context, ContentResolver resolver, Uri uri, String ownerPackage,
+            int priority, int maxWidth, int maxHeight, long deadline, boolean providerTurn)
+            throws UnavailableException, RejectedException {
         checkNotMainThread();
         final String owner = owner(context, uri, ownerPackage);
         try (AssetFileDescriptor afd = openImageWithin(resolver, uri, maxWidth, maxHeight, owner, deadline)) {
             if (afd == null) {
                 throw new RejectedException("no image behind the URI", true);
             }
+            final Bundle extras = providerTurn ? afd.getExtras() : null;
+            final int turn = extras != null ? extras.getInt(DocumentsContract.EXTRA_ORIENTATION, 0) : 0;
             final Pumper pumper = pipe(afd, owner, pumpDeadline(deadline));
             try (ParcelFileDescriptor read = pumper.read) {
-                return decode(context, read, owner, priority, maxWidth, maxHeight, deadline).bitmap;
+                final Bitmap bitmap = decode(context, read, owner, priority, maxWidth, maxHeight, deadline).bitmap;
+                if (turn == 0) {
+                    return bitmap;
+                }
+                // As ContentResolver.loadThumbnail turns it.
+                final Matrix m = new Matrix();
+                m.setRotate(turn, bitmap.getWidth() / 2, bitmap.getHeight() / 2);
+                return Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), m, false);
             } finally {
                 pumper.afterCall();
             }

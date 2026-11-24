@@ -4345,6 +4345,12 @@ public abstract class ContentResolver implements ContentInterface {
         Objects.requireNonNull(uri);
         Objects.requireNonNull(size);
 
+        // DiamaneOS: in system processes the thumbnail is decoded in the protected VM, never here (VmThumbnails).
+        if (vmThumbnails()) {
+            return com.android.internal.diamaneos.cleancopies.VmThumbnails.load(content, uri, size, signal,
+                    allocator);
+        }
+
         // Convert to Point, since that's what the API is defined as
         final Bundle opts = new Bundle();
         opts.putParcelable(EXTRA_SIZE, new Point(size.getWidth(), size.getHeight()));
@@ -4385,6 +4391,16 @@ public abstract class ContentResolver implements ContentInterface {
         }
 
         return bitmap;
+    }
+
+    // DiamaneOS: whether this process has thumbnails decoded in the protected VM (VmThumbnails). Never on Ravenwood.
+    @android.ravenwood.annotation.RavenwoodReplace
+    private static boolean vmThumbnails() {
+        return com.android.internal.diamaneos.cleancopies.VmThumbnails.applies();
+    }
+
+    private static boolean vmThumbnails$ravenwood() {
+        return false;
     }
 
     /** @hide */

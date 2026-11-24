@@ -63,7 +63,6 @@ final class DecodeClient {
     // fill the queue or hold every thread. Requests without a known owner share a slightly larger lane.
     private static final int MAX_CALLS_PER_OWNER = 2;
     private static final int MAX_CALLS_UNKNOWN_OWNER = 4;
-    private final Map<String, Integer> mOwnerCalls = new HashMap<>(); // guarded by itself
 
     /** One call to the service. */
     interface Call<T> {
@@ -78,6 +77,8 @@ final class DecodeClient {
     private static final int APP_THREADS = SYSTEM_PROCESS ? MAX_THREADS - 1 : MAX_THREADS;
     private final CallPool mPool = new CallPool(APP_THREADS, MAX_THREADS - APP_THREADS, 64,
             MAX_CALLS_UNKNOWN_OWNER);
+    private final OwnerSlots mOwnerCalls = new OwnerSlots(APP_THREADS, MAX_CALLS_PER_OWNER, MAX_CALLS_UNKNOWN_OWNER,
+            DecodeClient::isSystemLane, VmDecode::isUnknownOwner, SystemClock::uptimeMillis);
 
     private final Object mLock = new Object();
     private IDecodeService mService; // guarded by mLock
@@ -159,12 +160,20 @@ final class DecodeClient {
             }
             connectTimeout = Math.min(connectTimeout, left);
         }
-        claimSlot(lane);
+        claimSlot(lane, SystemClock.uptimeMillis() + connectTimeout);
         // The slot is released exactly once: by the task when it ran, otherwise by whoever wins "claimed" here.
         final AtomicBoolean claimed = new AtomicBoolean();
         final AtomicBoolean started = new AtomicBoolean();
         final Bound bound;
         try {
+            if (deadline > 0) {
+                // The wait for a slot came out of the caller's time.
+                final long left = deadline - SystemClock.uptimeMillis();
+                if (left <= 0) {
+                    throw new VmDecode.UnavailableException("deadline passed while waiting for a call thread");
+                }
+                connectTimeout = Math.min(connectTimeout, left);
+            }
             // A connect wait that the caller's own deadline cut short says nothing about the service.
             bound = connect(connectTimeout, connectTimeout >= (waiting
                     ? CONNECT_TIMEOUT_USER_WAITING_MS : CONNECT_TIMEOUT_BACKGROUND_MS));
@@ -282,6 +291,7 @@ final class DecodeClient {
     private int mStuckCalls;
 
     private int stuckStarted(int generation, String owner) {
+        final int stuck;
         synchronized (mLock) {
             if (mStuckGeneration != generation) {
                 mStuckGeneration = generation;
@@ -289,8 +299,11 @@ final class DecodeClient {
                 mStuckOwners.clear();
             }
             mStuckOwners.merge(owner, 1, Integer::sum);
-            return ++mStuckCalls;
+            stuck = ++mStuckCalls;
         }
+        // Calls of this owner that wait for a slot stop waiting (outside mLock: OwnerSlots asks it).
+        mOwnerCalls.wake();
+        return stuck;
     }
 
     private void backOffStuckOwners(int generation) {
@@ -302,7 +315,7 @@ final class DecodeClient {
             owners = new java.util.ArrayList<>(mStuckOwners.keySet());
         }
         final long until = SystemClock.uptimeMillis() + BACK_OFF_MS;
-        synchronized (mOwnerCalls) {
+        synchronized (mBackedOff) {
             for (String owner : owners) {
                 if (!owner.isEmpty()) {
                     mBackedOff.put(owner, until);
@@ -440,10 +453,12 @@ final class DecodeClient {
         return png;
     }
 
-    // An owner with nothing in flight always finds a call thread: the others may fill all but the last one. An
-    // owner that held up calls of this binding until the binding looked wedged is turned away for a while.
-    private void claimSlot(String lane) throws VmDecode.UnavailableException {
-        synchronized (mOwnerCalls) {
+    // An owner with nothing in flight always finds a call thread: the others may fill all but the last one. An owner
+    // over its share waits for its turn until waitEnd (uptime), unless a call of its own is stuck in the service
+    // (OwnerSlots). An owner that held up calls of this binding until the binding looked wedged is turned away for a
+    // while.
+    private void claimSlot(String lane, long waitEnd) throws VmDecode.UnavailableException {
+        synchronized (mBackedOff) {
             final Long backedOff = mBackedOff.get(lane);
             if (backedOff != null) {
                 if (SystemClock.uptimeMillis() < backedOff) {
@@ -451,27 +466,21 @@ final class DecodeClient {
                 }
                 mBackedOff.remove(lane);
             }
-            final int n = mOwnerCalls.getOrDefault(lane, 0);
-            final int max = VmDecode.isUnknownOwner(lane) ? MAX_CALLS_UNKNOWN_OWNER : MAX_CALLS_PER_OWNER;
-            if (n >= max) {
-                throw new VmDecode.UnavailableException("too many decodes in flight for " + lane);
-            }
-            if (!isSystemLane(lane)) {
-                int total = 0;
-                for (Map.Entry<String, Integer> calls : mOwnerCalls.entrySet()) {
-                    if (!isSystemLane(calls.getKey())) {
-                        total += calls.getValue();
-                    }
-                }
-                if (n > 0 && total >= APP_THREADS - 1) {
-                    throw new VmDecode.UnavailableException("the last call thread is kept for others than " + lane);
-                }
-            }
-            mOwnerCalls.put(lane, n + 1);
+        }
+        final String refused = mOwnerCalls.claim(lane, () -> hasStuckCalls(lane), waitEnd);
+        if (refused != null) {
+            throw new VmDecode.UnavailableException(refused);
         }
     }
 
-    // Owners turned away until a time (uptime), guarded by mOwnerCalls.
+    // Whether a call of {@code lane} is stuck in the service past its deadline.
+    private boolean hasStuckCalls(String lane) {
+        synchronized (mLock) {
+            return mStuckOwners.getOrDefault(lane, 0) > 0;
+        }
+    }
+
+    // Owners turned away until a time (uptime), guarded by itself.
     private final Map<String, Long> mBackedOff = new HashMap<>();
     private static final long BACK_OFF_MS = 30_000;
     // The owners of the calls stuck in the current binding, guarded by mLock.
@@ -483,14 +492,7 @@ final class DecodeClient {
     }
 
     private void releaseSlot(String lane) {
-        synchronized (mOwnerCalls) {
-            final int n = mOwnerCalls.getOrDefault(lane, 1) - 1;
-            if (n <= 0) {
-                mOwnerCalls.remove(lane);
-            } else {
-                mOwnerCalls.put(lane, n);
-            }
-        }
+        mOwnerCalls.release(lane);
     }
 
     // After a bind or connect that failed, calls fail at once until this time (uptime), so a VM that is down costs

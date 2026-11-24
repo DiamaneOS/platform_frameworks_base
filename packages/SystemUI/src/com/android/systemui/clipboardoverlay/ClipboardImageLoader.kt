@@ -54,8 +54,8 @@ constructor(
                         if (clipboardOverlayMultiuser()) userTracker.userContentResolver
                         else context.contentResolver
                     // DiamaneOS: decoded in the protected VM, never in SystemUI, in the clipboard's own lane per
-                    // provider.
-                    VmDecode.decodeUri(
+                    // provider, and turned as loadThumbnail turns it.
+                    ClipboardVmThumbnail.loader.load(
                         context,
                         resolver,
                         uri,

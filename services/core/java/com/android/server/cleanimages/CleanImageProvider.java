@@ -175,6 +175,9 @@ public final class CleanImageProvider extends ContentProvider {
             } finally {
                 closeQuietly(fd);
             }
+        } else if (com.android.internal.diamaneos.cleancopies.VmThumbnails.METHOD_THUMBNAIL.equals(method)) {
+            // A provider's thumbnail for the system process that loads it, decoded in the VM (VmThumbnailDecoder).
+            return VmThumbnailDecoder.get(getContext()).thumbnail(extras, Binder.getCallingUid());
         } else if (CleanCopyClient.METHOD_FORGET.equals(method)) {
             // Tests only: a user build keeps every copy.
             if (!Build.IS_DEBUGGABLE) {
