@@ -18,86 +18,198 @@ package android.graphics;
 
 import android.annotation.NonNull;
 import android.annotation.Nullable;
-import android.graphics.drawable.Animatable2;
+import android.content.res.Resources;
+import android.graphics.drawable.AnimatedImageDrawable;
 import android.graphics.drawable.Drawable;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
+import android.util.AttributeSet;
+import android.view.View;
 
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserException;
+
+import java.io.IOException;
 import java.util.ArrayList;
 
 /**
- * DiamaneOS: the animated drawable an ImageDecoder of the protected VM gives for a GIF or WebP animation (see
- * {@link GatedDecodes#animated}): the VM's frames, a bitmap each (each within the GPU's texture size, as a decoded
- * image is), drawn scaled to the animation's size and shown in turn with their times, played {@code loops} times
- * (0: forever) as AnimatedImageDrawable plays them. It starts when {@link #start} is called and stops when hidden.
- * Memory: the frames only (at most the decode service's frame byte limit). It is not an AnimatedImageDrawable: code
- * that starts only those shows its first frame.
- *
+ * DiamaneOS: AnimatedImageDrawable playback of checked VM frames, without a native image decoder.
+ * Every native entry point of the parent is implemented using the retained pixels. The parent's
+ * final mirror getter reads only the Java flag of its empty state.
  * @hide
  */
-public final class GatedAnimation extends Drawable implements Animatable2 {
-    // A frame time of 10 ms or less is shown for 100 ms, as browsers and Android's decoder show it.
+public final class GatedAnimation extends AnimatedImageDrawable {
     private static final int SHORT_FRAME_MS = 10;
     private static final int SHORT_FRAME_SHOWN_MS = 100;
 
-    private final Bitmap[] mFrames;
-    private final int mCount;
-    private final int mWidth;
-    private final int mHeight;
-    private final Rect mCrop;
-    private final int[] mDurations;
+    private Bitmap[] mFrames;
+    private int mCount;
+    private int mWidth;
+    private int mHeight;
+    private Rect mCrop;
+    private int[] mDurations;
     private final Paint mPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
     private final Rect mSource = new Rect();
     private final RectF mTarget = new RectF();
     private final ArrayList<AnimationCallback> mCallbacks = new ArrayList<>();
+    private Handler mCallbackHandler;
+    private Drawable mCallbackDrawable = this;
+    private Callback mXmlCallback;
     private int mFrame;
-    private int mPlayed;
+    private long mPlayed;
+    private long mNextAt;
+    private boolean mStarting;
     private boolean mRunning;
-    private final int mRepeatCount;
+    private int mRepeatCount;
 
-    private final Runnable mNext = new Runnable() {
-        @Override
-        public void run() {
-            if (!mRunning) {
-                return;
-            }
-            mFrame++;
-            if (mFrame >= mCount) {
-                mFrame = 0;
-                mPlayed++;
-                if (mRepeatCount >= 0 && mPlayed > mRepeatCount) {
-                    mFrame = mCount - 1;
-                    stop();
-                    invalidateSelf();
-                    return;
-                }
-            }
+    private final Runnable mNext = () -> {
+        if (!mRunning) return;
+        if (mFrame == mCount - 1 && mRepeatCount >= 0 && mPlayed >= mRepeatCount) {
+            finish();
+        } else {
             invalidateSelf();
-            scheduleSelf(this, SystemClock.uptimeMillis() + duration(mFrame));
         }
     };
 
-    // {@code frames} all of one size, shown at {@code width} x {@code height}, {@code crop} in those terms.
     GatedAnimation(Bitmap[] frames, int width, int height, @Nullable Rect crop, int[] durations, int loops) {
+        if (frames.length == 0 || frames.length != durations.length) {
+            throw new IllegalArgumentException("animation frames and durations differ");
+        }
         mFrames = frames;
         mCount = frames.length;
         mWidth = width;
         mHeight = height;
-        mCrop = crop;
-        mDurations = durations;
-        // As AnimatedImageDrawable: the file's loop count, REPEAT_INFINITE for one that plays forever.
-        mRepeatCount = loops == 0 ? -1 : loops - 1;
+        mCrop = crop == null ? null : new Rect(crop);
+        mDurations = durations.clone();
+        mRepeatCount = loops == 0 ? REPEAT_INFINITE : loops - 1;
+    }
+
+    /** Decodes another XML source through the VM when this drawable already holds VM frames. */
+    public static GatedAnimation decodeXml(java.io.InputStream stream, Resources resources, int density)
+            throws IOException {
+        final ImageDecoder.Source source = ImageDecoder.createSource(resources, stream, density);
+        try (java.io.InputStream input = stream;
+                GatedDecodes.Header header = GatedDecodes.header(input, source)) {
+            if (!header.animated) throw new IllegalArgumentException("image is not animated");
+            final int targetDensity = resources.getDisplayMetrics().densityDpi;
+            final int width = Bitmap.scaleFromDensity(header.width, density, targetDensity);
+            final int height = Bitmap.scaleFromDensity(header.height, density, targetDensity);
+            return (GatedAnimation) GatedDecodes.animated(header, width, height, null, null, source);
+        }
+    }
+
+    /** Routes invalidation and callback identity through an XML drawable that retained these frames. */
+    public void attachTo(AnimatedImageDrawable drawable) {
+        mCallbackDrawable = drawable;
+        mXmlCallback = new Callback() {
+            @Override public void invalidateDrawable(Drawable ignored) { drawable.invalidateSelf(); }
+            @Override public void scheduleDrawable(Drawable ignored, Runnable what, long when) {
+                drawable.scheduleSelf(what, when);
+            }
+            @Override public void unscheduleDrawable(Drawable ignored, Runnable what) {
+                drawable.unscheduleSelf(what);
+            }
+        };
+        setCallback(mXmlCallback);
+    }
+
+    /** Retains a registration on the XML wrapper as well as its current child. */
+    public @Nullable ArrayList<AnimationCallback> registerXmlCallback(
+            @Nullable ArrayList<AnimationCallback> callbacks, @Nullable AnimationCallback callback) {
+        if (callback == null) return callbacks;
+        if (callbacks == null) callbacks = new ArrayList<>();
+        if (callbacks.contains(callback)) return callbacks;
+        registerAnimationCallback(callback);
+        try {
+            callbacks.add(callback);
+        } catch (RuntimeException | Error failure) {
+            unregisterAnimationCallback(callback);
+            throw failure;
+        }
+        return callbacks;
+    }
+
+    /** Transfers live XML registrations with their existing callback handler. */
+    public void replaceXmlCallbacks(@Nullable GatedAnimation previous,
+            @Nullable ArrayList<AnimationCallback> callbacks, @Nullable Handler xmlHandler) {
+        final Handler handler;
+        if (previous != null) {
+            synchronized (previous) {
+                handler = previous.mCallbackHandler;
+            }
+            previous.detachXml();
+        } else {
+            handler = xmlHandler;
+        }
+        synchronized (this) {
+            mCallbacks.clear();
+            if (callbacks != null && !callbacks.isEmpty()) {
+                mCallbackHandler = handler != null ? handler : new Handler(Looper.getMainLooper());
+                mCallbacks.addAll(callbacks);
+            }
+        }
+    }
+
+    /** Returns the registration route retained by an XML wrapper. */
+    public synchronized Handler xmlCallbackHandler() { return mCallbackHandler; }
+
+    /** Queues a hardware end on the live XML registration's looper without retaining its wrapper. */
+    public static Runnable nativeXmlCallback(AnimatedImageDrawable drawable, @Nullable Handler handler,
+            ArrayList<AnimationCallback> callbacks,
+            java.util.function.BiConsumer<AnimatedImageDrawable, ArrayList<AnimationCallback>> deliver) {
+        final Handler route = handler != null ? handler : new Handler(Looper.getMainLooper());
+        final java.lang.ref.WeakReference<AnimatedImageDrawable> self = new java.lang.ref.WeakReference<>(drawable);
+        final java.lang.ref.WeakReference<ArrayList<AnimationCallback>> registration =
+                new java.lang.ref.WeakReference<>(callbacks);
+        return () -> route.post(() -> {
+            final AnimatedImageDrawable current = self.get();
+            final ArrayList<AnimationCallback> registered = registration.get();
+            if (current != null && registered != null) deliver.accept(current, registered);
+        });
+    }
+
+    /** Releases the outgoing child's frame schedule and XML callbacks. */
+    public void detachXml() {
+        unscheduleSelf(mNext);
+        setCallback(null);
+        synchronized (this) {
+            mCallbacks.clear();
+        }
+        mRunning = false;
+        mStarting = false;
+        mCallbackDrawable = this;
+        mXmlCallback = null;
     }
 
     private int duration(int frame) {
-        final int d = mDurations[frame];
-        return d <= SHORT_FRAME_MS ? SHORT_FRAME_SHOWN_MS : d;
+        final int duration = mDurations[frame];
+        return duration <= SHORT_FRAME_MS ? SHORT_FRAME_SHOWN_MS : duration;
     }
 
-    @Override
-    public void draw(@NonNull Canvas canvas) {
+    @Override public void draw(@NonNull Canvas canvas) {
+        if (mRunning) {
+            final long now = SystemClock.uptimeMillis();
+            if (mStarting) {
+                mStarting = false;
+                notifyCallbacks(true);
+                mNextAt = now + duration(mFrame);
+            } else if (now >= mNextAt) {
+                if (mFrame == mCount - 1 && mRepeatCount >= 0 && mPlayed >= mRepeatCount) {
+                    finish();
+                } else if (++mFrame == mCount) {
+                    mFrame = 0;
+                    mPlayed++;
+                }
+                mNextAt = now + duration(mFrame);
+            }
+            if (mRunning) {
+                unscheduleSelf(mNext);
+                scheduleSelf(mNext, mNextAt);
+            }
+        }
         final Bitmap frame = mFrames[mFrame];
         if (mCrop != null) {
-            // The crop is in the animation's size: the frame's part of it.
             final float sx = (float) frame.getWidth() / mWidth;
             final float sy = (float) frame.getHeight() / mHeight;
             mSource.set((int) Math.floor(mCrop.left * sx), (int) Math.floor(mCrop.top * sy),
@@ -106,97 +218,120 @@ public final class GatedAnimation extends Drawable implements Animatable2 {
             mSource.set(0, 0, frame.getWidth(), frame.getHeight());
         }
         mTarget.set(getBounds());
+        final int save = canvas.save();
+        if (isAutoMirrored() && getLayoutDirection() == View.LAYOUT_DIRECTION_RTL) {
+            canvas.translate(mTarget.left + mTarget.right, 0);
+            canvas.scale(-1, 1);
+        }
         canvas.drawBitmap(frame, mSource, mTarget, mPaint);
+        canvas.restoreToCount(save);
     }
 
-    @Override
-    public int getIntrinsicWidth() {
-        return mCrop != null ? mCrop.width() : mWidth;
-    }
-
-    @Override
-    public int getIntrinsicHeight() {
-        return mCrop != null ? mCrop.height() : mHeight;
-    }
-
-    @Override
-    public void setAlpha(int alpha) {
+    @Override public int getIntrinsicWidth() { return mCrop != null ? mCrop.width() : mWidth; }
+    @Override public int getIntrinsicHeight() { return mCrop != null ? mCrop.height() : mHeight; }
+    @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
+    @Override public void setAlpha(int alpha) {
+        if (alpha < 0 || alpha > 255) throw new IllegalArgumentException("Alpha must be between 0 and 255");
         mPaint.setAlpha(alpha);
         invalidateSelf();
     }
-
-    @Override
-    public int getAlpha() {
-        return mPaint.getAlpha();
-    }
-
-    @Override
-    public void setColorFilter(@Nullable ColorFilter colorFilter) {
+    @Override public int getAlpha() { return mPaint.getAlpha(); }
+    @Override public void setColorFilter(@Nullable ColorFilter colorFilter) {
         mPaint.setColorFilter(colorFilter);
         invalidateSelf();
     }
-
-    @Override
-    public int getOpacity() {
-        return PixelFormat.TRANSLUCENT;
+    @Override public ColorFilter getColorFilter() { return mPaint.getColorFilter(); }
+    @Override public void setFilterBitmap(boolean filterBitmap) {
+        mPaint.setFilterBitmap(filterBitmap);
+        invalidateSelf();
+    }
+    @Override public boolean isFilterBitmap() { return mPaint.isFilterBitmap(); }
+    @Override public void setAutoMirrored(boolean mirrored) {
+        // The empty parent's final getter retains this Java flag and never calls native code.
+        super.setAutoMirrored(mirrored);
+        invalidateSelf();
+    }
+    @Override public boolean onLayoutDirectionChanged(int layoutDirection) {
+        if (!isAutoMirrored()) return false;
+        invalidateSelf();
+        return true;
+    }
+    @Override protected void onBoundsChange(Rect bounds) { invalidateSelf(); }
+    @Override public Drawable mutate() { return this; }
+    @Override public ConstantState getConstantState() { return null; }
+    @Override public void inflate(Resources resources, XmlPullParser parser, AttributeSet attrs,
+            Resources.Theme theme) throws XmlPullParserException, IOException {
+        super.inflate(resources, parser, attrs, theme);
     }
 
-    @Override
-    public boolean setVisible(boolean visible, boolean restart) {
-        final boolean changed = super.setVisible(visible, restart);
-        if (!visible) {
-            stop();
-        } else if (restart && changed) {
-            mFrame = 0;
-            mPlayed = 0;
-        }
-        return changed;
-    }
-
-    @Override
-    public void start() {
-        if (mRunning || mCount < 2) {
-            return;
-        }
-        mRunning = true;
+    /** Retains an independently decoded XML source without taking its native state. */
+    public void replaceFrames(GatedAnimation animation) {
+        stop();
+        mFrames = animation.mFrames;
+        mCount = animation.mCount;
+        mWidth = animation.mWidth;
+        mHeight = animation.mHeight;
+        mCrop = animation.mCrop;
+        mDurations = animation.mDurations;
+        mRepeatCount = animation.mRepeatCount;
+        mFrame = 0;
         mPlayed = 0;
-        for (AnimationCallback c : new ArrayList<>(mCallbacks)) {
-            c.onAnimationStart(this);
-        }
-        scheduleSelf(mNext, SystemClock.uptimeMillis() + duration(mFrame));
+        invalidateSelf();
     }
 
-    @Override
-    public void stop() {
-        if (!mRunning) {
-            return;
-        }
+    @Override public int getRepeatCount() { return mRepeatCount; }
+    @Override public void setRepeatCount(int repeatCount) {
+        if (repeatCount < REPEAT_INFINITE) throw new IllegalArgumentException("invalid repeat count");
+        mRepeatCount = repeatCount;
+    }
+    @Override @Deprecated public void setLoopCount(int loopCount) { setRepeatCount(loopCount); }
+    @Override @Deprecated public int getLoopCount(int loopCount) { return getRepeatCount(); }
+
+    @Override public boolean setVisible(boolean visible, boolean restart) {
+        return super.setVisible(visible, restart);
+    }
+    @Override public void start() {
+        if (mRunning) return;
+        mFrame = 0;
+        mPlayed = 0;
+        mStarting = true;
+        mRunning = true;
+        invalidateSelf();
+    }
+    private void finish() {
+        if (!mRunning) return;
         mRunning = false;
+        mStarting = false;
         unscheduleSelf(mNext);
-        for (AnimationCallback c : new ArrayList<>(mCallbacks)) {
-            c.onAnimationEnd(this);
+        notifyCallbacks(false);
+    }
+    @Override public void stop() { finish(); }
+    @Override public boolean isRunning() { return mRunning; }
+
+    @Override public synchronized void registerAnimationCallback(@NonNull AnimationCallback callback) {
+        if (callback == null) return;
+        if (mCallbackHandler == null) {
+            final Looper looper = Looper.myLooper();
+            if (looper == null) throw new IllegalStateException("animation callbacks require a Looper");
+            mCallbackHandler = new Handler(looper);
         }
+        if (!mCallbacks.contains(callback)) mCallbacks.add(callback);
     }
-
-    @Override
-    public boolean isRunning() {
-        return mRunning;
+    @Override public synchronized boolean unregisterAnimationCallback(@NonNull AnimationCallback callback) {
+        return callback != null && mCallbacks.remove(callback);
     }
-
-    @Override
-    public void registerAnimationCallback(@NonNull AnimationCallback callback) {
-        if (!mCallbacks.contains(callback)) {
-            mCallbacks.add(callback);
-        }
-    }
-
-    @Override
-    public boolean unregisterAnimationCallback(@NonNull AnimationCallback callback) {
-        return mCallbacks.remove(callback);
-    }
-
-    @Override
-    public void clearAnimationCallbacks() {
-        mCallbacks.clear();
+    @Override public synchronized void clearAnimationCallbacks() { mCallbacks.clear(); }
+    private synchronized void notifyCallbacks(boolean started) {
+        if (mCallbacks.isEmpty()) return;
+        mCallbackHandler.post(() -> {
+            final AnimationCallback[] callbacks;
+            synchronized (GatedAnimation.this) {
+                callbacks = mCallbacks.toArray(new AnimationCallback[0]);
+            }
+            for (AnimationCallback callback : callbacks) {
+                if (started) callback.onAnimationStart(mCallbackDrawable);
+                else callback.onAnimationEnd(mCallbackDrawable);
+            }
+        });
     }
 }

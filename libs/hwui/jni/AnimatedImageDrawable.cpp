@@ -35,6 +35,7 @@
 #include "GraphicsJNI.h"
 #include "ImageDecoder.h"
 #include "Utils.h"
+#include "GatedAnimationCallback.h"
 
 using namespace android;
 
@@ -346,6 +347,13 @@ static void AnimatedImageDrawable_nSetOnFrameRateHintListener(JNIEnv* env, jobje
     }
 }
 
+// DiamaneOS: XML replacement can install its existing callback route on a worker without a looper.
+static void AnimatedImageDrawable_nSetOnAnimationEndCallback(JNIEnv* env, jobject /*clazz*/,
+                                                           jlong nativePtr, jobject callback) {
+    auto* drawable = reinterpret_cast<AnimatedImageDrawable*>(nativePtr);
+    drawable->setOnAnimationEndListener(std::make_unique<GatedAnimationCallback>(env, callback));
+}
+
 static jlong AnimatedImageDrawable_nNativeByteSize(JNIEnv* env, jobject /*clazz*/, jlong nativePtr) {
     auto* drawable = reinterpret_cast<AnimatedImageDrawable*>(nativePtr);
     return drawable->byteSize();
@@ -392,6 +400,8 @@ static const JNINativeMethod gAnimatedImageDrawableMethods[] = {
         {"nSetRepeatCount", "(JI)V", (void*)AnimatedImageDrawable_nSetRepeatCount},
         {"nSetOnAnimationEndListener", "(JLjava/lang/ref/WeakReference;)V",
          (void*)AnimatedImageDrawable_nSetOnAnimationEndListener},
+        {"nSetOnAnimationEndCallback", "(JLjava/lang/Runnable;)V",
+         (void*)AnimatedImageDrawable_nSetOnAnimationEndCallback},
         {"nSetOnFrameRateHintListener", "(JLjava/lang/ref/WeakReference;)V",
          (void*)AnimatedImageDrawable_nSetOnFrameRateHintListener},
         {"nNativeByteSize", "(J)J", (void*)AnimatedImageDrawable_nNativeByteSize},

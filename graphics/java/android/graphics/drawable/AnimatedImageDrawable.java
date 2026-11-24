@@ -71,6 +71,11 @@ import java.util.ArrayList;
  * @attr ref android.R.styleable#AnimatedImageDrawable_autoMirrored
  */
 public class AnimatedImageDrawable extends Drawable implements Animatable2 {
+    // DiamaneOS: an XML source decoded as checked VM frames has no native image state.
+    private android.graphics.GatedAnimation mGatedAnimation;
+    // DiamaneOS: the live XML wrapper keeps its registration route across child replacement.
+    private Handler mGatedCallbackHandler;
+
     private int mIntrinsicWidth;
     private int mIntrinsicHeight;
 
@@ -137,6 +142,8 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
      *  current iteration and then stop.</p>
      */
     public void setRepeatCount(@IntRange(from = REPEAT_INFINITE) int repeatCount) {
+        // DiamaneOS: XML playback of checked VM frames.
+        if (mGatedAnimation != null) { mGatedAnimation.setRepeatCount(repeatCount); return; }
         if (repeatCount < REPEAT_INFINITE) {
             throw new IllegalArgumentException("invalid value passed to setRepeatCount"
                     + repeatCount);
@@ -168,6 +175,8 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
      *  return the value passed to {@link #setRepeatCount}.</p>
      */
     public int getRepeatCount() {
+        // DiamaneOS: XML playback of checked VM frames.
+        if (mGatedAnimation != null) { return mGatedAnimation.getRepeatCount(); }
         if (mState.mNativePtr == 0) {
             throw new IllegalStateException("called getRepeatCount on empty AnimatedImageDrawable");
         }
@@ -232,11 +241,16 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
             try {
                 InputStream is = r.openRawResource(srcResId, value);
                 ImageDecoder.Source source = ImageDecoder.createSource(r, is, density);
-                drawable = ImageDecoder.decodeDrawable(source, (decoder, info, src) -> {
-                    if (!info.isAnimated()) {
-                        throw new IllegalArgumentException("image is not animated");
-                    }
-                });
+                // DiamaneOS: reinflating a VM drawable keeps its empty native parent state.
+                if (this instanceof android.graphics.GatedAnimation) {
+                    drawable = android.graphics.GatedAnimation.decodeXml(is, r, density);
+                } else {
+                    drawable = ImageDecoder.decodeDrawable(source, (decoder, info, src) -> {
+                        if (!info.isAnimated()) {
+                            throw new IllegalArgumentException("image is not animated");
+                        }
+                    });
+                }
             } catch (IOException e) {
                 throw new XmlPullParserException(a.getPositionDescription() +
                         ": <animated-image> requires a valid 'src' attribute", null, e);
@@ -252,24 +266,50 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
             final int repeatCount = mState.mRepeatCount;
             // Transfer the state of other to this one. other will be discarded.
             AnimatedImageDrawable other = (AnimatedImageDrawable) drawable;
-            mState = other.mState;
-            other.mState = null;
-            mIntrinsicWidth =  other.mIntrinsicWidth;
-            mIntrinsicHeight = other.mIntrinsicHeight;
+            // DiamaneOS: retain checked VM frames without transferring an empty native state.
+            final android.graphics.GatedAnimation previous = mGatedAnimation;
+            if (other instanceof android.graphics.GatedAnimation) {
+                mGatedAnimation = (android.graphics.GatedAnimation) other;
+                if (this instanceof android.graphics.GatedAnimation) {
+                    ((android.graphics.GatedAnimation) this).replaceFrames(mGatedAnimation);
+                } else {
+                    mGatedAnimation.attachTo(this);
+                    mGatedAnimation.replaceXmlCallbacks(previous, mAnimationCallbacks, mGatedCallbackHandler);
+                }
+            } else {
+                // DiamaneOS: install hardware delivery before exposing the replacement native state.
+                if (previous != null && mAnimationCallbacks != null && other.mState.mNativePtr != 0) {
+                    final WeakReference<State> state = new WeakReference<>(other.mState);
+                    nSetOnAnimationEndCallback(other.mState.mNativePtr,
+                            android.graphics.GatedAnimation.nativeXmlCallback(this, mGatedCallbackHandler,
+                                    mAnimationCallbacks, (callbackDrawable, registered) -> {
+                                        if (callbackDrawable.mState == state.get() && callbackDrawable.mGatedAnimation == null
+                                                && callbackDrawable.mAnimationCallbacks == registered) {
+                                            callbackDrawable.onAnimationEnd();
+                                        }
+                                    }));
+                }
+                if (previous != null) previous.detachXml();
+                mGatedAnimation = null;
+                mState = other.mState;
+                other.mState = null;
+            }
+            mIntrinsicWidth = other.getIntrinsicWidth();
+            mIntrinsicHeight = other.getIntrinsicHeight();
             if (repeatCount != REPEAT_UNDEFINED) {
                 this.setRepeatCount(repeatCount);
             }
         }
 
         mState.mThemeAttrs = a.extractThemeAttrs();
-        if (mState.mNativePtr == 0 && (mState.mThemeAttrs == null
+        if (mGatedAnimation == null && mState.mNativePtr == 0 && (mState.mThemeAttrs == null
                 || mState.mThemeAttrs[R.styleable.AnimatedImageDrawable_src] == 0)) {
             throw new XmlPullParserException(a.getPositionDescription() +
                     ": <animated-image> requires a valid 'src' attribute");
         }
 
-        mState.mAutoMirrored = a.getBoolean(
-                R.styleable.AnimatedImageDrawable_autoMirrored, oldState.mAutoMirrored);
+        setAutoMirrored(a.getBoolean(
+                R.styleable.AnimatedImageDrawable_autoMirrored, oldState.mAutoMirrored));
 
         int repeatCount = a.getInt(
                 R.styleable.AnimatedImageDrawable_repeatCount, REPEAT_UNDEFINED);
@@ -279,7 +319,7 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
 
         boolean autoStart = a.getBoolean(
                 R.styleable.AnimatedImageDrawable_autoStart, false);
-        if (autoStart && mState.mNativePtr != 0) {
+        if (autoStart && (mGatedAnimation != null || mState.mNativePtr != 0)) {
             this.start();
         }
     }
@@ -321,11 +361,15 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
 
     @Override
     public int getIntrinsicWidth() {
+        // DiamaneOS: XML playback of checked VM frames.
+        if (mGatedAnimation != null) { return mGatedAnimation.getIntrinsicWidth(); }
         return mIntrinsicWidth;
     }
 
     @Override
     public int getIntrinsicHeight() {
+        // DiamaneOS: XML playback of checked VM frames.
+        if (mGatedAnimation != null) { return mGatedAnimation.getIntrinsicHeight(); }
         return mIntrinsicHeight;
     }
 
@@ -334,6 +378,8 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
 
     @Override
     public void draw(@NonNull Canvas canvas) {
+        // DiamaneOS: XML playback of checked VM frames.
+        if (mGatedAnimation != null) { mGatedAnimation.draw(canvas); return; }
         if (mState.mNativePtr == 0) {
             throw new IllegalStateException("called draw on empty AnimatedImageDrawable");
         }
@@ -360,6 +406,8 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
 
     @Override
     public void setAlpha(@IntRange(from = 0, to = 255) int alpha) {
+        // DiamaneOS: XML playback of checked VM frames.
+        if (mGatedAnimation != null) { mGatedAnimation.setAlpha(alpha); return; }
         if (alpha < 0 || alpha > 255) {
             throw new IllegalArgumentException("Alpha must be between 0 and"
                    + " 255! provided " + alpha);
@@ -375,6 +423,8 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
 
     @Override
     public int getAlpha() {
+        // DiamaneOS: XML playback of checked VM frames.
+        if (mGatedAnimation != null) { return mGatedAnimation.getAlpha(); }
         if (mState.mNativePtr == 0) {
             throw new IllegalStateException("called getAlpha on empty AnimatedImageDrawable");
         }
@@ -383,6 +433,8 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
 
     @Override
     public void setColorFilter(@Nullable ColorFilter colorFilter) {
+        // DiamaneOS: XML playback of checked VM frames.
+        if (mGatedAnimation != null) { mGatedAnimation.setColorFilter(colorFilter); return; }
         if (mState.mNativePtr == 0) {
             throw new IllegalStateException("called setColorFilter on empty AnimatedImageDrawable");
         }
@@ -398,6 +450,8 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
     @Override
     @Nullable
     public ColorFilter getColorFilter() {
+        // DiamaneOS: XML playback of checked VM frames.
+        if (mGatedAnimation != null) { return mGatedAnimation.getColorFilter(); }
         return mColorFilter;
     }
 
@@ -408,6 +462,8 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
 
     @Override
     public void setAutoMirrored(boolean mirrored) {
+        // DiamaneOS: XML playback of checked VM frames.
+        if (mGatedAnimation != null) { mState.mAutoMirrored = mirrored; mGatedAnimation.setAutoMirrored(mirrored); return; }
         if (mState.mAutoMirrored != mirrored) {
             mState.mAutoMirrored = mirrored;
             if (getLayoutDirection() == View.LAYOUT_DIRECTION_RTL && mState.mNativePtr != 0) {
@@ -419,6 +475,8 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
 
     @Override
     public boolean onLayoutDirectionChanged(int layoutDirection) {
+        // DiamaneOS: XML playback of checked VM frames.
+        if (mGatedAnimation != null) { mGatedAnimation.setLayoutDirection(layoutDirection); return mGatedAnimation.isAutoMirrored(); }
         if (!mState.mAutoMirrored || mState.mNativePtr == 0) {
             return false;
         }
@@ -433,6 +491,15 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
         return mState.mAutoMirrored;
     }
 
+    /** @hide */
+    @Override
+    public boolean setVisible(boolean visible, boolean restart) {
+        final boolean changed = super.setVisible(visible, restart);
+        // DiamaneOS: XML playback follows the visible drawable.
+        if (mGatedAnimation != null) mGatedAnimation.setVisible(visible, restart);
+        return changed;
+    }
+
     // Animatable overrides
     /**
      *  Return whether the animation is currently running.
@@ -442,6 +509,8 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
      */
     @Override
     public boolean isRunning() {
+        // DiamaneOS: XML playback of checked VM frames.
+        if (mGatedAnimation != null) { return mGatedAnimation.isRunning(); }
         if (mState.mNativePtr == 0) {
             throw new IllegalStateException("called isRunning on empty AnimatedImageDrawable");
         }
@@ -459,6 +528,8 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
      */
     @Override
     public void start() {
+        // DiamaneOS: XML playback of checked VM frames.
+        if (mGatedAnimation != null) { mGatedAnimation.start(); return; }
         if (mState.mNativePtr == 0) {
             throw new IllegalStateException("called start on empty AnimatedImageDrawable");
         }
@@ -481,6 +552,8 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
      */
     @Override
     public void stop() {
+        // DiamaneOS: XML playback of checked VM frames.
+        if (mGatedAnimation != null) { mGatedAnimation.stop(); return; }
         if (mState.mNativePtr == 0) {
             throw new IllegalStateException("called stop on empty AnimatedImageDrawable");
         }
@@ -497,6 +570,12 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
 
     @Override
     public void registerAnimationCallback(@NonNull AnimationCallback callback) {
+        // DiamaneOS: XML playback of checked VM frames.
+        if (mGatedAnimation != null) {
+            mAnimationCallbacks = mGatedAnimation.registerXmlCallback(mAnimationCallbacks, callback);
+            mGatedCallbackHandler = mGatedAnimation.xmlCallbackHandler();
+            return;
+        }
         if (callback == null) {
             return;
         }
@@ -504,6 +583,8 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
         if (mAnimationCallbacks == null) {
             mAnimationCallbacks = new ArrayList<Animatable2.AnimationCallback>();
             nSetOnAnimationEndListener(mState.mNativePtr, new WeakReference<>(this));
+            // DiamaneOS: retain the native listener's looper for a later VM child.
+            mGatedCallbackHandler = new Handler(Looper.myLooper());
         }
 
         if (!mAnimationCallbacks.contains(callback)) {
@@ -518,6 +599,9 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
             return false;
         }
 
+        // DiamaneOS: keep the current XML child in step with the wrapper's registrations.
+        if (mGatedAnimation != null) mGatedAnimation.unregisterAnimationCallback(callback);
+
         if (mAnimationCallbacks.isEmpty()) {
             clearAnimationCallbacks();
         }
@@ -527,6 +611,12 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
 
     @Override
     public void clearAnimationCallbacks() {
+        // DiamaneOS: XML playback of checked VM frames.
+        if (mGatedAnimation != null) {
+            mAnimationCallbacks = null;
+            mGatedAnimation.clearAnimationCallbacks();
+            return;
+        }
         if (mAnimationCallbacks != null) {
             mAnimationCallbacks = null;
             nSetOnAnimationEndListener(mState.mNativePtr, null);
@@ -535,6 +625,8 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
 
     @Override
     public void setFilterBitmap(boolean filterBitmap) {
+        // DiamaneOS: XML playback of checked VM frames.
+        if (mGatedAnimation != null) { mGatedAnimation.setFilterBitmap(filterBitmap); return; }
         if (!Flags.animatedImageDrawableFilterBitmap()) {
             super.setFilterBitmap(filterBitmap);
             return;
@@ -551,6 +643,8 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
 
     @Override
     public boolean isFilterBitmap() {
+        // DiamaneOS: XML playback of checked VM frames.
+        if (mGatedAnimation != null) { return mGatedAnimation.isFilterBitmap(); }
         if (!Flags.animatedImageDrawableFilterBitmap()) {
             return super.isFilterBitmap();
         }
@@ -634,6 +728,8 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
 
     @Override
     protected void onBoundsChange(Rect bounds) {
+        // DiamaneOS: XML playback of checked VM frames.
+        if (mGatedAnimation != null) { mGatedAnimation.setBounds(bounds); return; }
         if (mState.mNativePtr != 0) {
             nSetBounds(mState.mNativePtr, bounds);
         }
@@ -666,6 +762,8 @@ public class AnimatedImageDrawable extends Drawable implements Animatable2 {
     // Pass the drawable down to native so it can call onAnimationEnd.
     private static native void nSetOnAnimationEndListener(long nativePtr,
             @Nullable WeakReference<AnimatedImageDrawable> drawable);
+    // DiamaneOS: synchronous listener installation with Java routing for a retained XML registration.
+    private static native void nSetOnAnimationEndCallback(long nativePtr, Runnable callback);
     private static native void nSetOnFrameRateHintListener(long nativePtr,
             @Nullable WeakReference<AnimatedImageDrawable> drawable);
     @FastNative
