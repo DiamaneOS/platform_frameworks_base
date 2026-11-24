@@ -2779,6 +2779,13 @@ public final class Bitmap implements Parcelable {
                                             boolean isMutable);
     private static native Bitmap nativeCreateEmptyAshmemBitmap(int width, int height,
             int nativeConfig, long nativeColorSpace);
+    // DiamaneOS: the allocator describes hardware storage before the gate creates its copy.
+    static long hardwareAllocationBytes(Bitmap bitmap) {
+        bitmap.checkRecycled("Cannot copy a recycled bitmap");
+        return nativeHardwareAllocationBytes(bitmap.mNativePtr);
+    }
+
+    private static native long nativeHardwareAllocationBytes(long bitmapPtr);
     private static native Bitmap nativeCopyAshmem(long nativeSrcBitmap);
     private static native Bitmap nativeCopyAshmemConfig(long nativeSrcBitmap, int nativeConfig);
     private static native int nativeGetAshmemFD(long nativeBitmap);

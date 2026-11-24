@@ -26,11 +26,13 @@ import android.app.WallpaperManager;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.DecodeGate;
 import android.graphics.RecordingCanvas;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.hardware.display.DisplayManager;
 import android.hardware.display.DisplayManager.DisplayListener;
+import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
 import android.os.Trace;
@@ -190,8 +192,12 @@ public class ImageWallpaper extends WallpaperService {
             }
             mWallpaperManager = getDisplayContext().getSystemService(WallpaperManager.class);
             mSurfaceHolder = surfaceHolder;
+            DecodeGate.takeNotNow(); // DiamaneOS
             Rect dimensions = mWallpaperManager.peekBitmapDimensionsAsUser(getSourceFlag(), true,
                     mUserTracker.getUserId());
+            // DiamaneOS: the size was not had from the protected VM then (DecodeGate): taken from the image once it
+            // comes (loadWallpaperAndDrawFrameInternal).
+            mSizeLate = DecodeGate.takeNotNow();
             int width = Math.max(MIN_SURFACE_WIDTH, dimensions.width());
             int height = Math.max(MIN_SURFACE_HEIGHT, dimensions.height());
             mSurfaceHolder.setFixedSize(width, height);
@@ -345,6 +351,7 @@ public class ImageWallpaper extends WallpaperService {
 
         private void loadWallpaperAndDrawFrameInternal() {
             Trace.beginSection("WPMS.ImageWallpaper.CanvasEngine#loadWallpaper");
+            DecodeGate.takeNotNow(); // DiamaneOS
             boolean loadSuccess = false;
             Bitmap bitmap;
             try {
@@ -378,6 +385,8 @@ public class ImageWallpaper extends WallpaperService {
             } finally {
                 Trace.endSection();
             }
+            // DiamaneOS: the image was not had from the protected VM then (DecodeGate) and the default came instead.
+            final boolean late = DecodeGate.takeNotNow();
 
             if (bitmap == null) {
                 Log.w(TAG, "Could not load bitmap");
@@ -395,6 +404,9 @@ public class ImageWallpaper extends WallpaperService {
                     Trace.endSection();
                 }
                 mBitmap = bitmap;
+                if (mSizeLate && !late) {
+                    resizeSurfaceTo(bitmap.getWidth(), bitmap.getHeight()); // DiamaneOS
+                }
                 Trace.beginSection("WPMS.wallpaperSupportsWcg");
                 mWideColorGamut = mWallpaperManager.wallpaperSupportsWcg(getSourceFlag());
                 Trace.endSection();
@@ -419,7 +431,50 @@ public class ImageWallpaper extends WallpaperService {
             }
             // even if the bitmap cannot be loaded, call reportEngineShown
             if (!loadSuccess) reportEngineShown(false);
+            // DiamaneOS: loaded again until the image comes, and its colours are computed from it then.
+            if (late) {
+                loadAgainLater();
+            } else {
+                mLoadTries = 0;
+            }
             Trace.endSection();
+        }
+
+        // DiamaneOS: the size and the image of a wallpaper the protected VM could not give at first (before boot,
+        // say). The next try comes after 2 s, then twice as long each time up to a minute, while the engine has a
+        // surface. When the image comes, the colours are computed from it and sent as for any new image.
+        private boolean mSizeLate;
+        private int mLoadTries;
+
+        private void loadAgainLater() {
+            final long delay = Math.min(60_000L, 2_000L << Math.min(5, mLoadTries++));
+            Log.i(TAG, "wallpaper image not had from the protected VM yet, trying again in " + delay + " ms");
+            mLongExecutor.executeDelayed(() -> {
+                synchronized (mLock) {
+                    synchronized (mSurfaceLock) {
+                        if (mSurfaceHolder == null) {
+                            return;
+                        }
+                    }
+                    mDrawn = false;
+                    loadWallpaperAndDrawFrameInternal();
+                }
+            }, delay);
+        }
+
+        // The surface at the size of the image that came late, set on the engine's thread. It is drawn again then.
+        private void resizeSurfaceTo(int width, int height) {
+            mSizeLate = false;
+            new Handler(mWorker.getLooper()).post(() -> {
+                synchronized (mSurfaceLock) {
+                    if (mSurfaceHolder == null) {
+                        return;
+                    }
+                    mDrawn = false;
+                    mSurfaceHolder.setFixedSize(Math.max(MIN_SURFACE_WIDTH, width),
+                            Math.max(MIN_SURFACE_HEIGHT, height));
+                }
+            });
         }
 
         private void onColorsProcessed(List<RectF> regions, List<WallpaperColors> colors) {

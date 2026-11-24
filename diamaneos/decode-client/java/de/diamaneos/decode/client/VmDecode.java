@@ -111,10 +111,17 @@ public final class VmDecode {
         public final Bitmap bitmap;
         /** 0, 90, 180 or 270: the clockwise turn applied to the stored pixels. */
         public final int rotation;
+        /** True when the stored pixels were mirrored left to right before the turn (the file's orientation). */
+        public final boolean mirrored;
 
         Decoded(Bitmap bitmap, int rotation) {
+            this(bitmap, rotation, false);
+        }
+
+        Decoded(Bitmap bitmap, int rotation, boolean mirrored) {
             this.bitmap = bitmap;
             this.rotation = rotation;
+            this.mirrored = mirrored;
         }
     }
 
@@ -729,7 +736,7 @@ public final class VmDecode {
                 bitmap.recycle();
             }
         }
-        return new Decoded(result, thumbnail.rotation);
+        return new Decoded(result, thumbnail.rotation, thumbnail.mirrored);
     }
 
     private static long pumpDeadline(long callDeadline) {
@@ -960,5 +967,154 @@ public final class VmDecode {
         } catch (Exception ignored) {
             // Nothing to do.
         }
+    }
+
+    /**
+     * A region of the stored image (never turned, as Android's region decoder reads it) decoded in the VM at full
+     * detail and scaled down by {@code sampleSize} to at most ceil(width / sampleSize) x ceil(height / sampleSize).
+     */
+    public static Bitmap decodeRegion(Context context, ParcelFileDescriptor fd, String ownerPackage, int priority,
+            int left, int top, int width, int height, int sampleSize, long deadline)
+            throws UnavailableException, RejectedException {
+        checkNotMainThread();
+        if (left < 0 || top < 0 || width < 1 || height < 1 || sampleSize < 1
+                || sampleSize > IDecodeService.MAX_REGION_SAMPLE) {
+            throw new RejectedException("bad region");
+        }
+        final int maxWidth = (int) (((long) width + sampleSize - 1) / sampleSize);
+        final int maxHeight = (int) (((long) height + sampleSize - 1) / sampleSize);
+        final DecodeRequest request = request(fd, ownerPackage, priority);
+        return client(context).call(priority, deadline, request.ownerPackage, service -> {
+            final Thumbnail thumbnail = service.decodeRegion(request, left, top, width, height, sampleSize);
+            if (thumbnail == null) {
+                throw new RejectedException("no reply");
+            }
+            checkStatus(thumbnail.status);
+            try {
+                if (thumbnail.rotation != 0 || thumbnail.mirrored) {
+                    throw new RejectedException("a turned region");
+                }
+                return toDecoded(service, thumbnail, maxWidth, maxHeight).bitmap;
+            } finally {
+                try {
+                    service.release(thumbnail.handle);
+                } catch (RemoteException ignored) {
+                    // The handle times out in the service anyway.
+                }
+            }
+        });
+    }
+
+    /** What the VM's probe reads from an image's header. */
+    public static final class Info {
+        /** The stored size, before any turn the file asks for. */
+        public final int width;
+        public final int height;
+        /** IDecodeService.FORMAT_*. */
+        public final int format;
+        public final boolean animated;
+
+        Info(int width, int height, int format, boolean animated) {
+            this.width = width;
+            this.height = height;
+            this.format = format;
+            this.animated = animated;
+        }
+    }
+
+    /** {@link #probeSize}, with the format and whether the image is animated. */
+    public static Info probeInfo(Context context, ParcelFileDescriptor fd, String ownerPackage, int priority,
+            long deadline) throws UnavailableException, RejectedException {
+        checkNotMainThread();
+        final DecodeRequest request = request(fd, ownerPackage, priority);
+        return client(context).call(priority, deadline, request.ownerPackage, service -> {
+            final ImageInfo info = service.probe(request);
+            if (info == null) {
+                throw new RejectedException("no reply");
+            }
+            checkStatus(info.status);
+            final String broken = DecodeChecks.check(info);
+            if (broken != null) {
+                throw new RejectedException("probe reply breaks the contract: " + broken);
+            }
+            try {
+                StripeValidator.checkInfo(info.format, info.width, info.height, info.animated);
+            } catch (StripeValidator.BadReplyException e) {
+                throw new RejectedException(e.getMessage());
+            }
+            return new Info(info.width, info.height, info.format, info.animated);
+        });
+    }
+
+    /** An animation decoded in the VM: every frame, one below the other in one tall bitmap. */
+    public static final class Animation {
+        /** frameCount frames of width x height, frame i at rows i * height to (i + 1) * height. */
+        public final Bitmap frames;
+        public final int frameCount;
+        public final int width;
+        public final int height;
+        /** Each frame's time in milliseconds. */
+        public final int[] durations;
+        /** How often it plays, 0: forever. */
+        public final int loopCount;
+
+        Animation(Bitmap frames, int frameCount, int width, int height, int[] durations, int loopCount) {
+            this.frames = frames;
+            this.frameCount = frameCount;
+            this.width = width;
+            this.height = height;
+            this.durations = durations;
+            this.loopCount = loopCount;
+        }
+    }
+
+    /**
+     * The frames of a GIF or WebP animation decoded in the VM, each fitting {@code maxWidth} x {@code maxHeight}, all
+     * of them together at most IDecodeService.MAX_FRAMES_BYTES (the service makes them smaller to fit). A
+     * RejectedException for another format.
+     */
+    public static Animation decodeFrames(Context context, ParcelFileDescriptor fd, String ownerPackage, int priority,
+            int maxWidth, int maxHeight, long deadline) throws UnavailableException, RejectedException {
+        checkNotMainThread();
+        if (maxWidth < 1 || maxHeight < 1) {
+            throw new RejectedException("bad box " + maxWidth + "x" + maxHeight);
+        }
+        final DecodeRequest request = request(fd, ownerPackage, priority);
+        return client(context).call(priority, deadline, request.ownerPackage, service -> {
+            final de.diamaneos.sanitizer.decode.Frames f = service.decodeFrames(request, maxWidth, maxHeight);
+            if (f == null) {
+                throw new RejectedException("no reply");
+            }
+            checkStatus(f.status);
+            try {
+                final String broken = DecodeChecks.check(f, maxWidth, maxHeight);
+                if (broken != null) {
+                    throw new RejectedException("frames break the contract: " + broken);
+                }
+                final int rows = f.frameCount * f.height;
+                final int stripes = (rows + f.stripeRows - 1) / f.stripeRows;
+                final byte[] all = new byte[rows * f.width * 4];
+                for (int i = 0; i < stripes; i++) {
+                    final byte[] stripe = service.readStripe(f.handle, i);
+                    final String bad = DecodeChecks.check(f, i, stripe);
+                    if (bad != null) {
+                        throw new RejectedException("frame stripe " + i + " breaks the contract: " + bad);
+                    }
+                    System.arraycopy(stripe, 0, all, i * f.stripeRows * f.width * 4, stripe.length);
+                }
+                final Bitmap frames = Bitmap.createBitmap(f.width, rows, Bitmap.Config.ARGB_8888, true,
+                        DecodeChecks.colorSpaceOf(f));
+                frames.copyPixelsFromBuffer(ByteBuffer.wrap(all));
+                return new Animation(frames, f.frameCount, f.width, f.height, f.durations.clone(), f.loopCount);
+            } finally {
+                if (f.handle != 0) {
+                    try {
+                        service.release(f.handle);
+                    } catch (RemoteException ignored) {
+                        // The handle times out in the service anyway.
+                    }
+                }
+            }
+        });
     }
 }

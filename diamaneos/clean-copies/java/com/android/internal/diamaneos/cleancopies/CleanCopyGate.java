@@ -330,6 +330,32 @@ public final class CleanCopyGate implements ImageFileGate {
         }
     }
 
+    /**
+     * An image a gate made in this process from a clean copy's pixels (a PNG it encoded itself): decoded here as it is,
+     * never taken to the VM again (android.graphics.DecodeGate).
+     */
+    public static final class CleanImageStream extends ByteArrayInputStream {
+        CleanImageStream(byte[] png) {
+            super(png);
+        }
+    }
+
+    /**
+     * True when the files of the APK at {@code apkPath} are decoded in this process: an APK of the system image, or one
+     * of this process's own app (as {@link #decodesHere} decides for resources).
+     */
+    public static boolean apkDecodesHere(String apkPath) {
+        if (CleanCopyKey.isSystemImage(apkPath)) {
+            return true;
+        }
+        if (apkPath == null || apkPath.isEmpty()) {
+            return false;
+        }
+        final Context app = sApp != null ? sApp : android.app.ActivityThread.currentApplication();
+        final ApplicationInfo own = app != null ? app.getApplicationInfo() : null;
+        return own != null && Arrays.asList(own.getAllApkPaths()).contains(apkPath);
+    }
+
     /** True when the process of the system app {@code packageName} takes other apps' images from clean copies. */
     public static boolean gatedApp(ApplicationInfo ai, String packageName) {
         return ai != null && ai.isSystemApp() && packageName != null
@@ -527,9 +553,9 @@ public final class CleanCopyGate implements ImageFileGate {
         final Made made = made(res, value, apkPath);
         if (made == null) {
             missing(null, null);
-            return new ByteArrayInputStream(emptyPng());
+            return new CleanImageStream(emptyPng());
         }
-        return new ByteArrayInputStream(png(made.bitmap, made.chunk, made.npLb));
+        return new CleanImageStream(png(made.bitmap, made.chunk, made.npLb));
     }
 
     // True for a file Android's decoders read: by its name or, for any other name, its first bytes (a compare, no
@@ -777,7 +803,7 @@ public final class CleanCopyGate implements ImageFileGate {
             }
             closeQuietly(in);
             missing(null, null);
-            return new ByteArrayInputStream(emptyPng());
+            return new CleanImageStream(emptyPng());
         }
 
         @Override

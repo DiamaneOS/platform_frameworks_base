@@ -145,7 +145,7 @@ static const JNINativeMethod gMethods[] = {
     { "nativeDecodeStream", "(Ljava/io/InputStream;)Landroid/graphics/Movie;",
                             (void*)movie_decodeStream },
     { "nativeDestructor","(J)V", (void*)movie_destructor },
-    { "decodeByteArray", "([BII)Landroid/graphics/Movie;",
+    { "nativeDecodeByteArray", "([BII)Landroid/graphics/Movie;",
                             (void*)movie_decodeByteArray },
 };
 
