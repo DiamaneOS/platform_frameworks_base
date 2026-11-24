@@ -31,4 +31,12 @@
     <string-array name="config_networkPermissionFixedOffPackages" translatable="false">
     </string-array>
     <java-symbol type="array" name="config_networkPermissionFixedOffPackages" />
+
+    <!-- Whether new adoptable storage (a card set up as internal storage) is offered and accepted. Off: an adopted
+         card's filesystem reaches the kernel decrypted but not authenticated. Cards adopted before keep working.
+         The system server refuses partitionPrivate and partitionMixed while it is off, and SystemUI and Settings do
+         not offer it. vold refuses on its own too (system/vold model/NewAdoption.h kNewAdoptableStorage), so both
+         switches go on together, for example with authenticated adoption (dm-crypt with dm-integrity). -->
+    <bool name="config_newAdoptableStorage">false</bool>
+    <java-symbol type="bool" name="config_newAdoptableStorage" />
 </resources>

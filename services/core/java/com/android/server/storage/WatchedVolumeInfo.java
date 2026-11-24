@@ -180,6 +180,12 @@ public class WatchedVolumeInfo extends WatchableImpl {
         return mVolumeInfo.type;
     }
 
+    /** DiamaneOS: read-only while its filesystem VM checks it (vold's onVolumeCheckPending). */
+    public void setCheckPending(boolean pending) {
+        mVolumeInfo.checkPending = pending;
+        dispatchChange(this);
+    }
+
     public VolumeInfo getVolumeInfo() {
         return new VolumeInfo(mVolumeInfo);
     }
