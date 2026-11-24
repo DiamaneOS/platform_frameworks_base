@@ -7391,4 +7391,8 @@
     <string name="do_not_disturb_sync_notification_title">Do not disturb</string>
     <!-- Notification content for Do not disturb sync [CHAR LIMIT=NONE] -->
     <string name="do_not_disturb_sync_notification_content">Synced from your nearby device</string>
+    <!-- Status of a completed removable-storage format awaiting readback. -->
+    <string name="ext_media_status_formatted_unverified">Formatted, awaiting verification</string>
+    <!-- Status of a format whose writer has stopped and whose result is still uncertain. -->
+    <string name="ext_media_status_format_result_unverified">Format result unverified</string>
 </resources>

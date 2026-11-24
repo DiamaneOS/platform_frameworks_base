@@ -104,7 +104,7 @@ java_test_host {
 // without the decode service too (images are then empty within the budget).
 android_test {
     name: "DiamaneOSDecodeClientTests",
-    srcs: ["tests/device/src/**/*.java"],
+    srcs: ["tests/device/src/**/*.java", ":diamaneos-obb-storage-test-source"],
     resource_dirs: ["tests/device/res"],
     manifest: "tests/device/AndroidManifest.xml",
     static_libs: [

@@ -381,6 +381,7 @@ filegroup {
     srcs: [
         "java/com/android/server/storage/ObbRecords.java",
         "java/com/android/server/storage/ObbCleanup.java",
+        "java/com/android/server/storage/ConfirmedPartition.java",
     ],
     visibility: ["//frameworks/base/diamaneos/decode-client"],
 }

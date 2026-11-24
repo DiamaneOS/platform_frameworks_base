@@ -1143,6 +1143,25 @@ public class StorageManager {
         }
     }
 
+    /** @hide DiamaneOS: identity captured by the confirmation dialog, never refreshed here. */
+    public void partitionPublicConfirmed(String diskId, String generation, long sizeBytes,
+            String forgetUuid) {
+        try {
+            mStorageManager.partitionPublicConfirmed(diskId, generation, sizeBytes, forgetUuid);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
+    /** @hide DiamaneOS: a fresh confirmation for an erase that is awaiting verification. */
+    public void partitionPublicRetryConfirmed(String diskId, String generation, long sizeBytes) {
+        try {
+            mStorageManager.partitionPublicRetryConfirmed(diskId, generation, sizeBytes);
+        } catch (RemoteException e) {
+            throw e.rethrowFromSystemServer();
+        }
+    }
+
     /** @hide */
     public void partitionPrivate(String diskId) {
         try {

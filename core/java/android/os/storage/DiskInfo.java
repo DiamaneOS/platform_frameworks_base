@@ -67,6 +67,9 @@ public class DiskInfo implements Parcelable {
     public String sysPath;
     /** DiamaneOS: vold's decision, sent with each scan, whether a format may be offered for the disk. */
     public boolean formatOffered;
+    /** DiamaneOS: the medium generation and size that vold actually probed. */
+    public String mediumGeneration = "";
+    public long mediumBytes;
 
     public DiskInfo(String id, int flags) {
         this.id = Preconditions.checkNotNull(id);
@@ -82,6 +85,8 @@ public class DiskInfo implements Parcelable {
         volumeCount = parcel.readInt();
         sysPath = parcel.readString();
         formatOffered = parcel.readBoolean();  // DiamaneOS
+        mediumGeneration = parcel.readString();
+        mediumBytes = parcel.readLong();
     }
 
     @UnsupportedAppUsage
@@ -244,5 +249,7 @@ public class DiskInfo implements Parcelable {
         parcel.writeInt(volumeCount);
         parcel.writeString(sysPath);
         parcel.writeBoolean(formatOffered);  // DiamaneOS
+        parcel.writeString(mediumGeneration);
+        parcel.writeLong(mediumBytes);
     }
 }

@@ -20,6 +20,15 @@ package com.android.server.storage;
 public final class ObbCleanup {
     public interface NativeEnd { void destroy(String id) throws Exception; }
     private ObbCleanup() {}
+    public record Connection(Object identity, NativeEnd nativeEnd) {}
+    public static NativeEnd inSession(java.util.function.Supplier<Connection> current, Connection expected) {
+        return id -> {
+            Connection live = current.get();
+            if (live == null || expected == null) throw new IllegalStateException("vold is disconnected");
+            if (live.identity() != expected.identity()) return;
+            live.nativeEnd().destroy(id);
+        };
+    }
 
     public static boolean end(NativeEnd nativeEnd, String id, Runnable confirmed) {
         if (id == null) return true;
@@ -30,5 +39,26 @@ public final class ObbCleanup {
         }
         confirmed.run();
         return true;
+    }
+    public interface Delay { void post(Runnable work, long millis); }
+
+    /** Handler-confined pending native IDs, including rollback without a live listener. */
+    public static final class Pending<S extends ObbRecords.Record> {
+        private final android.util.ArrayMap<String, S> mEntries = new android.util.ArrayMap<>();
+        public int size() { return mEntries.size(); }
+        public S valueAt(int index) { return mEntries.valueAt(index); }
+        public S remove(String id) { return mEntries.remove(id); }
+        public void retry(S state, NativeEnd nativeEnd, Delay delay, java.util.function.Consumer<S> confirmed) {
+            String id = state.volId();
+            if (id == null || mEntries.containsKey(id)) return;
+            mEntries.put(id, state);
+            delay.post(() -> {
+                if (mEntries.get(id) != state) return;
+                if (!end(nativeEnd, id, () -> { remove(id); confirmed.accept(state); })) {
+                    remove(id);
+                    retry(state, nativeEnd, delay, confirmed);
+                }
+            }, 3000);
+        }
     }
 }

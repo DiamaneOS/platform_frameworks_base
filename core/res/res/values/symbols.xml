@@ -6647,4 +6647,7 @@
   <java-symbol type="drawable" name="ic_cross_device_sync_airplane" />
   <!-- Disable the Video Capability over IWLAN when Wi-Fi Calling is turned off  -->
   <java-symbol type="bool" name="config_disable_video_capability_when_wfc_off" />
-  </resources>
+    <!-- DiamaneOS storage outcomes -->
+  <java-symbol type="string" name="ext_media_status_formatted_unverified" />
+  <java-symbol type="string" name="ext_media_status_format_result_unverified" />
+</resources>

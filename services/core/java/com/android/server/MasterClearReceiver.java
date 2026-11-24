@@ -33,7 +33,6 @@ import android.os.RecoverySystem;
 import android.os.RemoteException;
 import android.os.UserHandle;
 import android.os.UserManager;
-import android.os.storage.StorageManager;
 import android.text.TextUtils;
 import android.util.Slog;
 import android.view.WindowManager;
@@ -41,6 +40,7 @@ import android.view.WindowManager;
 import com.android.internal.R;
 import com.android.internal.messages.nano.SystemMessageProto;
 import com.android.internal.notification.SystemNotificationChannels;
+import com.android.server.storage.ResetExternalStorage;
 import com.android.server.utils.Slogf;
 
 import java.io.IOException;
@@ -130,7 +130,9 @@ public class MasterClearReceiver extends BroadcastReceiver {
         if (mWipeExternalStorage) {
             // thr will be started at the end of this task.
             Slog.i(TAG, "Wiping external storage on async task");
-            new WipeDataTask(context, thr).executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
+            // DiamaneOS: the reset has its own worker and does not wait for the UI to post back.
+            new WipeDataTask(context, thr).executeOnExecutor(
+                    work -> new Thread(work, "WipeDataTask").start());
         } else {
             Slog.i(TAG, "NOT wiping external storage; starting thread " + thr.getName());
             thr.start();
@@ -218,11 +220,8 @@ public class MasterClearReceiver extends BroadcastReceiver {
         @Override
         protected Void doInBackground(Void... params) {
             Slog.w(TAG, "Wiping adoptable disks");
-            if (mWipeExternalStorage) {
-                StorageManager sm = (StorageManager) mContext.getSystemService(
-                        Context.STORAGE_SERVICE);
-                sm.wipeAdoptableDisks();
-            }
+            ResetExternalStorage.wipe(mContext);
+            mChainedTask.start();
             return null;
         }
 
@@ -231,7 +230,6 @@ public class MasterClearReceiver extends BroadcastReceiver {
             if (mProgressDialog != null && mProgressDialog.isShowing()) {
                 mProgressDialog.dismiss();
             }
-            mChainedTask.start();
         }
 
     }

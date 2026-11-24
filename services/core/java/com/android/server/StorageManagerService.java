@@ -628,7 +628,9 @@ class StorageManagerService extends IStorageManager.Stub
     /** DiamaneOS: the mounted images by owner and canonical path, and by volume ID (ObbRecords). */
     private final ObbRecords<ObbState> mObbRecords = new ObbRecords<>();
     // DiamaneOS: failed native cleanup retains its ID and user until terminal confirmation.
-    private final ArrayMap<String, ObbState> mPendingObbCleanup = new ArrayMap<>();
+    private volatile com.android.server.storage.ObbCleanup.Connection mObbVold;
+    private final com.android.server.storage.ObbCleanup.Pending<ObbState> mPendingObbCleanup =
+            new com.android.server.storage.ObbCleanup.Pending<>();
 
     // Not guarded by a lock.
     private final StorageManagerInternalImpl mStorageManagerInternal
@@ -680,6 +682,7 @@ class StorageManagerService extends IStorageManager.Stub
         final int nonce;
 
         String volId;
+        com.android.server.storage.ObbCleanup.Connection connection;
 
         public IBinder getBinder() {
             return token.asBinder();
@@ -1189,20 +1192,34 @@ class StorageManagerService extends IStorageManager.Stub
             final List<UserInfo> users = userManager.getUsers();
 
             extendWatchdogTimeout("#onReset might be slow");
+            // DiamaneOS: retain live storage sessions if removable teardown cannot start safely.
+            try {
+                mVold.preflightReset();
+            } catch (ServiceSpecificException e) {
+                if (e.errorCode == -android.system.OsConstants.EAGAIN) {
+                    deferStorageReset(e);
+                } else {
+                    Slog.wtf(TAG, e);
+                }
+                return;
+            } catch (RemoteException e) {
+                Slog.wtf(TAG, e);
+                return;
+            }
             mStorageSessionController.onReset(mVold, () -> {
                 mHandler.removeCallbacksAndMessages(null);
             });
 
             final int[] systemUnlockedUsers;
+            final ArrayMap<String, DiskInfo> oldDisks;
+            final ArrayMap<String, WatchedVolumeInfo> oldVolumes;
             synchronized (mLock) {
                 // make copy as sorting can change order
                 systemUnlockedUsers = Arrays.copyOf(mSystemUnlockedUsers,
                         mSystemUnlockedUsers.length);
 
-                mDisks.clear();
-                mVolumes.clear();
-
-                addInternalVolumeLocked();
+                oldDisks = new ArrayMap<>(mDisks);
+                oldVolumes = new ArrayMap<>(mVolumes.untrackedStorage());
             }
 
             try {
@@ -1212,7 +1229,26 @@ class StorageManagerService extends IStorageManager.Stub
                 //
                 // TODO(b/135341433): Remove cautious logging when FUSE is stable
                 Slog.i(TAG, "Resetting vold...");
-                mVold.reset();
+                try {
+                    mVold.reset();
+                } catch (ServiceSpecificException e) {
+                    if (e.errorCode != -android.system.OsConstants.EAGAIN) throw e;
+                    // Identity can change after the first check. The controller has closed its
+                    // sessions, so recreate the internal user volumes through normal callbacks.
+                    try {
+                        for (int userId : systemUnlockedUsers) {
+                            mVold.onUserStopped(userId);
+                            mVold.onUserStarted(userId);
+                            mStoraged.onUserStarted(userId);
+                        }
+                        restoreSystemUnlockedUsers(userManager, userManager.getUsers(),
+                                systemUnlockedUsers, /* restartSessions= */ true);
+                    } finally {
+                        deferStorageReset(e);
+                    }
+                    return;
+                }
+                clearStaleResetEntries(oldDisks, oldVolumes);
                 Slog.i(TAG, "Reset vold");
 
                 // Tell vold about all existing and started users
@@ -1227,7 +1263,8 @@ class StorageManagerService extends IStorageManager.Stub
                     mVold.onUserStarted(userId);
                     mStoraged.onUserStarted(userId);
                 }
-                restoreSystemUnlockedUsers(userManager, users, systemUnlockedUsers);
+                restoreSystemUnlockedUsers(userManager, users, systemUnlockedUsers,
+                        /* restartSessions= */ false);
                 mVold.onSecureKeyguardStateChanged(mSecureKeyguardShowing);
                 mStorageManagerInternal.onReset(mVold);
             } catch (Exception e) {
@@ -1236,8 +1273,32 @@ class StorageManagerService extends IStorageManager.Stub
         }
     }
 
+    private void deferStorageReset(ServiceSpecificException reason) {
+        Slog.w(TAG, "Removable storage teardown deferred", reason);
+        if (!mHandler.hasMessages(H_RESET)) {
+            mHandler.sendEmptyMessageDelayed(H_RESET,
+                    TimeUnit.SECONDS.toMillis(FAILED_MOUNT_RESET_TIMEOUT_SECONDS));
+        }
+    }
+
+    private void clearStaleResetEntries(ArrayMap<String, DiskInfo> disks,
+            ArrayMap<String, WatchedVolumeInfo> volumes) {
+        synchronized (mLock) {
+            // Preserve new objects published by the one-way vold listener during reset.
+            for (int i = 0; i < disks.size(); i++) {
+                final String id = disks.keyAt(i);
+                if (mDisks.get(id) == disks.valueAt(i)) mDisks.remove(id);
+            }
+            for (int i = 0; i < volumes.size(); i++) {
+                final String id = volumes.keyAt(i);
+                if (mVolumes.get(id) == volumes.valueAt(i)) mVolumes.remove(id);
+            }
+            addInternalVolumeLocked();
+        }
+    }
+
     private void restoreSystemUnlockedUsers(UserManager userManager, List<UserInfo> allUsers,
-            int[] systemUnlockedUsers) throws Exception {
+            int[] systemUnlockedUsers, boolean restartSessions) throws Exception {
         Arrays.sort(systemUnlockedUsers);
         UserManager.invalidateIsUserUnlockedCache();
         for (UserInfo user : allUsers) {
@@ -1253,6 +1314,10 @@ class StorageManagerService extends IStorageManager.Stub
                 continue;
             }
             Slog.w(TAG, "UNLOCK_USER lost from vold reset, will retry, user:" + userId);
+            if (restartSessions) {
+                // Vold kept its started-user set on refusal. Recreate the session before replay.
+                mVold.onUserStopped(userId);
+            }
             mVold.onUserStarted(userId);
             mStoraged.onUserStarted(userId);
             mHandler.obtainMessage(H_COMPLETE_UNLOCK_USER, userId, /* arg2 (unusued) */ 0)
@@ -1560,6 +1625,17 @@ class StorageManagerService extends IStorageManager.Stub
                     disk.size = sizeBytes;
                     disk.label = label;
                     disk.sysPath = sysPath;
+                }
+            }
+        }
+
+        @Override
+        public void onDiskMedium(String diskId, String generation, long sizeBytes) {
+            synchronized (mLock) {
+                final DiskInfo disk = mDisks.get(diskId);
+                if (disk != null) {
+                    disk.mediumGeneration = generation;
+                    disk.mediumBytes = sizeBytes;
                 }
             }
         }
@@ -1893,18 +1969,16 @@ class StorageManagerService extends IStorageManager.Stub
                 if (rec == null) {
                     rec = new VolumeRecord(vol.getType(), vol.getFsUuid());
                     rec.partGuid = vol.getPartGuid();
+                    rec.diskSysPath = vol.getDisk() == null ? null : vol.getDisk().sysPath;
                     rec.createdMillis = System.currentTimeMillis();
                     if (vol.getType() == VolumeInfo.TYPE_PRIVATE) {
                         rec.nickname = vol.getDisk().getDescription();
                     }
                     mRecords.put(rec.fsUuid, rec);
-                } else {
-                    // Handle upgrade case where we didn't store partition GUID
-                    if (TextUtils.isEmpty(rec.partGuid)) {
-                        rec.partGuid = vol.getPartGuid();
-                    }
                 }
-
+                // DiamaneOS: UUID-only legacy records never acquire another partition's key association.
+                android.os.storage.AdoptedVolumeIdentity.bindExisting(rec, vol.getType(),
+                        vol.getPartGuid(), vol.getDisk());
                 rec.lastSeenMillis = System.currentTimeMillis();
                 writeSettingsLocked();
             }
@@ -2209,12 +2283,15 @@ class StorageManagerService extends IStorageManager.Stub
     private void connectVold() {
         IBinder binder = ServiceManager.getService("vold");
         if (binder != null) {
+            final IBinder target = binder;
             try {
                 binder.linkToDeath(new DeathRecipient() {
                     @Override
                     public void binderDied() {
+                        if (mVold == null || mVold.asBinder() != target) return;
                         Slog.w(TAG, "vold died; reconnecting");
                         mVold = null;
+                        mObbVold = null;
                         connectVold();
                     }
                 }, 0);
@@ -2224,11 +2301,22 @@ class StorageManagerService extends IStorageManager.Stub
         }
 
         if (binder != null) {
-            mVold = IVold.Stub.asInterface(binder);
+            final IVold vold = IVold.Stub.asInterface(binder);
+            mVold = vold;
             try {
-                mVold.setListener(mListener);
+                vold.setListener(mListener);
+                // DiamaneOS: OBB IDs and cleanup belong to this Binder service instance.
+                mObbVold = new com.android.server.storage.ObbCleanup.Connection(binder, vold::destroyObb);
+                mObbActionHandler.post(() -> {
+                    synchronized (mObbMounts) {
+                        for (ObbState state : mObbRecords.below("/")) {
+                            if (state.connection != mObbVold) retryObbCleanup(state);
+                        }
+                    }
+                });
             } catch (RemoteException e) {
                 mVold = null;
+                mObbVold = null;
                 Slog.w(TAG, "vold listener rejected; trying again", e);
             }
         } else {
@@ -2423,6 +2511,7 @@ class StorageManagerService extends IStorageManager.Stub
         final String fsUuid = readStringAttribute(in, ATTR_FS_UUID);
         final VolumeRecord meta = new VolumeRecord(type, fsUuid);
         meta.partGuid = readStringAttribute(in, ATTR_PART_GUID);
+        meta.diskSysPath = readStringAttribute(in, "diskSysPath");
         meta.nickname = readStringAttribute(in, ATTR_NICKNAME);
         meta.userFlags = in.getAttributeInt(null, ATTR_USER_FLAGS);
         meta.createdMillis = in.getAttributeLong(null, ATTR_CREATED_MILLIS, 0);
@@ -2438,6 +2527,7 @@ class StorageManagerService extends IStorageManager.Stub
         out.attributeInt(null, ATTR_TYPE, rec.type);
         writeStringAttribute(out, ATTR_FS_UUID, rec.fsUuid);
         writeStringAttribute(out, ATTR_PART_GUID, rec.partGuid);
+        writeStringAttribute(out, "diskSysPath", rec.diskSysPath);
         writeStringAttribute(out, ATTR_NICKNAME, rec.nickname);
         out.attributeInt(null, ATTR_USER_FLAGS, rec.userFlags);
         out.attributeLong(null, ATTR_CREATED_MILLIS, rec.createdMillis);
@@ -2482,7 +2572,7 @@ class StorageManagerService extends IStorageManager.Stub
         if (isMountDisallowed(vol)) {
             throw new SecurityException("Mounting " + volId + " restricted by policy");
         }
-        mount(vol);
+        mount(vol, IVold.MOUNT_FLAG_RESCAN);
     }
 
     private void remountAppStorageDirs(Map<Integer, String> pidPkgMap, int userId) {
@@ -2504,12 +2594,17 @@ class StorageManagerService extends IStorageManager.Stub
     }
 
     private void mount(WatchedVolumeInfo vol) {
+        mount(vol, 0);
+    }
+
+    // DiamaneOS: keep an explicit retry separate from automatic volume creation.
+    private void mount(WatchedVolumeInfo vol, int requestFlags) {
         try {
             Trace.traceBegin(Trace.TRACE_TAG_SYSTEM_SERVER, "SMS.mount: " + vol.getId());
             // TODO(b/135341433): Remove cautious logging when FUSE is stable
             Slog.i(TAG, "Mounting volume " + vol);
             extendWatchdogTimeout("#mount might be slow");
-            mVold.mount(vol.getId(), vol.getMountFlags(), vol.getMountUserId(),
+            mVold.mount(vol.getId(), vol.getMountFlags() | requestFlags, vol.getMountUserId(),
                     new IVoldMountCallback.Stub() {
                 @Override
                 public boolean onVolumeChecking(FileDescriptor fd, String path,
@@ -2585,17 +2680,11 @@ class StorageManagerService extends IStorageManager.Stub
         enforceAdminUserOrSystemUser();
 
         final WatchedVolumeInfo vol = findVolumeByIdOrThrow(volId);
-        final String fsUuid = vol.getFsUuid();
         try {
+            // DiamaneOS: an in-place format keeps the partition key and every saved record.
             mVold.format(vol.getId(), "auto");
-
-            // After a successful format above, we should forget about any
-            // records for the old partition, since it'll never appear again
-            if (!TextUtils.isEmpty(fsUuid)) {
-                forgetVolume(fsUuid);
-            }
         } catch (Exception e) {
-            Slog.wtf(TAG, e);
+            throw new IllegalStateException("The volume could not be formatted", e);
         }
     }
 
@@ -2647,14 +2736,53 @@ class StorageManagerService extends IStorageManager.Stub
         // DiamaneOS: like adoption, only an admin may erase or forget storage.
         enforceAdminUserOrSystemUser();
 
-        final CountDownLatch latch = findOrCreateDiskScanLatch(diskId);
+        final DiskInfo disk;
+        synchronized (mLock) {
+            disk = Objects.requireNonNull(mDisks.get(diskId)).clone();
+        }
+        partitionPublicConfirmed(diskId, disk.mediumGeneration, disk.mediumBytes, null);
+    }
 
-        extendWatchdogTimeout("#partition might be slow");
-        try {
-            mVold.partition(diskId, IVold.PARTITION_TYPE_PUBLIC, -1);
-            waitForLatch(latch, "partitionPublic", 3 * DateUtils.MINUTE_IN_MILLIS);
-        } catch (Exception e) {
-            Slog.wtf(TAG, e);
+    @android.annotation.EnforcePermission(android.Manifest.permission.MOUNT_FORMAT_FILESYSTEMS)
+    @Override
+    public void partitionPublicConfirmed(String diskId, String generation, long sizeBytes,
+            String forgetUuid) {
+        super.partitionPublicConfirmed_enforcePermission();
+        enforceAdminUserOrSystemUser();
+        partitionPublicConfirmed(diskId, generation, sizeBytes, forgetUuid, false);
+    }
+
+    @android.annotation.EnforcePermission(android.Manifest.permission.MOUNT_FORMAT_FILESYSTEMS)
+    @Override
+    public void partitionPublicRetryConfirmed(String diskId, String generation, long sizeBytes) {
+        super.partitionPublicRetryConfirmed_enforcePermission();
+        enforceAdminUserOrSystemUser();
+        partitionPublicConfirmed(diskId, generation, sizeBytes, null, true);
+    }
+
+    private void partitionPublicConfirmed(String diskId, String generation, long sizeBytes,
+            String forgetUuid, boolean freshConfirmation) {
+        // DiamaneOS: validation and key custody live in storage/ConfirmedPartition.
+        com.android.server.storage.ConfirmedPartition.run(diskId, generation, sizeBytes, forgetUuid,
+                () -> partitionView(diskId), () -> {
+                    final CountDownLatch latch = findOrCreateDiskScanLatch(diskId);
+                    extendWatchdogTimeout("#partition might be slow");
+                    if (freshConfirmation) {
+                        getVold().partitionPublicRetryConfirmed(diskId, generation, sizeBytes);
+                    } else {
+                        mVold.partitionConfirmed(diskId, IVold.PARTITION_TYPE_PUBLIC, -1,
+                                generation, sizeBytes);
+                    }
+                    waitForLatch(latch, "partitionPublicConfirmed", 3 * DateUtils.MINUTE_IN_MILLIS);
+                }, this::forgetVolume, freshConfirmation);
+    }
+
+    /** DiamaneOS: one consistent view for the confirmed partition operation. */
+    private com.android.server.storage.ConfirmedPartition.View partitionView(String diskId) {
+        synchronized (mLock) {
+            DiskInfo disk = mDisks.get(diskId);
+            return new com.android.server.storage.ConfirmedPartition.View(
+                    disk == null ? null : disk.clone(), java.util.Arrays.asList(getVolumes(0)));
         }
     }
 
@@ -2680,7 +2808,7 @@ class StorageManagerService extends IStorageManager.Stub
             mVold.partition(diskId, IVold.PARTITION_TYPE_PRIVATE, -1);
             waitForLatch(latch, "partitionPrivate", 3 * DateUtils.MINUTE_IN_MILLIS);
         } catch (Exception e) {
-            Slog.wtf(TAG, e);
+            throw new IllegalStateException("Partitioning did not complete", e);
         }
     }
 
@@ -2699,7 +2827,7 @@ class StorageManagerService extends IStorageManager.Stub
             mVold.partition(diskId, IVold.PARTITION_TYPE_MIXED, ratio);
             waitForLatch(latch, "partitionMixed", 3 * DateUtils.MINUTE_IN_MILLIS);
         } catch (Exception e) {
-            Slog.wtf(TAG, e);
+            throw new IllegalStateException("Partitioning did not complete", e);
         }
     }
 
@@ -2744,9 +2872,18 @@ class StorageManagerService extends IStorageManager.Stub
         Objects.requireNonNull(fsUuid);
 
         synchronized (mLock) {
+            final VolumeRecord selected = mRecords.get(fsUuid);
+            if (selected != null) android.os.storage.AdoptedVolumeIdentity.checkForget(
+                    selected, java.util.Arrays.asList(getVolumes(0)));
             final VolumeRecord rec = mRecords.remove(fsUuid);
             if (rec != null && !TextUtils.isEmpty(rec.partGuid)) {
-                mHandler.obtainMessage(H_PARTITION_FORGET, rec).sendToTarget();
+                // DiamaneOS: the native message would delete both the shared and filesystem keys.
+                if (android.os.storage.AdoptedVolumeIdentity.partitionKeyInUse(
+                        rec.partGuid, mRecords.values())) {
+                    Slog.i(TAG, "Forgot storage metadata and retained the shared native keys");
+                } else {
+                    mHandler.obtainMessage(H_PARTITION_FORGET, rec).sendToTarget();
+                }
             }
             mCallbacks.notifyVolumeForgotten(fsUuid);
 
@@ -4428,7 +4565,7 @@ class StorageManagerService extends IStorageManager.Stub
                     for (final ObbState obbState : obbStatesToRemove) {
                         if (DEBUG_OBB)
                             Slog.i(TAG, "Removing state for " + obbState.rawPath);
-                        if (endObbInVold(obbState.volId)) {
+                        if (endObbInVold(obbState)) {
                             synchronized (mObbMounts) { removeObbStateLocked(obbState); }
                             notifyObbEnded(obbState);
                         } else {
@@ -4467,28 +4604,21 @@ class StorageManagerService extends IStorageManager.Stub
     }
 
     /** DiamaneOS: destroyObb is idempotent and returns only after the native object ended. */
-    private boolean endObbInVold(String volId) {
-        if (volId == null) return true;
-        return com.android.server.storage.ObbCleanup.end(mVold::destroyObb, volId,
-                () -> mPendingObbCleanup.remove(volId));
+    private boolean endObbInVold(ObbState state) {
+        return com.android.server.storage.ObbCleanup.end(
+                com.android.server.storage.ObbCleanup.inSession(() -> mObbVold, state.connection), state.volId,
+                () -> mPendingObbCleanup.remove(state.volId));
     }
 
     /** DiamaneOS: even rollback without a live listener retains its native ID until cleanup succeeds. */
     private void retryObbCleanup(ObbState state) {
-        final String id = state.volId;
-        if (id == null || mPendingObbCleanup.containsKey(id)) return;
-        mPendingObbCleanup.put(id, state);
-        mObbActionHandler.postDelayed(() -> {
-            if (mPendingObbCleanup.get(id) != state) return;
-            mPendingObbCleanup.remove(id);
-            if (!endObbInVold(id)) {
-                retryObbCleanup(state);
-                return;
-            }
-            synchronized (mObbMounts) {
-                if (removeObbStateLocked(state)) notifyObbEnded(state);
-            }
-        }, 3000);
+        mPendingObbCleanup.retry(state,
+                com.android.server.storage.ObbCleanup.inSession(() -> mObbVold, state.connection),
+                (work, delay) -> mObbActionHandler.postDelayed(work, delay), ended -> {
+                    synchronized (mObbMounts) {
+                        if (removeObbStateLocked(ended)) notifyObbEnded(ended);
+                    }
+                });
     }
 
     private static class ObbException extends Exception {
@@ -4579,9 +4709,15 @@ class StorageManagerService extends IStorageManager.Stub
             }
 
             try {
-                mObbState.volId = mVold.createObb(mObbState.canonicalPath, mObbState.ownerGid,
+                final IVold vold = mVold;
+                mObbState.connection = mObbVold;
+                if (vold == null || mObbState.connection == null
+                        || mObbState.connection.identity() != vold.asBinder()) {
+                    throw new IllegalStateException("vold is disconnected");
+                }
+                mObbState.volId = vold.createObb(mObbState.canonicalPath, mObbState.ownerGid,
                         mObbState.userId);
-                mVold.mount(mObbState.volId, 0, -1, null);
+                vold.mount(mObbState.volId, 0, -1, null);
 
                 if (DEBUG_OBB)
                     Slog.d(TAG, "Successfully mounted OBB " + mObbState.canonicalPath);
@@ -4593,7 +4729,7 @@ class StorageManagerService extends IStorageManager.Stub
                 notifyObbStateChange(MOUNTED);
             } catch (Exception e) {
                 // DiamaneOS: a failed mount or a listener gone before it was linked leaves nothing in vold.
-                if (!endObbInVold(mObbState.volId)) retryObbCleanup(mObbState);
+                if (!endObbInVold(mObbState)) retryObbCleanup(mObbState);
                 throw new ObbException(ERROR_COULD_NOT_MOUNT, e);
             }
         }
@@ -4639,7 +4775,7 @@ class StorageManagerService extends IStorageManager.Stub
             }
 
             // DiamaneOS: retain the user's record until vold confirms a terminal native result.
-            if (!endObbInVold(existingState.volId)) {
+            if (!endObbInVold(existingState)) {
                 retryObbCleanup(existingState);
                 throw new ObbException(ERROR_COULD_NOT_UNMOUNT, "Native cleanup remains pending");
             }
@@ -4999,6 +5135,13 @@ class StorageManagerService extends IStorageManager.Stub
 
         private final CopyOnWriteArraySet<StorageManagerInternal.CloudProviderChangeListener>
                 mCloudProviderChangeListeners = new CopyOnWriteArraySet<>();
+
+        @Override
+        public void eraseAdoptableDiskForReset(DiskInfo disk, long deadlineMillis) {
+            com.android.server.storage.ConfirmedPartition.runForReset(disk, partitionView(disk.id),
+                    () -> getVold().partitionPublicForReset(disk.id, disk.mediumGeneration,
+                            disk.mediumBytes, deadlineMillis));
+        }
 
         @Override
         public boolean isFuseMounted(int userId) {

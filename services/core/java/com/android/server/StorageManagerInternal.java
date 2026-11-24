@@ -23,6 +23,7 @@ import android.content.pm.UserInfo;
 import android.os.IInstalld;
 import android.os.IVold;
 import android.os.ParcelFileDescriptor;
+import android.os.storage.DiskInfo;
 import android.os.storage.StorageManager.StorageFlags;
 
 import java.io.IOException;
@@ -33,6 +34,9 @@ import java.util.Set;
  * Internal interface to StorageManagerService, only for use within the system server.
  */
 public abstract class StorageManagerInternal {
+    /** DiamaneOS: erase one selected adoptable disk for an already authorized factory reset. */
+    public abstract void eraseAdoptableDiskForReset(DiskInfo disk, long deadlineMillis);
+
     /**
      * Gets the mount mode to use for a given UID
      *
