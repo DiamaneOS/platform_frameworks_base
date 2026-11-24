@@ -1031,6 +1031,8 @@ public final class OverlayManagerService extends SystemService {
                                 , android.os.FabricatedOverlayInternal.class);
                         Objects.requireNonNull(fabricated,
                                 "no fabricated overlay attached to request");
+                        // DiamaneOS: file values (nine-patches parsed by idmap2d) from the system only.
+                        FabricatedFileValues.enforceCaller(callingUid, fabricated);
                         return mImpl.registerFabricatedOverlay(fabricated);
 
                     case TYPE_UNREGISTER_FABRICATED:
