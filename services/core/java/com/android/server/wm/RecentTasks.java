@@ -696,8 +696,9 @@ class RecentTasks {
         mTasks.clear();
     }
 
-    Bitmap getTaskDescriptionIcon(String path) {
-        return mTaskPersister.getTaskDescriptionIcon(path);
+    // DiamaneOS: userId, the user whose images folder holds the icon (TaskIcons).
+    Bitmap getTaskDescriptionIcon(String path, int userId) {
+        return mTaskPersister.getTaskDescriptionIcon(path, userId);
     }
 
     void saveImage(Bitmap image, String path) {

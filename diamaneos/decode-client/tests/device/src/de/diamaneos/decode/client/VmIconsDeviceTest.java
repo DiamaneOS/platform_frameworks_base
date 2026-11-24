@@ -110,7 +110,8 @@ public class VmIconsDeviceTest {
             assertNull(VmIcons.decode(Icon.createWithData(DATA, 0, DATA.length), mContext, "", 64,
                     VmDecode.deadlineIn(1_000)));
             try {
-                VmDecode.decodeBytes(mContext, DATA, 0, DATA.length, "", VmDecode.PRIORITY_USER_WAITING, 64, 64);
+                VmDecode.decodeBytes(mContext, DATA, 0, DATA.length, "", mContext.getUserId(),
+                        VmDecode.PRIORITY_USER_WAITING, 64, 64);
                 fail("decoded on the main thread");
             } catch (VmDecode.UnavailableException expected) {
                 // Refused at once.

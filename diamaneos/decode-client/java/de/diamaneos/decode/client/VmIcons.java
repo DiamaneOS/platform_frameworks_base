@@ -270,7 +270,31 @@ public final class VmIcons {
         }
     }
 
-    /** The VM-decoded bitmap of a VM icon by {@code deadline}, or null. Failures are logged, not thrown. */
+    /**
+     * A context of {@code userId} made from {@code context}, for the calls of this class: an icon is the image of
+     * the user of the context it is decoded with (VmDecode OWNER_USER). Null for no known user (below 0) or when it
+     * cannot be made: then the icon is not decoded.
+     */
+    public static Context userContext(Context context, int userId) {
+        if (userId < 0) {
+            return null;
+        }
+        if (context.getUserId() == userId) {
+            return context;
+        }
+        try {
+            return context.createContextAsUser(android.os.UserHandle.of(userId), 0);
+        } catch (RuntimeException e) {
+            Log.w(TAG, "no context of user " + userId + ": " + e);
+            return null;
+        }
+    }
+
+    /**
+     * The VM-decoded bitmap of a VM icon by {@code deadline}, or null. Failures are logged, not thrown. As everywhere
+     * in this class, {@code context} is a context of the user whose icon it is (the posting app's user): the icon is
+     * that user's image (VmDecode OWNER_USER), and a URI icon is opened through that user's content resolver.
+     */
     public static Bitmap decode(Icon icon, Context context, String ownerPackage, int maxPx, long deadline) {
         return decode(icon, context, ownerPackage, maxPx, maxPx, deadline);
     }
@@ -306,11 +330,11 @@ public final class VmIcons {
             Bitmap bitmap;
             if (icon.getType() == Icon.TYPE_DATA) {
                 bitmap = VmDecode.decodeBytes(context, icon.getDataBytes(), icon.getDataOffset(),
-                        icon.getDataLength(), ownerPackage, VmDecode.PRIORITY_USER_WAITING, box[0],
-                        box[1], deadline);
+                        icon.getDataLength(), ownerPackage, context.getUserId(), VmDecode.PRIORITY_USER_WAITING,
+                        box[0], box[1], deadline);
             } else {
                 bitmap = VmDecode.decodeUri(context, context.getContentResolver(), icon.getUri(), ownerPackage,
-                        VmDecode.PRIORITY_USER_WAITING, box[0], box[1], deadline);
+                        context.getUserId(), VmDecode.PRIORITY_USER_WAITING, box[0], box[1], deadline);
             }
             // Cached bitmaps are shared between views: an immutable copy, so nobody can draw into it.
             bitmap = immutable(bitmap);

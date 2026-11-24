@@ -415,6 +415,8 @@ final class DecodeClient {
                             new de.diamaneos.sanitizer.decode.DecodeRequest();
                     request.file = read;
                     request.ownerPackage = HEALTH_OWNER;
+                    // The client's own test image: of this process's user.
+                    request.ownerUser = android.os.UserHandle.myUserId();
                     request.priority = IDecodeService.PRIORITY_USER_WAITING;
                     request.mimeTypeHint = "image/png";
                     final de.diamaneos.sanitizer.decode.ImageInfo info = bound.service.probe(request);

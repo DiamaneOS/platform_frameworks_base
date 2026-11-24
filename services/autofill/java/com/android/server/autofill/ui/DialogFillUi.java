@@ -58,6 +58,7 @@ import android.widget.TextView;
 import com.android.internal.R;
 import com.android.server.autofill.AutofillManagerService;
 import com.android.server.autofill.Helper;
+import com.android.server.autofill.AutofillPresentationUsers;
 
 import java.io.PrintWriter;
 import java.util.ArrayList;
@@ -103,6 +104,7 @@ final class DialogFillUi {
     private final int mThemeId;
     private final @NonNull Context mContext;
     private final @NonNull Context mUserContext;
+    private final int mImagesUserId; // DiamaneOS
     private final @NonNull UiCallback mCallback;
     private final @Nullable ListView mListView;
     private final @Nullable ItemsAdapter mAdapter;
@@ -120,7 +122,7 @@ final class DialogFillUi {
             @NonNull AutofillId focusedViewId, @Nullable String filterText,
             @Nullable Drawable serviceIcon, @Nullable String servicePackageName,
             @Nullable ComponentName componentName, boolean nightMode,
-            @NonNull UiCallback callback) {
+            int imagesUserId, @NonNull UiCallback callback) {
         if (sVerbose) Slog.v(TAG, "nightMode: " + nightMode);
         mThemeId = getThemeId(nightMode);
         mCallback = callback;
@@ -128,7 +130,9 @@ final class DialogFillUi {
         mComponentName = componentName;
 
         mContext = new ContextThemeWrapper(context, mThemeId);
-        mUserContext = Helper.getUserContext(mContext);
+        // DiamaneOS: views and URI filters retain the autofill session user.
+        mImagesUserId = imagesUserId;
+        mUserContext = AutofillPresentationUsers.context(mContext, imagesUserId);
         final LayoutInflater inflater = LayoutInflater.from(mContext);
         final View decor = inflater.inflate(getLayoutResId(), null);
         mListView = decor.findViewById(R.id.autofill_dialog_list);
@@ -248,7 +252,7 @@ final class DialogFillUi {
 
     private void setHeader(View decor, FillResponse response) {
         final RemoteViews presentation =
-                Helper.sanitizeRemoteView(response.getDialogHeader());
+                AutofillPresentationUsers.sanitizeRemoteView(response.getDialogHeader(), mImagesUserId);
         if (presentation == null) {
             return;
         }
@@ -294,10 +298,10 @@ final class DialogFillUi {
     }
 
     private void initialAuthenticationLayout(View decor, FillResponse response) {
-        RemoteViews presentation = Helper.sanitizeRemoteView(
-                response.getDialogPresentation());
+        RemoteViews presentation = AutofillPresentationUsers.sanitizeRemoteView(
+                response.getDialogPresentation(), mImagesUserId);
         if (presentation == null) {
-            presentation = Helper.sanitizeRemoteView(response.getPresentation());
+            presentation = AutofillPresentationUsers.sanitizeRemoteView(response.getPresentation(), mImagesUserId);
         }
         if (presentation == null) {
             throw new RuntimeException("No presentation for fill dialog authentication");
@@ -341,8 +345,8 @@ final class DialogFillUi {
             final Dataset dataset = response.getDatasets().get(i);
             final int index = dataset.getFieldIds().indexOf(focusedViewId);
             if (index >= 0) {
-                RemoteViews presentation = Helper.sanitizeRemoteView(
-                        dataset.getFieldDialogPresentation(index));
+                RemoteViews presentation = AutofillPresentationUsers.sanitizeRemoteView(
+                        dataset.getFieldDialogPresentation(index), mImagesUserId);
                 if (presentation == null) {
                     if (sDebug) {
                         Slog.w(TAG, "not displaying UI on field " + focusedViewId + " because "

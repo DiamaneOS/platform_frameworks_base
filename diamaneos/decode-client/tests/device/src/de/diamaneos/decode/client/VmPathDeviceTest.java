@@ -97,7 +97,7 @@ public class VmPathDeviceTest {
         final Bitmap decoded;
         try {
             decoded = onImageThread(() -> VmDecode.decodeBytes(mContext, png, 0, png.length, mPackage,
-                    VmDecode.PRIORITY_USER_WAITING, 64, 64, VmDecode.deadlineIn(20_000)));
+                    mContext.getUserId(), VmDecode.PRIORITY_USER_WAITING, 64, 64, VmDecode.deadlineIn(20_000)));
         } catch (java.util.concurrent.ExecutionException e) {
             fail("this test needs the decode VM, which this process could not use: " + e.getCause()
                     + " (a debuggable build lets the client tests bind the decode service)");

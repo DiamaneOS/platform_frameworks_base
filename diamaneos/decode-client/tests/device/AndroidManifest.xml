@@ -33,6 +33,11 @@
             android:name="de.diamaneos.decode.client.ProbeProvider"
             android:authorities="de.diamaneos.decode.client.tests.probe"
             android:exported="false" />
+        <!-- An image whose colour names the user it was opened in (AutofillViewsDeviceTest). -->
+        <provider
+            android:name="de.diamaneos.decode.client.UserImageProvider"
+            android:authorities="de.diamaneos.decode.client.tests.user"
+            android:exported="true" />
         <!-- Thumbnails for ContentResolver.loadThumbnail (ThumbnailsDeviceTest). -->
         <provider
             android:name="de.diamaneos.decode.client.ThumbnailTestProvider"

@@ -152,9 +152,10 @@ public class NotificationInlineImageResolver implements ImageResolver {
             return null;
         }
         try {
-            // Charged to the posting app (setOwner), in its own lane.
+            // Charged to the posting app (setOwner), in its own lane. The image is of the row's user (the row makes
+            // this resolver with its user's context), or of the user the URI names.
             final Bitmap bitmap = VmDecode.decodeUri(mContext, mContext.getContentResolver(), uri, mOwner,
-                    VmDecode.PRIORITY_USER_WAITING, Math.max(1, mMaxImageWidth),
+                    mContext.getUserId(), VmDecode.PRIORITY_USER_WAITING, Math.max(1, mMaxImageWidth),
                     Math.max(1, mMaxImageHeight), VmDecode.deadlineIn(VM_DEADLINE_MS));
             return new BitmapDrawable(mContext.getResources(), bitmap);
         } catch (VmDecode.UnavailableException | VmDecode.RejectedException ex) {

@@ -50,16 +50,18 @@ constructor(
             withContext(bgDispatcher) {
                 try {
                     val size = context.resources.getDimensionPixelSize(R.dimen.overlay_x_scale)
+                    val multiuser = clipboardOverlayMultiuser()
                     val resolver =
-                        if (clipboardOverlayMultiuser()) userTracker.userContentResolver
-                        else context.contentResolver
+                        if (multiuser) userTracker.userContentResolver else context.contentResolver
                     // DiamaneOS: decoded in the protected VM, never in SystemUI, in the clipboard's own lane per
-                    // provider, and turned as loadThumbnail turns it.
+                    // provider, and turned as loadThumbnail turns it. The image is of the user whose resolver opens it,
+                    // or of the user the URI names.
                     ClipboardVmThumbnail.loader.load(
                         context,
                         resolver,
                         uri,
                         VmDecode.unknownOwner("clipboard"),
+                        if (multiuser) userTracker.userId else context.userId,
                         VmDecode.PRIORITY_USER_WAITING,
                         size,
                         size * 4,

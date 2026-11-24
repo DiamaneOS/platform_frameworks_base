@@ -461,7 +461,8 @@ public final class CleanImageMaker {
                 if (left <= 0) {
                     return null;
                 }
-                return VmDecode.decode(mContext, fd, packageName, VmDecode.PRIORITY_USER_WAITING,
+                // The icon is an image of the user whose shortcut it is.
+                return VmDecode.decode(mContext, fd, packageName, user, VmDecode.PRIORITY_USER_WAITING,
                         SHORTCUT_MAX_SIDE, SHORTCUT_MAX_SIDE, VmDecode.deadlineIn(left)).bitmap;
             });
         } catch (RejectedExecutionException e) {
@@ -592,8 +593,9 @@ public final class CleanImageMaker {
         final long start = SystemClock.uptimeMillis();
         final CleanCopies.Entry entry;
         try {
+            // Decoded as an image of the user the app was asked for (VmDecode OWNER_USER).
             entry = AppResourceImages.makeCopy(mContext, bytes, request.density, request.width, request.height,
-                    owner.charged, timeout,
+                    owner.charged, owner.user, timeout,
                     request.urgent ? VmDecode.PRIORITY_USER_WAITING : VmDecode.PRIORITY_BACKGROUND);
         } catch (VmDecode.RejectedException e) {
             charge(owner.charged, SystemClock.uptimeMillis() - start);

@@ -1136,7 +1136,7 @@ public class RemoteViewsImagesDeviceTest {
         }
         try {
             onWorker(() -> VmDecode.decodeUri(mContext, mContext.getContentResolver(), Uri.fromFile(file),
-                    mPackage, VmDecode.PRIORITY_USER_WAITING, 64, 64));
+                    mPackage, mContext.getUserId(), VmDecode.PRIORITY_USER_WAITING, 64, 64));
             throw new AssertionError("a file URI was opened");
         } catch (java.util.concurrent.ExecutionException e) {
             assertTrue(String.valueOf(e.getCause()), e.getCause() instanceof VmDecode.RejectedException);

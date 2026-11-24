@@ -30,6 +30,7 @@ filegroup {
 java_test_host {
     name: "diamaneos-clean-copies-tests",
     srcs: [
+        "java/com/android/internal/diamaneos/cleancopies/ArchiveSource.java",
         "tests/src/**/*.java",
         "java/com/android/internal/diamaneos/cleancopies/CleanCopyKey.java",
         "java/com/android/internal/diamaneos/cleancopies/CleanImageFile.java",

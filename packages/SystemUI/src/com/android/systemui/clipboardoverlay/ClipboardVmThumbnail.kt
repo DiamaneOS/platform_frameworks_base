@@ -36,6 +36,7 @@ object ClipboardVmThumbnail {
             resolver: ContentResolver,
             uri: Uri,
             owner: String,
+            ownerUser: Int,
             priority: Int,
             maxWidth: Int,
             maxHeight: Int,
@@ -44,8 +45,8 @@ object ClipboardVmThumbnail {
     }
 
     /** The VM's thumbnail. */
-    val VM = Loader { context, resolver, uri, owner, priority, maxWidth, maxHeight, deadline ->
-        VmDecode.loadThumbnail(context, resolver, uri, owner, priority, maxWidth, maxHeight, deadline)
+    val VM = Loader { context, resolver, uri, owner, ownerUser, priority, maxWidth, maxHeight, deadline ->
+        VmDecode.loadThumbnail(context, resolver, uri, owner, ownerUser, priority, maxWidth, maxHeight, deadline)
     }
 
     @VisibleForTesting @Volatile var loader: Loader = VM

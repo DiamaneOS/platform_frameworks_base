@@ -31,7 +31,9 @@ import android.util.Size;
  * SystemUI's image loader (pod {@code graphics}): images behind a URI and data icons come from other apps, so they
  * are decoded in the protected VM of the decode service, never in SystemUI. Null (a placeholder) when the VM cannot
  * do it. The loader does not know the app that gave the image: its requests go in a lane of their own per provider,
- * never in an app's. Never larger than the screen. Call on a worker thread.
+ * never in an app's. Never larger than the screen. Call on a worker thread. The owner user (VmDecode OWNER_USER) is
+ * the user of the context: its content resolver opens the URI, so the image comes from that user's provider (or the
+ * user the URI names).
  */
 public final class LoaderImages {
     private static final String TAG = "VmDecode";
@@ -46,8 +48,8 @@ public final class LoaderImages {
     public static Bitmap uri(Context context, Uri uri, int maxWidth, int maxHeight, boolean hardware) {
         try {
             final Bitmap bitmap = VmDecode.decodeUri(context, context.getContentResolver(), uri, OWNER,
-                    VmDecode.PRIORITY_USER_WAITING, box(context, maxWidth), box(context, maxHeight),
-                    VmDecode.deadlineIn(DEADLINE_MS));
+                    context.getUserId(), VmDecode.PRIORITY_USER_WAITING, box(context, maxWidth),
+                    box(context, maxHeight), VmDecode.deadlineIn(DEADLINE_MS));
             if (hardware) {
                 final Bitmap copy = bitmap.copy(Bitmap.Config.HARDWARE, false);
                 return copy != null ? copy : bitmap;
@@ -73,8 +75,9 @@ public final class LoaderImages {
     public static Drawable dataIcon(Context context, Icon icon, int maxWidth, int maxHeight) {
         try {
             return new BitmapDrawable(context.getResources(), VmDecode.decodeBytes(context, icon.getDataBytes(),
-                    icon.getDataOffset(), icon.getDataLength(), OWNER, VmDecode.PRIORITY_USER_WAITING,
-                    box(context, maxWidth), box(context, maxHeight), VmDecode.deadlineIn(DEADLINE_MS)));
+                    icon.getDataOffset(), icon.getDataLength(), OWNER, context.getUserId(),
+                    VmDecode.PRIORITY_USER_WAITING, box(context, maxWidth), box(context, maxHeight),
+                    VmDecode.deadlineIn(DEADLINE_MS)));
         } catch (VmDecode.UnavailableException | VmDecode.RejectedException e) {
             Log.w(TAG, "icon not decoded in the VM: " + e.getMessage());
             return null;
@@ -84,7 +87,7 @@ public final class LoaderImages {
     /** The stored size of the image behind {@code uri}, read in the VM, or null. */
     public static Size size(Context context, Uri uri) {
         try {
-            return VmDecode.probeUri(context, context.getContentResolver(), uri, OWNER,
+            return VmDecode.probeUri(context, context.getContentResolver(), uri, OWNER, context.getUserId(),
                     VmDecode.PRIORITY_USER_WAITING, VmDecode.deadlineIn(DEADLINE_MS));
         } catch (VmDecode.UnavailableException | VmDecode.RejectedException e) {
             Log.w(TAG, "size not read in the VM: " + e.getMessage());

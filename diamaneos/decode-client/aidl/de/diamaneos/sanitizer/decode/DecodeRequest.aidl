@@ -40,4 +40,21 @@ parcelable DecodeRequest {
 
     /** The caller's MIME type for the file. A hint for logs only: the VM detects the format from the bytes. */
     String mimeTypeHint;
+
+    /**
+     * The Android user whose image this is: answers are kept per user. The system server and SystemUI set it to the
+     * user of the app they ask for, from that app's uid: without it they are refused. Any other caller may leave it
+     * IDecodeService.NO_USER (its own user is taken) or name its own user. A launcher may also name a profile of its
+     * user (a work profile's widget).
+     */
+    int ownerUser = -10000;
+
+    /**
+     * Only from the system server: the uid of the app it decodes for (its decode gate for that app, a thumbnail that
+     * process loads), or -1 for a decode of its own. The service decides from it, as from every caller's own uid,
+     * whether the image is per-user content (decoded in a per-user process on Android: the VM holds per-user content
+     * of one user at a time) or shared (decoded for every user in one process on Android: SystemUI's, the system
+     * server's own). Ignored from any other caller.
+     */
+    int forUid = -1;
 }

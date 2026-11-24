@@ -139,8 +139,11 @@ public final class VmDecodeProvider extends ContentProvider {
     public boolean onCreate() {
         mWorkers.allowCoreThreadTimeOut(true);
         if (Process.myUid() == Process.SYSTEM_UID && android.app.ActivityThread.isSystem()) {
-            // The system server's own decodes: no binder, no activity manager.
-            DecodeGate.setLocal((method, extras) -> take(method, extras, Process.SYSTEM_UID));
+            // The system server's own decodes: no binder, no activity manager. Their images are of the user of the
+            // app whose binder call the thread serves, else the system user's (VmDecode OWNER_USER). They are the
+            // system server's own, decoded for every user in one process as on Android: no app uid (forApp).
+            DecodeGate.setLocal((method, extras) -> take(method, extras, Process.SYSTEM_UID,
+                    UserHandle.getUserId(Binder.getCallingUid()), -1));
             registerGlobalLocks();
         }
         return true;
@@ -219,7 +222,8 @@ public final class VmDecodeProvider extends ContentProvider {
             return broker(uid);
         }
         callerPackages(uid);
-        return take(method, extras, uid);
+        // The images an app hands over are of its own user (VmDecode OWNER_USER), decoded for that app (forApp).
+        return take(method, extras, uid, UserHandle.getUserId(uid), uid);
     }
 
     // The decode service learns the system server's process from here (its pid): the provider runs only in the
@@ -292,8 +296,9 @@ public final class VmDecodeProvider extends ContentProvider {
         return packages;
     }
 
-    // Takes a probe or a decode for the app {@code callingUid} runs: the reply says whether it was taken.
-    private Bundle take(String method, Bundle extras, int callingUid) {
+    // Takes a probe or a decode for the app {@code callingUid} runs, of {@code ownerUser}, for the app {@code forUid}
+    // (-1: the system server's own): the reply says whether it was taken.
+    private Bundle take(String method, Bundle extras, int callingUid, int ownerUser, int forUid) {
         if (extras == null) {
             return refusal("no request");
         }
@@ -336,7 +341,7 @@ public final class VmDecodeProvider extends ContentProvider {
         final int top = extras.getInt(DecodeGate.EXTRA_TOP);
         final int sample = extras.getInt(DecodeGate.EXTRA_SAMPLE, 1);
         final String full = enqueue(new Task(app, origin,
-                () -> run(method, fd, lane, width, height, left, top, sample, end, callback)));
+                () -> run(method, fd, lane, ownerUser, forUid, width, height, left, top, sample, end, callback)));
         if (full != null) {
             closeQuietly(fd);
             return refusal(full);
@@ -472,17 +477,18 @@ public final class VmDecodeProvider extends ContentProvider {
         pump();
     }
 
-    private void run(String method, ParcelFileDescriptor fd, String lane, int width, int height, int regionLeft,
-            int regionTop, int sample, long end, IRemoteCallback callback) {
+    private void run(String method, ParcelFileDescriptor fd, String lane, int ownerUser, int forUid, int width,
+            int height, int regionLeft, int regionTop, int sample, long end, IRemoteCallback callback) {
         final Bundle reply = new Bundle();
-        try {
+        // The decodes below are for the calling app (forUid), or the system server's own (-1).
+        try (VmDecode.ForApp app = VmDecode.forApp(forUid)) {
             final long left = end - SystemClock.uptimeMillis();
             if (left <= 0) {
                 reply.putString(DecodeGate.EXTRA_ERROR, "out of time in the queue");
             } else {
                 rewind(fd);
                 if (DecodeGate.METHOD_PROBE.equals(method) || DecodeGate.METHOD_HEADER.equals(method)) {
-                    final VmDecode.Info info = VmDecode.probeInfo(getContext(), fd, lane,
+                    final VmDecode.Info info = VmDecode.probeInfo(getContext(), fd, lane, ownerUser,
                             VmDecode.PRIORITY_USER_WAITING, VmDecode.deadlineIn(left));
                     reply.putInt(DecodeGate.EXTRA_WIDTH, info.width);
                     reply.putInt(DecodeGate.EXTRA_HEIGHT, info.height);
@@ -492,7 +498,7 @@ public final class VmDecodeProvider extends ContentProvider {
                             || info.format == IDecodeService.FORMAT_HEIF
                             || info.format == IDecodeService.FORMAT_AVIF)) {
                         // The turn and the mirror the file asks for (its orientation), from a tiny decode in the VM.
-                        final VmDecode.Decoded tiny = VmDecode.decode(getContext(), fd, lane,
+                        final VmDecode.Decoded tiny = VmDecode.decode(getContext(), fd, lane, ownerUser,
                                 VmDecode.PRIORITY_USER_WAITING, TURN_PROBE_SIDE, TURN_PROBE_SIDE,
                                 VmDecode.deadlineIn(Math.max(1, end - SystemClock.uptimeMillis())));
                         reply.putInt(DecodeGate.EXTRA_ROTATION, tiny.rotation);
@@ -500,18 +506,18 @@ public final class VmDecodeProvider extends ContentProvider {
                     }
                 } else if (DecodeGate.METHOD_REGION.equals(method)) {
                     reply.putParcelable(DecodeGate.EXTRA_BITMAP, VmDecode.decodeRegion(getContext(), fd, lane,
-                            VmDecode.PRIORITY_USER_WAITING, regionLeft, regionTop, width, height, sample,
+                            ownerUser, VmDecode.PRIORITY_USER_WAITING, regionLeft, regionTop, width, height, sample,
                             VmDecode.deadlineIn(left)));
                     reply.putInt(DecodeGate.EXTRA_ROTATION, 0);
                 } else if (DecodeGate.METHOD_FRAMES.equals(method)) {
-                    final VmDecode.Animation animation = VmDecode.decodeFrames(getContext(), fd, lane,
+                    final VmDecode.Animation animation = VmDecode.decodeFrames(getContext(), fd, lane, ownerUser,
                             VmDecode.PRIORITY_USER_WAITING, width, height, VmDecode.deadlineIn(left));
                     reply.putParcelable(DecodeGate.EXTRA_BITMAP, animation.frames);
                     reply.putInt(DecodeGate.EXTRA_FRAME_COUNT, animation.frameCount);
                     reply.putIntArray(DecodeGate.EXTRA_DURATIONS, animation.durations);
                     reply.putInt(DecodeGate.EXTRA_LOOPS, animation.loopCount);
                 } else {
-                    final VmDecode.Decoded decoded = VmDecode.decode(getContext(), fd, lane,
+                    final VmDecode.Decoded decoded = VmDecode.decode(getContext(), fd, lane, ownerUser,
                             VmDecode.PRIORITY_USER_WAITING, width, height, VmDecode.deadlineIn(left));
                     reply.putParcelable(DecodeGate.EXTRA_BITMAP, decoded.bitmap);
                     reply.putInt(DecodeGate.EXTRA_ROTATION, decoded.rotation);

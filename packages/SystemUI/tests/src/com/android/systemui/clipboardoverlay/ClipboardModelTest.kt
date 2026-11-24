@@ -55,6 +55,7 @@ class ClipboardModelTest : SysuiTestCase() {
     // it was asked and gives a bitmap or throws.
     private class FakeVm(val result: () -> Bitmap) : ClipboardVmThumbnail.Loader {
         var owner: String? = null
+        var ownerUser = -1
         var maxWidth = 0
         var maxHeight = 0
         var calls = 0
@@ -64,6 +65,7 @@ class ClipboardModelTest : SysuiTestCase() {
             resolver: ContentResolver,
             uri: Uri,
             owner: String,
+            ownerUser: Int,
             priority: Int,
             maxWidth: Int,
             maxHeight: Int,
@@ -71,6 +73,7 @@ class ClipboardModelTest : SysuiTestCase() {
         ): Bitmap {
             calls++
             this.owner = owner
+            this.ownerUser = ownerUser
             this.maxWidth = maxWidth
             this.maxHeight = maxHeight
             return result()
@@ -145,6 +148,8 @@ class ClipboardModelTest : SysuiTestCase() {
         val size = mContext.resources.getDimensionPixelSize(R.dimen.overlay_x_scale)
         assertEquals(1, mFakeVm.calls)
         assertEquals("source app", mFakeVm.owner)
+        // An image of the user whose resolver opens it.
+        assertEquals(mMockContext.userId, mFakeVm.ownerUser)
         assertEquals(size, mFakeVm.maxWidth)
         assertEquals(size * 4, mFakeVm.maxHeight)
         verify(mMockContentResolver, never()).loadThumbnail(any(), any(), any())

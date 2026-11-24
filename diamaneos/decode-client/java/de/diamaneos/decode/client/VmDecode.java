@@ -169,9 +169,9 @@ public final class VmDecode {
      * Decodes the bytes behind {@code fd} into a bitmap that fits in {@code maxWidth} x {@code maxHeight} once turned
      * by the file's orientation. The service reads the descriptor as opaque bytes. The caller keeps and closes it.
      */
-    public static Bitmap decodeBitmap(Context context, ParcelFileDescriptor fd, String ownerPackage, int priority,
-            int maxWidth, int maxHeight) throws UnavailableException, RejectedException {
-        return decode(context, fd, ownerPackage, priority, maxWidth, maxHeight, NO_DEADLINE).bitmap;
+    public static Bitmap decodeBitmap(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
+            int priority, int maxWidth, int maxHeight) throws UnavailableException, RejectedException {
+        return decode(context, fd, ownerPackage, ownerUser, priority, maxWidth, maxHeight, NO_DEADLINE).bitmap;
     }
 
     /**
@@ -199,13 +199,13 @@ public final class VmDecode {
     }
 
     /** {@link #decodeBitmap}, also giving the turn applied, and with an optional deadline ({@link #deadlineIn}). */
-    public static Decoded decode(Context context, ParcelFileDescriptor fd, String ownerPackage, int priority,
-            int maxWidth, int maxHeight, long deadline) throws UnavailableException, RejectedException {
+    public static Decoded decode(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
+            int priority, int maxWidth, int maxHeight, long deadline) throws UnavailableException, RejectedException {
         checkNotMainThread();
         if (maxWidth < 1 || maxHeight < 1) {
             throw new RejectedException("bad box " + maxWidth + "x" + maxHeight);
         }
-        final DecodeRequest request = request(fd, ownerPackage, priority);
+        final DecodeRequest request = request(fd, ownerPackage, ownerUser, priority);
         return client(context).call(priority, deadline, request.ownerPackage, service -> {
             final Thumbnail thumbnail = service.decodeThumbnail(request, maxWidth, maxHeight);
             if (thumbnail == null) {
@@ -230,10 +230,10 @@ public final class VmDecode {
     }
 
     /** The image's stored size (before any turn) from its header, without decoding pixels. */
-    public static Size probeSize(Context context, ParcelFileDescriptor fd, String ownerPackage, int priority,
-            long deadline) throws UnavailableException, RejectedException {
+    public static Size probeSize(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
+            int priority, long deadline) throws UnavailableException, RejectedException {
         checkNotMainThread();
-        final DecodeRequest request = request(fd, ownerPackage, priority);
+        final DecodeRequest request = request(fd, ownerPackage, ownerUser, priority);
         return client(context).call(priority, deadline, request.ownerPackage, service -> {
             final ImageInfo info = service.probe(request);
             if (info == null) {
@@ -255,10 +255,10 @@ public final class VmDecode {
     }
 
     /** Decodes a file the caller may read. */
-    public static Decoded decodeFile(Context context, File file, String ownerPackage, int priority, int maxWidth,
-            int maxHeight, long deadline) throws UnavailableException, RejectedException {
+    public static Decoded decodeFile(Context context, File file, String ownerPackage, int ownerUser, int priority,
+            int maxWidth, int maxHeight, long deadline) throws UnavailableException, RejectedException {
         try (ParcelFileDescriptor fd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)) {
-            return decode(context, fd, ownerPackage, priority, maxWidth, maxHeight, deadline);
+            return decode(context, fd, ownerPackage, ownerUser, priority, maxWidth, maxHeight, deadline);
         } catch (FileNotFoundException e) {
             throw new RejectedException("no file");
         } catch (IOException e) {
@@ -267,10 +267,11 @@ public final class VmDecode {
     }
 
     /** The stored size of a file the caller may read, from its header in the VM. */
-    public static Size probeFile(Context context, File file, String ownerPackage, int priority, long deadline)
+    public static Size probeFile(Context context, File file, String ownerPackage, int ownerUser, int priority,
+            long deadline)
             throws UnavailableException, RejectedException {
         try (ParcelFileDescriptor fd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)) {
-            return probeSize(context, fd, ownerPackage, priority, deadline);
+            return probeSize(context, fd, ownerPackage, ownerUser, priority, deadline);
         } catch (FileNotFoundException e) {
             throw new RejectedException("no file");
         } catch (IOException e) {
@@ -284,15 +285,16 @@ public final class VmDecode {
      * {@code ownerPackage} charges the request to the package of the URI's provider.
      */
     public static Bitmap decodeUri(Context context, ContentResolver resolver, Uri uri, String ownerPackage,
-            int priority, int maxWidth, int maxHeight) throws UnavailableException, RejectedException {
-        return decodeUri(context, resolver, uri, ownerPackage, priority, maxWidth, maxHeight, NO_DEADLINE);
+            int ownerUser, int priority, int maxWidth, int maxHeight) throws UnavailableException, RejectedException {
+        return decodeUri(context, resolver, uri, ownerPackage, ownerUser, priority, maxWidth, maxHeight, NO_DEADLINE);
     }
 
-    /** {@link #decodeUri(Context, ContentResolver, Uri, String, int, int, int)} with a deadline. */
+    /** {@link #decodeUri(Context, ContentResolver, Uri, String, int, int, int, int)} with a deadline. */
     public static Bitmap decodeUri(Context context, ContentResolver resolver, Uri uri, String ownerPackage,
-            int priority, int maxWidth, int maxHeight, long deadline)
+            int ownerUser, int priority, int maxWidth, int maxHeight, long deadline)
             throws UnavailableException, RejectedException {
-        return decodeUri(context, resolver, uri, ownerPackage, priority, maxWidth, maxHeight, deadline, false);
+        return decodeUri(context, resolver, uri, ownerPackage, ownerUser, priority, maxWidth, maxHeight, deadline,
+                false);
     }
 
     /**
@@ -301,16 +303,18 @@ public final class VmDecode {
      * EXIF thumbnail, as the thumbnail does not carry the turn of its image) as Android turns it.
      */
     public static Bitmap loadThumbnail(Context context, ContentResolver resolver, Uri uri, String ownerPackage,
-            int priority, int maxWidth, int maxHeight, long deadline)
+            int ownerUser, int priority, int maxWidth, int maxHeight, long deadline)
             throws UnavailableException, RejectedException {
-        return decodeUri(context, resolver, uri, ownerPackage, priority, maxWidth, maxHeight, deadline, true);
+        return decodeUri(context, resolver, uri, ownerPackage, ownerUser, priority, maxWidth, maxHeight, deadline,
+                true);
     }
 
     private static Bitmap decodeUri(Context context, ContentResolver resolver, Uri uri, String ownerPackage,
-            int priority, int maxWidth, int maxHeight, long deadline, boolean providerTurn)
+            int ownerUser, int priority, int maxWidth, int maxHeight, long deadline, boolean providerTurn)
             throws UnavailableException, RejectedException {
         checkNotMainThread();
         final String owner = owner(context, uri, ownerPackage);
+        final int user = uriUser(uri, ownerUser);
         try (AssetFileDescriptor afd = openImageWithin(resolver, uri, maxWidth, maxHeight, owner, deadline)) {
             if (afd == null) {
                 throw new RejectedException("no image behind the URI", true);
@@ -319,7 +323,8 @@ public final class VmDecode {
             final int turn = extras != null ? extras.getInt(DocumentsContract.EXTRA_ORIENTATION, 0) : 0;
             final Pumper pumper = pipe(afd, owner, pumpDeadline(deadline));
             try (ParcelFileDescriptor read = pumper.read) {
-                final Bitmap bitmap = decode(context, read, owner, priority, maxWidth, maxHeight, deadline).bitmap;
+                final Bitmap bitmap = decode(context, read, owner, user, priority, maxWidth, maxHeight, deadline)
+                        .bitmap;
                 if (turn == 0) {
                     return bitmap;
                 }
@@ -338,17 +343,18 @@ public final class VmDecode {
     }
 
     /** The stored size of the image behind a URI, from its header in the VM. */
-    public static Size probeUri(Context context, ContentResolver resolver, Uri uri, String ownerPackage,
+    public static Size probeUri(Context context, ContentResolver resolver, Uri uri, String ownerPackage, int ownerUser,
             int priority, long deadline) throws UnavailableException, RejectedException {
         checkNotMainThread();
         final String owner = owner(context, uri, ownerPackage);
+        final int user = uriUser(uri, ownerUser);
         try (AssetFileDescriptor afd = openImageWithin(resolver, uri, 0, 0, owner, deadline)) {
             if (afd == null) {
                 throw new RejectedException("no image behind the URI", true);
             }
             final Pumper pumper = pipe(afd, owner, pumpDeadline(deadline));
             try (ParcelFileDescriptor read = pumper.read) {
-                return probeSize(context, read, owner, priority, deadline);
+                return probeSize(context, read, owner, user, priority, deadline);
             } finally {
                 pumper.afterCall();
             }
@@ -420,7 +426,7 @@ public final class VmDecode {
 
     /** Decodes compressed image bytes held in memory, for example an Icon made with createWithData. */
     public static Bitmap decodeBytes(Context context, byte[] data, int offset, int length, String ownerPackage,
-            int priority, int maxWidth, int maxHeight, long deadline)
+            int ownerUser, int priority, int maxWidth, int maxHeight, long deadline)
             throws UnavailableException, RejectedException {
         checkNotMainThread();
         if (data == null || offset < 0 || length < 0 || offset > data.length - length) {
@@ -437,7 +443,7 @@ public final class VmDecode {
             throw new UnavailableException("could not pass the bytes", e);
         }
         try (ParcelFileDescriptor read = pumper.read) {
-            return decode(context, read, ownerPackage, priority, maxWidth, maxHeight, deadline).bitmap;
+            return decode(context, read, ownerPackage, ownerUser, priority, maxWidth, maxHeight, deadline).bitmap;
         } catch (IOException e) {
             throw new UnavailableException("could not pass the bytes", e);
         } finally {
@@ -447,9 +453,53 @@ public final class VmDecode {
 
     /** {@link #decodeBytes} with the client's default deadline. */
     public static Bitmap decodeBytes(Context context, byte[] data, int offset, int length, String ownerPackage,
-            int priority, int maxWidth, int maxHeight) throws UnavailableException, RejectedException {
-        return decodeBytes(context, data, offset, length, ownerPackage, priority, maxWidth, maxHeight,
+            int ownerUser, int priority, int maxWidth, int maxHeight) throws UnavailableException, RejectedException {
+        return decodeBytes(context, data, offset, length, ownerPackage, ownerUser, priority, maxWidth, maxHeight,
                 NO_DEADLINE);
+    }
+
+    /*
+     * OWNER_USER: every call names ownerUser, the Android user whose image it is: the user of the app the image comes
+     * from (UserHandle.getUserId of its uid), never the user of the process that asks. The decode service keeps the
+     * VM to one user's images at a time and keeps answers per user. The system server and SystemUI ask for the apps
+     * of every user: the service refuses their requests without one. An app of one user names its own user. A URI
+     * that names its user (user@authority) is that user's image, whatever the caller names.
+     */
+
+    // The app the system server decodes for on this thread (DecodeRequest.forUid), -1 for its own decodes.
+    private static final ThreadLocal<Integer> FOR_APP = ThreadLocal.withInitial(() -> -1);
+
+    /** A scope of {@link #forApp}: closing it ends it. */
+    public static final class ForApp implements AutoCloseable {
+        private final int mPrevious;
+
+        private ForApp(int previous) {
+            mPrevious = previous;
+        }
+
+        @Override
+        public void close() {
+            FOR_APP.set(mPrevious);
+        }
+    }
+
+    /**
+     * The system server, when it decodes for an app (its decode gate, a thumbnail another process loads): the decodes
+     * this thread makes until the scope is closed name {@code uid} (DecodeRequest.forUid). The decode service decides
+     * from that uid whether they are per-user content (the VM holds per-user content of one user at a time) or shared,
+     * as it decides it for every other caller from the caller's own uid. Without a scope the system server's
+     * decodes are its own: shared, as Android decodes them for every user in one process. Any other process's scope
+     * is ignored by the service.
+     */
+    public static ForApp forApp(int uid) {
+        final ForApp scope = new ForApp(FOR_APP.get());
+        FOR_APP.set(uid);
+        return scope;
+    }
+
+    // The user whose image is behind uri: the user the URI names, else ownerUser.
+    private static int uriUser(Uri uri, int ownerUser) {
+        return android.content.ContentProvider.getUserIdFromUri(uri, ownerUser);
     }
 
     // The package that supplied the bytes: the caller's word, else the URI's provider. Never the calling process
@@ -648,10 +698,13 @@ public final class VmDecode {
         return resolver.openAssetFileDescriptor(uri, "r", cancel);
     }
 
-    private static DecodeRequest request(ParcelFileDescriptor fd, String ownerPackage, int priority) {
+    // ownerUser: the Android user whose image this is (see OWNER_USER). Below 0 the service refuses the request.
+    private static DecodeRequest request(ParcelFileDescriptor fd, String ownerPackage, int ownerUser, int priority) {
         final DecodeRequest request = new DecodeRequest();
         request.file = fd;
         request.ownerPackage = ownerPackage == null ? "" : ownerPackage;
+        request.ownerUser = ownerUser >= 0 ? ownerUser : IDecodeService.NO_USER;
+        request.forUid = FOR_APP.get();
         request.priority = priority == PRIORITY_USER_WAITING ? PRIORITY_USER_WAITING : PRIORITY_BACKGROUND;
         request.mimeTypeHint = "";
         return request;
@@ -973,8 +1026,8 @@ public final class VmDecode {
      * A region of the stored image (never turned, as Android's region decoder reads it) decoded in the VM at full
      * detail and scaled down by {@code sampleSize} to at most ceil(width / sampleSize) x ceil(height / sampleSize).
      */
-    public static Bitmap decodeRegion(Context context, ParcelFileDescriptor fd, String ownerPackage, int priority,
-            int left, int top, int width, int height, int sampleSize, long deadline)
+    public static Bitmap decodeRegion(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
+            int priority, int left, int top, int width, int height, int sampleSize, long deadline)
             throws UnavailableException, RejectedException {
         checkNotMainThread();
         if (left < 0 || top < 0 || width < 1 || height < 1 || sampleSize < 1
@@ -983,7 +1036,7 @@ public final class VmDecode {
         }
         final int maxWidth = (int) (((long) width + sampleSize - 1) / sampleSize);
         final int maxHeight = (int) (((long) height + sampleSize - 1) / sampleSize);
-        final DecodeRequest request = request(fd, ownerPackage, priority);
+        final DecodeRequest request = request(fd, ownerPackage, ownerUser, priority);
         return client(context).call(priority, deadline, request.ownerPackage, service -> {
             final Thumbnail thumbnail = service.decodeRegion(request, left, top, width, height, sampleSize);
             if (thumbnail == null) {
@@ -1023,10 +1076,10 @@ public final class VmDecode {
     }
 
     /** {@link #probeSize}, with the format and whether the image is animated. */
-    public static Info probeInfo(Context context, ParcelFileDescriptor fd, String ownerPackage, int priority,
-            long deadline) throws UnavailableException, RejectedException {
+    public static Info probeInfo(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
+            int priority, long deadline) throws UnavailableException, RejectedException {
         checkNotMainThread();
-        final DecodeRequest request = request(fd, ownerPackage, priority);
+        final DecodeRequest request = request(fd, ownerPackage, ownerUser, priority);
         return client(context).call(priority, deadline, request.ownerPackage, service -> {
             final ImageInfo info = service.probe(request);
             if (info == null) {
@@ -1073,13 +1126,13 @@ public final class VmDecode {
      * of them together at most IDecodeService.MAX_FRAMES_BYTES (the service makes them smaller to fit). A
      * RejectedException for another format.
      */
-    public static Animation decodeFrames(Context context, ParcelFileDescriptor fd, String ownerPackage, int priority,
-            int maxWidth, int maxHeight, long deadline) throws UnavailableException, RejectedException {
+    public static Animation decodeFrames(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
+            int priority, int maxWidth, int maxHeight, long deadline) throws UnavailableException, RejectedException {
         checkNotMainThread();
         if (maxWidth < 1 || maxHeight < 1) {
             throw new RejectedException("bad box " + maxWidth + "x" + maxHeight);
         }
-        final DecodeRequest request = request(fd, ownerPackage, priority);
+        final DecodeRequest request = request(fd, ownerPackage, ownerUser, priority);
         return client(context).call(priority, deadline, request.ownerPackage, service -> {
             final de.diamaneos.sanitizer.decode.Frames f = service.decodeFrames(request, maxWidth, maxHeight);
             if (f == null) {

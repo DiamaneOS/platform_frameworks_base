@@ -37,6 +37,8 @@ import static android.graphics.drawable.AdaptiveIconDrawable.getExtraInsetFracti
 import static android.os.PowerExemptionManager.REASON_PACKAGE_UNARCHIVE;
 import static android.os.PowerExemptionManager.TEMPORARY_ALLOW_LIST_TYPE_FOREGROUND_SERVICE_ALLOWED;
 
+import com.android.internal.diamaneos.cleancopies.ArchiveSource;
+
 import android.Manifest;
 import android.annotation.NonNull;
 import android.annotation.Nullable;
@@ -1008,15 +1010,19 @@ public class PackageArchiver {
             return null;
         }
 
-        ArchiveState archiveState = getAnyArchiveState(ps, userId);
-        if (archiveState == null || archiveState.getActivityInfos().size() == 0) {
+        ArchiveSource<ArchiveState> archive = getAnyArchiveState(ps, userId);
+        if (archive == null || archive.state.getActivityInfos().size() == 0) {
             return null;
         }
 
         // TODO(b/298452477) Handle monochrome icons.
         // In the rare case the archived app defined more than two launcher activities, we choose
         // the first one arbitrarily.
-        Bitmap icon = decodeIcon(archiveState.getActivityInfos().get(0));
+        Bitmap icon;
+        // DiamaneOS: retain the selected archive user through the gate and its caches.
+        try (android.graphics.DecodeGate.OwnerScope scope = android.graphics.DecodeGate.ownerScope(archive.user)) {
+            icon = decodeIcon(archive.state.getActivityInfos().get(0));
+        }
 
         if (icon != null && isOverlayEnabled) {
             icon = includeCloudOverlay(icon);
@@ -1045,20 +1051,14 @@ public class PackageArchiver {
      * arbitrary userId. If no user is archived, returns null.
      */
     @Nullable
-    private ArchiveState getAnyArchiveState(PackageStateInternal ps, int userId) {
-        PackageUserStateInternal userState = ps.getUserStateOrDefault(userId);
-        if (isArchived(userState)) {
-            return userState.getArchiveState();
-        }
-
-        for (int i = 0; i < ps.getUserStates().size(); i++) {
-            userState = ps.getUserStates().valueAt(i);
-            if (isArchived(userState)) {
-                return userState.getArchiveState();
-            }
-        }
-
-        return null;
+    private ArchiveSource<ArchiveState> getAnyArchiveState(PackageStateInternal ps, int userId) {
+        // DiamaneOS: select the state and its user together.
+        int[] users = new int[ps.getUserStates().size()];
+        for (int i = 0; i < users.length; i++) users[i] = ps.getUserStates().keyAt(i);
+        return ArchiveSource.select(userId, users, id -> {
+            PackageUserStateInternal state = ps.getUserStateOrDefault(id);
+            return isArchived(state) ? state.getArchiveState() : null;
+        });
     }
 
     @VisibleForTesting
@@ -1068,7 +1068,7 @@ public class PackageArchiver {
         if (iconBitmap == null) {
             return null;
         }
-        Bitmap bitmap = BitmapFactory.decodeFile(iconBitmap.toString());
+        Bitmap bitmap = ArchivedIconReads.decode(iconBitmap); // DiamaneOS: source user
         // TODO(b/278553670) We should throw here after some time. Failing graciously now because
         // we've just changed the place where we store icons.
         if (bitmap == null) {
@@ -1449,7 +1449,7 @@ public class PackageArchiver {
         }
         // Technically we could just read the bytes, but we want to be sure we store the
         // right format.
-        return bytesFromBitmap(BitmapFactory.decodeFile(path.toString()));
+        return bytesFromBitmap(ArchivedIconReads.decode(path)); // DiamaneOS: source user
     }
 
     @Nullable
