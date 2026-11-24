@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copyright (C) 2026 DiamaneOS
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="de.diamaneos.decode.client.tests">
+    <!-- PostTimeDeviceTest posts a notification as an app. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- WallpaperVmDeviceTest sets a wallpaper and reads back whether its crop was made. -->
+    <uses-permission android:name="android.permission.SET_WALLPAPER" />
+    <uses-permission android:name="android.permission.READ_WALLPAPER_INTERNAL" />
+    <!-- ListsAndQueueDeviceTest checks URI access as SystemUI does: the platform answers that check only for a
+         caller that may act across users. -->
+    <uses-permission android:name="android.permission.INTERACT_ACROSS_USERS_FULL" />
+    <!-- VmPathDeviceTest reaches the decode service: the permission is the platform's signature, and the service
+         takes this package as a caller on debuggable builds only. -->
+    <uses-permission android:name="de.diamaneos.sanitizer.permission.DECODE" />
+    <application>
+        <!-- Counts opens, so a test sees whether a URI was opened at all. -->
+        <provider
+            android:name="de.diamaneos.decode.client.ProbeProvider"
+            android:authorities="de.diamaneos.decode.client.tests.probe"
+            android:exported="false" />
+    </application>
+    <instrumentation
+        android:name="androidx.test.runner.AndroidJUnitRunner"
+        android:targetPackage="de.diamaneos.decode.client.tests" />
+</manifest>

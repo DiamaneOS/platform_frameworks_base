@@ -49,6 +49,7 @@ import com.android.systemui.statusbar.notification.promoted.shared.model.Promote
 import com.android.systemui.statusbar.notification.promoted.shared.model.PromotedNotificationContentModel.Style
 import com.android.systemui.statusbar.notification.promoted.shared.model.PromotedNotificationContentModel.When
 import com.android.systemui.statusbar.notification.promoted.shared.model.PromotedNotificationContentModels
+import com.android.systemui.statusbar.notification.row.NotificationRowImages
 import com.android.systemui.statusbar.notification.row.icon.NotificationIconStyleProvider
 import com.android.systemui.statusbar.notification.row.shared.ImageModel
 import com.android.systemui.statusbar.notification.row.shared.ImageModelProvider
@@ -91,7 +92,8 @@ constructor(
         packageContext: Context,
         systemUiContext: Context,
     ): PromotedNotificationContentModels? {
-        val notification = entry.sbn.notification
+        // DiamaneOS: the checked copy (NotificationRowImages), never the app's own icons.
+        val notification = NotificationRowImages.sourceOf(entry.sbn.notification, systemUiContext)
         if (notification == null) {
             if (LOG_NOT_EXTRACTED) {
                 logger.logExtractionFailed(entry, "entry.sbn.notification is null")
@@ -212,7 +214,8 @@ constructor(
         packageContext: Context,
         systemUiContext: Context,
     ): PromotedNotificationContentModel {
-        val notification = sbn.notification
+        // DiamaneOS: the checked copy (NotificationRowImages), never the app's own icons.
+        val notification = NotificationRowImages.sourceOf(sbn.notification, systemUiContext)
         val contentBuilder = PromotedNotificationContentModel.Builder(key)
         // TODO: Pitch a fit if style is unsupported or mandatory fields are missing once
         // FLAG_PROMOTED_ONGOING is set reliably and we're not testing status bar chips.

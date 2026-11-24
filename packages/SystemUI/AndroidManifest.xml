@@ -433,6 +433,10 @@
     <uses-permission android:name="android.permission.REPORT_UI_LATENCY_STATS"
         android:featureFlag="com.android.server.ui_latency_stats.ui_latency_stats_service" />
 
+    <!-- DiamaneOS: to bind the decode service (de.diamaneos.sanitizer), which decodes other apps' images in a
+         protected VM. A signature permission: SystemUI shares the platform key with the service. -->
+    <uses-permission android:name="de.diamaneos.sanitizer.permission.DECODE" />
+
     <protected-broadcast android:name="com.android.settingslib.action.REGISTER_SLICE_RECEIVER" />
     <protected-broadcast android:name="com.android.settingslib.action.UNREGISTER_SLICE_RECEIVER" />
     <protected-broadcast android:name="com.android.settings.flashlight.action.FLASHLIGHT_CHANGED" />

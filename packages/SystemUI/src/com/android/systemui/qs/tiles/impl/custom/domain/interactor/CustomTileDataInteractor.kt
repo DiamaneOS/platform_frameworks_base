@@ -42,6 +42,8 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.flow.merge
+import com.android.systemui.qs.tiles.impl.custom.ui.mapper.CustomTileIconsMade
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.shareIn
@@ -108,7 +110,12 @@ constructor(
 
     private fun dataFlow(user: UserHandle): Flow<CustomTileDataModel> =
         combine(
-            serviceInteractor.refreshEvents.onStart { emit(Unit) },
+            // DiamaneOS: also when an icon of the tile's app was made on an image thread, so it shows.
+            merge(
+                    serviceInteractor.refreshEvents,
+                    CustomTileIconsMade.madeFor(tileSpec.componentName.packageName),
+                )
+                .onStart { emit(Unit) },
             serviceInteractor.callingAppIds,
             customTileInteractor.getTiles(user),
             defaultsRepository.defaults(user).mapNotNull { it as? CustomTileDefaults.Result },

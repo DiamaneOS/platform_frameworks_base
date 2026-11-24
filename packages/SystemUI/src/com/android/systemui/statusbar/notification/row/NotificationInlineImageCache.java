@@ -54,7 +54,8 @@ public class NotificationInlineImageCache implements NotificationInlineImageReso
     @Override
     public void preload(Uri uri) {
         PreloadImageTask newTask = new PreloadImageTask(mResolver);
-        newTask.executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR, uri);
+        // DiamaneOS: on an image thread of the posting app, where the VM is waited for.
+        newTask.executeOnExecutor(mResolver.preloadExecutor(), uri);
         mCache.put(uri, newTask);
     }
 

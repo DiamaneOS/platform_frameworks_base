@@ -57,6 +57,8 @@ import com.android.server.autofill.PresentationStatsEventLogger;
 import com.android.server.autofill.SaveEventLogger;
 import com.android.server.utils.Slogf;
 
+import de.diamaneos.decode.client.AutofillViews;
+
 import java.io.PrintWriter;
 
 /**
@@ -70,6 +72,8 @@ public final class AutoFillUI {
     private static final String TAG = "AutofillUI";
 
     private final Handler mHandler = UiThread.getHandler();
+    // DiamaneOS: the service's images are made in the protected VM and fill in (AutofillViews).
+    private final AutofillViews mServiceViews;
     private final @NonNull Context mContext;
 
     private @Nullable FillUi mFillUi;
@@ -108,6 +112,7 @@ public final class AutoFillUI {
     public AutoFillUI(@NonNull Context context) {
         mContext = context;
         mUiModeMgr = LocalServices.getService(UiModeManagerInternal.class);
+        mServiceViews = new AutofillViews(context, mHandler, v -> Helper.sanitizeRemoteView(v) != null);
     }
 
     public Context getContext() {
@@ -229,12 +234,14 @@ public final class AutoFillUI {
                 .addTaggedData(MetricsEvent.FIELD_AUTOFILL_NUM_DATASETS,
                         response.getDatasets() == null ? 0 : response.getDatasets().size());
 
-        final Runnable createFillUiRunnable = () -> {
+        // DiamaneOS: a UI whose views cannot be checked is not shown (AutofillViews.safely).
+        final Runnable createFillUiRunnable = AutofillViews.safely(() -> {
             if (callback != mCallback) {
                 return;
             }
             hideAllUiThread(callback);
-            mFillUi = new FillUi(context, response, focusedId, filterText,
+            mFillUi = new FillUi(mServiceViews.contextFor(response, servicePackageName, context), response,
+                    focusedId, filterText,
                     serviceLabel, serviceIcon, mUiModeMgr.isNightMode(context.getDisplayId()),
                     maxInputLengthForAutofill,
                     new FillUi.Callback() {
@@ -325,7 +332,17 @@ public final class AutoFillUI {
                     }
                 }
             });
-        };
+            // DiamaneOS: measured again once the service's images are made (AutofillViews.whenFilled).
+            final FillUi shown = mFillUi;
+            mServiceViews.whenFilled(response, () -> {
+                if (mFillUi == shown) {
+                    shown.onImagesFilled();
+                }
+            });
+        }, () -> {
+            mFillUi = null;
+            hideFillUiUiThread(callback, true);
+        });
 
         if (isSaveUiShowing()) {
             // postpone creating the fill UI for showing the save UI
@@ -363,7 +380,8 @@ public final class AutoFillUI {
             log.addTaggedData(MetricsEvent.FIELD_AUTOFILL_UPDATE, 1);
         }
 
-        mHandler.post(() -> {
+        // DiamaneOS: a save UI that cannot be built (its views cannot be checked) is not shown.
+        mHandler.post(AutofillViews.safely(() -> {
             if (callback != mCallback) {
                 return;
             }
@@ -447,7 +465,10 @@ public final class AutoFillUI {
                     showServiceIcon);
 
             mSaveEventLogger.maybeSetLatencySaveUiDisplayMillis();
-        });
+        }, () -> {
+            mSaveUi = null;
+            hideSaveUiUiThread(callback);
+        }));
     }
 
     /**
@@ -472,12 +493,14 @@ public final class AutoFillUI {
                 .addTaggedData(MetricsEvent.FIELD_AUTOFILL_NUM_DATASETS,
                         response.getDatasets() == null ? 0 : response.getDatasets().size());
 
-        mHandler.post(() -> {
+        // DiamaneOS: a UI whose views cannot be checked is not shown (AutofillViews.safely).
+        mHandler.post(AutofillViews.safely(() -> {
             if (callback != mCallback) {
                 return;
             }
             hideAllUiThread(callback);
-            mFillDialog = new DialogFillUi(mContext, response, focusedId, filterText,
+            mFillDialog = new DialogFillUi(mServiceViews.contextFor(response, servicePackageName, mContext),
+                    response, focusedId, filterText,
                     serviceIcon, servicePackageName, componentName,
                     mUiModeMgr.isNightMode(mContext.getDisplayId()), new DialogFillUi.UiCallback() {
                         @Override
@@ -555,7 +578,10 @@ public final class AutoFillUI {
                             mMetricsLogger.write(log);
                         }
                     });
-        });
+        }, () -> {
+            mFillDialog = null;
+            hideFillDialogUiThread(callback);
+        }));
     }
 
     /**

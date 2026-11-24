@@ -130,6 +130,8 @@ import java.util.stream.Stream;
 
 import javax.inject.Inject;
 
+import de.diamaneos.decode.client.ForeignIcons;
+
 /** Manager for People Space widget. */
 @SysUISingleton
 public class PeopleSpaceWidgetManager implements Dumpable {
@@ -215,8 +217,33 @@ public class PeopleSpaceWidgetManager implements Dumpable {
         keyguardUpdateMonitor.registerCallback(mKeyguardUpdateMonitorCallback);
     }
 
+    // DiamaneOS: the manager told when an image a tile waited for was made on an image thread.
+    private static volatile java.lang.ref.WeakReference<PeopleSpaceWidgetManager> sForImages;
+    private final java.util.concurrent.atomic.AtomicBoolean mImagesRedrawPending =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
+    /**
+     * DiamaneOS: an image a tile waited for was made in the protected VM: every tile is drawn again (one redraw at a
+     * time, however many images were made meanwhile).
+     */
+    public static void onTileImageMade() {
+        final java.lang.ref.WeakReference<PeopleSpaceWidgetManager> ref = sForImages;
+        final PeopleSpaceWidgetManager manager = ref == null ? null : ref.get();
+        if (manager == null || !manager.mImagesRedrawPending.compareAndSet(false, true)) {
+            return;
+        }
+        manager.mBgExecutor.execute(() -> {
+            manager.mImagesRedrawPending.set(false);
+            if (manager.mAppWidgetManagerOptional.isPresent()) {
+                manager.updateWidgetsInBackground(manager.mAppWidgetManagerOptional.get().getAppWidgetIds(
+                        new ComponentName(manager.mContext, PeopleSpaceWidgetProvider.class)));
+            }
+        });
+    }
+
     /** Initializes {@PeopleSpaceWidgetManager}. */
     public void init() {
+        sForImages = new java.lang.ref.WeakReference<>(this);
         synchronized (mLock) {
             if (!mRegisteredReceivers) {
                 if (DEBUG) Log.d(TAG, "Register receivers");
@@ -754,8 +781,16 @@ public class PeopleSpaceWidgetManager implements Dumpable {
         if (label != null) {
             updatedTile.setUserName(label);
         }
-        Icon icon = PeopleSpaceTile.convertDrawableToIcon(mLauncherApps.getShortcutIconDrawable(
-                info, 0));
+        // The shortcut's icon file, URI or resource is decoded in the protected VM on an image thread, never here.
+        // This shared thread does not wait for it: until it is made the tile keeps the icon it has, then the tile
+        // is updated again.
+        Icon icon = PeopleSpaceTile.convertDrawableToIcon(ForeignIcons.shortcutDrawableNoWait(mContext,
+                mLauncherApps, info, ForeignIcons.shortcutPx(mContext),
+                () -> mBgExecutor.execute(() -> {
+                    synchronized (mLock) {
+                        updateStorageAndViewWithConversationData(conversation, appWidgetId);
+                    }
+                })));
         if (icon != null) {
             updatedTile.setUserIcon(icon);
         }

@@ -172,6 +172,10 @@ public class Resources {
     @GuardedBy("mUpdateLock")
     private UpdateCallbacks mCallbacks = null;
 
+    // DiamaneOS: set only on the resources SystemUI inflates other apps' notification layouts with. Null everywhere
+    // else, where image files load exactly as before.
+    private volatile ImageFileGate mImageFileGate;
+
     /**
      * WeakReferences to Themes that were constructed from this Resources object.
      * We keep track of these in case our underlying implementation is changed, in which case
@@ -1447,7 +1451,36 @@ public class Resources {
     @NonNull
     public InputStream openRawResource(@RawRes int id, TypedValue value)
             throws NotFoundException {
-        return mResourcesImpl.openRawResource(id, value);
+        final InputStream in = mResourcesImpl.openRawResource(id, value);
+        final ImageFileGate gate = mImageFileGate;
+        if (gate == null) {
+            return in;
+        }
+        // Whoever opens a raw file here decodes it (<bitmap>, <nine-patch>, ImageDecoder): files of an APK outside
+        // the system image are handed out as an image made from pixels decoded elsewhere.
+        final String apkPath = ImageFileGates.apkPathForCookie(mResourcesImpl.getAssets(), value.assetCookie);
+        return gate.decodesHere(apkPath) ? in : gate.openImage(this, value, apkPath, in);
+    }
+
+    /**
+     * Sets the gate that decides how image files of this Resources object become pixels, see
+     * {@link ImageFileGate}. Only for a Resources object made for that purpose, never for one shared with other
+     * code.
+     *
+     * @hide
+     */
+    public void setImageFileGate(@Nullable ImageFileGate gate) {
+        mImageFileGate = gate;
+    }
+
+    /**
+     * The gate set by {@link #setImageFileGate}, or null.
+     *
+     * @hide
+     */
+    @Nullable
+    public ImageFileGate getImageFileGate() {
+        return mImageFileGate;
     }
 
     /**

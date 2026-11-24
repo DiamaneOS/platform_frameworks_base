@@ -23,6 +23,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.Icon
 import android.media.AudioManager
 import android.media.INearbyMediaDevicesUpdateCallback
 import android.media.MediaMetadata
@@ -49,6 +50,7 @@ import androidx.annotation.StringRes
 import androidx.annotation.VisibleForTesting
 import androidx.core.content.getSystemService
 import androidx.core.graphics.drawable.IconCompat
+import androidx.core.graphics.drawable.toBitmap
 import com.android.media.flags.Flags
 import com.android.media.flags.Flags.fixOutputSwitcherMultiuserSupport
 import com.android.settingslib.RestrictedLockUtilsInternal
@@ -77,6 +79,7 @@ import com.android.systemui.monet.ColorScheme
 import com.android.systemui.plugins.ActivityStarter
 import com.android.systemui.res.R
 import com.android.systemui.settings.UserTracker
+import com.android.systemui.statusbar.notification.collection.NotificationEntry
 import com.android.systemui.statusbar.notification.collection.notifcollection.CommonNotifCollection
 import com.android.systemui.util.kotlin.JavaAdapter
 import com.android.systemui.util.time.SystemClock
@@ -90,6 +93,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executor
 import kotlinx.coroutines.Job
+import de.diamaneos.decode.client.AppIcons
 
 /**
  * Controller for a dialog that allows users to switch media output and input devices, control
@@ -122,6 +126,8 @@ constructor(
         ExpandedAudioTileDetailsFeatureInteractor,
 ) : LocalMediaManager.DeviceCallback, INearbyMediaDevicesUpdateCallback {
 
+    // DiamaneOS: all selectors of this dialog retain the same user, including session and package fallbacks.
+    private val mDialogUser = userHandle?.takeIf { it.identifier >= 0 } ?: mUserTracker.userHandle
     private val mMediaDevicesLock: Any = Any()
     private val mInputMediaDevicesLock: Any = Any()
     @VisibleForTesting val mCachedMediaDevices: MutableList<MediaDevice> = CopyOnWriteArrayList()
@@ -144,7 +150,7 @@ constructor(
         InfoMediaManager.createInstance(
             mContext,
             mPackageName,
-            userHandle,
+            mDialogUser,
             mLocalBluetoothManager,
             mToken,
         )
@@ -282,7 +288,7 @@ constructor(
         } else {
             for (entry in mNotifCollection.getAllNotifs()) {
                 val notification = entry.sbn.notification
-                if (notification.isMediaNotification() && entry.sbn.packageName == mPackageName) {
+                if (isDialogEntry(entry)) { // DiamaneOS: also the dialog's user and session
                     val token =
                         notification.extras.getParcelable<MediaSession.Token>(
                             Notification.EXTRA_MEDIA_SESSION
@@ -291,7 +297,7 @@ constructor(
                 }
             }
             for (controller in
-                mMediaSessionManager.getActiveSessionsForUser(null, mUserTracker.userHandle)) {
+                mMediaSessionManager.getActiveSessionsForUser(null, mDialogUser)) {
                 if (controller.packageName == mPackageName) {
                     return controller
                 }
@@ -381,11 +387,7 @@ constructor(
         }
         try {
             Log.d(TAG, "try to get app icon")
-            return if (fixOutputSwitcherMultiuserSupport() && userHandle != null) {
-                getPackageManagerForUser(userHandle).getApplicationIcon(packageName)
-            } else {
-                mContext.getPackageManager().getApplicationIcon(packageName)
-            }
+            return dialogPackageManager().getApplicationIcon(packageName) // DiamaneOS
         } catch (_: PackageManager.NameNotFoundException) {
             Log.d(TAG, "icon not found")
             return null
@@ -409,11 +411,16 @@ constructor(
             return null
         }
         return getAppName(
-            mContext.packageManager,
+            dialogPackageManager(), // DiamaneOS
             packageName,
             defaultName = mContext.getString(R.string.media_output_dialog_unknown_launch_app_name),
         )
     }
+
+    // DiamaneOS: a work dialog must not fall back to the foreground installation.
+    private fun dialogPackageManager(): PackageManager =
+        if (mContext.userId == mDialogUser.identifier) mContext.packageManager
+        else getPackageManagerForUser(mDialogUser)
 
     private fun getPackageManagerForUser(userHandle: UserHandle): PackageManager {
         return mContext.createContextAsUser(userHandle, /* flags= */ 0).packageManager
@@ -535,18 +542,31 @@ constructor(
 
     fun getAppIcon(): Drawable? = getNotificationSmallIcon() ?: getAppSourceIconFromPackage()
 
+    // DiamaneOS: the media notification of the dialog's app, user and session (MediaDialogNotifications).
+    private fun isDialogEntry(entry: NotificationEntry): Boolean =
+        MediaDialogNotifications.matches(entry, mPackageName, mDialogUser, mToken)
+
     private fun getNotificationSmallIcon(): Drawable? {
         if (mPackageName.isNullOrEmpty()) {
             return null
         }
         for (entry in mNotifCollection.getAllNotifs()) {
             val notification = entry.sbn.notification
-            if (notification.isMediaNotification() && entry.sbn.packageName == mPackageName) {
+            if (isDialogEntry(entry)) { // DiamaneOS: also the dialog's user and session
                 val icon = notification.smallIcon
                 if (icon == null) {
                     break
                 }
-                return icon.loadDrawable(mContext)
+                // DiamaneOS: as the status bar shows it: an app resource icon through the image gate (an image already
+                // made), never the original with plain resources. Not made yet: the app's own icon instead.
+                return AppIcons.forViewOrNull(
+                        mContext,
+                        icon,
+                        entry.sbn.normalizedUserId,
+                        entry.sbn.packageName,
+                        null,
+                    )
+                    ?.loadDrawable(mContext)
             }
         }
         return null
@@ -558,12 +578,27 @@ constructor(
         }
         for (entry in mNotifCollection.getAllNotifs()) {
             val notification = entry.sbn.notification
-            if (notification.isMediaNotification() && entry.sbn.packageName == mPackageName) {
+            if (isDialogEntry(entry)) { // DiamaneOS: also the dialog's user and session
                 val icon = notification.getLargeIcon()
                 if (icon == null) {
                     break
                 }
-                return IconCompat.createFromIcon(icon)
+                // DiamaneOS: pixels as they are, an app resource icon through the image gate (made already), anything
+                // else (a URI an app named) is not decoded here: no large icon.
+                val shown =
+                    AppIcons.forViewOrNull(
+                        mContext,
+                        icon,
+                        entry.sbn.normalizedUserId,
+                        entry.sbn.packageName,
+                        null,
+                    ) ?: return null
+                if (shown.type == Icon.TYPE_RESOURCE) {
+                    // IconCompat would load the resource again with plain resources: hand it the drawn image.
+                    val drawable = shown.loadDrawable(mContext) ?: return null
+                    return IconCompat.createWithBitmap(drawable.toBitmap())
+                }
+                return IconCompat.createFromIcon(shown)
             }
         }
         return null

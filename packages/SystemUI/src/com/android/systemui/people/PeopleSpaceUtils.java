@@ -274,6 +274,8 @@ public class PeopleSpaceUtils {
         // audio URI)
         Uri imageUri = message != null && MessagingMessage.hasImage(message)
                 ? message.getDataUri() : null;
+        // DiamaneOS: the image keeps the user of the notification that named it (PeopleTileImages).
+        imageUri = PeopleTileImages.ofNotificationUser(imageUri, sbn);
 
         if (DEBUG) {
             Log.d(TAG, "Tile key: " + key.toString() + ". Notification message has text: "

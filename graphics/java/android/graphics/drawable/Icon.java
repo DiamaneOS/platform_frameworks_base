@@ -133,7 +133,7 @@ public final class Icon implements Parcelable {
     private static final int VERSION_STREAM_SERIALIZER = 1;
 
     @UnsupportedAppUsage(maxTargetSdk = Build.VERSION_CODES.P, trackingBug = 115609023)
-    private final int mType;
+    private int mType; // Not final only for setTo(Icon).
 
     private ColorStateList mTintList;
     static final BlendMode DEFAULT_BLEND_MODE = Drawable.DEFAULT_BLEND_MODE; // SRC_IN
@@ -167,6 +167,45 @@ public final class Icon implements Parcelable {
 
     // TYPE_RESOURCE: wrap the monochrome drawable in an InsetDrawable with the specified inset
     private float mInsetScale = 0.0f;
+
+    /**
+     * Makes this icon a copy of {@code other}: its type, image and tint. For SystemUI, which re-makes the images of
+     * another app's notification layout in place, on its own copy of that layout, so that whatever holds this icon
+     * gets the new image. Never call it on an icon that other code may be using.
+     *
+     * @hide
+     */
+    public void setTo(@NonNull Icon other) {
+        mType = other.mType;
+        mObj1 = other.mObj1;
+        mCachedAshmem = other.mCachedAshmem;
+        mString1 = other.mString1;
+        mInt1 = other.mInt1;
+        mInt2 = other.mInt2;
+        mUseMonochrome = other.mUseMonochrome;
+        mInsetScale = other.mInsetScale;
+        mTintList = other.mTintList;
+        mBlendMode = other.mBlendMode;
+    }
+
+    /**
+     * A copy of this resource icon that loads from {@code res}: for SystemUI, which loads an app's resource icons
+     * through resources behind an image file gate (see {@link Resources#setImageFileGate}), so the app's bitmap files
+     * are decoded in a protected VM in whatever configuration the icon is shown. The copy keeps these resources: a
+     * configuration change does not swap them for plain ones.
+     *
+     * @hide
+     */
+    @NonNull
+    public Icon copyWithResources(@NonNull Resources res) {
+        if (mType != TYPE_RESOURCE) {
+            throw new IllegalStateException("not a resource icon");
+        }
+        final Icon copy = new Icon(TYPE_RESOURCE);
+        copy.setTo(this);
+        copy.mObj1 = res;
+        return copy;
+    }
 
     /**
      * Whether this icon draws only the monochrome layer of an {@link AdaptiveIconDrawable}.
@@ -456,6 +495,11 @@ public final class Icon implements Parcelable {
 
     @RavenwoodReplace(blockedBy = PackageManager.class)
     private Resources getResourcesForPackage(Context context, String resPackage) {
+        // DiamaneOS: through the context's image file gate when it has one (IconGating).
+        final Resources gated = IconGating.resourcesFor(context, resPackage);
+        if (gated != null || IconGating.isGated(context)) {
+            return gated;
+        }
         final PackageManager pm = context.getPackageManager();
         try {
             ApplicationInfo ai = pm.getApplicationInfo(
@@ -494,6 +538,12 @@ public final class Icon implements Parcelable {
                     new BitmapDrawable(context.getResources(), fixMaxBitmapSize(getBitmap())));
             case TYPE_RESOURCE:
                 invalidateResourcesCacheIfNeeded(context);
+                if (IconGating.mustLoadGated(this, context)) {
+                    // DiamaneOS: through the context's image file gate, for this load only (IconGating).
+                    final Resources gatedRes = IconGating.resourcesFor(this, context);
+                    final Drawable gated = IconGating.load(this, context, gatedRes);
+                    return gated == null ? null : fixMaxBitmapSize(gatedRes, gated);
+                }
                 if (getResources() == null) {
                     // figure out where to load resources from
                     String resPackage = getResPackage();
@@ -605,6 +655,9 @@ public final class Icon implements Parcelable {
                 resPackage = context.getPackageName();
             }
             invalidateResourcesCacheIfNeeded(context);
+            if (!"android".equals(resPackage) && IconGating.isGated(context)) {
+                return loadDrawable(context); // DiamaneOS: through the image file gate (IconGating)
+            }
             if (getResources() == null && !(getResPackage().equals("android"))) {
                 // TODO(b/173307037): Move CONTEXT_INCLUDE_CODE to ContextImpl.createContextAsUser
                 final Context userContext;
@@ -639,8 +692,8 @@ public final class Icon implements Parcelable {
         }
         if (mType == TYPE_RESOURCE && mObj1 != null) {
             Resources cachedResources = (Resources) mObj1;
-            if (cachedResources == null) {
-                return;
+            if (cachedResources == null || cachedResources.getImageFileGate() != null) {
+                return; // DiamaneOS: gated resources are replaced by their owner, never by plain ones.
             }
             if (cachedResources.getConfiguration().diff(context.getResources().getConfiguration())
                     != 0) {

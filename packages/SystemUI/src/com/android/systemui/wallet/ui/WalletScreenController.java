@@ -332,14 +332,16 @@ public class WalletScreenController implements
             Icon cardImageIcon = mWalletCard.getCardImage();
             if (cardImageIcon.getType() == Icon.TYPE_BITMAP
                     || cardImageIcon.getType() == Icon.TYPE_ADAPTIVE_BITMAP) {
-                mCardDrawable = mWalletCard.getCardImage().loadDrawable(context);
+                // DiamaneOS: pixels as they are, never a decoder.
+                mCardDrawable = de.diamaneos.decode.client.ForeignIcons.pixelsOnly(context, cardImageIcon);
             } else {
                 mCardDrawable = null;
             }
             Icon icon = mWalletCard.getCardIcon();
             if (icon != null && (icon.getType() == Icon.TYPE_BITMAP
                     || icon.getType() == Icon.TYPE_ADAPTIVE_BITMAP)) {
-                mIconDrawable = icon.loadDrawable(context);
+                // DiamaneOS: pixels as they are, never a decoder.
+                mIconDrawable = de.diamaneos.decode.client.ForeignIcons.pixelsOnly(context, icon);
             } else {
                 mIconDrawable = null;
             }

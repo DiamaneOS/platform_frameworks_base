@@ -41,6 +41,7 @@ import com.android.systemui.media.controls.shared.model.MediaNotificationAction
 import com.android.systemui.plugins.ActivityStarter
 import com.android.systemui.res.R
 import com.android.systemui.util.kotlin.logI
+import de.diamaneos.decode.client.ForeignIcons
 
 private const val TAG = "MediaActions"
 
@@ -202,7 +203,16 @@ private fun getCustomAction(
     @UserIdInt userId: Int,
 ): MediaAction {
     return MediaAction(
-        Icon.createWithResource(packageName, customAction.icon).loadDrawableAsUser(context, userId),
+        // DiamaneOS: the media app's resource: through an image gate, its bitmap files decoded in the protected VM on
+        // an image thread. Nothing waits here: once it is made, the app's media notifications are loaded again.
+        ForeignIcons.loadNoWait(
+            context,
+            Icon.createWithResource(packageName, customAction.icon),
+            userId,
+            packageName,
+            MediaIconReload.ACTION_ICON_MAX_PX,
+            MediaIconReload.reloaderFor(packageName),
+        ),
         { controller.transportControls.sendCustomAction(customAction, customAction.extras) },
         customAction.name,
         null,
@@ -267,14 +277,25 @@ fun createActionsFromNotification(
                     )
                     .defaultColor
 
+            // DiamaneOS: the original notification's action icon: pixels as they are, URI and data icons decoded in the
+            // protected VM, the app's resources through an image gate. Never decoded here.
+            // Nothing waits here: an icon not made yet is made on an image thread, then the notification is loaded
+            // again (MediaIconReload).
             val mediaActionIcon =
-                when (action.getIcon().type) {
-                        Icon.TYPE_RESOURCE ->
-                            Icon.createWithResource(sbn.packageName, action.getIcon()!!.getResId())
-                        else -> action.getIcon()
-                    }
-                    .setTint(themeText)
-                    .loadDrawableAsUser(context, sbn.user.identifier)
+                ForeignIcons.loadNoWait( // DiamaneOS
+                    context,
+                    when (action.getIcon().type) {
+                            Icon.TYPE_RESOURCE ->
+                                Icon.createWithResource(sbn.packageName, action.getIcon()!!.getResId())
+                            else -> action.getIcon()
+                        }
+                        .setTint(themeText),
+                    sbn.normalizedUserId,
+                    sbn.packageName,
+                    MediaIconReload.ACTION_ICON_MAX_PX,
+                ) {
+                    MediaIconReload.reload(sbn)
+                }
 
             val mediaAction =
                 MediaNotificationAction(
@@ -341,3 +362,4 @@ private fun sendPendingIntent(intent: PendingIntent): Boolean {
         false
     }
 }
+

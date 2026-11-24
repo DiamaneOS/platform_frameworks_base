@@ -19,6 +19,7 @@ package com.android.systemui.media.controls.domain.pipeline
 import android.content.Context
 import android.graphics.drawable.Animatable
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.Icon
 import android.media.session.MediaController
 import android.media.session.MediaSession
 import android.os.Handler
@@ -52,6 +53,7 @@ import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
+import de.diamaneos.decode.client.ForeignIcons
 
 private const val TAG = "Media3ActionFactory"
 
@@ -354,9 +356,20 @@ constructor(
         val size = context.resources.getDimensionPixelSize(R.dimen.min_clickable_item_size)
         // TODO(b/360196209): check customAction.icon field to use platform icons
         if (customAction.iconResId != 0) {
-            val packageContext = context.createPackageContext(packageName, 0)
-            val source = ImageLoader.Res(customAction.iconResId, packageContext)
-            return imageLoader.loadDrawable(source, size, size)
+            // DiamaneOS: the media app's resource: through an image gate, its bitmap files decoded in the protected VM
+            // on an image thread. This coroutine suspends, no thread waits.
+            return suspendCancellableCoroutine<Drawable?> { cont ->
+                ForeignIcons.loadAsync(
+                    context,
+                    Icon.createWithResource(packageName, customAction.iconResId),
+                    context.userId,
+                    packageName,
+                    size,
+                    { it.run() },
+                ) {
+                    cont.resume(it)
+                }
+            }
         }
 
         if (customAction.iconUri != null) {
@@ -377,9 +390,16 @@ constructor(
         val size = context.resources.getDimensionPixelSize(R.dimen.min_clickable_item_size)
         // TODO(b/360196209): check customAction.icon field to use platform icons
         if (customAction.iconResId != 0) {
-            val packageContext = context.createPackageContext(packageName, 0)
-            val source = ImageLoader.Res(customAction.iconResId, packageContext)
-            return runBlocking { imageLoader.loadDrawable(source, size, size) }
+            // DiamaneOS: the media app's resource: through an image gate, its bitmap files decoded in the protected VM
+            // on an image thread. Nothing waits here: once it is made, the app's media notifications are loaded again.
+            return ForeignIcons.loadNoWait(
+                context,
+                Icon.createWithResource(packageName, customAction.iconResId),
+                context.userId,
+                packageName,
+                size,
+                MediaIconReload.reloaderFor(packageName),
+            )
         }
 
         if (customAction.iconUri != null) {

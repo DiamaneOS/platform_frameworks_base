@@ -303,7 +303,16 @@ internal class ControlHolder(
 
         icon.imageTintList = null
         ci.customIcon?.takeIf(canUseIconPredicate)?.let {
-            val drawable = safeIconLoader.load(it)
+            // DiamaneOS: once an icon that was not made yet is made, the row is bound again.
+            val drawable =
+                safeIconLoader.load(it) {
+                    itemView.post {
+                        val position = bindingAdapterPosition
+                        if (position != RecyclerView.NO_POSITION) {
+                            bindingAdapter?.notifyItemChanged(position)
+                        }
+                    }
+                }
             icon.setImageDrawable(drawable)
             drawable
         }

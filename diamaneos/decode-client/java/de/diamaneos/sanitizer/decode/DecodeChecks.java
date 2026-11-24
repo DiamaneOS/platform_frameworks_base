@@ -1,0 +1,205 @@
+/*
+ * Copyright (C) 2026 DiamaneOS
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package de.diamaneos.sanitizer.decode;
+
+/**
+ * The callers' checks of what the decode service returns, one copy for every caller (MediaProvider, SystemUI, the
+ * system server) and for the service's own tests, in the library de.diamaneos.sanitizer.decode-client. Each method
+ * returns null when the value meets every rule of the contract (IDecodeService and its parcelables), else what it
+ * broke. A caller treats a broken answer like STATUS_INVALID: a placeholder, no value stored.
+ */
+public final class DecodeChecks {
+    private DecodeChecks() {}
+
+    private static boolean status(int s) {
+        return s == IDecodeService.STATUS_OK || s == IDecodeService.STATUS_UNAVAILABLE
+                || s == IDecodeService.STATUS_UNSUPPORTED || s == IDecodeService.STATUS_INVALID;
+    }
+
+    private static boolean format(int f) {
+        return f >= IDecodeService.FORMAT_JPEG && f <= IDecodeService.FORMAT_WBMP;
+    }
+
+    private static boolean size(int w, int h, int maxW, int maxH) {
+        return w >= 1 && h >= 1 && w <= maxW && h <= maxH && w <= IDecodeService.MAX_DIMENSION
+                && h <= IDecodeService.MAX_DIMENSION;
+    }
+
+    /** Only GIF, WebP, PNG (APNG), HEIF and AVIF can be animated. */
+    public static boolean mayBeAnimated(int format) {
+        return format == IDecodeService.FORMAT_GIF || format == IDecodeService.FORMAT_WEBP
+                || format == IDecodeService.FORMAT_PNG || format == IDecodeService.FORMAT_HEIF
+                || format == IDecodeService.FORMAT_AVIF;
+    }
+
+    public static String check(ImageInfo i) {
+        if (i == null || !status(i.status)) return "status";
+        if (i.status != IDecodeService.STATUS_OK) return null;
+        if (!format(i.format)) return "format";
+        if (!size(i.width, i.height, IDecodeService.MAX_DIMENSION, IDecodeService.MAX_DIMENSION)) return "size";
+        if (i.animated && !mayBeAnimated(i.format)) return "animated";
+        return null;
+    }
+
+    /** maxWidth x maxHeight is the box as shown: turned by 90 or 270 degrees, the stored image fits it turned. */
+    public static String check(Thumbnail t, int maxWidth, int maxHeight) {
+        if (t == null || !status(t.status)) return "status";
+        if (t.status != IDecodeService.STATUS_OK) return null;
+        boolean turned = t.rotation == 90 || t.rotation == 270;
+        if (!turned && t.rotation != 0 && t.rotation != 180) return "rotation";
+        if (!size(t.width, t.height, turned ? maxHeight : maxWidth, turned ? maxWidth : maxHeight)) return "size";
+        if ((long) t.width * t.height > IDecodeService.MAX_PIXELS) return "pixels";
+        if (t.stripeRows < 1 || t.stripeRows > t.height
+                || (long) t.stripeRows * t.width * 4 > IDecodeService.MAX_STRIPE_BYTES) {
+            return "stripeRows";
+        }
+        if (t.handle == 0) return "handle";
+        if (t.colorSpace != IDecodeService.COLOR_SPACE_SRGB && t.colorSpace != IDecodeService.COLOR_SPACE_DISPLAY_P3) {
+            return "colorSpace";
+        }
+        if (t.gainmapWidth == 0 && t.gainmapHeight == 0) {
+            return t.gainmapParams == null || t.gainmapParams.length == 0 ? null : "gainmapParams";
+        }
+        if (t.gainmapWidth < 1 || t.gainmapHeight < 1 || t.gainmapWidth > t.width || t.gainmapHeight > t.height) {
+            return "gainmap size";
+        }
+        if (t.gainmapStripeRows < 1 || t.gainmapStripeRows > t.gainmapHeight
+                || (long) t.gainmapStripeRows * t.gainmapWidth * 4 > IDecodeService.MAX_STRIPE_BYTES) {
+            return "gainmapStripeRows";
+        }
+        return gainmapParams(t.gainmapParams) ? null : "gainmapParams";
+    }
+
+    /**
+     * Gain map parameters: finite, ratios from 2^-16 to 2^16 with min at most max, gamma above 0 up to 16, epsilons 0
+     * to 1, display ratios from 1 to 2^16 with SDR at most HDR.
+     */
+    public static boolean gainmapParams(float[] p) {
+        if (p == null || p.length != IDecodeService.GAINMAP_PARAMS) return false;
+        for (float v : p) {
+            if (!Float.isFinite(v)) return false;
+        }
+        for (int c = 0; c < 3; c++) {
+            float lo = p[c], hi = p[3 + c], gamma = p[6 + c], es = p[9 + c], eh = p[12 + c];
+            if (!(lo >= 1f / 65536 && lo <= hi && hi <= 65536)) return false;
+            if (!(gamma > 0 && gamma <= 16)) return false;
+            if (!(es >= 0 && es <= 1 && eh >= 0 && eh <= 1)) return false;
+        }
+        return p[15] >= 1 && p[15] <= p[16] && p[16] <= 65536;
+    }
+
+    /** Gain map stripe index of t: exactly its rows, every alpha 255. */
+    public static String checkGainmap(Thumbnail t, int index, byte[] stripe) {
+        long first = (long) index * t.gainmapStripeRows;
+        if (t.gainmapHeight == 0 || index < 0 || first >= t.gainmapHeight) return "index";
+        long rows = Math.min(t.gainmapStripeRows, t.gainmapHeight - first);
+        if (stripe == null || stripe.length != rows * t.gainmapWidth * 4) return "stripe length";
+        for (int i = 3; i < stripe.length; i += 4) {
+            if (stripe[i] != (byte) 255) return "gainmap alpha";
+        }
+        return null;
+    }
+
+    /**
+     * The android.graphics.Gainmap of a checked thumbnail, its pixels read and checked (checkGainmap), or null
+     * without one or before Android 14.
+     */
+    @android.annotation.TargetApi(34)
+    public static android.graphics.Gainmap gainmapOf(Thumbnail t, byte[] pixels) {
+        if (t.gainmapWidth == 0 || android.os.Build.VERSION.SDK_INT < 34) return null;
+        android.graphics.Bitmap b = android.graphics.Bitmap.createBitmap(t.gainmapWidth, t.gainmapHeight,
+                android.graphics.Bitmap.Config.ARGB_8888);
+        b.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(pixels));
+        android.graphics.Gainmap g = new android.graphics.Gainmap(b);
+        float[] p = t.gainmapParams;
+        g.setRatioMin(p[0], p[1], p[2]);
+        g.setRatioMax(p[3], p[4], p[5]);
+        g.setGamma(p[6], p[7], p[8]);
+        g.setEpsilonSdr(p[9], p[10], p[11]);
+        g.setEpsilonHdr(p[12], p[13], p[14]);
+        g.setMinDisplayRatioForHdrTransition(p[15]);
+        g.setDisplayRatioForFullHdr(p[16]);
+        return g;
+    }
+
+    /** The rules of decoded frames for a box of maxWidth x maxHeight. Null when they hold, else what broke. */
+    public static String check(Frames f, int maxWidth, int maxHeight) {
+        if (f == null || !status(f.status)) return "status";
+        if (f.status != IDecodeService.STATUS_OK) return null;
+        if (!size(f.width, f.height, maxWidth, maxHeight)) return "size";
+        if (f.frameCount < 1 || f.frameCount > IDecodeService.MAX_FRAMES) return "frameCount";
+        if ((long) f.frameCount * f.width * f.height * 4 > IDecodeService.MAX_FRAMES_BYTES) return "bytes";
+        if (f.loopCount < 0 || f.loopCount > 65535) return "loopCount";
+        if (f.durations == null || f.durations.length != f.frameCount) return "durations";
+        for (int d : f.durations) {
+            if (d < 0 || d > IDecodeService.MAX_FRAME_MILLIS) return "duration";
+        }
+        if (f.colorSpace != IDecodeService.COLOR_SPACE_SRGB && f.colorSpace != IDecodeService.COLOR_SPACE_DISPLAY_P3) {
+            return "colorSpace";
+        }
+        long rows = (long) f.frameCount * f.height;
+        if (f.stripeRows < 1 || f.stripeRows > rows
+                || (long) f.stripeRows * f.width * 4 > IDecodeService.MAX_STRIPE_BYTES) {
+            return "stripeRows";
+        }
+        if (f.handle == 0) return "handle";
+        return null;
+    }
+
+    /** Stripe index of f's tall image: exactly its rows, premultiplied (no colour channel above alpha). */
+    public static String check(Frames f, int index, byte[] stripe) {
+        long rows = (long) f.frameCount * f.height;
+        long first = (long) index * f.stripeRows;
+        if (index < 0 || first >= rows) return "index";
+        long n = Math.min(f.stripeRows, rows - first);
+        if (stripe == null || stripe.length != n * f.width * 4) return "stripe length";
+        for (int i = 0; i < stripe.length; i += 4) {
+            int a = stripe[i + 3] & 0xff;
+            if ((stripe[i] & 0xff) > a || (stripe[i + 1] & 0xff) > a || (stripe[i + 2] & 0xff) > a) {
+                return "colour above alpha";
+            }
+        }
+        return null;
+    }
+
+    /** The android.graphics.ColorSpace checked frames are built in. */
+    public static android.graphics.ColorSpace colorSpaceOf(Frames f) {
+        return android.graphics.ColorSpace.get(f.colorSpace == IDecodeService.COLOR_SPACE_DISPLAY_P3
+                ? android.graphics.ColorSpace.Named.DISPLAY_P3 : android.graphics.ColorSpace.Named.SRGB);
+    }
+
+    /** The android.graphics.ColorSpace a checked thumbnail's Bitmap is built in. */
+    public static android.graphics.ColorSpace colorSpaceOf(Thumbnail t) {
+        return android.graphics.ColorSpace.get(t.colorSpace == IDecodeService.COLOR_SPACE_DISPLAY_P3
+                ? android.graphics.ColorSpace.Named.DISPLAY_P3 : android.graphics.ColorSpace.Named.SRGB);
+    }
+
+    /** Stripe index of t: exactly its rows, premultiplied (no colour channel above alpha). */
+    public static String check(Thumbnail t, int index, byte[] stripe) {
+        long first = (long) index * t.stripeRows;
+        if (index < 0 || first >= t.height) return "index";
+        long rows = Math.min(t.stripeRows, t.height - first);
+        if (stripe == null || stripe.length != rows * t.width * 4) return "stripe length";
+        for (int i = 0; i < stripe.length; i += 4) {
+            int a = stripe[i + 3] & 0xff;
+            if ((stripe[i] & 0xff) > a || (stripe[i + 1] & 0xff) > a || (stripe[i + 2] & 0xff) > a) {
+                return "colour above alpha";
+            }
+        }
+        return null;
+    }
+}

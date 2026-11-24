@@ -30,6 +30,9 @@ import static com.android.systemui.clipboardoverlay.ClipboardOverlayEvent.CLIPBO
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.notNull;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -43,6 +46,7 @@ import android.content.ClipData;
 import android.content.ClipDescription;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.graphics.Insets;
 import android.graphics.Rect;
 import android.net.Uri;
@@ -446,7 +450,83 @@ public class ClipboardOverlayControllerTest extends SysuiTestCase {
         verify(mClipboardOverlayView).setMinimized(true);
     }
 
+    // DiamaneOS: an image preview shows only for the clip it was asked for, while the overlay is up.
+    @Test
+    public void test_imagePreview_ofAnOlderClip_isNotShownOverASensitiveClip() {
+        initController();
+        mOverlayController.setClipData(imageClip("content://a/1", false), "");
+        Consumer<Bitmap> older = imageLoad("content://a/1");
+        mOverlayController.setClipData(imageClip("content://b/2", true), "");
+        verify(mClipboardOverlayView).showImagePreview(null);
+
+        older.accept(Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888));
+
+        verify(mClipboardOverlayView, never()).showImagePreview(notNull());
+    }
+
+    @Test
+    public void test_imagePreview_ofAnOlderClip_doesNotReplaceTheNewer() {
+        initController();
+        mOverlayController.setClipData(imageClip("content://a/1", false), "");
+        Consumer<Bitmap> older = imageLoad("content://a/1");
+        mOverlayController.setClipData(imageClip("content://b/2", false), "");
+        Consumer<Bitmap> newer = imageLoad("content://b/2");
+        Bitmap olderPixels = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888);
+        Bitmap newerPixels = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888);
+
+        newer.accept(newerPixels);
+        older.accept(olderPixels);
+
+        verify(mClipboardOverlayView).showImagePreview(newerPixels);
+        verify(mClipboardOverlayView, never()).showImagePreview(olderPixels);
+    }
+
+    @Test
+    public void test_imagePreview_afterTheOverlayIsGone_isNotShown() {
+        initController();
+        mOverlayController.setClipData(imageClip("content://a/1", false), "");
+        Consumer<Bitmap> load = imageLoad("content://a/1");
+        mOverlayController.hideImmediate();
+
+        load.accept(Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888));
+
+        verify(mClipboardOverlayView, never()).showImagePreview(notNull());
+    }
+
+    private ClipData imageClip(String uri, boolean sensitive) {
+        ClipDescription description = new ClipDescription("image", new String[]{"image/png"});
+        if (sensitive) {
+            PersistableBundle extras = new PersistableBundle();
+            extras.putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true);
+            description.setExtras(extras);
+        }
+        return new ClipData(description, new ClipData.Item(Uri.parse(uri)));
+    }
+
+    // The preview load asked for uri, its result delivered on the view's thread at once.
+    @SuppressWarnings("unchecked")
+    private Consumer<Bitmap> imageLoad(String uri) {
+        doAnswer(invocation -> {
+            ((Runnable) invocation.getArgument(0)).run();
+            return true;
+        }).when(mClipboardOverlayView).post(any());
+        ArgumentCaptor<Consumer<Bitmap>> callback = ArgumentCaptor.forClass((Class) Consumer.class);
+        verify(mClipboardImageLoader).loadAsync(eq(Uri.parse(uri)), callback.capture());
+        return callback.getValue();
+    }
+
     private static WindowInsets getImeInsets(Rect r) {
         return new WindowInsets.Builder().setInsets(WindowInsets.Type.ime(), Insets.of(r)).build();
     }
+
+    @Test
+    public void test_imagePreview_invalidatedBeforeASuppressedEvent_isNotShown() {
+        initController();
+        mOverlayController.setClipData(imageClip("content://a/1", false), "");
+        Consumer<Bitmap> load = imageLoad("content://a/1");
+        mOverlayController.invalidatePreview();
+        load.accept(Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888));
+        verify(mClipboardOverlayView, never()).showImagePreview(notNull());
+    }
+
 }

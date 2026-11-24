@@ -19,6 +19,8 @@ package com.android.systemui.statusbar.notification.row;
 import android.app.ActivityManager;
 import android.app.Notification;
 import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Bundle;
@@ -29,8 +31,10 @@ import android.util.Log;
 import com.android.internal.R;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.widget.ImageResolver;
-import com.android.internal.widget.LocalImageResolver;
 import com.android.internal.widget.MessagingMessage;
+
+import de.diamaneos.decode.client.ImageThreads;
+import de.diamaneos.decode.client.VmDecode;
 
 import java.util.HashSet;
 import java.util.List;
@@ -45,6 +49,8 @@ import java.util.Set;
  */
 public class NotificationInlineImageResolver implements ImageResolver {
     private static final String TAG = NotificationInlineImageResolver.class.getSimpleName();
+    // An image message may take this long in the VM before it is left out.
+    private static final long VM_DEADLINE_MS = 2_000;
 
     // Timeout for loading images from ImageCache when calling from UI thread
     private static final long MAX_UI_THREAD_TIMEOUT_MS = 100L;
@@ -59,6 +65,25 @@ public class NotificationInlineImageResolver implements ImageResolver {
     // max allowed bitmap height, in pixels
     @VisibleForTesting
     protected int mMaxImageHeight;
+    // DiamaneOS: the posting app, which the row's images are charged to (unknown until the row has its entry).
+    private volatile String mOwner = VmDecode.unknownOwner("inline");
+
+    /** DiamaneOS: the posting app of the row: its images are charged to it, in its lane. */
+    public void setOwner(String ownerPackage) {
+        mOwner = ownerPackage == null || ownerPackage.isEmpty() ? VmDecode.unknownOwner("inline") : ownerPackage;
+    }
+
+    /** DiamaneOS: runs the cache's preload on an image thread of the posting app (the VM is waited for there). */
+    java.util.concurrent.Executor preloadExecutor() {
+        final String owner = mOwner;
+        return task -> {
+            // Gave way in a full image lane, or no room: run where no VM is waited for (the load comes back empty).
+            if (ImageThreads.execute(owner, task, () -> android.os.AsyncTask.THREAD_POOL_EXECUTOR.execute(task))
+                    == null) {
+                android.os.AsyncTask.THREAD_POOL_EXECUTOR.execute(task);
+            }
+        };
+    }
 
     /**
      * Constructor.
@@ -120,8 +145,20 @@ public class NotificationInlineImageResolver implements ImageResolver {
      * @return Drawable of the image, or null if unable to load.
      */
     Drawable resolveImage(Uri uri) {
+        // Images from apps are decoded in the protected VM, never in SystemUI. A failure leaves the message without
+        // its image.
+        if (!ImageThreads.isImageThread()) {
+            // The VM is waited for only on the image threads (the cache's preload runs there, charged to the app).
+            return null;
+        }
         try {
-            return LocalImageResolver.resolveImage(uri, mContext, mMaxImageWidth, mMaxImageHeight);
+            // Charged to the posting app (setOwner), in its own lane.
+            final Bitmap bitmap = VmDecode.decodeUri(mContext, mContext.getContentResolver(), uri, mOwner,
+                    VmDecode.PRIORITY_USER_WAITING, Math.max(1, mMaxImageWidth),
+                    Math.max(1, mMaxImageHeight), VmDecode.deadlineIn(VM_DEADLINE_MS));
+            return new BitmapDrawable(mContext.getResources(), bitmap);
+        } catch (VmDecode.UnavailableException | VmDecode.RejectedException ex) {
+            Log.d(TAG, "resolveImage: not decoded in the VM: " + ex.getMessage());
         } catch (Exception ex) {
             // Catch general Exception because ContentResolver can re-throw arbitrary Exception
             // from remote process as a RuntimeException. See: Parcel#readException

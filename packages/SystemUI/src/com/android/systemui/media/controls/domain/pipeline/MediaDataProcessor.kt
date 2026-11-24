@@ -182,7 +182,12 @@ class MediaDataProcessor(
             }
         }
 
+    // DiamaneOS: app images of media, never decoded here (MediaIconSafety).
+    private val iconSafety =
+        MediaIconSafety(context, foregroundExecutor) { key, sbn -> onNotificationAdded(key, sbn) }
+
     override fun start() {
+        iconSafety.start() // DiamaneOS
         if (!SceneContainerFlag.isEnabled && !MediaControlsInComposeFlag.isEnabled) {
             return
         }
@@ -208,6 +213,7 @@ class MediaDataProcessor(
     }
 
     fun onNotificationAdded(key: String, sbn: StatusBarNotification) {
+        iconSafety.onAdded(key, sbn, isMediaNotification(sbn)) // DiamaneOS
         if (useQsMediaPlayer && isMediaNotification(sbn)) {
             var isNewlyActiveEntry = false
             var isConvertingToActive = false
@@ -551,10 +557,10 @@ class MediaDataProcessor(
                     userId = sbn.normalizedUserId,
                     initialized = true,
                     app = result.appName,
-                    appIcon = result.appIcon,
+                    appIcon = iconSafety.appIcon(result.appIcon, sbn), // DiamaneOS
                     artist = result.artist,
                     song = result.song,
-                    artwork = result.artworkIcon,
+                    artwork = iconSafety.artwork(result.artworkIcon, sbn), // DiamaneOS
                     actions = result.actionIcons,
                     actionsToShowInCompact = result.actionsToShowInCompact,
                     semanticActions = result.semanticActions,
@@ -660,6 +666,7 @@ class MediaDataProcessor(
         }
 
     fun onNotificationRemoved(key: String) {
+        iconSafety.onRemoved(key) // DiamaneOS
         Assert.isMainThread()
         val removed = mediaDataRepository.removeMediaEntry(key) ?: return
         if (keyguardUpdateMonitor.isUserInLockdown(removed.userId)) {

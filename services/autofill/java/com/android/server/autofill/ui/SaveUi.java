@@ -25,6 +25,7 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.StringRes;
 import android.annotation.StyleRes;
+import android.app.ActivityManager;
 import android.app.ActivityOptions;
 import android.app.Dialog;
 import android.app.PendingIntent;
@@ -87,6 +88,8 @@ import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Predicate;
+
+import de.diamaneos.decode.client.LateImages;
 
 /**
  * Autofill Save Prompt
@@ -424,7 +427,14 @@ final class SaveUi {
             return false;
         }
         writeLog(MetricsEvent.AUTOFILL_SAVE_CUSTOM_DESCRIPTION);
-        final RemoteViews template = Helper.sanitizeRemoteView(customDescription.getPresentation());
+        // DiamaneOS: the service's views show at once and its images fill in once an image thread has made them
+        // in the VM. Nothing of them is decoded here: its bitmap files and its URI and data images wait.
+        final LateImages images = new LateImages(context, mServicePackageName,
+                ActivityManager.getCurrentUser(), mHandler);
+        final Context viewContext = images.context(context);
+        // DiamaneOS: a copy whose URI and data images wait for the image thread (null when it cannot be checked).
+        final RemoteViews template = images.preparedCopy(
+                Helper.sanitizeRemoteView(customDescription.getPresentation()));
         if (template == null) {
             Slog.w(TAG, "No remote view on custom description");
             return false;
@@ -466,7 +476,7 @@ final class SaveUi {
         try {
             // Create the remote view peer.
             final View customSubtitleView = template.applyWithTheme(
-                    context, null, handler, mThemeId);
+                    viewContext, null, handler, mThemeId);
 
             // Apply batch updates (if any).
             final ArrayList<Pair<InternalValidator, BatchUpdates>> updates =
@@ -487,11 +497,11 @@ final class SaveUi {
                     }
                     final BatchUpdates batchUpdates = pair.second;
                     // First apply the updates...
-                    final RemoteViews templateUpdates =
-                            Helper.sanitizeRemoteView(batchUpdates.getUpdates());
+                    final RemoteViews templateUpdates = images.preparedCopy(
+                            Helper.sanitizeRemoteView(batchUpdates.getUpdates()));
                     if (templateUpdates != null) {
                         if (sDebug) Slog.d(TAG, "Applying template updates for batch update #" + i);
-                        templateUpdates.reapply(context, customSubtitleView);
+                        templateUpdates.reapply(viewContext, customSubtitleView);
                     }
                     // Then the transformations...
                     final ArrayList<Pair<Integer, InternalTransformation>> batchTransformations =
@@ -507,7 +517,7 @@ final class SaveUi {
                                     + "#" + i + ": " + batchTransformations);
                             return false;
                         }
-                        template.reapply(context, customSubtitleView);
+                        template.reapply(viewContext, customSubtitleView);
                     }
                 }
             }
@@ -542,6 +552,10 @@ final class SaveUi {
             }
 
             applyTextViewStyle(customSubtitleView);
+
+            // DiamaneOS: the images of the views as they are now (transformations applied) are made.
+            images.addViews(template);
+            images.start();
 
             // Finally, add the custom description to the save UI.
             final ViewGroup subtitleContainer =

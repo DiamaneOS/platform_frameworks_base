@@ -357,8 +357,9 @@ public abstract class AbstractPerUserSystemService<S extends AbstractPerUserSyst
     @Nullable
     @GuardedBy("mLock")
     public final Drawable getServiceIconLocked() {
-        return mServiceInfo == null ? null
-                : mServiceInfo.loadIcon(getContext().getPackageManager());
+        // DiamaneOS: always null. PackageItemInfo.loadIcon would decode the service's icon natively in the system
+        // server. Callers load it without a native decode (LateImages in autofill).
+        return null;
     }
 
     /**

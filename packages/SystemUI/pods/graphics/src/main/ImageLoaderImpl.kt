@@ -44,6 +44,7 @@ import com.android.systemui.graphics.ImageLoader.OversizedImageException
 import com.android.systemui.graphics.ImageLoader.Res
 import com.android.systemui.graphics.ImageLoader.Source
 import com.android.systemui.graphics.ImageLoader.Uri
+import de.diamaneos.decode.client.LoaderImages
 import javax.inject.Inject
 import kotlin.math.min
 import kotlinx.coroutines.CoroutineDispatcher
@@ -73,6 +74,11 @@ constructor(
         @Px maxHeight: Int,
         allocator: Int,
     ): Bitmap? {
+        // DiamaneOS: images of other apps are decoded in the protected VM (LoaderImages), never here.
+        if (source is Uri) {
+            return LoaderImages.uri(source.context ?: defaultContext, source.uri, maxWidth, maxHeight,
+                allocator == ImageDecoder.ALLOCATOR_HARDWARE)
+        }
         return try {
             loadBitmapSync(
                 toImageDecoderSource(source, defaultContext),
@@ -139,6 +145,12 @@ constructor(
         allocator: Int,
     ): Drawable? =
         traceSection("ImageLoader#loadDrawable") {
+            // DiamaneOS: decoded in the protected VM (LoaderImages).
+            if (source is Uri) {
+                val context = source.context ?: defaultContext
+                return LoaderImages.uri(context, source.uri, maxWidth, maxHeight,
+                    allocator == ImageDecoder.ALLOCATOR_HARDWARE)?.let { BitmapDrawable(context.resources, it) }
+            }
             return try {
                 try {
                     ImageDecoder.decodeDrawable(toImageDecoderSource(source, defaultContext)) {
@@ -202,8 +214,9 @@ constructor(
             return when (icon.type) {
                 Icon.TYPE_URI,
                 Icon.TYPE_URI_ADAPTIVE_BITMAP -> {
-                    val source = ImageDecoder.createSource(context.contentResolver, icon.uri)
-                    loadDrawableSync(source, maxWidth, maxHeight, allocator)
+                    // DiamaneOS: decoded in the protected VM (LoaderImages).
+                    LoaderImages.uriIcon(context, icon, maxWidth, maxHeight,
+                        allocator == ImageDecoder.ALLOCATOR_HARDWARE)
                 }
                 Icon.TYPE_RESOURCE -> {
                     val resources = resolveResourcesForIcon(context, icon)
@@ -227,12 +240,8 @@ constructor(
                     AdaptiveIconDrawable(null, BitmapDrawable(context.resources, icon.bitmap))
                 }
                 Icon.TYPE_DATA -> {
-                    loadDrawableSync(
-                        ImageDecoder.createSource(icon.dataBytes, icon.dataOffset, icon.dataLength),
-                        maxWidth,
-                        maxHeight,
-                        allocator,
-                    )
+                    // DiamaneOS: decoded in the protected VM (LoaderImages).
+                    LoaderImages.dataIcon(context, icon, maxWidth, maxHeight)
                 }
                 else -> {
                     // We don't recognize this icon, just fallback.
@@ -263,8 +272,8 @@ constructor(
         return when (icon.type) {
             Icon.TYPE_URI,
             Icon.TYPE_URI_ADAPTIVE_BITMAP -> {
-                val source = ImageDecoder.createSource(context.contentResolver, icon.uri)
-                loadSizeSync(source)
+                // DiamaneOS: the header is read in the protected VM (LoaderImages).
+                LoaderImages.size(context, icon.uri)
             }
             else -> null
         }

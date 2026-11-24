@@ -16,6 +16,7 @@
 
 package com.android.systemui.statusbar.notification.stack;
 
+import de.diamaneos.decode.client.NotificationImageGate;
 import android.app.Notification;
 import android.content.Context;
 import android.content.res.Configuration;
@@ -565,8 +566,13 @@ public class NotificationChildrenContainer extends ViewGroup
         }
         if (mIsMinimized) {
             if (builder == null) {
+                // DiamaneOS: on the main thread nothing is decoded or inflated for the header's images: the small icon
+                // is what the status bar shows (an image already made, or the neutral icon), every other app image is
+                // left out without being loaded, and custom layouts are not looked at. Anything that fails gives the
+                // copy with every app image removed.
                 builder = Notification.Builder.recoverBuilder(getContext(),
-                        notification.getNotification());
+                        NotificationImageGate.headerCopy(getContext(), notification.getNotification(), // DiamaneOS
+                                notification.getPackageName(), notification.getNormalizedUserId()));
             }
             header = builder.makeLowPriorityContentView(true /* useRegularSubtext */);
             if (mMinimizedGroupHeader == null) {

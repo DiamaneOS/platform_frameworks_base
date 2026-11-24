@@ -99,8 +99,12 @@ constructor(
         onIconUpdateRequiredListeners -= listener
     }
 
+    // DiamaneOS: app images of these icons, decoded in the VM (NotificationAppIcons).
+    private val appIcons = NotificationAppIcons(shadeContext, notifCollection, ::updateIconsSafe)
+
     fun attach() {
         notifCollection.addCollectionListener(entryListener)
+        appIcons.attach() // DiamaneOS
     }
 
     private val entryListener =
@@ -111,6 +115,7 @@ constructor(
 
             override fun onEntryCleanUp(entry: NotificationEntry) {
                 entry.removeOnSensitivityChangedListener(sensitivityListener)
+                appIcons.onEntryCleanUp(entry) // DiamaneOS
             }
 
             override fun onRankingApplied() {
@@ -437,7 +442,7 @@ constructor(
         return StatusBarIcon(
             entry.sbn.user,
             entry.sbn.packageName,
-            /* icon = */ this,
+            /* icon = */ appIcons.forView(this, entry), // DiamaneOS: app images decoded in the VM
             n.iconLevel,
             n.number,
             iconBuilder.getIconContentDescription(n),
@@ -453,7 +458,7 @@ constructor(
         return StatusBarIcon(
             context.user,
             context.packageName,
-            /* icon = */ this,
+            /* icon = */ NotificationAppIcons.withoutVmIcon(this), // DiamaneOS
             0,
             0,
             context.getString(entry.bundleRepository.titleText),
@@ -467,7 +472,8 @@ constructor(
             val shortcut = entry.ranking.conversationShortcutInfo
             if (shortcut != null) {
                 try {
-                    icon = launcherApps.getShortcutIcon(shortcut)
+                    // DiamaneOS: a file or URI icon is decoded in the VM (NotificationAppIcons).
+                    icon = appIcons.shortcutIcon(launcherApps, shortcut)
                 } catch (e: Exception) {
                     Log.e(
                         TAG,
@@ -548,7 +554,9 @@ constructor(
     ): Boolean {
         val usedInSensitiveContext =
             iconView === entry.icons.shelfIcon || iconView === entry.icons.aodIcon
-        val isSmallIcon = iconDescriptor.icon.equals(entry.sbn.notification.smallIcon)
+        // DiamaneOS: the descriptor holds the icon as NotificationAppIcons gave it, compared by content.
+        val isSmallIcon =
+            NotificationAppIcons.isSmallIcon(iconDescriptor.icon, entry.sbn.notification.smallIcon)
         return isImportantConversation(entry) &&
             !isSmallIcon &&
             (!usedInSensitiveContext || !entry.isSensitive.value)

@@ -180,7 +180,11 @@ public class ShortcutPicker extends PreferenceFragment implements Tunable {
         public void onBindViewHolder(PreferenceViewHolder holder) {
             mBinding = true;
             if (getIcon() == null) {
-                setIcon(mShortcut.icon.loadDrawable(getContext()));
+                // DiamaneOS: the app's resource through the image gate, the neutral icon until it is made
+                // (then this preference is bound again).
+                setIcon(de.diamaneos.decode.client.ForeignIcons.loadOrNeutral(getContext(),
+                        mShortcut.icon, getContext().getUserId(), mShortcut.pkg, 256,
+                        () -> setIcon((android.graphics.drawable.Drawable) null)));
             }
             mBinding = false;
             super.onBindViewHolder(holder);
