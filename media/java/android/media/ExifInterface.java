@@ -100,6 +100,9 @@ import java.util.zip.CRC32;
 
  */
 public class ExifInterface {
+    // DiamaneOS: one budget spans container metadata and copied attributes.
+    private final ExifMetadataBudget mMetadataBudget = new ExifMetadataBudget();
+
     private static final String TAG = "ExifInterface";
     private static final boolean DEBUG = Log.isLoggable(TAG, Log.DEBUG);
 
@@ -1616,7 +1619,8 @@ public class ExifInterface {
         mFilename = null;
 
         if (shouldBeExifDataOnly) {
-            inputStream = new BufferedInputStream(inputStream, SIGNATURE_CHECK_SIZE);
+            // DiamaneOS: metadata rewind storage has a fixed ceiling.
+            inputStream = ExifMetadataBudget.buffered(inputStream, SIGNATURE_CHECK_SIZE);
             if (!isExifDataOnly((BufferedInputStream) inputStream)) {
                 Log.w(TAG, "Given data does not follow the structure of an Exif-only data.");
                 return;
@@ -1963,10 +1967,12 @@ public class ExifInterface {
      * This function decides which parser to read the image data according to the given input stream
      * type and the content of the input stream.
      */
-    private void loadAttributes(@NonNull InputStream in) {
+    private void loadAttributes(@NonNull InputStream in) throws IOException {
         if (in == null) {
             throw new NullPointerException("inputstream shouldn't be null");
         }
+        // DiamaneOS: each parse has its own aggregate metadata allowance.
+        mMetadataBudget.reset();
         try {
             // Initialize mAttributes.
             for (int i = 0; i < EXIF_TAGS.length; ++i) {
@@ -1975,7 +1981,8 @@ public class ExifInterface {
 
             // Check file type
             if (!mIsExifDataOnly) {
-                in = new BufferedInputStream(in, SIGNATURE_CHECK_SIZE);
+                // DiamaneOS: skipped pixel data cannot grow an unbounded rewind buffer.
+                in = ExifMetadataBudget.buffered(in, SIGNATURE_CHECK_SIZE);
                 mMimeType = getMimeType((BufferedInputStream) in);
             }
 
@@ -2034,6 +2041,8 @@ public class ExifInterface {
             setThumbnailData(inputStream);
             mIsSupportedFile = true;
         } catch (IOException | OutOfMemoryError e) {
+            // DiamaneOS: a resource limit leaves metadata pending rather than supplying a partial verdict.
+            if (e instanceof ExifMetadataBudget.Limit) throw (ExifMetadataBudget.Limit) e;
             // Ignore exceptions in order to keep the compatibility with the old versions of
             // ExifInterface.
             mIsSupportedFile = false;
@@ -2257,8 +2266,8 @@ public class ExifInterface {
             if (in.skip(mThumbnailOffset) != mThumbnailOffset) {
                 throw new IOException("Corrupted image");
             }
-            // TODO: Need to handle potential OutOfMemoryError
-            byte[] buffer = new byte[mThumbnailLength];
+            // DiamaneOS: lazy thumbnails share the retained metadata allowance.
+            byte[] buffer = mMetadataBudget.allocate(mThumbnailLength, in.available());
             if (in.read(buffer) != mThumbnailLength) {
                 throw new IOException("Corrupted image");
             }
@@ -2286,6 +2295,9 @@ public class ExifInterface {
         } else if (mThumbnailBytes == null) {
             mThumbnailBytes = getThumbnailBytes();
         }
+
+        // DiamaneOS: a refused thumbnail has no bytes to decode.
+        if (mThumbnailBytes == null) return null;
 
         if (mThumbnailCompression == DATA_JPEG || mThumbnailCompression == DATA_JPEG_COMPRESSED) {
             return BitmapFactory.decodeByteArray(mThumbnailBytes, 0, mThumbnailLength);
@@ -2866,6 +2878,8 @@ public class ExifInterface {
 
             // JPEG spec permits padding with 0xFF fill bytes before any marker.
             do {
+                // DiamaneOS: padding and segment traversal share the work limit.
+                mMetadataBudget.visit();
                 ++bytesRead;
                 marker = in.readByte();
             } while(marker == MARKER);
@@ -2892,7 +2906,7 @@ public class ExifInterface {
             switch (marker) {
                 case MARKER_APP1: {
                     final int start = bytesRead;
-                    final byte[] bytes = new byte[length];
+                    final byte[] bytes = mMetadataBudget.allocate(length, in.available());
                     in.readFully(bytes);
                     bytesRead += length;
                     length = 0;
@@ -2921,7 +2935,7 @@ public class ExifInterface {
                 }
 
                 case MARKER_COM: {
-                    byte[] bytes = new byte[length];
+                    byte[] bytes = mMetadataBudget.allocate(length, in.available());
                     if (in.read(bytes) != length) {
                         throw new IOException("Invalid exif");
                     }
@@ -3208,7 +3222,7 @@ public class ExifInterface {
                 }
 
                 // TODO: Need to handle potential OutOfMemoryError
-                byte[] bytes = new byte[length];
+                byte[] bytes = mMetadataBudget.allocate(length, in.available());
                 if (in.read(bytes) != length) {
                     throw new IOException("Can't read exif");
                 }
@@ -3225,7 +3239,7 @@ public class ExifInterface {
                 int offset = Integer.parseInt(xmpOffsetStr);
                 int length = Integer.parseInt(xmpLengthStr);
                 in.seek(offset);
-                byte[] xmpBytes = new byte[length];
+                byte[] xmpBytes = mMetadataBudget.allocate(length, in.available());
                 if (in.read(xmpBytes) != length) {
                     throw new IOException("Failed to read XMP from HEIF");
                 }
@@ -3246,7 +3260,7 @@ public class ExifInterface {
     private void getStandaloneAttributes(ByteOrderedDataInputStream in) throws IOException {
         in.skipBytes(IDENTIFIER_EXIF_APP1.length);
         // TODO: Need to handle potential OutOfMemoryError
-        byte[] data = new byte[in.available()];
+        byte[] data = mMetadataBudget.allocate(in.available(), in.available());
         in.readFully(data);
         // Save offset values for handling thumbnail and attribute offsets.
         mExifOffset = IDENTIFIER_EXIF_APP1.length;
@@ -3395,6 +3409,8 @@ public class ExifInterface {
             while (true) {
                 int length = in.readInt();
                 bytesRead += 4;
+                // DiamaneOS: validate the payload, type and CRC before allocation or skip.
+                mMetadataBudget.chunk(length, (long) in.available() - 8);
 
                 byte[] type = new byte[PNG_CHUNK_TYPE_BYTE_LENGTH];
                 if (in.read(type) != type.length) {
@@ -3414,7 +3430,7 @@ public class ExifInterface {
                     break;
                 } else if (Arrays.equals(type, PNG_CHUNK_TYPE_EXIF)) {
                     // TODO: Need to handle potential OutOfMemoryError
-                    byte[] data = new byte[length];
+                    byte[] data = mMetadataBudget.allocate(length, in.available());
                     if (in.read(data) != length) {
                         throw new IOException("Failed to read given length for given PNG chunk "
                                 + "type: " + byteArrayToHexString(type));
@@ -3486,9 +3502,12 @@ public class ExifInterface {
                 bytesRead += 4;
                 int chunkSize = in.readInt();
                 bytesRead += 4;
+                // DiamaneOS: check the file and RIFF extents before allocation or skip.
+                mMetadataBudget.chunk(chunkSize, Math.min((long) in.available(),
+                        (long) fileSize - bytesRead));
                 if (Arrays.equals(WEBP_CHUNK_TYPE_EXIF, code)) {
                     // TODO: Need to handle potential OutOfMemoryError
-                    byte[] payload = new byte[chunkSize];
+                    byte[] payload = mMetadataBudget.allocate(chunkSize, in.available());
                     if (in.read(payload) != chunkSize) {
                         throw new IOException("Failed to read given length for given PNG chunk "
                                 + "type: " + byteArrayToHexString(code));
@@ -4047,6 +4066,17 @@ public class ExifInterface {
     // Reads image file directory, which is a tag group in EXIF.
     private void readImageFileDirectory(ByteOrderedDataInputStream dataInputStream,
             @IfdType int ifdType) throws IOException {
+        // DiamaneOS: cap recursive IFD nesting and total traversal per file.
+        mMetadataBudget.enter();
+        try {
+            readImageFileDirectoryBounded(dataInputStream, ifdType);
+        } finally {
+            mMetadataBudget.exit();
+        }
+    }
+
+    private void readImageFileDirectoryBounded(ByteOrderedDataInputStream dataInputStream,
+            @IfdType int ifdType) throws IOException {
         // Save offset of current IFD to prevent reading an IFD that is already read.
         mHandledIfdOffsets.add(dataInputStream.mPosition);
 
@@ -4068,6 +4098,8 @@ public class ExifInterface {
 
         // See TIFF 6.0 Section 2: TIFF Structure, "Image File Directory".
         for (short i = 0; i < numberOfDirectoryEntry; ++i) {
+            // DiamaneOS: repeated offsets consume the same file budget.
+            mMetadataBudget.visit();
             int tagNumber = dataInputStream.readUnsignedShort();
             int dataFormat = dataInputStream.readUnsignedShort();
             int numberOfComponents = dataInputStream.readInt();
@@ -4107,6 +4139,11 @@ public class ExifInterface {
             if (!valid) {
                 dataInputStream.seek(nextEntryOffset);
                 continue;
+            }
+
+            // DiamaneOS: numeric attribute conversion also stays within the traversal allowance.
+            if (IFD_FORMAT_BYTES_PER_FORMAT[dataFormat] > 1) {
+                mMetadataBudget.components(numberOfComponents);
             }
 
             // Read a value from data field or seek to the value offset which is stored in data
@@ -4216,7 +4253,9 @@ public class ExifInterface {
             }
 
             final int bytesOffset = dataInputStream.peek() + mExifOffset;
-            final byte[] bytes = new byte[(int) byteCount];
+            // DiamaneOS: charge retained attributes before copying their bytes.
+            final byte[] bytes = mMetadataBudget.allocate((int) byteCount,
+                    dataInputStream.available());
             dataInputStream.readFully(bytes);
             ExifAttribute attribute = new ExifAttribute(dataFormat, numberOfComponents,
                     bytesOffset, bytes);
@@ -4353,17 +4392,20 @@ public class ExifInterface {
             thumbnailLength = Math.min(thumbnailLength, in.getLength() - thumbnailOffset);
 
             if (thumbnailOffset > 0 && thumbnailLength > 0) {
-                mHasThumbnail = true;
                 // Need to add mExifOffset, which is the offset to the EXIF data segment
                 mThumbnailOffset = thumbnailOffset + mExifOffset;
                 mThumbnailLength = thumbnailLength;
                 mThumbnailCompression = DATA_JPEG;
+                // DiamaneOS: lazy and eager thumbnails satisfy the same extent and byte limits.
+                mMetadataBudget.checkAt(mThumbnailLength, mThumbnailOffset, in.getLength());
+                mHasThumbnail = true;
 
                 if (mFilename == null && mAssetInputStream == null
                         && mSeekableFileDescriptor == null) {
-                    // TODO: Need to handle potential OutOfMemoryError
                     // Save the thumbnail in memory if the input doesn't support reading again.
-                    byte[] thumbnailBytes = new byte[mThumbnailLength];
+                    // DiamaneOS: validate the complete extent before retaining a thumbnail.
+                    byte[] thumbnailBytes = mMetadataBudget.allocateAt(mThumbnailLength,
+                            mThumbnailOffset, in.getLength());
                     in.seek(mThumbnailOffset);
                     in.readFully(thumbnailBytes);
                     mThumbnailBytes = thumbnailBytes;
@@ -4403,14 +4445,14 @@ public class ExifInterface {
                 return;
             }
 
-            // TODO: Need to handle potential OutOfMemoryError
             // Set thumbnail byte array data for non-consecutive strip bytes
-            byte[] totalStripBytes =
-                    new byte[(int) Arrays.stream(stripByteCounts).sum()];
+            // DiamaneOS: every strip extent and the long sum are bounded before allocation.
+            byte[] totalStripBytes = mMetadataBudget.allocateStrips(
+                    stripOffsets, stripByteCounts, in.getLength());
 
             int bytesRead = 0;
             int bytesAdded = 0;
-            mHasThumbnail = mHasThumbnailStrips = mAreThumbnailStripsConsecutive = true;
+            boolean consecutive = true;
             for (int i = 0; i < stripOffsets.length; i++) {
                 int stripOffset = (int) stripOffsets[i];
                 int stripByteCount = (int) stripByteCounts[i];
@@ -4419,7 +4461,7 @@ public class ExifInterface {
                 // TODO: Add test for non-consecutive thumbnail image
                 if (i < stripOffsets.length - 1
                         && stripOffset + stripByteCount != stripOffsets[i + 1]) {
-                    mAreThumbnailStripsConsecutive = false;
+                    consecutive = false;
                 }
 
                 // Skip to offset
@@ -4430,18 +4472,15 @@ public class ExifInterface {
                 in.seek(skipBytes);
                 bytesRead += skipBytes;
 
-                // TODO: Need to handle potential OutOfMemoryError
-                // Read strip bytes
-                byte[] stripBytes = new byte[stripByteCount];
-                in.read(stripBytes);
+                // DiamaneOS: read into the bounded destination without a second strip allocation.
+                in.readFully(totalStripBytes, bytesAdded, stripByteCount);
                 bytesRead += stripByteCount;
-
-                // Add bytes to array
-                System.arraycopy(stripBytes, 0, totalStripBytes, bytesAdded,
-                        stripBytes.length);
-                bytesAdded += stripBytes.length;
+                bytesAdded += stripByteCount;
             }
             mThumbnailBytes = totalStripBytes;
+            // DiamaneOS: failed reads never publish a partial strip thumbnail.
+            mHasThumbnail = mHasThumbnailStrips = true;
+            mAreThumbnailStripsConsecutive = consecutive;
 
             if (mAreThumbnailStripsConsecutive) {
                 // Need to add mExifOffset, which is the offset to the EXIF data segment
