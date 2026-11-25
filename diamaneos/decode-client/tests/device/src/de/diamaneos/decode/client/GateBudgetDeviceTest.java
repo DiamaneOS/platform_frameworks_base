@@ -23,6 +23,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static org.junit.Assume.assumeTrue;
 
 import android.content.Context;
 import android.graphics.Bitmap;
@@ -249,7 +250,11 @@ public class GateBudgetDeviceTest {
         final FakeGateProvider provider = new FakeGateProvider(0);
         DecodeGate.setLocal(provider);
         final byte[] png = png(64, 32, Color.RED);
-        DecodeMemory.setMaxForTest(1L << 20);
+        // The limit is the whole process's: room for one megabyte above what earlier work still holds.
+        final long base = settledHeld();
+        Log.i(TAG, "decode memory held when the limit is set: " + base);
+        final long max = base + (1L << 20);
+        DecodeMemory.setMaxForTest(max);
         final Bitmap initial = BitmapFactory.decodeByteArray(png, 0, png.length);
         assertNotNull(initial);
         initial.recycle();
@@ -269,9 +274,13 @@ public class GateBudgetDeviceTest {
         assertNotNull("room again", retried);
         retried.recycle();
         DecodeGate.resetForTest();
-        // An image whose decode needs more than this process takes at all.
-        provider.width = 1024;
-        provider.height = 1024;
+        // An image whose decode needs more than this process takes at all (4 bytes a pixel past the whole limit).
+        final int side = (int) Math.sqrt(max / 4.0) + 1;
+        // Past the VM's pixel limit it would be refused for its size, not for memory: then earlier work still held
+        // more than 31 MB after waiting, which the log line above shows.
+        assumeTrue("the process still holds " + base + " bytes", (long) side * side <= DecodeGate.MAX_VM_PIXELS);
+        provider.width = side;
+        provider.height = side;
         DecodeGate.resetForTest();
         try {
             ImageDecoder.decodeBitmap(ImageDecoder.createSource(png));
@@ -279,7 +288,29 @@ public class GateBudgetDeviceTest {
         } catch (ImageDecoder.DecodeException e) {
             assertEquals("refused", ImageDecoder.DecodeException.SOURCE_MALFORMED_DATA, e.getError());
         }
-        assertEquals(0, DecodeMemory.held());
+        assertTrue("this test's memory stayed held: " + DecodeMemory.held() + " of " + base,
+                settledHeld() <= base);
+    }
+
+    // What this process holds once the work of earlier tests (refills, answers finishing in the background) has
+    // given its memory back: nothing, or the same for a second, at most 10 s of waiting.
+    private static long settledHeld() {
+        final long end = SystemClock.uptimeMillis() + 10_000;
+        long last = -1;
+        long since = SystemClock.uptimeMillis();
+        while (true) {
+            Runtime.getRuntime().gc();
+            SystemClock.sleep(50);
+            final long held = DecodeMemory.held();
+            final long now = SystemClock.uptimeMillis();
+            if (held != last) {
+                last = held;
+                since = now;
+            }
+            if (held == 0 || now - since >= 1_000 || now >= end) {
+                return held;
+            }
+        }
     }
 
     // M1
