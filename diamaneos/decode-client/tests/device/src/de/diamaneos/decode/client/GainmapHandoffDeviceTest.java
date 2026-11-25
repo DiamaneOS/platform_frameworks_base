@@ -55,6 +55,13 @@ public class GainmapHandoffDeviceTest {
                 reply.putInt(DecodeGate.EXTRA_WIDTH, 64);
                 reply.putInt(DecodeGate.EXTRA_HEIGHT, 32);
                 reply.putInt(DecodeGate.EXTRA_FORMAT, 1);
+            } else if (DecodeGate.METHOD_GAINMAP.equals(method)) {
+                // The gain image alone, in stored orientation at the base's scale.
+                Bitmap gain = Bitmap.createBitmap(32, 16, Bitmap.Config.ARGB_8888);
+                for (int y = 0; y < 16; y++) for (int x = 0; x < 32; x++) {
+                    gain.setPixel(x, y, x < 16 ? Color.RED : Color.BLUE);
+                }
+                reply.putParcelable(DecodeGate.EXTRA_BITMAP, gain);
             } else if (DecodeGate.METHOD_REGION.equals(method)) {
                 Bitmap base = Bitmap.createBitmap(64, 32, Bitmap.Config.ARGB_8888);
                 base.eraseColor(Color.RED);
