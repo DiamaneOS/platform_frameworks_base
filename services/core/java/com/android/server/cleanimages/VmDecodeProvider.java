@@ -525,6 +525,7 @@ public final class VmDecodeProvider extends ContentProvider {
         try {
             final String refused = enqueueLocked(task, bytes, memory);
             if (refused == null) {
+                // The task is the timer's token: done() takes the timer back, so it keeps no callback after the end.
                 if (!com.android.internal.os.BackgroundThread.getHandler().postAtTime(() -> {
                     if (withdraw(task)) {
                         task.work = null;
@@ -534,7 +535,7 @@ public final class VmDecodeProvider extends ContentProvider {
                             }
                         }
                     }
-                }, task.end)) {
+                }, task, task.end)) {
                     withdraw(task);
                     return "queue timer unavailable";
                 }
@@ -716,6 +717,7 @@ public final class VmDecodeProvider extends ContentProvider {
 
     // A request ended, or could not start: its places are free.
     private void done(Task task, boolean again) {
+        com.android.internal.os.BackgroundThread.getHandler().removeCallbacksAndMessages(task);
         try {
             synchronized (mLock) {
                 mRunning--;
