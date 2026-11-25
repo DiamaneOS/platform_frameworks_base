@@ -286,30 +286,27 @@ public final class DecodeMemory {
     static final long RECLAIM_WAIT_MS = 200;
     private static long sLastReclaim = -RECLAIM_WAIT_MS; // guarded by sLock
 
-    // One collection (at most one started per RECLAIM_WAIT_MS), then up to RECLAIM_WAIT_MS for its released charges.
-    // Never on the main thread, which keeps its own short waits.
+    // Collections of the process (at most one started per RECLAIM_WAIT_MS), waited for up to 2 x RECLAIM_WAIT_MS: a
+    // caller that comes within the window of the last collection waits for the next one instead of being refused,
+    // since an image dropped after that collection is only released by the next. Never on the main thread, which
+    // keeps its own short waits.
     private static boolean reclaimUnreachable(long n) {
         if (android.os.Looper.getMainLooper() != null && android.os.Looper.getMainLooper().isCurrentThread()) {
             return false;
         }
-        final long now = android.os.SystemClock.uptimeMillis();
-        synchronized (sLock) {
-            if (sPixels.isEmpty()) return false;
-            if (now - sLastReclaim >= RECLAIM_WAIT_MS) {
-                sLastReclaim = now;
-            } else {
-                collectedLocked();
-                return n <= sMax - sHeld;
-            }
-        }
-        Runtime.getRuntime().gc();
-        final long end = now + RECLAIM_WAIT_MS;
+        final long end = android.os.SystemClock.uptimeMillis() + 2 * RECLAIM_WAIT_MS;
         while (true) {
+            final boolean collect;
             synchronized (sLock) {
                 collectedLocked();
                 if (n <= sMax - sHeld) return true;
+                if (sPixels.isEmpty()) return false; // nothing left that a collection could give back
+                final long now = android.os.SystemClock.uptimeMillis();
+                if (now >= end) return false;
+                collect = now - sLastReclaim >= RECLAIM_WAIT_MS;
+                if (collect) sLastReclaim = now;
             }
-            if (android.os.SystemClock.uptimeMillis() >= end) return false;
+            if (collect) Runtime.getRuntime().gc();
             android.os.SystemClock.sleep(10);
         }
     }
