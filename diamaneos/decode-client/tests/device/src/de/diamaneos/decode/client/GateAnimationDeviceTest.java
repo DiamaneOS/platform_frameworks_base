@@ -99,6 +99,8 @@ public class GateAnimationDeviceTest {
                 drawable.isRunning());
         drawable.setVisible(true, true);
         assertEquals(stockRunning, drawable.isRunning());
+    }
+
     @Test public void avifKeepsEveryFrameAndFinitePlayback() throws Exception {
         checkPlayback(R.raw.vm_animation_compat_avif);
     }
@@ -136,10 +138,16 @@ public class GateAnimationDeviceTest {
         try {
             assertEquals(0, drawable.getRepeatCount());
             if (nativeRepeat != null) assertEquals(nativeRepeat.intValue(), drawable.getRepeatCount());
-            final Bitmap[] ordered = (Bitmap[]) field(drawable.getClass(), drawable, "mFrames");
-            assertEquals(8, ordered.length);
+            // The VM frames in presentation order, read through the drawable's own frame accessors.
+            final java.lang.reflect.Method count = drawable.getClass().getDeclaredMethod("frameCount");
+            final java.lang.reflect.Method bitmap = drawable.getClass().getDeclaredMethod("frameBitmap", int.class);
+            count.setAccessible(true);
+            bitmap.setAccessible(true);
+            assertEquals(8, (int) (Integer) count.invoke(drawable));
             int previous = -1;
-            for (Bitmap frame : ordered) {
+            for (int i = 0; i < 8; i++) {
+                final Bitmap frame = (Bitmap) bitmap.invoke(drawable, i);
+                assertNotNull("frame " + i + " of the first window", frame);
                 final int gray = android.graphics.Color.red(frame.getPixel(0, 0));
                 assertTrue("B-picture presentation order changed", gray > previous);
                 previous = gray;
