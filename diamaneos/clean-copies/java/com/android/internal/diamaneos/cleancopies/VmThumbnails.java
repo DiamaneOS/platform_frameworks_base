@@ -95,7 +95,16 @@ public final class VmThumbnails {
      */
     public static @NonNull Bitmap load(@NonNull ContentInterface content, @NonNull Uri uri, @NonNull Size size,
             @Nullable CancellationSignal signal, int allocator) throws IOException {
-        return loadOnce(content, uri, size, signal, allocator, android.os.SystemClock.uptimeMillis() + ATTEMPT_MS);
+        try {
+            final Bitmap bitmap = loadOnce(content, uri, size, signal, allocator,
+                    android.os.SystemClock.uptimeMillis() + ATTEMPT_MS);
+            VmThumbnailNotices.loaded(uri);
+            return bitmap;
+        } catch (LaterException e) {
+            // The decode service did not answer: the caller is told of the item once it answers again.
+            VmThumbnailNotices.failed(uri);
+            throw e;
+        }
     }
 
     /** No thumbnail because the decode service did not answer: worth asking once more when it does. */

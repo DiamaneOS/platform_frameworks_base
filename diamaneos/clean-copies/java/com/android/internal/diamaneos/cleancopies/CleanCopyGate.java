@@ -401,6 +401,12 @@ public final class CleanCopyGate implements ImageFileGate {
             sAnswers++;
             sAnswersLock.notifyAll();
         }
+        // Thumbnails that failed meanwhile: one change notice each, on the watch's thread.
+        final android.os.Handler handler;
+        synchronized (CleanCopyGate.class) {
+            handler = sMadeHandler;
+        }
+        VmThumbnailNotices.answers(sApp, handler);
         // The system server dropped what it had given up on during the outage but makes nothing by itself: what
         // still waits loads again, which asks for its copies anew.
         made(null, -1);
