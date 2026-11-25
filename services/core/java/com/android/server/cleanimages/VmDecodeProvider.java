@@ -291,17 +291,23 @@ public final class VmDecodeProvider extends ContentProvider {
         return null;
     }
 
-    // Telecom's lock (TelecomSystem.getInstance().getLock()), once Telecom runs in this process, else null.
+    // Telecom's lock (TelecomSystem.getInstance().getLock()), once Telecom runs in this process, else null. Telecom's
+    // code is on the system server class path when it comes from the telephony module (service-telecom.jar), or in
+    // the Telecom app loaded into this process on builds without the module. Both places are looked in.
     private static Object telecomLock() {
-        final android.app.ActivityThread thread = android.app.ActivityThread.currentActivityThread();
-        final android.app.LoadedApk telecom = thread == null ? null
-                : thread.peekPackageInfo("com.android.server.telecom", true);
-        if (telecom == null) {
-            return null;
+        Object lock = telecomLock(VmDecodeProvider.class.getClassLoader());
+        if (lock == null) {
+            final android.app.ActivityThread thread = android.app.ActivityThread.currentActivityThread();
+            final android.app.LoadedApk telecom = thread == null ? null
+                    : thread.peekPackageInfo("com.android.server.telecom", true);
+            lock = telecom == null ? null : telecomLock(telecom.getClassLoader());
         }
+        return lock;
+    }
+
+    private static Object telecomLock(ClassLoader loader) {
         try {
-            final Class<?> system = Class.forName("com.android.server.telecom.TelecomSystem", false,
-                    telecom.getClassLoader());
+            final Class<?> system = Class.forName("com.android.server.telecom.TelecomSystem", false, loader);
             final Object instance = system.getMethod("getInstance").invoke(null);
             return instance == null ? null : system.getMethod("getLock").invoke(instance);
         } catch (ReflectiveOperationException | RuntimeException | LinkageError e) {
@@ -309,12 +315,20 @@ public final class VmDecodeProvider extends ContentProvider {
         }
     }
 
-
     @Override
     public Bundle call(String method, String arg, Bundle extras) {
         final int uid = Binder.getCallingUid();
         if (DecodeGate.METHOD_BROKER.equals(method)) {
             return broker(uid);
+        }
+        if (Build.IS_DEBUGGABLE && "testServerWait".equals(method)) {
+            final String[] packages = getContext().getPackageManager().getPackagesForUid(uid);
+            if (packages == null || !java.util.Arrays.asList(packages).contains(CLIENT_TESTS)) {
+                throw new SecurityException("decode tests only");
+            }
+            final Bundle result = new Bundle();
+            result.putLong("wait", DecodeGate.allowedWaitForTest());
+            return result;
         }
         if (Build.IS_DEBUGGABLE && "testUriIcon".equals(method)) {
             final String[] packages = getContext().getPackageManager().getPackagesForUid(uid);

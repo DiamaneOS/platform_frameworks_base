@@ -455,6 +455,12 @@ public final class DecodeGate {
         sWaitForTest = waitMs;
     }
 
+    /** Tests on debuggable builds: how long a call starting on this thread now may wait for the VM. */
+    public static long allowedWaitForTest() {
+        debuggableOnly();
+        return allowedWait();
+    }
+
     /** Tests on debuggable builds: threads wait again at once and nothing is cached. */
     public static void resetForTest() {
         debuggableOnly();
@@ -1278,7 +1284,7 @@ public final class DecodeGate {
             return 0;
         }
         final boolean system = ActivityThread.isSystem();
-        if (system && !sLocks.complete()) {
+        if (system && !locksComplete()) {
             return 0; // a required global lock is not known yet: no system server thread waits (GateLocks)
         }
         final Looper looper = Looper.myLooper();
@@ -1319,6 +1325,13 @@ public final class DecodeGate {
     }
 
     private static boolean holdsGlobalLock() {
+        locksComplete();
+        return sLocks.heldHere();
+    }
+
+    // Looks for the required locks still missing (at most once a second), so the first call after the last one
+    // appears already gets its wait. One still missing LOCK_SOURCE_MS after boot is logged once.
+    private static boolean locksComplete() {
         if (!sLocks.complete()) {
             final long now = SystemClock.uptimeMillis();
             sLocks.find(now);
@@ -1327,7 +1340,7 @@ public final class DecodeGate {
                 Log.e(TAG, "not found yet: " + sLocks.missing() + ", no system server thread waits for the VM");
             }
         }
-        return sLocks.heldHere();
+        return sLocks.complete();
     }
 
     /**
