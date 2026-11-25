@@ -16,6 +16,7 @@
 
 package de.diamaneos.decode.client;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -171,25 +172,42 @@ public class DecodeGateDeviceTest {
     @Test
     public void bitmapFactoryByteArrayStreamFileAndDescriptor() throws Exception {
         final byte[] png = png();
-        int[] before = DecodeGate.countsForTest();
-        assertRedBlue(BitmapFactory.decodeByteArray(png, 0, png.length), W, H);
-        DecodeGate.resetForTest();
-        assertRedBlue(BitmapFactory.decodeStream(new ByteArrayInputStream(png)), W, H);
-        DecodeGate.resetForTest();
+        onePass("byte array", () -> BitmapFactory.decodeByteArray(png, 0, png.length));
+        onePass("stream", () -> BitmapFactory.decodeStream(new ByteArrayInputStream(png)));
         final File file = file(png);
         try {
-            assertRedBlue(BitmapFactory.decodeFile(file.getPath()), W, H);
-            DecodeGate.resetForTest();
+            onePass("file", () -> BitmapFactory.decodeFile(file.getPath()));
             try (FileInputStream in = new FileInputStream(file)) {
                 Os.lseek(in.getFD(), 0, OsConstants.SEEK_SET);
-                assertRedBlue(BitmapFactory.decodeFileDescriptor(in.getFD()), W, H);
+                onePass("descriptor", () -> BitmapFactory.decodeFileDescriptor(in.getFD()));
                 assertEquals("the descriptor's position is kept", 0,
                         Os.lseek(in.getFD(), 0, OsConstants.SEEK_CUR));
             }
         } finally {
             file.delete();
         }
-        assertTrue(Arrays.equals(new int[] {4, 4, 0}, since(before)));
+    }
+
+    private interface Decode {
+        Bitmap run() throws Exception;
+    }
+
+    // One decode of the red and blue PNG, with nothing cached: exactly one probe and one decode in the VM and no
+    // failure. The counters are the process's, so the measurement starts once no other request of the process has
+    // changed them for 500 ms (an earlier test's answer finishing in the background), and the counts are reported.
+    private static void onePass(String source, Decode decode) throws Exception {
+        DecodeGate.resetForTest();
+        int[] before = DecodeGate.countsForTest();
+        for (long end = SystemClock.uptimeMillis() + 10_000; SystemClock.uptimeMillis() < end; ) {
+            SystemClock.sleep(500);
+            final int[] now = DecodeGate.countsForTest();
+            if (Arrays.equals(now, before)) break;
+            before = now;
+        }
+        assertRedBlue(decode.run(), W, H);
+        final int[] got = since(before);
+        assertArrayEquals(source + ": decodes, probes, failures " + Arrays.toString(got),
+                new int[] {1, 1, 0}, got);
     }
 
     @Test
