@@ -932,7 +932,7 @@ final class GatedDecodes {
             ImageDecoder.Source source) {
         return new ImageDecoder.DecodeException(e.refused ? ImageDecoder.DecodeException.SOURCE_MALFORMED_DATA
                 : ImageDecoder.DecodeException.SOURCE_EXCEPTION,
-                "not decoded in the protected VM: " + e.getMessage(), null, source);
+                "not decoded in the protected VM: " + e.getMessage(), e.getCause(), source);
     }
 
     // BitmapRegionDecoder

@@ -697,7 +697,7 @@ final class GateInput {
                 try {
                     n = in.read(buffer, 0, png.readLimit(buffer.length));
                 } catch (IOException e) {
-                    throw DecodeGate.notNow("stream not read: " + e.getMessage());
+                    throw DecodeGate.inputFailed(e);
                 }
                 if (n <= 0) {
                     break;

@@ -1385,6 +1385,14 @@ public final class DecodeGate {
         }
     }
 
+    // A stream that failed to read: a failure of the moment that keeps the stream's exception as its cause, which
+    // ImageDecoder passes on as stock does.
+    static Failure inputFailed(Throwable cause) {
+        final Failure failure = notNow("stream not read: " + cause.getMessage());
+        failure.initCause(cause);
+        return failure;
+    }
+
     // A failure of the moment (the VM not asked yet, not answered in time, unavailable): the same image can be had later.
     static Failure notNow(String why) {
         return failure(false, true, why);

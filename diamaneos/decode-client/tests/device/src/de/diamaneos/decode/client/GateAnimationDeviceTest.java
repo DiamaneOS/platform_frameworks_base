@@ -109,6 +109,27 @@ public class GateAnimationDeviceTest {
         checkInvalidColorSpaces(fixture(R.raw.vm_animation_compat_gif), true);
     }
 
+    @Test public void streamExceptionRetainsItsOriginalCause() throws Exception {
+        final java.io.IOException failure = new java.io.IOException("fixture input failed");
+        final InputStream input = new InputStream() {
+            @Override public int read() throws java.io.IOException { throw failure; }
+            @Override public int read(byte[] bytes, int offset, int count) throws java.io.IOException {
+                throw failure;
+            }
+        };
+        final ImageDecoder.Source source = ImageDecoder.createSource(
+                InstrumentationRegistry.getInstrumentation().getTargetContext().getResources(),
+                input, Bitmap.DENSITY_NONE);
+        try {
+            ImageDecoder.decodeBitmap(source);
+            fail("stream exception was swallowed");
+        } catch (ImageDecoder.DecodeException expected) {
+            assertEquals(ImageDecoder.DecodeException.SOURCE_EXCEPTION, expected.getError());
+            assertSame(source, expected.getSource());
+            assertSame(failure, expected.getCause());
+        }
+    }
+
     // As stock ImageDecoder (ColorSpace.getNativeInstance), a non-RGB or nonparametric target is an
     // IllegalArgumentException from the decode call.
     private void checkInvalidColorSpaces(byte[] encoded, boolean animated) throws Exception {
