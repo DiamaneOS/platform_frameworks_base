@@ -20,6 +20,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeTrue;
 
 import android.content.Context;
 import android.content.ContextWrapper;
@@ -31,6 +32,7 @@ import android.graphics.drawable.Icon;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 
+import com.android.internal.diamaneos.cleancopies.CleanCopyClient;
 import com.android.internal.diamaneos.cleancopies.CleanCopyGate;
 import com.android.internal.diamaneos.cleancopies.CleanCopyKey;
 import com.android.internal.diamaneos.cleancopies.CleanImageFile;
@@ -157,14 +159,18 @@ public class CleanCopyUsersDeviceTest {
     /** A load of a work profile's app asks for, and keys, the work profile's copy; any other load this user's. */
     @Test
     public void gate_loadOfAUsersApp_asksForThatUsersCopy() throws Exception {
+        final String named = InstrumentationRegistry.getArguments().getString("workUser");
+        assumeTrue("no work profile named (-e workUser N)", named != null);
+        final int work = Integer.parseInt(named);
+        assumeTrue("no user " + work + " here", CleanCopyClient.userSerial(mContext, work) >= 0);
         final UserSource source = new UserSource();
         final Resources res = mContext.createConfigurationContext(mContext.getResources().getConfiguration())
                 .getResources();
         res.setImageFileGate(CleanCopyGate.forTest(mContext, source, false));
-        onThread(() -> CleanCopyGate.iconLoad(WORK, () -> res.getDrawable(R.drawable.vm_test_orange, null)));
+        onThread(() -> CleanCopyGate.iconLoad(work, () -> res.getDrawable(R.drawable.vm_test_orange, null)));
         onThread(() -> res.getDrawable(R.drawable.vm_test_blue, null));
-        assertEquals(List.of(WORK, mContext.getUserId()), source.users);
-        assertTrue(source.keys.get(0), source.keys.get(0).endsWith(":u" + WORK));
+        assertEquals(List.of(work, mContext.getUserId()), source.users);
+        assertTrue(source.keys.get(0), source.keys.get(0).endsWith(":u" + work));
         assertTrue(source.keys.get(1), source.keys.get(1).endsWith(":u" + mContext.getUserId()));
     }
     private Context serialContext(int sourceSerial, int resolverSerial) {

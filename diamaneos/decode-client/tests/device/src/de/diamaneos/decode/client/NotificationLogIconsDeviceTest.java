@@ -24,9 +24,7 @@ import static org.junit.Assume.assumeTrue;
 import android.app.Notification;
 import android.content.Context;
 import android.graphics.Bitmap;
-import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
-import android.graphics.drawable.DrawableWrapper;
 import android.graphics.drawable.Icon;
 import android.os.Process;
 import android.os.SystemClock;
@@ -103,12 +101,9 @@ public class NotificationLogIconsDeviceTest {
     private static Bitmap shown(Drawable drawable, long waitMs) {
         final long end = SystemClock.uptimeMillis() + waitMs;
         while (true) {
-            Drawable inner = drawable;
-            if (inner instanceof DrawableWrapper) {
-                inner = ((DrawableWrapper) inner).getDrawable();
-            }
-            if (inner instanceof BitmapDrawable && ((BitmapDrawable) inner).getBitmap().getWidth() > 1) {
-                return ((BitmapDrawable) inner).getBitmap();
+            final Bitmap pixels = ShownPixels.of(drawable);
+            if (pixels != null && pixels.getWidth() > 1) {
+                return pixels;
             }
             if (SystemClock.uptimeMillis() >= end) {
                 return null;

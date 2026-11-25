@@ -27,7 +27,6 @@ import android.graphics.Color;
 import android.graphics.drawable.AdaptiveIconDrawable;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
-import android.graphics.drawable.DrawableWrapper;
 import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.SystemClock;
@@ -95,15 +94,11 @@ public class VmIconLoadsDeviceTest {
         return out.toByteArray();
     }
 
+    // The pixels the drawable shows when drawn (ShownPixels).
     private static Bitmap bitmapOf(Drawable drawable) {
-        if (drawable instanceof AdaptiveIconDrawable) {
-            drawable = ((AdaptiveIconDrawable) drawable).getForeground();
-        }
-        if (drawable instanceof DrawableWrapper) {
-            drawable = ((DrawableWrapper) drawable).getDrawable();
-        }
-        assertTrue("a bitmap drawable: " + drawable, drawable instanceof BitmapDrawable);
-        return ((BitmapDrawable) drawable).getBitmap();
+        final Bitmap shown = ShownPixels.of(drawable);
+        assertNotNull("draws no bitmap: " + drawable, shown);
+        return shown;
     }
 
     private static void assertPicture(int color, Drawable drawable) {
@@ -403,9 +398,6 @@ public class VmIconLoadsDeviceTest {
             InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> drawable.set(
                     VmIconLoads.loadAsUserNoWait(Icon.createWithData(data, 0, data.length), mContext,
                             mContext.getUserId())));
-            final ImageView view = new ImageView(mContext);
-            InstrumentationRegistry.getInstrumentation().runOnMainSync(
-                    () -> view.setImageDrawable(drawable.get()));
             SystemClock.sleep(VmIconLoads.LOAD_MS + 200);
             assertBlank(drawable.get());
         } finally {

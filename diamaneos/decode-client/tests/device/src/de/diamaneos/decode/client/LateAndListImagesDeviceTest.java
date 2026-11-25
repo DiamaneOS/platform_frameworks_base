@@ -20,6 +20,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assume.assumeTrue;
 
 import android.content.Context;
 import android.graphics.Bitmap;
@@ -166,7 +167,7 @@ public class LateAndListImagesDeviceTest {
 
     @Test
     public void workProfileXmlMiss_fillsItsPresentation() throws Exception {
-        assertTrue("run in the test work profile", mContext.getUserId() != 0);
+        assumeTrue("run in the test work profile", mContext.getUserId() != 0);
         final Drawable xml = xmlBitmapOfALateLayout(mContext, mPackage);
         assertTrue("expected a cold XML drawable miss", xml instanceof DrawableWrapper);
         assertTrue("the work drawable did not fill", ((DrawableWrapper) xml).getDrawable() instanceof BitmapDrawable);

@@ -154,7 +154,7 @@ public class CopyProviderAudienceDeviceTest {
                 "copy-checked-uri").setShortLabel("Copy test").setIntent(intent)
                 .setIcon(android.graphics.drawable.Icon.createWithContentUri(UserImageProvider.IMAGE)).build();
         assertTrue(context.getSystemService(android.content.pm.ShortcutManager.class)
-                .setDynamicShortcuts(java.util.List.of(shortcut)));
+                .addDynamicShortcuts(java.util.List.of(shortcut)));
     }
 
     @Test
@@ -198,7 +198,7 @@ public class CopyProviderAudienceDeviceTest {
         final var lag = android.graphics.drawable.Icon.createWithContentUri(
                 UserImageProvider.image(0xff0000af, 7000));
         final var manager = context.getSystemService(android.content.pm.ShortcutManager.class);
-        assertTrue(manager.setDynamicShortcuts(java.util.List.of(
+        assertTrue(manager.addDynamicShortcuts(java.util.List.of(
                 new android.content.pm.ShortcutInfo.Builder(context, "lag-a")
                         .setShortLabel("Delayed A").setIntent(intent).setIcon(lag).build(),
                 new android.content.pm.ShortcutInfo.Builder(context, "lag-b")
@@ -210,6 +210,8 @@ public class CopyProviderAudienceDeviceTest {
 
     @Test
     public void stalledWorkShortcut_leavesFileShortcutAvailable() throws Exception {
+        assumeTrue("temporary test home role required", InstrumentationRegistry.getArguments()
+                .getString("brokerAsHome", "0").equals("1"));
         assertTrue(context.getSystemService(android.app.role.RoleManager.class)
                 .isRoleHeld(android.app.role.RoleManager.ROLE_HOME));
         final var apps = context.getSystemService(android.content.pm.LauncherApps.class);

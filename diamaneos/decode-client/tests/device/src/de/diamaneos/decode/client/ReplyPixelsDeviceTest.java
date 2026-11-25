@@ -120,6 +120,7 @@ public class ReplyPixelsDeviceTest {
 
     @Test
     public void stripesInBlocks_giveExactlyTheImage_andItsGainMap() throws Exception {
+        final long base = DecodeMemory.held();
         final Service service = new Service(300, 217, 50);
         service.withGainmap(150, 109, 40);
         final VmDecode.Decoded decoded = ReplyPixels.thumbnail(service, service.thumbnail, 300, 300);
@@ -138,14 +139,15 @@ public class ReplyPixelsDeviceTest {
         assertEquals(109, gain.getHeight());
         assertEquals(0xff000000 | 200 << 16 | (108 % 256) << 8 | ((149 + 108) % 256), gain.getPixel(149, 108));
         assertEquals(4f, b.getGainmap().getRatioMax()[0], 0f);
-        assertTrue("live HDR result lost its charge", DecodeMemory.held() >= (long) b.getAllocationByteCount()
+        assertTrue("live HDR result lost its charge", DecodeMemory.held() >= base + b.getAllocationByteCount()
                 + gain.getAllocationByteCount());
         DecodeMemory.recycle(b, null);
-        assertEquals(0, DecodeMemory.held());
+        assertEquals(base, DecodeMemory.held());
     }
 
     @Test
     public void aCallerThatLeft_stopsTheReadingBetweenStripes() throws Exception {
+        final long base = DecodeMemory.held();
         final Service service = new Service(200, 400, 40); // 10 stripes
         service.interruptAt = 2;
         try {
@@ -157,7 +159,7 @@ public class ReplyPixelsDeviceTest {
             Thread.interrupted();
         }
         assertEquals("stripes read", 3, service.stripesRead.get());
-        assertEquals(0, DecodeMemory.held());
+        assertEquals(base, DecodeMemory.held());
     }
 
     @Test
@@ -171,7 +173,9 @@ public class ReplyPixelsDeviceTest {
             assertTrue("no room now: " + e.getMessage(), e.isNoRoom());
         }
         assertEquals("nothing read without room", 0, service.stripesRead.get());
-        assertNotNull(ReplyPixels.thumbnail(service, service.thumbnail, 512, 512).bitmap);
+        final Bitmap fitted = ReplyPixels.thumbnail(service, service.thumbnail, 512, 512).bitmap;
+        assertNotNull(fitted);
+        DecodeMemory.recycle(fitted, null);
         DecodeMemory.setMaxForTest(512 * 1024);
         try {
             ReplyPixels.thumbnail(service, service.thumbnail, 512, 512);

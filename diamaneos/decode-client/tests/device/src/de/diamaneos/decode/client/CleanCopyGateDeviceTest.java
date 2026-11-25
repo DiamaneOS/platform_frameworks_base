@@ -134,6 +134,12 @@ public class CleanCopyGateDeviceTest {
         return res;
     }
 
+    /** How a copy key for this test's own user ends: the user serial, then the user. */
+    private String userSuffix() {
+        final int user = mContext.getUserId();
+        return ":s" + CleanCopyClient.userSerial(mContext, user) + ":u" + user;
+    }
+
     private static <T> T onThread(Callable<T> callable) throws Exception {
         final FutureTask<T> task = new FutureTask<>(callable);
         new Thread(task, "gate-test").start();
@@ -155,7 +161,7 @@ public class CleanCopyGateDeviceTest {
         assertEquals(mContext.getPackageName() + ":drawable/vm_test_red", source.resources.get(0));
         final int[] box = CleanCopyClient.box(mContext);
         assertTrue(source.requests.get(0).startsWith("rfile:" + mContext.getApplicationInfo().sourceDir + ":"));
-        assertTrue(source.requests.get(0).endsWith(":" + box[0] + "x" + box[1] + ":u" + mContext.getUserId()));
+        assertTrue(source.requests.get(0).endsWith(":" + box[0] + "x" + box[1] + userSuffix()));
     }
 
     @Test
@@ -435,7 +441,7 @@ public class CleanCopyGateDeviceTest {
         final int[] box = CleanCopyClient.box(mContext);
         assertEquals(1, source.requests.size());
         assertTrue(source.requests.get(0), source.requests.get(0).endsWith(
-                ":" + expected + ":" + box[0] + "x" + box[1] + ":u" + mContext.getUserId()));
+                ":" + expected + ":" + box[0] + "x" + box[1] + userSuffix()));
     }
 
     /** With the process gate, the package manager gives null (the caller's default) for an icon without a copy. */
