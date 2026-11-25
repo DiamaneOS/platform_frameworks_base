@@ -9,11 +9,16 @@ import java.nio.ByteOrder;
 final class GateStraightPixels {
     static Bitmap decode(GatedDecodes.Header header, int width, int height, int sample, Rect crop,
             ColorSpace target, boolean mutable, int allocator, boolean conserveMemory) throws DecodeGate.Failure {
-        final boolean sourceWide = header.bitDepth > 8;
-        final boolean wide = !conserveMemory && (sourceWide || target != null
+        final boolean wide = !conserveMemory && (header.bitDepth > 8 || target != null
                 && (target.equals(ColorSpace.get(ColorSpace.Named.EXTENDED_SRGB))
                     || target.equals(ColorSpace.get(ColorSpace.Named.LINEAR_EXTENDED_SRGB))));
+        // A deep source asked for 8888 comes as the VM's 8-bit reply, its samples cut to their high byte as stock's
+        // PNG codec does (png_set_strip_16), not rounded from half floats.
+        final boolean sourceWide = header.bitDepth > 8 && wide;
         final int sourceBytes = sourceWide ? 8 : 4;
+        // Stock draws the decoded pixels through a canvas for a crop or an orientation
+        // (hwui/ImageDecoder.cpp:433 and 505-519), which leaves no colour in a fully transparent pixel.
+        final boolean drawn = crop != null || header.rotation != 0 || header.mirrored;
         final int bytes = wide ? 8 : 4;
         final boolean turned = header.rotation == 90 || header.rotation == 270;
         final int storedWidth = turned ? height : width;
@@ -77,6 +82,7 @@ final class GateStraightPixels {
                                 final int from = (y * widePixels + x) * sourceBytes;
                                 final int to = ((dy - bounds.top) * bounds.width() + dx - bounds.left) * bytes;
                                 copyPixel(pixels, to, bytes, raw, from, sourceBytes, connector, rgb);
+                                if (drawn) clearHidden(pixels, to, bytes);
                             }
                         }
                     }
@@ -133,6 +139,14 @@ final class GateStraightPixels {
         final ColorSpace linearExtended = ColorSpace.get(ColorSpace.Named.LINEAR_EXTENDED_SRGB);
         return (source.equals(linear) || source.equals(linearExtended))
                 && (destination.equals(linear) || destination.equals(linearExtended));
+    }
+
+    private static void clearHidden(ByteBuffer pixels, int at, int bytes) {
+        if (bytes == 8) {
+            if (Half.toFloat(pixels.getShort(at + 6)) == 0) pixels.putLong(at, 0);
+        } else if (pixels.get(at + 3) == 0) {
+            pixels.putInt(at, 0);
+        }
     }
 
     private static void copyPixel(ByteBuffer target, int to, int bytes, ByteBuffer source, int from,
