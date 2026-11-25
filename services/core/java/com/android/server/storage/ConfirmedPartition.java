@@ -73,7 +73,7 @@ public final class ConfirmedPartition {
         View after = snapshot.get();
         sameMedium(after, generation, bytes);
         for (VolumeInfo vol : after.volumes()) {
-            if (diskId.equals(vol.getDiskId()) && vol.getState() == VolumeInfo.STATE_FORMATTED_UNVERIFIED) {
+            if (diskId.equals(vol.getDiskId()) && VolumeActions.isFormatAwaitingVerification(vol.getState())) {
                 throw new android.os.ServiceSpecificException(4001, "Formatted, awaiting verification");
             }
             if (diskId.equals(vol.getDiskId()) && vol.type == VolumeInfo.TYPE_PRIVATE) {
