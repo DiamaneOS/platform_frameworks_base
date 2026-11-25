@@ -37,10 +37,10 @@ import java.util.List;
  * DiamaneOS: whose image a caller of the clean image providers may say a request is. Its own user always. Another
  * user only when the caller may act for it, with the profile rule of the clean copies (CleanImageMaker.mayRequest):
  * the user is enabled, unlocked and not in quiet mode, a hidden profile (Private Space) only for a caller with
- * ACCESS_HIDDEN_PROFILES_FULL or the home app with ACCESS_HIDDEN_PROFILES, and a profile of the caller's own user
- * unless the caller holds INTERACT_ACROSS_USERS_FULL. A caller with INTERACT_ACROSS_USERS may name its own profiles,
- * one without it only where the platform has already checked that access ({@code profileChecked}). Sibling profiles
- * never name each other. The decode service checks the same direction again for the app the system server decodes for.
+ * ACCESS_HIDDEN_PROFILES_FULL or the home app with ACCESS_HIDDEN_PROFILES. Which users, as Android's
+ * ActivityManager.handleIncomingUser lets a caller act for them: any user with INTERACT_ACROSS_USERS_FULL, a user of
+ * the caller's profile group with INTERACT_ACROSS_USERS, none without a permission. The decode service checks the same
+ * again for the app the system server decodes for.
  */
 final class OwnerUsers {
     private OwnerUsers() {
@@ -51,11 +51,6 @@ final class OwnerUsers {
      * {@code named}: its own user), else -1. Call on the binder thread, with the caller's identity.
      */
     static int of(Context context, int uid, int named) {
-        return of(context, uid, named, false);
-    }
-
-    /** {@link #of}, and with {@code profileChecked} a profile of the caller's user without a permission. */
-    static int of(Context context, int uid, int named, boolean profileChecked) {
         final int own = UserHandle.getUserId(uid);
         if (named < 0 || named == own) {
             return own;
@@ -63,7 +58,7 @@ final class OwnerUsers {
         // Check the authenticated UID for both local and remote provider calls.
         final boolean full = granted(context, Manifest.permission.INTERACT_ACROSS_USERS_FULL, uid);
         final boolean across = full || granted(context, Manifest.permission.INTERACT_ACROSS_USERS, uid);
-        if (!across && !profileChecked) {
+        if (!across) {
             return -1;
         }
         final long identity = Binder.clearCallingIdentity();
@@ -76,6 +71,16 @@ final class OwnerUsers {
         }
     }
 
+    /**
+     * The owner user of an image whose bytes the caller sent itself (a data icon): {@code named} where Android lets the
+     * caller act for that user (INTERACT_ACROSS_USERS_FULL for any user, INTERACT_ACROSS_USERS within its profile
+     * group), else -1. The bytes are the caller's own memory, so naming a user only sets the answer's user and lane.
+     * Never for a request that names a source: that is acquired by the system server ({@code ForeignSources}).
+     */
+    static int forBytes(Context context, int uid, int named, String source) {
+        return source == null ? of(context, uid, named) : -1;
+    }
+
     private static boolean mayName(Context context, int uid, int own, int named, boolean full) {
         final UserManager users = context.getSystemService(UserManager.class);
         final UserInfo info = users.getUserInfo(named);
@@ -84,8 +89,11 @@ final class OwnerUsers {
             return false;
         }
         if (!full) {
+            // INTERACT_ACROSS_USERS: within the caller's profile group, as ActivityManager.handleIncomingUser lets it.
             final UserHandle parent = users.getProfileParent(UserHandle.of(named));
-            if (parent == null || parent.getIdentifier() != own) {
+            final UserHandle ownParent = users.getProfileParent(UserHandle.of(own));
+            final int group = parent == null ? named : parent.getIdentifier();
+            if (group != (ownParent == null ? own : ownParent.getIdentifier())) {
                 return false;
             }
         }

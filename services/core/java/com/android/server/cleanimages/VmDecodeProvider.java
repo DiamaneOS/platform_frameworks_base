@@ -332,7 +332,13 @@ public final class VmDecodeProvider extends ContentProvider {
         final int named = extras == null ? -1 : extras.getInt(DecodeGate.EXTRA_OWNER_USER, -1);
         final int owner = GateCallers.unverifiedUser(uid, named, UserHandle.PER_USER_RANGE);
         if (owner < 0) {
-            // DiamaneOS: another user's image is acquired here from the source the caller may read.
+            // DiamaneOS: bytes the caller sent itself go as the user it may act for, another user's source is
+            // acquired here from what the caller may read.
+            final int forBytes = OwnerUsers.forBytes(getContext(), uid, named,
+                    extras.getString(DecodeGate.EXTRA_SOURCE));
+            if (forBytes >= 0) {
+                return take(method, extras, uid, forBytes, uid, attributedPackage());
+            }
             return ForeignSources.take(getContext(), this::take, method, extras, uid, named, attributedPackage());
         }
         return take(method, extras, uid, owner, uid, attributedPackage());

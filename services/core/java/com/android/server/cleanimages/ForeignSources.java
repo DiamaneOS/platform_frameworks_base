@@ -158,7 +158,7 @@ final class ForeignSources {
             final Uri uri = Uri.parse(source.substring(image ? URI_IMAGE.length() : URI.length()));
             if (!ContentResolver.SCHEME_CONTENT.equals(uri.getScheme())
                     || ContentProvider.getUserIdFromUri(uri, -1) != named
-                    || OwnerUsers.of(context, uid, named, true) != named) {
+                    || OwnerUsers.of(context, uid, named) != named) {
                 return null;
             }
             final long identity = Binder.clearCallingIdentity();
