@@ -1036,7 +1036,13 @@ public final class NotificationImageGate {
         final Icon made = VmIcons.toSafeIcon(icon, user, mOwner, maxWidth, maxHeight, VmDecode.deadlineIn(left));
         // The pixels count against what the app holds across its notifications.
         if (made != null && made.getBitmap() != null && !mBudget.chargePool(VmIcons.pixels(made.getBitmap()))) {
-            Log.w(TAG, "the app holds too many image pixels, image left out");
+            if (mBudget.released()) {
+                // A newer round replaced this one (an update, a regrouping): this copy is not shown, the newer round
+                // takes the image from the cache.
+                Log.d(TAG, "image round replaced, image kept for the next round");
+            } else {
+                Log.w(TAG, "the app holds too many image pixels, image left out");
+            }
             return null;
         }
         return made;

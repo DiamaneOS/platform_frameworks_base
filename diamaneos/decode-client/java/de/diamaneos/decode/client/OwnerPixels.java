@@ -25,16 +25,24 @@ import java.util.WeakHashMap;
  * Decoded pixels each app holds in SystemUI across all its notifications at once: every live budget (one per shown
  * round of a notification's images) adds what it charged. A budget that is replaced gives its pixels back
  * ({@link ImageBudget#release}), and one that is no longer reachable (a removed notification) drops out by itself.
- * An app with many notifications full of large images gets empty images once it holds {@link #MAX_PIXELS}, so it
- * cannot fill SystemUI's memory. All apps together hold at most {@link #MAX_TOTAL_PIXELS}, a hard limit. A small part
- * of it is kept for apps that hold nothing yet (an eighth, at most half of that for each), so apps that fill the rest
- * cannot shut a new one out. Past the limit an image is left out until pixels are given back. Plain Java, tested on
- * the host. Thread-safe.
+ * An app gets empty images only past {@link #MAX_PIXELS}, what the notification service's own limit of notifications
+ * per app holds at the layout cap of each. All apps together hold at most {@link #MAX_TOTAL_PIXELS}, a hard limit. A
+ * small part of it is kept for apps that hold nothing yet (an eighth, at most half of that for each), so apps that
+ * fill the rest cannot shut a new one out. Past the limit an image is left out until pixels are given back. Plain
+ * Java, tested on the host. Thread-safe.
  */
 public final class OwnerPixels {
-    /** Pixels one app may hold at once (64 MB in ARGB), four notifications at their full cap. */
-    public static final long MAX_PIXELS = 4 * ImageBudget.MAX_PIXELS;
-    /** Pixels all apps together may hold at once (128 MB in ARGB). */
+    /**
+     * Notifications one app may have at once: the notification service's own limit
+     * (NotificationManagerService.MAX_PACKAGE_NOTIFICATIONS).
+     */
+    public static final int MAX_NOTIFICATIONS = 50;
+    /**
+     * Pixels one app may hold at once (800 MB in ARGB): each of its {@link #MAX_NOTIFICATIONS} notifications at the
+     * layout cap of one notification ({@link ImageBudget#MAX_PIXELS}).
+     */
+    public static final long MAX_PIXELS = MAX_NOTIFICATIONS * ImageBudget.MAX_PIXELS;
+    /** Pixels all apps together may hold at once (1.6 GB in ARGB), a hard limit. */
     public static final long MAX_TOTAL_PIXELS = 2 * MAX_PIXELS;
     private static final int MAX_OWNERS = 256;
 

@@ -113,8 +113,11 @@ public class ImageBudgetTest {
         // A smaller image gives back to the pool too.
         first.refund(40);
         assertEquals(110, pool.held("app"));
-        // A replaced round gives everything back and takes nothing more.
+        // A replaced round gives everything back and takes nothing more, and says so: its refusals are no cap.
+        assertFalse(first.released());
         first.release();
+        assertTrue(first.released());
+        assertFalse(second.released());
         assertEquals(50, pool.held("app"));
         assertFalse(first.charge("e", 1));
         assertTrue(second.charge("f", 50));

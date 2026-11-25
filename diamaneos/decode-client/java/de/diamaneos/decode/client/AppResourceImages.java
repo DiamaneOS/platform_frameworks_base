@@ -508,7 +508,10 @@ public final class AppResourceImages implements ImageFileGate {
         final int[] box = VmIcons.cacheableBox(maxWidth, maxHeight);
         final ImagePlan plan = ImagePlan.of(bytes, bytes.length, box[0], box[1]);
         if (admission == ImageBudget.Admission.NEW && !budget.charge(roundKey, plan.pixels)) {
-            Log.w(TAG, "notification layout images over their pixel cap, empty: " + file);
+            if (!budget.released()) {
+                // A replaced round says nothing: its copy is not shown.
+                Log.w(TAG, "notification layout images over their pixel cap, empty: " + file);
+            }
             return missing();
         }
         made = decode(budget, bytes, plan, density, file, key);

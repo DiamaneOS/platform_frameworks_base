@@ -107,6 +107,8 @@ public class OwnerPixelsTest {
 
     @Test
     public void defaults() {
-        assertEquals(4 * ImageBudget.MAX_PIXELS, OwnerPixels.MAX_PIXELS);
+        // As many notifications as the notification service lets one app have, each at its full cap.
+        assertEquals(50 * ImageBudget.MAX_PIXELS, OwnerPixels.MAX_PIXELS);
+        assertEquals(2 * OwnerPixels.MAX_PIXELS, OwnerPixels.MAX_TOTAL_PIXELS);
     }
 }

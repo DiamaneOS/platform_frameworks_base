@@ -177,6 +177,14 @@ public final class ImageBudget {
         mReleased = true;
     }
 
+    /**
+     * True once {@link #release} ran: the round was replaced or cancelled, its copy is not shown. A charge refused
+     * then is no cap: the image made for it stays in the cache for the next round.
+     */
+    public synchronized boolean released() {
+        return mReleased;
+    }
+
     /** Marks an image that could not be made: it is not asked for again in this budget. */
     public synchronized void failed(String key) {
         mFailed.add(key);
