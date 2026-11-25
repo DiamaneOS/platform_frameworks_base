@@ -17,17 +17,18 @@
 package com.android.server.om;
 
 import android.annotation.NonNull;
+import android.os.Binder;
 import android.os.FabricatedOverlayInternal;
 import android.os.FabricatedOverlayInternalEntry;
 import android.os.Process;
 
 /**
- * DiamaneOS: fabricated overlay values backed by a file come from the system uid only. idmap2d, which runs as the
+ * DiamaneOS: fabricated overlay values backed by a file come from the system server only. idmap2d, which runs as the
  * system uid, reads a nine-patch value with libpng. The bytes of any other file value go into the overlay unread
  * and reach the image and XML parsers of every process that loads the target's resources, the system server too
  * when the target is "android". Nothing outside tests sets such a value through this service (self-targeting
- * overlays are made in the app's own process and never come here), so a request from any other caller is refused
- * before idmap2d gets the file.
+ * overlays are made in the app's own process and never come here), so a request from any other process is refused
+ * before idmap2d gets the file, apps that run as the system uid (Settings among them) too.
  */
 final class FabricatedFileValues {
     private FabricatedFileValues() {
@@ -35,10 +36,11 @@ final class FabricatedFileValues {
 
     /**
      * Throws IllegalArgumentException, the commit path's answer to an invalid request, when a caller other than the
-     * system uid hands in a file value.
+     * system server's own process hands in a file value. Call on the binder thread, with the caller's identity.
      */
     static void enforceCaller(int callingUid, @NonNull FabricatedOverlayInternal overlay) {
-        if (callingUid == Process.SYSTEM_UID || overlay.entries == null) {
+        if ((callingUid == Process.SYSTEM_UID && Binder.getCallingPid() == Process.myPid())
+                || overlay.entries == null) {
             return;
         }
         for (FabricatedOverlayInternalEntry entry : overlay.entries) {
