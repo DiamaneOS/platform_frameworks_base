@@ -351,8 +351,14 @@ public final class CleanImageMaker {
         final String packageName;
         final int user;
         final boolean session;
+        final int sessionId;
 
         Owner(String charged, String packageName, int user, boolean session) {
+            this(charged, packageName, user, session, -1);
+        }
+
+        Owner(String charged, String packageName, int user, boolean session, int sessionId) {
+            this.sessionId = sessionId;
             this.charged = charged;
             this.packageName = packageName;
             this.user = user;
@@ -580,42 +586,53 @@ public final class CleanImageMaker {
     void grantFallback(int uid, String apk, int user, String key) {
         final Owner asset = owner(apk, user);
         if (asset != null && key != null) {
-            mRequests.add(uid, key, new CopyRequests.Grant(apk, asset.packageName, user, userSerial(user)));
+            mRequests.add(uid, key, new CopyRequests.Grant(apk, asset.packageName, user, userSerial(user),
+                    asset.session ? asset.charged : null, asset.sessionId));
         }
+    }
+
+    private boolean grantCurrent(int uid, int pid, CopyRequests.Grant grant) {
+        if (grant == null || grant.serial < 0 || grant.serial != userSerial(grant.user)) return false;
+        final Owner asset = owner(grant.apk, grant.user);
+        if (asset == null || !asset.packageName.equals(grant.packageName)) return false;
+        if (asset.session) {
+            if (grant.installer == null || !grant.installer.equals(asset.charged)
+                    || grant.sessionId < 0 || grant.sessionId != asset.sessionId) return false;
+        } else if (grant.installer != null || grant.sessionId >= 0) {
+            return false;
+        }
+        return mayRequest(uid, pid, grant.apk, grant.user);
     }
 
     private boolean allowedKey(int uid, int pid, String key) {
         final int user = CleanCopyKey.userOf(key);
         final long serial = userSerial(user);
-        if (key == null || serial < 0 || serial != CleanCopyKey.serialOf(key)) {
-            return false;
-        }
-        if (server(uid, pid) || (Build.IS_DEBUGGABLE && uid == 0)) {
+        if (key == null || serial < 0 || serial != CleanCopyKey.serialOf(key)) return false;
+        if (server(uid, pid) || (Build.IS_DEBUGGABLE && uid == 0)) return true;
+        final CopyRequests.Grant grant = mRequests.get(uid, key);
+        if (grant != null && grant.user == user && grant.serial == serial && grantCurrent(uid, pid, grant)) {
             return true;
         }
-        if (UserHandle.getUserId(uid) == user) {
-            return mayRequest(uid, pid, CleanCopyKey.apkOf(key), user);
-        }
-        final CopyRequests.Grant grant = mRequests.get(uid, key);
-        return grant != null && grant.serial == userSerial(user) && mayRequest(uid, pid, grant.apk, user);
+        return UserHandle.getUserId(uid) == user && mayRequest(uid, pid, CleanCopyKey.apkOf(key), user);
     }
 
     boolean mayRead(int uid, int pid, String name) {
-        final String key = mStore.keyOfFile(name);
+        return mayRead(uid, pid, mStore.keyOfFile(name), mStore.packageOfFile(name));
+    }
+
+    /** {@link #mayRead(int, int, String)} for a key and the package its copy was made for. */
+    boolean mayRead(int uid, int pid, String key, String packageName) {
         final int user = CleanCopyKey.userOf(key);
         final long serial = userSerial(user);
-        if (key == null || serial < 0 || serial != CleanCopyKey.serialOf(key)) {
-            return false;
-        }
-        if (server(uid, pid) || (Build.IS_DEBUGGABLE && uid == 0)) {
-            return true;
-        }
+        if (key == null || packageName == null || serial < 0 || serial != CleanCopyKey.serialOf(key)) return false;
+        if (server(uid, pid) || (Build.IS_DEBUGGABLE && uid == 0)) return true;
         final CopyRequests.Grant grant = mRequests.get(uid, key);
-        if (UserHandle.getUserId(uid) == user) {
-            return mayRequest(uid, pid, CleanCopyKey.apkOf(key), user);
-        }
-        return grant != null && grant.serial == userSerial(user)
-                && grant.packageName.equals(mStore.packageOfFile(name)) && mayRequest(uid, pid, grant.apk, user);
+        if (grant != null && grant.user == user && grant.serial == serial
+                && packageName.equals(grant.packageName) && grantCurrent(uid, pid, grant)) return true;
+        if (UserHandle.getUserId(uid) != user) return false;
+        final Owner asset = owner(CleanCopyKey.apkOf(key), user);
+        return asset != null && packageName.equals(asset.packageName)
+                && mayRequest(uid, pid, CleanCopyKey.apkOf(key), user);
     }
 
     // The user {@code user} is a profile of, -1 for none.
@@ -1056,19 +1073,11 @@ public final class CleanImageMaker {
     }
 
     private boolean subscribed(int uid, String pkg, int user, long serial) {
-        if (pkg == null || serial < 0 || serial != userSerial(user)
-                || !mRequests.interested(uid, pkg, user, serial)) {
-            return false;
+        if (pkg == null || serial < 0 || serial != userSerial(user)) return false;
+        for (CopyRequests.Grant grant : mRequests.grants(uid, pkg, user, serial)) {
+            if (grantCurrent(uid, -1, grant)) return true;
         }
-        final long identity = Binder.clearCallingIdentity();
-        try {
-            final ApplicationInfo app = mContext.getPackageManager().getApplicationInfoAsUser(pkg, 0, user);
-            return mayRequest(uid, -1, app.sourceDir, user);
-        } catch (PackageManager.NameNotFoundException | RuntimeException e) {
-            return false;
-        } finally {
-            Binder.restoreCallingIdentity(identity);
-        }
+        return false;
     }
 
     // Sends {@code data} to every watching process that may see {@code user} (USER_ALL: to every one, for what names
@@ -1216,7 +1225,7 @@ public final class CleanImageMaker {
                     }
                     // Told by the name the installer's dialog loads the icon for (its filling icon), no identity.
                     final String told = session.getAppPackageName() != null ? session.getAppPackageName() : charged;
-                    return new Owner(charged, told, user, true);
+                    return new Owner(charged, told, user, true, session.getSessionId());
                 }
             }
         } catch (RuntimeException e) {

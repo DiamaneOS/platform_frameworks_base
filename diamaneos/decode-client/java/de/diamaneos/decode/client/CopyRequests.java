@@ -26,8 +26,16 @@ public final class CopyRequests {
         public final String packageName;
         public final int user;
         public final long serial;
+        public final String installer;
+        public final int sessionId;
 
         public Grant(String apk, String packageName, int user, long serial) {
+            this(apk, packageName, user, serial, null, -1);
+        }
+
+        public Grant(String apk, String packageName, int user, long serial, String installer, int sessionId) {
+            this.installer = installer;
+            this.sessionId = sessionId;
             this.apk = apk;
             this.packageName = packageName;
             this.user = user;
@@ -68,6 +76,18 @@ public final class CopyRequests {
             }
         }
         return false;
+    }
+
+    /** Snapshot of the exact grants whose current authority can justify one named notice. */
+    public synchronized java.util.List<Grant> grants(int uid, String pkg, int user, long serial) {
+        final java.util.List<Grant> matches = new java.util.ArrayList<>();
+        final Map<String, Grant> items = mCallers.get(uid);
+        if (items != null) {
+            for (Grant grant : items.values()) {
+                if (grant.user == user && grant.serial == serial && grant.packageName.equals(pkg)) matches.add(grant);
+            }
+        }
+        return matches;
     }
 
     public synchronized void removeUser(int user) {

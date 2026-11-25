@@ -55,4 +55,19 @@ public class CopyRequestsTest {
         assertNull(requests.get(10001, "key0"));
         assertNotNull(requests.get(10001, "key1999"));
     }
+    @Test
+    public void namedGrantsRetainExactSessionAndIncarnation() {
+        final CopyRequests requests = new CopyRequests();
+        final CopyRequests.Grant staged = new CopyRequests.Grant("/stage/base.apk", "new.app", 10, 41,
+                "installer", 42);
+        requests.add(10001, "stage", staged);
+        assertEquals(java.util.List.of(staged), requests.grants(10001, "new.app", 10, 41));
+        assertTrue(requests.grants(10001, "new.app", 10, 42).isEmpty());
+        assertTrue(requests.grants(10002, "new.app", 10, 41).isEmpty());
+        assertEquals("installer", staged.installer);
+        assertEquals(42, staged.sessionId);
+        requests.removeUser(10);
+        assertTrue(requests.grants(10001, "new.app", 10, 41).isEmpty());
+    }
+
 }
