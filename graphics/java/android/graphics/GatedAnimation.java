@@ -65,6 +65,9 @@ public final class GatedAnimation extends AnimatedImageDrawable {
     private boolean mStarting;
     private boolean mRunning;
     private int mRepeatCount;
+    // False until the bounds are first set: stock draws at the image's own bounds until then
+    // (hwui AnimatedImageDrawable.cpp:37, setStagingBounds of the image's bounds).
+    private boolean mBoundsSet;
 
     private final Runnable mNext = () -> {
         if (!mRunning) return;
@@ -256,6 +259,8 @@ public final class GatedAnimation extends AnimatedImageDrawable {
                         if (next == 0) mPlayed++;
                         show(next, bitmap);
                         mNextAt = now + duration();
+                        // As stock SkAnimatedImage: the last repetition ends as its last frame is shown.
+                        if (next == count - 1 && mRepeatCount >= 0 && mPlayed >= mRepeatCount) finish();
                     } else {
                         // Not decoded yet (or refused): the last frame stays until its window is here.
                         mWaiting = true;
@@ -276,7 +281,11 @@ public final class GatedAnimation extends AnimatedImageDrawable {
         } else {
             mSource.set(0, 0, frame.getWidth(), frame.getHeight());
         }
-        mTarget.set(getBounds());
+        if (mBoundsSet) {
+            mTarget.set(getBounds());
+        } else {
+            mTarget.set(0, 0, getIntrinsicWidth(), getIntrinsicHeight());
+        }
         final int save = canvas.save();
         if (isAutoMirrored() && getLayoutDirection() == View.LAYOUT_DIRECTION_RTL) {
             canvas.translate(mTarget.left + mTarget.right, 0);
@@ -315,7 +324,10 @@ public final class GatedAnimation extends AnimatedImageDrawable {
         invalidateSelf();
         return true;
     }
-    @Override protected void onBoundsChange(Rect bounds) { invalidateSelf(); }
+    @Override protected void onBoundsChange(Rect bounds) {
+        mBoundsSet = true;
+        invalidateSelf();
+    }
     @Override public Drawable mutate() { return this; }
     @Override public ConstantState getConstantState() { return null; }
     @Override public void inflate(Resources resources, XmlPullParser parser, AttributeSet attrs,
