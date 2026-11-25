@@ -112,7 +112,9 @@ public class GateAnimationWindowsDeviceTest {
         assertTrue(stock instanceof AnimatedImageDrawable);
     }
 
-    // Plays on its own looper as a view would: the end callback after the whole timeline, gated as stock.
+    // Plays on its own looper as a view would: a draw every 5 ms as frames come (stock's software draw schedules the
+    // next frame only to the millisecond below and stops scheduling when that rounds to 0, so its own invalidations
+    // alone can stall), the end callback after the whole timeline, gated as stock.
     private static long playOnce(Drawable drawable) throws Exception {
         final HandlerThread thread = new HandlerThread("animation-player");
         thread.start();
@@ -144,6 +146,14 @@ public class GateAnimationWindowsDeviceTest {
                 started[0] = SystemClock.uptimeMillis();
                 animated.start();
                 drawable.draw(canvas);
+                final Runnable[] tick = new Runnable[1];
+                tick[0] = () -> {
+                    if (ended.getCount() == 0) return;
+                    draws.incrementAndGet();
+                    drawable.draw(canvas);
+                    handler.postDelayed(tick[0], 5);
+                };
+                handler.postDelayed(tick[0], 5);
             });
             assertTrue("the animation never ended", ended.await(90, TimeUnit.SECONDS));
             return SystemClock.uptimeMillis() - started[0];
