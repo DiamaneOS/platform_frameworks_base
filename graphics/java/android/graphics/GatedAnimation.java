@@ -36,19 +36,22 @@ import java.util.ArrayList;
 /**
  * DiamaneOS: AnimatedImageDrawable playback of checked VM frames, without a native image decoder.
  * Every native entry point of the parent is implemented using the retained pixels. The parent's
- * final mirror getter reads only the Java flag of its empty state.
+ * final mirror getter reads only the Java flag of its empty state. Frames come a window at a time
+ * as playback reaches them ({@link GateFrameWindows}): a frame not here yet keeps the last one shown.
  * @hide
  */
 public final class GatedAnimation extends AnimatedImageDrawable {
     private static final int SHORT_FRAME_MS = 10;
     private static final int SHORT_FRAME_SHOWN_MS = 100;
 
-    private Bitmap[] mFrames;
-    private int mCount;
+    private GateFrameWindows mWindows;
+    private Bitmap mShown;
+    private int mShownDuration;
+    private boolean mWaiting; // the next frame's window is being fetched
+    private volatile Handler mDrawHandler;
     private int mWidth;
     private int mHeight;
     private Rect mCrop;
-    private int[] mDurations;
     private final Paint mPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
     private final Rect mSource = new Rect();
     private final RectF mTarget = new RectF();
@@ -65,7 +68,7 @@ public final class GatedAnimation extends AnimatedImageDrawable {
 
     private final Runnable mNext = () -> {
         if (!mRunning) return;
-        if (mFrame == mCount - 1 && mRepeatCount >= 0 && mPlayed >= mRepeatCount) {
+        if (mFrame == mWindows.total - 1 && mRepeatCount >= 0 && mPlayed >= mRepeatCount) {
             finish();
         } else {
             invalidateSelf();
@@ -73,21 +76,46 @@ public final class GatedAnimation extends AnimatedImageDrawable {
     };
 
     GatedAnimation(Bitmap[] frames, int width, int height, @Nullable Rect crop, int[] durations, int loops) {
-        if (frames.length == 0 || frames.length != durations.length) {
-            throw new IllegalArgumentException("animation frames and durations differ");
-        }
-        mFrames = frames;
-        mCount = frames.length;
+        this(held(frames, durations, loops), width, height, crop);
+    }
+
+    GatedAnimation(GateFrameWindows source, int width, int height, @Nullable Rect crop) {
         mWidth = width;
         mHeight = height;
         mCrop = crop == null ? null : new Rect(crop);
-        mDurations = durations.clone();
-        mRepeatCount = loops == 0 ? REPEAT_INFINITE : loops - 1;
+        useSource(source);
     }
 
-    int frameCount() { return mCount; }
-    int frameDuration(int frame) { return mDurations[frame]; }
-    Bitmap frameBitmap(int frame) { return mFrames[frame]; }
+    private static GateFrameWindows held(Bitmap[] frames, int[] durations, int loops) {
+        if (frames.length == 0 || frames.length != durations.length) {
+            throw new IllegalArgumentException("animation frames and durations differ");
+        }
+        return GateFrameWindows.held(frames, durations.clone(), loops);
+    }
+
+    private void useSource(GateFrameWindows source) {
+        mWindows = source;
+        mRepeatCount = source.loops == 0 ? REPEAT_INFINITE : source.loops - 1;
+        mShown = source.frame(0);
+        mShownDuration = source.duration(0);
+        mFrame = 0;
+        mWaiting = false;
+        final java.lang.ref.WeakReference<GatedAnimation> self = new java.lang.ref.WeakReference<>(this);
+        source.setArrived(() -> {
+            final GatedAnimation animation = self.get();
+            final Handler handler = animation != null ? animation.mDrawHandler : null;
+            if (handler != null) handler.post(animation::windowArrived);
+        });
+    }
+
+    // On the drawing thread: a frame the playback waits for may be here now.
+    private void windowArrived() {
+        if (mWaiting && mRunning) invalidateSelf();
+    }
+
+    int frameCount() { return mWindows.total; }
+    int frameDuration(int frame) { return mWindows.duration(frame); }
+    Bitmap frameBitmap(int frame) { return mWindows.frame(frame); }
 
     /** Decodes another XML source through the VM when this drawable already holds VM frames. */
     public static GatedAnimation decodeXml(java.io.InputStream stream, Resources resources, int density)
@@ -186,33 +214,60 @@ public final class GatedAnimation extends AnimatedImageDrawable {
         mXmlCallback = null;
     }
 
-    private int duration(int frame) {
-        final int duration = mDurations[frame];
+    private int duration() {
+        final int duration = mShownDuration;
         return duration <= SHORT_FRAME_MS ? SHORT_FRAME_SHOWN_MS : duration;
     }
 
+    // Shows a frame that is here: its window becomes the shown one and the next window is asked for.
+    private void show(int frame, Bitmap bitmap) {
+        mFrame = frame;
+        mShown = bitmap;
+        mShownDuration = mWindows.duration(frame);
+        mWaiting = false;
+        mWindows.showing(frame);
+    }
+
     @Override public void draw(@NonNull Canvas canvas) {
+        final Looper looper = Looper.myLooper();
+        if (looper != null && (mDrawHandler == null || mDrawHandler.getLooper() != looper)) {
+            mDrawHandler = new Handler(looper);
+        }
         if (mRunning) {
             final long now = SystemClock.uptimeMillis();
             if (mStarting) {
-                mStarting = false;
-                notifyCallbacks(true);
-                mNextAt = now + duration(mFrame);
-            } else if (now >= mNextAt) {
-                if (mFrame == mCount - 1 && mRepeatCount >= 0 && mPlayed >= mRepeatCount) {
-                    finish();
-                } else if (++mFrame == mCount) {
-                    mFrame = 0;
-                    mPlayed++;
+                final Bitmap first = mWindows.frame(0);
+                if (first != null) {
+                    mStarting = false;
+                    show(0, first);
+                    notifyCallbacks(true);
+                    mNextAt = now + duration();
+                } else {
+                    mWaiting = true;
                 }
-                mNextAt = now + duration(mFrame);
+            } else if (mWaiting || now >= mNextAt) {
+                final int count = mWindows.total;
+                if (mFrame == count - 1 && mRepeatCount >= 0 && mPlayed >= mRepeatCount) {
+                    finish();
+                } else {
+                    final int next = mFrame + 1 == count ? 0 : mFrame + 1;
+                    final Bitmap bitmap = mWindows.frame(next);
+                    if (bitmap != null) {
+                        if (next == 0) mPlayed++;
+                        show(next, bitmap);
+                        mNextAt = now + duration();
+                    } else {
+                        // Not decoded yet (or refused): the last frame stays until its window is here.
+                        mWaiting = true;
+                    }
+                }
             }
-            if (mRunning) {
+            if (mRunning && !mWaiting) {
                 unscheduleSelf(mNext);
                 scheduleSelf(mNext, mNextAt);
             }
         }
-        final Bitmap frame = mFrames[mFrame];
+        final Bitmap frame = mShown;
         if (mCrop != null) {
             final float sx = (float) frame.getWidth() / mWidth;
             final float sy = (float) frame.getHeight() / mHeight;
@@ -271,14 +326,10 @@ public final class GatedAnimation extends AnimatedImageDrawable {
     /** Retains an independently decoded XML source without taking its native state. */
     public void replaceFrames(GatedAnimation animation) {
         stop();
-        mFrames = animation.mFrames;
-        mCount = animation.mCount;
         mWidth = animation.mWidth;
         mHeight = animation.mHeight;
         mCrop = animation.mCrop;
-        mDurations = animation.mDurations;
-        mRepeatCount = animation.mRepeatCount;
-        mFrame = 0;
+        useSource(animation.mWindows);
         mPlayed = 0;
         invalidateSelf();
     }

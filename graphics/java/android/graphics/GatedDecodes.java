@@ -121,7 +121,7 @@ final class GatedDecodes {
         final DecodeGate.Info info = DecodeGate.probe(op, bytes, true);
         if (!"image/gif".equals(info.mimeType)) return null;
         final Header header = new Header(op, bytes, info);
-        return new GatedMovie((GatedAnimation) animated(header, header.width, header.height, null, null, null, null));
+        return new GatedMovie(heldAnimation(header));
     }
 
     private static Bitmap retained(Bitmap bitmap, BitmapFactory.Options options) throws DecodeGate.Failure {
@@ -1053,36 +1053,70 @@ final class GatedDecodes {
     }
 
     /**
-     * The animated drawable an ImageDecoder of the VM gives for a GIF or WebP animation: its frames decoded in the VM
-     * to fit {@code width} x {@code height} (all of them at most the service's frame byte limit), each a bitmap of its
-     * own, shown at that size (scaled when drawn, never made larger here). With a post-processor every frame is made at
-     * that size and drawn on, at most {@link #MAX_ANIMATION_BYTES} for all of them.
+     * The animated drawable an ImageDecoder of the VM gives for a GIF, WebP, HEIF or AVIF animation: its frames
+     * decoded in the VM to fit {@code width} x {@code height}, the first window now and the rest as playback reaches
+     * them ({@link GateFrameWindows}), each a bitmap of its own. With a post-processor every frame is made at that
+     * size and drawn on, at most {@link #MAX_ANIMATION_BYTES} for a window.
      */
     static Drawable animated(Header header, int width, int height, @Nullable Rect crop,
             @Nullable PostProcessor postProcessor, ImageDecoder.Source source, @Nullable ColorSpace colorSpace)
             throws ImageDecoder.DecodeException {
         GateImageSettings.validateColorSpace(colorSpace);
-        Bitmap atlas = null;
+        try {
+            final Rect r = animationCrop(crop, width, height);
+            // A window's answer, its copy and its frames, and with a post-processor the frames drawn at their size.
+            header.op.checkFit(header.bytes.reserved() + 3 * MAX_ANIMATION_BYTES
+                    + (postProcessor != null ? MAX_ANIMATION_BYTES : 0) + DecodeMemory.MAX_FRAME_OBJECT_BYTES);
+            final GateFrameWindows windows = GateFrameWindows.open(header.op, header.bytes, width, height,
+                    reply -> framesOf(reply, width, height, colorSpace, postProcessor));
+            return new GatedAnimation(windows, width, height, r);
+        } catch (DecodeGate.Failure e) {
+            throw decodeException(e, source);
+        } catch (OutOfMemoryError e) {
+            throw decodeException(DecodeGate.failed(false, "no memory for the frames"), source);
+        }
+    }
+
+    // Every frame at once, for Movie: its time-based frame choice needs every frame and its duration.
+    private static GatedAnimation heldAnimation(Header header) throws ImageDecoder.DecodeException {
+        try {
+            header.op.checkFit(header.bytes.reserved() + 3 * MAX_ANIMATION_BYTES
+                    + DecodeMemory.MAX_FRAME_OBJECT_BYTES);
+            final DecodeGate.Frames f = DecodeGate.frames(header.op, header.bytes, header.width, header.height);
+            final int[] durations = f.durations.clone();
+            final int loops = f.loops;
+            final Bitmap[] frames = framesOf(f, header.width, header.height, null, null);
+            return new GatedAnimation(frames, header.width, header.height, null, durations, loops);
+        } catch (DecodeGate.Failure e) {
+            throw decodeException(e, null);
+        } catch (OutOfMemoryError e) {
+            throw decodeException(DecodeGate.failed(false, "no memory for the frames"), null);
+        }
+    }
+
+    private static Rect animationCrop(@Nullable Rect crop, int width, int height) throws DecodeGate.Failure {
+        if (crop == null) return null;
+        final Rect r = new Rect(crop);
+        if (!r.intersect(0, 0, width, height)) {
+            throw DecodeGate.failed(true, "crop outside the image");
+        }
+        return r;
+    }
+
+    /**
+     * The frames of a checked VM reply as the drawable shows them: cut from the reply, in the target colour space
+     * and, with a post-processor, drawn at width x height by it, each charged as a frame object. The reply's pixels
+     * are given back on every way out.
+     */
+    static Bitmap[] framesOf(DecodeGate.Frames f, int width, int height, @Nullable ColorSpace colorSpace,
+            @Nullable PostProcessor postProcessor) throws DecodeGate.Failure {
+        final Bitmap atlas = f.frames;
         Bitmap current = null;
         Bitmap[] frames = null;
         DecodeMemory.Reservation objects = null;
         boolean transferred = false;
         try {
-            // The frames come at most as the service's frame limit (MAX_ANIMATION_BYTES): the answer, its copy and
-            // the frames cut from it, and with a post-processor the frames drawn at their size.
-            header.op.checkFit(header.bytes.reserved() + 3 * MAX_ANIMATION_BYTES
-                    + (postProcessor != null ? MAX_ANIMATION_BYTES : 0)
-                    + DecodeMemory.MAX_FRAME_OBJECT_BYTES);
-            final DecodeGate.Frames f = DecodeGate.frames(header.op, header.bytes, width, height);
-            atlas = f.frames;
             objects = DecodeMemory.reserve((long) f.count * DecodeMemory.FRAME_OBJECT_BYTES);
-            Rect r = null;
-            if (crop != null) {
-                r = new Rect(crop);
-                if (!r.intersect(0, 0, width, height)) {
-                    throw DecodeGate.failed(true, "crop outside the image");
-                }
-            }
             final boolean drawn = postProcessor != null;
             if (drawn && (long) f.count * width * height * 4 > MAX_ANIMATION_BYTES) {
                 throw DecodeGate.failed(true, "animation larger than the gate makes");
@@ -1109,16 +1143,11 @@ final class GatedDecodes {
                 frames[i] = immutable(current);
                 current = null;
             }
-            final GatedAnimation result = new GatedAnimation(frames, width, height, r, f.durations, f.loops);
             DecodeMemory.keepFrames(frames, objects);
             transferred = true;
-            return result;
-        } catch (DecodeGate.Failure e) {
-            throw decodeException(e, source);
+            return frames;
         } catch (DecodeMemory.NoRoomException e) {
-            throw decodeException(DecodeGate.noRoom(e), source);
-        } catch (OutOfMemoryError e) {
-            throw decodeException(DecodeGate.failed(false, "no memory for the frames"), source);
+            throw DecodeGate.noRoom(e);
         } finally {
             if (objects != null) objects.close();
             if (!transferred) {
