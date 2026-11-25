@@ -248,7 +248,7 @@ final class ReplyPixels {
     // Between a reply's transactions: the caller still waits (its give-up interrupts this call thread).
     private static void stillWanted() throws VmDecode.UnavailableException {
         if (Thread.currentThread().isInterrupted()) {
-            throw new VmDecode.UnavailableException("the caller left, the rest of the reply is not read");
+            throw VmDecode.UnavailableException.callerLeft("the caller left, the rest of the reply is not read");
         }
     }
 

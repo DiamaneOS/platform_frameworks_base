@@ -78,6 +78,7 @@ public final class VmDecode {
     /** The VM could not do the work now. Show a placeholder and ask again later. */
     public static final class UnavailableException extends Exception {
         private final boolean mNoRoom;
+        private boolean mCallerLeft;
 
         public UnavailableException(String message) {
             super(message);
@@ -97,6 +98,18 @@ public final class VmDecode {
         // No room in this process for the image now (DecodeMemory): asked for again shortly, as the service's.
         static UnavailableException noRoomHere(String message) {
             return new UnavailableException(message, true);
+        }
+
+        // The service answered, and the caller had left before the reply was read: a late answer, which the service
+        // keeps for the next ask.
+        static UnavailableException callerLeft(String message) {
+            final UnavailableException e = new UnavailableException(message);
+            e.mCallerLeft = true;
+            return e;
+        }
+
+        boolean isCallerLeft() {
+            return mCallerLeft;
         }
 
         /**
@@ -235,8 +248,18 @@ public final class VmDecode {
     private static final java.util.concurrent.atomic.AtomicInteger sLateAnswers =
             new java.util.concurrent.atomic.AtomicInteger();
 
+    // Late answers of this process's calls (StuckCalls), for tests: other events also run the recovery listeners.
+    private static final java.util.concurrent.atomic.AtomicInteger sLateCalls =
+            new java.util.concurrent.atomic.AtomicInteger();
+
     static void lateAnswer() {
+        sLateCalls.incrementAndGet();
         later(false);
+    }
+
+    /** Calls answered after their caller left, for tests. */
+    static int lateCallsForTest() {
+        return sLateCalls.get();
     }
 
     static void noRoom() {

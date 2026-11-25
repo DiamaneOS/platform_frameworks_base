@@ -249,6 +249,9 @@ final class DecodeClient {
                     final T result = call.run(bound.service);
                     answered = true;
                     return result;
+                } catch (VmDecode.UnavailableException e) {
+                    answered = e.isCallerLeft();
+                    throw e;
                 } finally {
                     releaseSlot(lane);
                     if (mStuckCalls.end(tracked, answered)) {
