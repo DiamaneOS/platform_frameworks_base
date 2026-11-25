@@ -742,6 +742,32 @@ public final class VmDecodeProvider extends ContentProvider {
 
     private void run(String method, ParcelFileDescriptor fd, String lane, int ownerUser, int forUid, int width,
             int height, int regionLeft, int regionTop, int sample, long end, IRemoteCallback callback) {
+        // The decode service answers NO_ROOM while other images hold its memory and asks to be asked again shortly:
+        // so it is, within this request's own deadline, as a stock decode would simply wait for its memory.
+        Bundle reply;
+        long pause = NO_ROOM_FIRST_PAUSE_MS;
+        try {
+            while (true) {
+                reply = attempt(method, fd, lane, ownerUser, forUid, width, height, regionLeft, regionTop, sample,
+                        end);
+                if (!reply.getBoolean(NO_ROOM, false) || SystemClock.uptimeMillis() + pause >= end) break;
+                SystemClock.sleep(pause);
+                pause = Math.min(pause * 2, NO_ROOM_MAX_PAUSE_MS);
+            }
+            reply.remove(NO_ROOM);
+        } finally {
+            closeQuietly(fd);
+        }
+        deliver(callback, reply);
+    }
+
+    private static final String NO_ROOM = "noRoom";
+    static final long NO_ROOM_FIRST_PAUSE_MS = 50;
+    static final long NO_ROOM_MAX_PAUSE_MS = 400;
+
+    // One decode of the request: the reply, with NO_ROOM set when the decode service had no room for it now.
+    private Bundle attempt(String method, ParcelFileDescriptor fd, String lane, int ownerUser, int forUid, int width,
+            int height, int regionLeft, int regionTop, int sample, long end) {
         final Bundle reply = new Bundle();
         // The decodes below are for the calling app (forUid), or the system server's own (-1).
         try (VmDecode.ForApp app = VmDecode.forApp(forUid)) {
@@ -829,13 +855,12 @@ public final class VmDecodeProvider extends ContentProvider {
             reply.putString(DecodeGate.EXTRA_ERROR, "refused: " + e.getMessage());
         } catch (VmDecode.UnavailableException e) {
             reply.putString(DecodeGate.EXTRA_ERROR, "unavailable: " + e.getMessage());
+            if (e.isNoRoom()) reply.putBoolean(NO_ROOM, true);
         } catch (RuntimeException | OutOfMemoryError e) {
             Log.w(TAG, "image of " + lane + " not made: " + e);
             reply.putString(DecodeGate.EXTRA_ERROR, "not made");
-        } finally {
-            closeQuietly(fd);
         }
-        deliver(callback, reply);
+        return reply;
     }
 
     private static void deliver(IRemoteCallback callback, Bundle reply) {
