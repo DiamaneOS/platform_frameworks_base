@@ -31,7 +31,10 @@ final class GateImageSettings {
     /** Consumes working pixels while converting their checked raw colours, before allocator finalization. */
     static Bitmap convert(Bitmap source, ColorSpace target, Bitmap.Config config) throws DecodeGate.Failure {
         if (config == Bitmap.Config.ALPHA_8) return source;
-        if (target == null) target = source.getColorSpace();
+        if (target == null) {
+            // The source's own colours: a copy keeps its native colour space exactly, as stock decodes in it.
+            return config == source.getConfig() ? source : sameColour(source, config);
+        }
         if (config == source.getConfig() && java.util.Objects.equals(target, source.getColorSpace())) return source;
         Bitmap converted = null;
         boolean complete = false;
@@ -47,6 +50,23 @@ final class GateImageSettings {
                 GatePixels.releaseCanvas(canvas);
             }
             converted.setDensity(source.getDensity());
+            converted.setGainmap(source.getGainmap());
+            DecodeMemory.recycle(source, converted);
+            complete = true;
+            return converted;
+        } finally {
+            if (!complete) {
+                DecodeMemory.recycle(converted, source);
+                DecodeMemory.recycle(source, null);
+            }
+        }
+    }
+
+    private static Bitmap sameColour(Bitmap source, Bitmap.Config config) throws DecodeGate.Failure {
+        Bitmap converted = null;
+        boolean complete = false;
+        try {
+            converted = GatePixels.sameColour(source, config);
             converted.setGainmap(source.getGainmap());
             DecodeMemory.recycle(source, converted);
             complete = true;

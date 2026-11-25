@@ -39,6 +39,20 @@ public final class GateColorSpaces {
         return matched != null ? matched : new ColorSpace.Rgb("Unknown", xyz, transfer, true);
     }
 
+    /**
+     * The colour space to make new pixels in that keep a gated bitmap's own colours. For a custom profile
+     * Bitmap.getColorSpace gives a space whose native profile is adapted to D50 from its white point, so it is made
+     * again on the bitmap's own D50 matrix as {@link #of} makes it. Any other space is the bitmap's as it is.
+     */
+    static ColorSpace nativeOf(Bitmap bitmap) {
+        final ColorSpace space = bitmap.getColorSpace();
+        if (!(space instanceof ColorSpace.Rgb) || space.getId() != ColorSpace.MIN_ID) return space;
+        final ColorSpace.Rgb rgb = (ColorSpace.Rgb) space;
+        final ColorSpace.Rgb.TransferParameters transfer = rgb.getTransferParameters();
+        if (transfer == null) return space;
+        return new ColorSpace.Rgb(rgb.getName(), rgb.getTransform(), transfer, true);
+    }
+
     static float[] checkedNativeTransform(float[] adapted, float[] sourceD50) {
         for (float value : adapted) {
             if (!Float.isFinite(value)) {

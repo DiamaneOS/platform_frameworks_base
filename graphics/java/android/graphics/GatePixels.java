@@ -102,6 +102,11 @@ final class GatePixels {
         return make(base + gainBytes, () -> source.copy(config, mutable));
     }
 
+    /** A software copy in another configuration that keeps the source's native colour space (Bitmap.copy). */
+    static Bitmap sameColour(Bitmap source, Bitmap.Config config) throws DecodeGate.Failure {
+        return make((long) source.getWidth() * source.getHeight() * bpp(config), () -> source.copy(config, true));
+    }
+
     static Bitmap shared(Bitmap source) throws DecodeGate.Failure {
         return make(DecodeMemory.bitmapBytes(source), source::asShared);
     }

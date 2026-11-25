@@ -92,10 +92,11 @@ final class ReplyPixels {
         final int copies = straight || t.rotation != 0 ? 2 : 1; // a turn makes a turned copy of both
         try (DecodeMemory.Reservation memory = reserve(copies * (image + gain) + 2 * STRIPE_BYTES)) {
             // In the file's colour space, as Android's decode gives it: sRGB or Display P3 (Thumbnail.colorSpace).
+            final ColorSpace space = grey ? null
+                    : android.graphics.GateColorSpaces.of(t.colorSpace, t.colorDescription);
             final Bitmap bitmap = grey ? Bitmap.createBitmap(width, height, Bitmap.Config.ALPHA_8)
                     : Bitmap.createBitmap(width, height, (t.pixelFormat & 1) != 0
-                    ? Bitmap.Config.RGBA_F16 : Bitmap.Config.ARGB_8888, true,
-                    android.graphics.GateColorSpaces.of(t.colorSpace, t.colorDescription));
+                    ? Bitmap.Config.RGBA_F16 : Bitmap.Config.ARGB_8888, true, space);
             Bitmap result = bitmap;
             try {
                 if (straight) {
@@ -104,7 +105,7 @@ final class ReplyPixels {
                     }
                     bitmap.setPremultiplied(false);
                 }
-                try (Rows rows = new Rows(bitmap, straight || grey)) {
+                try (Rows rows = new Rows(bitmap, space, straight || grey)) {
                 for (int i = 0; i < stripes; i++) {
                     stillWanted();
                     final byte[] stripe = service.readStripe(t.handle, i);
@@ -193,10 +194,10 @@ final class ReplyPixels {
         final int rows = f.frameCount * f.height;
         final int stripes = (rows + f.stripeRows - 1) / f.stripeRows;
         try (DecodeMemory.Reservation memory = reserve((long) rows * f.width * 4 + 2 * STRIPE_BYTES)) {
-            final Bitmap frames = Bitmap.createBitmap(f.width, rows, Bitmap.Config.ARGB_8888, true,
-                    android.graphics.GateColorSpaces.of(f.colorSpace, f.colorDescription));
+            final ColorSpace space = android.graphics.GateColorSpaces.of(f.colorSpace, f.colorDescription);
+            final Bitmap frames = Bitmap.createBitmap(f.width, rows, Bitmap.Config.ARGB_8888, true, space);
             try {
-                try (Rows out = new Rows(frames)) {
+                try (Rows out = new Rows(frames, space, false)) {
                 for (int i = 0; i < stripes; i++) {
                     stillWanted();
                     final byte[] stripe = service.readStripe(f.handle, i);
@@ -235,21 +236,25 @@ final class ReplyPixels {
     }
 
     // Rows written into a bitmap a stripe at a time: each stripe through a bitmap of its own size, copied as it is
-    // (same configuration and colour space, no blending).
+    // (same configuration and colour space, no blending). The stripes are made in the colour space object the target
+    // was made in: one read back from the target (Bitmap.getColorSpace) has, for a custom profile, a native profile
+    // adapted to D50 from its white point, and the copy would then convert the pixels.
     private static final class Rows implements AutoCloseable {
         private final Bitmap mTarget;
+        private final ColorSpace mSpace;
         private final Canvas mCanvas;
         private final Paint mCopy = new Paint();
         private Bitmap mStripe;
         private final ByteBuffer mStraight;
 
         Rows(Bitmap target) {
-            this(target, false);
+            this(target, null, false);
         }
 
         // Straight pixels, and grey RGBA pixels into an ALPHA_8 target, are copied as bytes.
-        Rows(Bitmap target, boolean straight) {
+        Rows(Bitmap target, ColorSpace space, boolean straight) {
             mTarget = target;
+            mSpace = space;
             final boolean grey = target.getConfig() == Bitmap.Config.ALPHA_8;
             if (straight && target.getRowBytes() != target.getWidth()
                     * (grey ? 1 : target.getConfig() == Bitmap.Config.RGBA_F16 ? 8 : 4)) {
@@ -278,7 +283,7 @@ final class ReplyPixels {
                 if (mStripe != null) {
                     mStripe.recycle();
                 }
-                final ColorSpace space = mTarget.getColorSpace();
+                final ColorSpace space = mSpace != null ? mSpace : mTarget.getColorSpace();
                 mStripe = Bitmap.createBitmap(width, n, mTarget.getConfig(), true,
                         space != null ? space : ColorSpace.get(ColorSpace.Named.SRGB));
             }

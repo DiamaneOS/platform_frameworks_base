@@ -59,7 +59,7 @@ final class GateWidePixels {
                     if (result == null) {
                         sourceColor = tile.getColorSpace();
                         result = GatePixels.blank(width, height, Bitmap.Config.RGBA_F16, tile.hasAlpha(),
-                                targetColor != null ? targetColor : sourceColor);
+                                targetColor != null ? targetColor : GateColorSpaces.nativeOf(tile));
                         final boolean turned = rotation == 90 || rotation == 270;
                         final Matrix matrix = new Matrix();
                         if (mirrored) matrix.postScale(-1, 1);

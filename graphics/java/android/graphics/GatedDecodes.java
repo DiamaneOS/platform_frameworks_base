@@ -353,7 +353,7 @@ final class GatedDecodes {
             }
             if (whole == null) {
                 whole = GatePixels.blank(stripe.getWidth(), outH, Bitmap.Config.ARGB_8888, true,
-                        stripe.getColorSpace());
+                        GateColorSpaces.nativeOf(stripe));
                 canvas = new Canvas(whole);
             }
             if (stripe.getWidth() != whole.getWidth() || made + stripe.getHeight() > outH) {
@@ -526,7 +526,7 @@ final class GatedDecodes {
         }
         final int w = bitmap.getWidth();
         final int h = bitmap.getHeight();
-        final Bitmap out = GatePixels.blank(w, h, Bitmap.Config.ARGB_8888, true, bitmap.getColorSpace());
+        final Bitmap out = GatePixels.blank(w, h, Bitmap.Config.ARGB_8888, true, GateColorSpaces.nativeOf(bitmap));
         try {
             out.setPremultiplied(false);
             final int rows = blockRows(w, h);
@@ -1313,7 +1313,7 @@ final class GatedDecodes {
                     // The rect starts outside the image: its part in the image placed where it is, the rest
                     // transparent.
                     final Bitmap all = GatePixels.blank(outWidth, outHeight, Bitmap.Config.ARGB_8888, true,
-                            bitmap.getColorSpace());
+                            GateColorSpaces.nativeOf(bitmap));
                     final Canvas canvas = new Canvas(all);
                     canvas.drawBitmap(bitmap, outX, outY, null);
                     GatePixels.releaseCanvas(canvas);

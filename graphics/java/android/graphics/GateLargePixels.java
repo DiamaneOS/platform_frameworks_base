@@ -56,7 +56,7 @@ final class GateLargePixels {
                     final boolean grey = gain && tile.getConfig() == Bitmap.Config.ALPHA_8;
                     result = GatePixels.blank(width, height, grey ? Bitmap.Config.ALPHA_8
                             : Bitmap.Config.ARGB_8888, grey || (!gain && tile.hasAlpha()),
-                            grey ? null : targetColor != null ? targetColor : sourceColor);
+                            grey ? null : targetColor != null ? targetColor : GateColorSpaces.nativeOf(tile));
                     final boolean turned = rotation == 90 || rotation == 270;
                     final Matrix matrix = new Matrix();
                     if (mirrored) matrix.postScale(-1, 1);
