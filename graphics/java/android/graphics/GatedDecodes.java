@@ -1068,6 +1068,7 @@ final class GatedDecodes {
             header.op.checkFit(header.bytes.reserved() + 3 * MAX_ANIMATION_BYTES
                     + (postProcessor != null ? MAX_ANIMATION_BYTES : 0) + DecodeMemory.MAX_FRAME_OBJECT_BYTES);
             final GateFrameWindows windows = GateFrameWindows.open(header.op, header.bytes, width, height,
+                    header.width, header.height,
                     reply -> framesOf(reply, width, height, colorSpace, postProcessor));
             return new GatedAnimation(windows, width, height, r);
         } catch (DecodeGate.Failure e) {
@@ -1118,7 +1119,7 @@ final class GatedDecodes {
         try {
             objects = DecodeMemory.reserve((long) f.count * DecodeMemory.FRAME_OBJECT_BYTES);
             final boolean drawn = postProcessor != null;
-            if (drawn && (long) f.count * width * height * 4 > MAX_ANIMATION_BYTES) {
+            if (drawn && f.count > 1 && (long) f.count * width * height * 4 > MAX_ANIMATION_BYTES) {
                 throw DecodeGate.failed(true, "animation larger than the gate makes");
             }
             frames = new Bitmap[f.count];
