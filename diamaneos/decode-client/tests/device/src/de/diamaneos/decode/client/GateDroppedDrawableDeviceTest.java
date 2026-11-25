@@ -40,10 +40,17 @@ public class GateDroppedDrawableDeviceTest {
         final long one = DecodeMemory.held() - before;
         assertTrue("the animation was not charged", one > 0);
         first = null;
-        // Room for the charges already held plus one and a half animations: only collection makes room.
-        DecodeMemory.setMaxForTest(DecodeMemory.held() + one + one / 2);
-        for (int i = 0; i < 4; i++) {
-            assertNotNull("decode " + i + " was refused while dropped animations held the budget", decode(bytes));
+        // The limit stays as the gate admits an animation (MAX_BYTES), and a reservation the test holds takes all of
+        // it but the charges already held and one and a half animations: only collecting the dropped animations'
+        // charges makes room for the next ones.
+        DecodeMemory.setMaxForTest(0);
+        final long filler = DecodeMemory.MAX_BYTES - DecodeMemory.held() - one - one / 2;
+        assertTrue("no room to fill", filler > 0);
+        try (DecodeMemory.Reservation taken = DecodeMemory.reserve(filler)) {
+            for (int i = 0; i < 4; i++) {
+                assertNotNull("decode " + i + " was refused while dropped animations held the budget",
+                        decode(bytes));
+            }
         }
     }
 
