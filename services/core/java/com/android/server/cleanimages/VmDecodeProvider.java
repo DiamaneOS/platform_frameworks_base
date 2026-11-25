@@ -424,7 +424,8 @@ public final class VmDecodeProvider extends ContentProvider {
             return refusal("no request");
         }
         final boolean probe = DecodeGate.METHOD_PROBE.equals(method) || DecodeGate.METHOD_HEADER.equals(method);
-        final boolean frames = DecodeGate.METHOD_FRAMES.equals(method);
+        final boolean frames = DecodeGate.METHOD_FRAMES.equals(method)
+                || DecodeGate.METHOD_FRAME_WINDOW.equals(method);
         final boolean region = DecodeGate.METHOD_REGION.equals(method) || DecodeGate.METHOD_REGION_WIDE.equals(method) || DecodeGate.METHOD_REGION_STRAIGHT.equals(method)
                 || DecodeGate.METHOD_REGION_STRAIGHT_WIDE.equals(method) || DecodeGate.METHOD_GAIN_REGION.equals(method);
         final ParcelFileDescriptor given = extras.getParcelable(DecodeGate.EXTRA_FD, ParcelFileDescriptor.class);
@@ -797,6 +798,17 @@ public final class VmDecodeProvider extends ContentProvider {
                 } else if (DecodeGate.METHOD_FRAMES.equals(method)) {
                     final VmDecode.Animation animation = VmDecode.decodeFrames(getContext(), fd, lane, ownerUser,
                             VmDecode.PRIORITY_USER_WAITING, width, height, VmDecode.deadlineIn(left));
+                    reply.putParcelable(DecodeGate.EXTRA_BITMAP, animation.frames);
+                    reply.putInt(DecodeGate.EXTRA_FRAME_COUNT, animation.frameCount);
+                    reply.putIntArray(DecodeGate.EXTRA_DURATIONS, animation.durations);
+                    reply.putInt(DecodeGate.EXTRA_LOOPS, animation.loopCount);
+                } else if (DecodeGate.METHOD_FRAME_WINDOW.equals(method)) {
+                    // The window's first frame and size travel in the region fields (left, top).
+                    final VmDecode.Animation animation = VmDecode.decodeFrames(getContext(), fd, lane, ownerUser,
+                            VmDecode.PRIORITY_USER_WAITING, width, height, regionLeft, regionTop,
+                            VmDecode.deadlineIn(left));
+                    reply.putInt(DecodeGate.EXTRA_FIRST, animation.firstFrame);
+                    reply.putInt(DecodeGate.EXTRA_TOTAL, animation.totalFrames);
                     reply.putParcelable(DecodeGate.EXTRA_BITMAP, animation.frames);
                     reply.putInt(DecodeGate.EXTRA_FRAME_COUNT, animation.frameCount);
                     reply.putIntArray(DecodeGate.EXTRA_DURATIONS, animation.durations);

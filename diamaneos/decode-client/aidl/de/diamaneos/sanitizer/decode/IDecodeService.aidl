@@ -133,7 +133,8 @@ interface IDecodeService {
     /**
      * A supported animation, every frame fitting maxWidth x maxHeight with its aspect ratio kept, scaled down
      * further when all frames would exceed MAX_FRAMES_BYTES, and at most MAX_FRAMES of them. STATUS_UNSUPPORTED for
-     * another format. Last, so callers built before it keep their transaction numbers.
+     * another format. With DecodeRequest.frameWindow only that window, every frame at the size it has in any window
+     * of the animation. Last, so callers built before it keep their transaction numbers.
      */
     Frames decodeFrames(in DecodeRequest request, int maxWidth, int maxHeight);
 

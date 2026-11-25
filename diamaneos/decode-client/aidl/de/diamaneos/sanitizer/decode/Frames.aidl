@@ -49,4 +49,11 @@ parcelable Frames {
     long handle;
     /** Exactly 16 checked XYZ D50 and transfer values for COLOR_SPACE_CUSTOM, empty for named tags. */
     float[] colorDescription;
+
+    /**
+     * A window (DecodeRequest.frameWindow): its first frame, the requested one, and the animation's frame count,
+     * frameCount being the window's. Both 0 for every frame.
+     */
+    int firstFrame = 0;
+    int totalFrames = 0;
 }

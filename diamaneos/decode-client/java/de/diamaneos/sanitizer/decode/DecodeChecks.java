@@ -180,6 +180,32 @@ public final class DecodeChecks {
         return null;
     }
 
+    /**
+     * As above for a request of the window frameWindow from firstFrame (0, 0: every frame): the first frame echoed,
+     * the animation's count within MAX_FRAMES, and exactly the frames framesWindowCount gives.
+     */
+    public static String check(Frames f, int maxWidth, int maxHeight, int firstFrame, int frameWindow) {
+        final String broken = check(f, maxWidth, maxHeight);
+        if (broken != null || f.status != IDecodeService.STATUS_OK) return broken;
+        if (frameWindow == 0) return f.firstFrame == 0 && f.totalFrames == 0 ? null : "frame window";
+        if (f.firstFrame != firstFrame || f.totalFrames < 1 || f.totalFrames > IDecodeService.MAX_FRAMES) {
+            return "frame window";
+        }
+        final int descriptionBytes = f.colorSpace == IDecodeService.COLOR_SPACE_CUSTOM ? 64 : 0;
+        return f.frameCount == framesWindowCount(firstFrame, frameWindow, f.totalFrames,
+                (long) f.width * f.height * 4, descriptionBytes) ? null : "window frame count";
+    }
+
+    /** The frames a window holds: the window, at most the frames left, at most what fits MAX_FRAMES_BYTES. */
+    public static int framesWindowCount(int first, int window, int total, long frameBytes, int descriptionBytes) {
+        if (first < 0 || first >= total || window < 1
+                || descriptionBytes + 12 + 4 + frameBytes > IDecodeService.MAX_FRAMES_BYTES) {
+            return 0;
+        }
+        return (int) Math.min(Math.min(window, total - first),
+                (IDecodeService.MAX_FRAMES_BYTES - descriptionBytes - 12) / (4 + frameBytes));
+    }
+
     /** Stripe index of f's tall image: exactly its rows, premultiplied (no colour channel above alpha). */
     public static String check(Frames f, int index, byte[] stripe) {
         long rows = (long) f.frameCount * f.height;

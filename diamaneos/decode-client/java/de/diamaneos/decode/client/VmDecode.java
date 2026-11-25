@@ -1454,14 +1454,24 @@ public final class VmDecode {
         public final int[] durations;
         /** How often it plays, 0: forever. */
         public final int loopCount;
+        /** A window of frames: its first frame and the animation's frame count, both 0 for every frame. */
+        public final int firstFrame;
+        public final int totalFrames;
 
         Animation(Bitmap frames, int frameCount, int width, int height, int[] durations, int loopCount) {
+            this(frames, frameCount, width, height, durations, loopCount, 0, 0);
+        }
+
+        Animation(Bitmap frames, int frameCount, int width, int height, int[] durations, int loopCount,
+                int firstFrame, int totalFrames) {
             this.frames = frames;
             this.frameCount = frameCount;
             this.width = width;
             this.height = height;
             this.durations = durations;
             this.loopCount = loopCount;
+            this.firstFrame = firstFrame;
+            this.totalFrames = totalFrames;
         }
     }
 
@@ -1472,11 +1482,27 @@ public final class VmDecode {
      */
     public static Animation decodeFrames(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
             int priority, int maxWidth, int maxHeight, long deadline) throws UnavailableException, RejectedException {
+        return decodeFrames(context, fd, ownerPackage, ownerUser, priority, maxWidth, maxHeight, 0, 0, deadline);
+    }
+
+    /**
+     * A window of frames from {@code firstFrame} on, as many as fit one reply up to {@code frameWindow}, each at the
+     * size it has in any window of the animation. {@code frameWindow} 0 asks every frame.
+     */
+    public static Animation decodeFrames(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
+            int priority, int maxWidth, int maxHeight, int firstFrame, int frameWindow, long deadline)
+            throws UnavailableException, RejectedException {
         checkNotMainThread();
         if (maxWidth < 1 || maxHeight < 1) {
             throw new RejectedException("bad box " + maxWidth + "x" + maxHeight);
         }
+        if (frameWindow < 0 || frameWindow > IDecodeService.MAX_FRAMES || firstFrame < 0
+                || firstFrame >= IDecodeService.MAX_FRAMES || (frameWindow == 0 && firstFrame != 0)) {
+            throw new RejectedException("bad frame window");
+        }
         final DecodeRequest request = request(fd, ownerPackage, ownerUser, priority);
+        request.firstFrame = firstFrame;
+        request.frameWindow = frameWindow;
         return client(context).call(priority, deadline, request.ownerPackage, capacityLane(request),
                 Math.min((long) maxWidth * maxHeight, IDecodeService.MAX_PIXELS) * 5, service -> {
             final de.diamaneos.sanitizer.decode.Frames f = service.decodeFrames(request, maxWidth, maxHeight);
@@ -1485,7 +1511,7 @@ public final class VmDecode {
             }
             checkStatus(f.status);
             try {
-                final String broken = DecodeChecks.check(f, maxWidth, maxHeight);
+                final String broken = DecodeChecks.check(f, maxWidth, maxHeight, firstFrame, frameWindow);
                 if (broken != null) {
                     throw new RejectedException("frames break the contract: " + broken);
                 }

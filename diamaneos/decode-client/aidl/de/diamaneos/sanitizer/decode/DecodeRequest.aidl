@@ -66,4 +66,11 @@ parcelable DecodeRequest {
      * stored-base size, in decodeRegion a region of the gain image in its own stored pixels, clipped to it.
      */
     boolean gainmapOnly = false;
+
+    /**
+     * decodeFrames: a window of frameWindow frames from firstFrame on (Frames.firstFrame, Frames.totalFrames), as
+     * many as DecodeChecks.framesWindowCount gives. frameWindow 0 asks every frame, firstFrame is then 0.
+     */
+    int firstFrame = 0;
+    int frameWindow = 0;
 }

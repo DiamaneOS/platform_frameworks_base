@@ -109,10 +109,16 @@ public final class DecodeGate {
     public static final String EXTRA_LEFT = "left";
     public static final String EXTRA_TOP = "top";
     public static final String EXTRA_SAMPLE = "sample";
+    // A frames reply's limit and a frame's longest time (IDecodeService.MAX_FRAMES_BYTES, MAX_FRAME_MILLIS).
+    static final long MAX_FRAMES_BYTES = 32L << 20;
+    static final int MAX_FRAME_MILLIS = 0xffffff;
+
     /** The largest region sample size (IDecodeService.MAX_REGION_SAMPLE). */
     public static final int MAX_REGION_SAMPLE = 64;
     /** Decodes an animation's frames to fit a box: EXTRA_BITMAP (frames one below the other) and the frame extras. */
     public static final String METHOD_FRAMES = "frames";
+    /** A window of an animation's frames: its first frame and most frames travel as EXTRA_LEFT and EXTRA_TOP. */
+    public static final String METHOD_FRAME_WINDOW = "frame-window";
     /** The decode service only: the system server's pid (EXTRA_PID), so it can tell the system server apart. */
     public static final String METHOD_BROKER = "broker";
     public static final String EXTRA_PID = "pid";
@@ -153,6 +159,9 @@ public final class DecodeGate {
     public static final String EXTRA_FRAME_COUNT = "frameCount";
     public static final String EXTRA_DURATIONS = "durations";
     public static final String EXTRA_LOOPS = "loops";
+    /** A frame window's reply: its first frame (the asked one) and the animation's frame count. */
+    public static final String EXTRA_FIRST = "firstFrame";
+    public static final String EXTRA_TOTAL = "totalFrames";
     public static final String EXTRA_ERROR = "error";
     public static final String EXTRA_SOURCE_ERROR = "sourceError";
     /** True when the VM refused the bytes themselves (broken, unsupported). */
@@ -900,14 +909,22 @@ public final class DecodeGate {
         final int height;
         final int[] durations;
         final int loops;
+        final int first; // a window's first frame, else 0
+        final int total; // the animation's frame count
 
         Frames(Bitmap frames, int count, int width, int height, int[] durations, int loops) {
+            this(frames, count, width, height, durations, loops, 0, count);
+        }
+
+        Frames(Bitmap frames, int count, int width, int height, int[] durations, int loops, int first, int total) {
             this.frames = frames;
             this.count = count;
             this.width = width;
             this.height = height;
             this.durations = durations;
             this.loops = loops;
+            this.first = first;
+            this.total = total;
         }
     }
 
@@ -1047,6 +1064,40 @@ public final class DecodeGate {
         }
         return new Frames(frames, count, frames.getWidth(), frames.getHeight() / count, durations,
                 Math.max(0, r.getInt(EXTRA_LOOPS)));
+    }
+
+    /**
+     * The window of an animation's frames from {@code first} on, as many as fit one VM reply up to {@code window},
+     * each at the size it has in every window (the box, not scaled to fit the other frames).
+     */
+    static Frames frameWindow(Op op, Bytes bytes, int maxWidth, int maxHeight, int first, int window)
+            throws Failure {
+        final int boxW = Math.max(1, Math.min(MAX_BOX, maxWidth));
+        final int boxH = Math.max(1, Math.min(MAX_BOX, maxHeight));
+        if (first < 0 || first >= DecodeMemory.MAX_FRAMES || window < 1 || window > DecodeMemory.MAX_FRAMES) {
+            throw failed(true, "frame window");
+        }
+        final Bundle r = request(op, METHOD_FRAME_WINDOW, bytes, boxW, boxH, first, window, 0);
+        final Bitmap frames = r.getParcelable(EXTRA_BITMAP, Bitmap.class);
+        final int count = r.getInt(EXTRA_FRAME_COUNT);
+        final int total = r.getInt(EXTRA_TOTAL);
+        final int[] durations = r.getIntArray(EXTRA_DURATIONS);
+        boolean good = frames != null && count >= 1 && total >= 1 && total <= DecodeMemory.MAX_FRAMES
+                && r.getInt(EXTRA_FIRST) == first && first < total && count <= Math.min(window, total - first)
+                && frames.getWidth() <= boxW && frames.getHeight() % count == 0
+                && frames.getHeight() / count <= boxH && durations != null && durations.length == count
+                && r.getInt(EXTRA_LOOPS) >= 0 && r.getInt(EXTRA_LOOPS) <= 65535;
+        // As many as fit one reply (with or without a colour description): fewer only at the end or when full.
+        final long frameBytes = good ? 4L * frames.getWidth() * (frames.getHeight() / count) : 0;
+        good = good && (count == Math.min(window, total - first)
+                || (MAX_FRAMES_BYTES - 12 - 64) / (4 + frameBytes) <= count);
+        for (int i = 0; good && i < count; i++) good = durations[i] >= 0 && durations[i] <= MAX_FRAME_MILLIS;
+        if (!good) {
+            DecodeMemory.recycle(frames, null);
+            throw failed(false, "bad frame window reply");
+        }
+        return new Frames(frames, count, frames.getWidth(), frames.getHeight() / count, durations,
+                r.getInt(EXTRA_LOOPS), first, total);
     }
 
     private static boolean quarterTurn(int rotation) {
@@ -1463,7 +1514,7 @@ public final class DecodeGate {
         extras.putInt(EXTRA_HEIGHT, height);
         if (METHOD_REGION.equals(method) || METHOD_REGION_WIDE.equals(method)
                 || METHOD_REGION_STRAIGHT.equals(method) || METHOD_REGION_STRAIGHT_WIDE.equals(method)
-                || METHOD_GAIN_REGION.equals(method)) {
+                || METHOD_GAIN_REGION.equals(method) || METHOD_FRAME_WINDOW.equals(method)) {
             extras.putInt(EXTRA_LEFT, left);
             extras.putInt(EXTRA_TOP, top);
             extras.putInt(EXTRA_SAMPLE, sample);
