@@ -174,11 +174,11 @@ public class GateAnimationLimitsDeviceTest {
             assertTrue(gated instanceof AnimatedImageDrawable);
             assertEquals(width, gated.getIntrinsicWidth());
             assertEquals(height, gated.getIntrinsicHeight());
-            // Above 8 MiPix a frame is scaled to fit one VM reply, one frame a window, the next asked on demand.
+            // Above 8 MiPix a frame comes at full size in bands, one frame a window, the next asked on demand.
             Bitmap[] frames = frames(gated);
             assertEquals(1, frames.length);
-            assertTrue((long) frames[0].getAllocationByteCount() <= IDecodeService.MAX_FRAMES_BYTES);
-            assertTrue(frames[0].getWidth() < width);
+            assertEquals(width, frames[0].getWidth());
+            assertEquals(height, frames[0].getHeight());
             Bitmap second = null;
             for (long end = SystemClock.uptimeMillis() + 30_000; second == null && SystemClock.uptimeMillis() < end; ) {
                 second = frameBitmap(gated, 1);
@@ -200,11 +200,11 @@ public class GateAnimationLimitsDeviceTest {
         });
     }
 
-    @Test public void largerGifCanvasPlaysScaledWithinTheSamePixelBudget() throws Exception {
+    @Test public void largerGifCanvasPlaysAtFullSizeInBands() throws Exception {
         canvas(R.raw.vm_animation_canvas_gif, 4096, 2304);
     }
 
-    @Test public void largerWebpCanvasPlaysScaledWithinTheSamePixelBudget() throws Exception {
+    @Test public void largerWebpCanvasPlaysAtFullSizeInBands() throws Exception {
         canvas(R.raw.vm_animation_canvas_webp, 4096, 3328);
     }
 

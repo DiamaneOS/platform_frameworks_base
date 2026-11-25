@@ -161,9 +161,35 @@ public class GateAnimationWindowsDeviceTest {
         assertTrue("gated ended after " + gated + " ms", gated >= FRAMES * 20 - 40);
     }
 
+    // 9000 frames, past the every-frame limit: the late frames come in their windows, each naming its index.
+    @Test public void timelinePastEveryFrameLimitPlaysToItsEnd() throws Exception {
+        final byte[] bytes = fixture(R.raw.vm_animation_timeline_gif);
+        final Drawable stock = decode(bytes, false);
+        assertTrue(stock instanceof AnimatedImageDrawable);
+        final Drawable gated = decode(bytes, true);
+        assertEquals("android.graphics.GatedAnimation", gated.getClass().getName());
+        assertEquals(9000, (int) (Integer) call(gated, "frameCount", new Class<?>[0]));
+        for (int i : new int[] {0, 4000, 8192, 8999}) {
+            final int c = frame(gated, i).getPixel(1, 1);
+            assertTrue("frame " + i + " is " + Integer.toHexString(c), Math.abs(Color.red(c) - i % 256) <= 2);
+            assertEquals(20, (int) (Integer) call(gated, "frameDuration", new Class<?>[] {int.class}, i));
+        }
+    }
+
+    // Frames held live: the shown window's frames before the one shown are let go.
+    @Test public void shownFramesAreLetGo() throws Exception {
+        final Drawable gated = decode(fixture(R.raw.vm_animation_windows_gif), true);
+        frame(gated, 5);
+        final Bitmap[] window = (Bitmap[]) field(field(field(gated, "mWindows"), "mShown"), "frames");
+        for (int i = 0; i < 5; i++) assertNull("frame " + i + " still held", window[i]);
+        assertNotNull(window[5]);
+        assertTrue("a window holds at most 8 MiB of frames", (long) window.length * 480 * 360 * 4 <= 8L << 20);
+    }
+
     @Test public void refusedWindowKeepsTheLastFrame() throws Exception {
-        // A fake VM: 4 frames of 1700 x 1700 (two fit one reply), the second window claims another frame count.
-        final int side = 1700;
+        // A fake VM: 4 frames of 1500 x 1500 (one a window, each above the window budget), the second window claims
+        // another frame count.
+        final int side = 1500;
         final AtomicInteger windows = new AtomicInteger();
         final byte[] bytes = fixture(R.raw.vm_animation_windows_gif);
         DecodeGate.setForcedForTest(true);
@@ -178,11 +204,11 @@ public class GateAnimationWindowsDeviceTest {
             } else if (DecodeGate.METHOD_FRAME_WINDOW.equals(method)) {
                 windows.incrementAndGet();
                 final int first = extras.getInt(DecodeGate.EXTRA_LEFT);
-                final Bitmap atlas = Bitmap.createBitmap(side, 2 * side, Bitmap.Config.ARGB_8888);
+                final Bitmap atlas = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888);
                 atlas.eraseColor(first == 0 ? Color.RED : Color.BLUE);
                 reply.putParcelable(DecodeGate.EXTRA_BITMAP, atlas);
-                reply.putInt(DecodeGate.EXTRA_FRAME_COUNT, 2);
-                reply.putIntArray(DecodeGate.EXTRA_DURATIONS, new int[] {20, 20});
+                reply.putInt(DecodeGate.EXTRA_FRAME_COUNT, 1);
+                reply.putIntArray(DecodeGate.EXTRA_DURATIONS, new int[] {20});
                 reply.putInt(DecodeGate.EXTRA_LOOPS, 0);
                 reply.putInt(DecodeGate.EXTRA_FIRST, first);
                 reply.putInt(DecodeGate.EXTRA_TOTAL, first == 0 ? 4 : 5);
@@ -199,17 +225,17 @@ public class GateAnimationWindowsDeviceTest {
         final Drawable gated = ImageDecoder.decodeDrawable(ImageDecoder.createSource(ByteBuffer.wrap(bytes)));
         assertEquals("android.graphics.GatedAnimation", gated.getClass().getName());
         final Object source = field(gated, "mWindows");
-        assertNull("frame 2 is not here before its window", call(gated, "frameBitmap", new Class<?>[] {int.class}, 2));
+        assertNull("frame 1 is not here before its window", call(gated, "frameBitmap", new Class<?>[] {int.class}, 1));
         for (long end = SystemClock.uptimeMillis() + 10_000;
                 !(Boolean) call(source, "ended", new Class<?>[0]) && SystemClock.uptimeMillis() < end; ) {
             SystemClock.sleep(20);
         }
         assertTrue("a window that differs from the animation ends the fetching",
                 (Boolean) call(source, "ended", new Class<?>[0]));
-        assertNull("no frame from the differing window", call(gated, "frameBitmap", new Class<?>[] {int.class}, 2));
+        assertNull("no frame from the differing window", call(gated, "frameBitmap", new Class<?>[] {int.class}, 1));
         assertEquals("the first window and one later window were asked", 2, windows.get());
-        // Playback holds the last good frame: it shows frame 1 and never a frame of the refused window.
-        frame(gated, 1);
+        // Playback holds the last good frame: it shows frame 0 and never a frame of the refused window.
+        frame(gated, 0);
         final Bitmap target = Bitmap.createBitmap(10, 10, Bitmap.Config.ARGB_8888);
         gated.setBounds(0, 0, 10, 10);
         ((AnimatedImageDrawable) gated).start();
