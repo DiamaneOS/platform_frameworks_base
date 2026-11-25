@@ -365,7 +365,7 @@ public class GateAnimationDeviceTest {
         DecodeGate.resetForTest();
         final byte[] bytes = fixture(resource);
         // ByteBuffer prevents the fixture's own APK asset exemption from bypassing the VM.
-        final int before = DecodeGate.countsForTest()[0];
+        final int before = vmAnswers();
         final Drawable decoded = ImageDecoder.decodeDrawable(
                 ImageDecoder.createSource(ByteBuffer.wrap(bytes)), (decoder, info, source) ->
                         assertTrue("header lost the animation", info.isAnimated()));
@@ -440,6 +440,13 @@ public class GateAnimationDeviceTest {
             assertTrue("frames never advanced", frames.size() > 1);
         });
         if (failure.get() != null) throw new AssertionError("animation playback", failure.get());
-        assertTrue("no actual VM decode was observed", DecodeGate.countsForTest()[0] > before);
+        assertTrue("no VM answer was observed", vmAnswers() > before);
+    }
+
+    // Decodes the VM answered, from the VM or from the gate's cache of its answers (a fixture decoded just before by
+    // the same test, as the HEIF cases do, is answered from that cache).
+    private static int vmAnswers() {
+        final int[] counts = DecodeGate.countsForTest();
+        return counts[0] + counts[4];
     }
 }
