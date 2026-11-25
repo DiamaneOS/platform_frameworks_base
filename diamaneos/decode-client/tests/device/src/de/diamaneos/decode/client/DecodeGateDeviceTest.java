@@ -109,9 +109,12 @@ public class DecodeGateDeviceTest {
         ProbeProvider.ICONS.clear();
     }
 
+    // An RGB PNG (no alpha channel), as an opaque image is encoded.
     private static byte[] png() {
         final ByteArrayOutputStream out = new ByteArrayOutputStream();
-        assertTrue(redBlue().compress(Bitmap.CompressFormat.PNG, 100, out));
+        final Bitmap opaque = redBlue();
+        opaque.setHasAlpha(false);
+        assertTrue(opaque.compress(Bitmap.CompressFormat.PNG, 100, out));
         return out.toByteArray();
     }
 
@@ -999,6 +1002,18 @@ public class DecodeGateDeviceTest {
             assertRedBlue(b, W, H);
             assertFalse(BitmapFactory.decodeByteArray(opaque, 0, opaque.length).hasAlpha());
         }
+        // An alpha channel whose pixels are all opaque keeps its alpha and ARGB_8888, as stock decides from the
+        // encoded alpha.
+        final byte[] rgba = encoded(redBlue(), Bitmap.CompressFormat.PNG);
+        final BitmapFactory.Options o = new BitmapFactory.Options();
+        o.inPreferredConfig = Bitmap.Config.RGB_565;
+        final Bitmap kept = BitmapFactory.decodeByteArray(rgba, 0, rgba.length, o);
+        assertEquals(Bitmap.Config.ARGB_8888, kept.getConfig());
+        assertTrue(kept.hasAlpha());
+        DecodeGate.setForcedForTest(false);
+        final Bitmap stock = BitmapFactory.decodeByteArray(rgba, 0, rgba.length, o);
+        assertEquals(stock.getConfig(), kept.getConfig());
+        assertEquals(stock.hasAlpha(), kept.hasAlpha());
     }
 
     private static Paint paint(int color) {
