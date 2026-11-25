@@ -91,6 +91,8 @@ public final class DecodeGate {
     /** Decodes the bytes to fit a box: EXTRA_BITMAP (upright) and EXTRA_ROTATION come back. */
     public static final String METHOD_DECODE = "decode";
     public static final String METHOD_GAINMAP = "gainmap-pixels";
+    /** A region of an Ultra HDR JPEG's gain image in its stored pixels, clipped to it in the VM. */
+    public static final String METHOD_GAIN_REGION = "gainmap-region";
     /** Reads the header: the stored size (EXTRA_WIDTH, EXTRA_HEIGHT), EXTRA_FORMAT and EXTRA_ANIMATED. */
     public static final String METHOD_PROBE = "probe";
     /** {@link #METHOD_PROBE} and, for JPEG, HEIF and AVIF, the turn the file asks for (EXTRA_ROTATION). */
@@ -949,11 +951,32 @@ public final class DecodeGate {
             throw failed(true, "gain map base geometry");
         }
         final Bundle reply = request(op, METHOD_GAINMAP, bytes, baseWidth, baseHeight);
+        return gainPixels(reply, baseWidth, baseHeight);
+    }
+
+    /**
+     * The region {@code left}, {@code top}, {@code width} x {@code height} of the gain image, clipped to it in the
+     * VM and sampled as {@link #region} samples: at most ceil(width / sample) x ceil(height / sample).
+     */
+    static Bitmap gainRegion(Op op, Bytes bytes, int left, int top, int width, int height, int sample)
+            throws Failure {
+        final int outW = (int) (((long) width + sample - 1) / sample);
+        final int outH = (int) (((long) height + sample - 1) / sample);
+        if (left < 0 || top < 0 || width < 1 || height < 1 || sample < 1 || sample > MAX_REGION_SAMPLE
+                || left >= MAX_BOX || top >= MAX_BOX || width > MAX_BOX - left || height > MAX_BOX - top
+                || (long) outW * outH > MAX_VM_PIXELS) {
+            throw failed(true, "gain region out of bounds");
+        }
+        return gainPixels(request(op, METHOD_GAIN_REGION, bytes, width, height, left, top, sample), outW, outH);
+    }
+
+    // Gain pixels within the box: opaque RGBA, or ALPHA_8 for a greyscale gain image, never turned or partial.
+    private static Bitmap gainPixels(Bundle reply, int maxWidth, int maxHeight) throws Failure {
         final Bitmap bitmap = reply.getParcelable(EXTRA_BITMAP, Bitmap.class);
-        if (bitmap == null || bitmap.getWidth() > baseWidth || bitmap.getHeight() > baseHeight
+        if (bitmap == null || bitmap.getWidth() > maxWidth || bitmap.getHeight() > maxHeight
                 || (long) bitmap.getWidth() * bitmap.getHeight() > MAX_VM_PIXELS
-                || bitmap.getConfig() != Bitmap.Config.ARGB_8888 || bitmap.hasGainmap()
-                || reply.getInt(EXTRA_ROTATION) != 0 || reply.getBoolean(EXTRA_MIRROR)
+                || (bitmap.getConfig() != Bitmap.Config.ARGB_8888 && bitmap.getConfig() != Bitmap.Config.ALPHA_8)
+                || bitmap.hasGainmap() || reply.getInt(EXTRA_ROTATION) != 0 || reply.getBoolean(EXTRA_MIRROR)
                 || reply.getInt(EXTRA_SOURCE_ERROR) != 0) {
             DecodeMemory.recycle(bitmap, null);
             throw failed(false, "bad gain map reply");
@@ -1439,7 +1462,8 @@ public final class DecodeGate {
         extras.putInt(EXTRA_WIDTH, width);
         extras.putInt(EXTRA_HEIGHT, height);
         if (METHOD_REGION.equals(method) || METHOD_REGION_WIDE.equals(method)
-                || METHOD_REGION_STRAIGHT.equals(method) || METHOD_REGION_STRAIGHT_WIDE.equals(method)) {
+                || METHOD_REGION_STRAIGHT.equals(method) || METHOD_REGION_STRAIGHT_WIDE.equals(method)
+                || METHOD_GAIN_REGION.equals(method)) {
             extras.putInt(EXTRA_LEFT, left);
             extras.putInt(EXTRA_TOP, top);
             extras.putInt(EXTRA_SAMPLE, sample);

@@ -61,6 +61,9 @@ parcelable DecodeRequest {
     /** Requested checked raw pixel storage for thumbnail and region operations. */
     int pixelFormat = 0;
 
-    /** Decode only the checked Ultra HDR gain pixels for the requested stored-base geometry. */
+    /**
+     * Decode only the checked Ultra HDR gain pixels: in decodeThumbnail the gain image at the scale of the requested
+     * stored-base size, in decodeRegion a region of the gain image in its own stored pixels, clipped to it.
+     */
     boolean gainmapOnly = false;
 }

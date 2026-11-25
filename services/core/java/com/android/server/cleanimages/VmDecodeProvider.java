@@ -426,7 +426,7 @@ public final class VmDecodeProvider extends ContentProvider {
         final boolean probe = DecodeGate.METHOD_PROBE.equals(method) || DecodeGate.METHOD_HEADER.equals(method);
         final boolean frames = DecodeGate.METHOD_FRAMES.equals(method);
         final boolean region = DecodeGate.METHOD_REGION.equals(method) || DecodeGate.METHOD_REGION_WIDE.equals(method) || DecodeGate.METHOD_REGION_STRAIGHT.equals(method)
-                || DecodeGate.METHOD_REGION_STRAIGHT_WIDE.equals(method);
+                || DecodeGate.METHOD_REGION_STRAIGHT_WIDE.equals(method) || DecodeGate.METHOD_GAIN_REGION.equals(method);
         final ParcelFileDescriptor given = extras.getParcelable(DecodeGate.EXTRA_FD, ParcelFileDescriptor.class);
         if (!probe && !frames && !region && !DecodeGate.METHOD_DECODE.equals(method)
                 && !DecodeGate.METHOD_STRAIGHT_WEBP.equals(method) && !DecodeGate.METHOD_GAINMAP.equals(method)) {
@@ -782,6 +782,12 @@ public final class VmDecodeProvider extends ContentProvider {
                             VmDecode.deadlineIn(left), true);
                     reply.putParcelable(DecodeGate.EXTRA_BITMAP, region.bitmap);
                     reply.putInt(DecodeGate.EXTRA_SOURCE_ERROR, region.sourceError);
+                    reply.putInt(DecodeGate.EXTRA_ROTATION, 0);
+                } else if (DecodeGate.METHOD_GAIN_REGION.equals(method)) {
+                    final VmDecode.Decoded gain = VmDecode.decodeGainRegion(getContext(), fd, lane, ownerUser,
+                            VmDecode.PRIORITY_USER_WAITING, regionLeft, regionTop, width, height, sample,
+                            VmDecode.deadlineIn(left));
+                    reply.putParcelable(DecodeGate.EXTRA_BITMAP, gain.bitmap);
                     reply.putInt(DecodeGate.EXTRA_ROTATION, 0);
                 } else if (DecodeGate.METHOD_GAINMAP.equals(method)) {
                     final VmDecode.Decoded gain = VmDecode.decodeGainmap(getContext(), fd, lane, ownerUser,

@@ -83,13 +83,17 @@ final class ReplyPixels {
         } catch (StripeValidator.BadReplyException e) {
             throw new VmDecode.RejectedException(e.getMessage());
         }
-        final long image = (long) width * height * DecodeChecks.bytesPerPixel(t.pixelFormat);
+        // A greyscale gain image's pixels (R = G = B, checked per stripe) become ALPHA_8, as Android's codec hands out
+        // a Gray_8 gain map.
+        final boolean grey = gainmapOnly && t.gainmapMono;
+        final long image = (long) width * height * (grey ? 1 : DecodeChecks.bytesPerPixel(t.pixelFormat));
         final long gain = (long) t.gainmapWidth * t.gainmapHeight * 4;
         final boolean straight = (t.pixelFormat & 2) != 0;
         final int copies = straight || t.rotation != 0 ? 2 : 1; // a turn makes a turned copy of both
         try (DecodeMemory.Reservation memory = reserve(copies * (image + gain) + 2 * STRIPE_BYTES)) {
             // In the file's colour space, as Android's decode gives it: sRGB or Display P3 (Thumbnail.colorSpace).
-            final Bitmap bitmap = Bitmap.createBitmap(width, height, (t.pixelFormat & 1) != 0
+            final Bitmap bitmap = grey ? Bitmap.createBitmap(width, height, Bitmap.Config.ALPHA_8)
+                    : Bitmap.createBitmap(width, height, (t.pixelFormat & 1) != 0
                     ? Bitmap.Config.RGBA_F16 : Bitmap.Config.ARGB_8888, true,
                     android.graphics.GateColorSpaces.of(t.colorSpace, t.colorDescription));
             Bitmap result = bitmap;
@@ -100,7 +104,7 @@ final class ReplyPixels {
                     }
                     bitmap.setPremultiplied(false);
                 }
-                try (Rows rows = new Rows(bitmap, straight)) {
+                try (Rows rows = new Rows(bitmap, straight || grey)) {
                 for (int i = 0; i < stripes; i++) {
                     stillWanted();
                     final byte[] stripe = service.readStripe(t.handle, i);
@@ -241,10 +245,12 @@ final class ReplyPixels {
             this(target, false);
         }
 
+        // Straight pixels, and grey RGBA pixels into an ALPHA_8 target, are copied as bytes.
         Rows(Bitmap target, boolean straight) {
             mTarget = target;
+            final boolean grey = target.getConfig() == Bitmap.Config.ALPHA_8;
             if (straight && target.getRowBytes() != target.getWidth()
-                    * (target.getConfig() == Bitmap.Config.RGBA_F16 ? 8 : 4)) {
+                    * (grey ? 1 : target.getConfig() == Bitmap.Config.RGBA_F16 ? 8 : 4)) {
                 throw new IllegalStateException("straight storage stride");
             }
             mCanvas = straight ? null : new Canvas(target);
@@ -257,7 +263,11 @@ final class ReplyPixels {
                 if ((long) top * mTarget.getRowBytes() != mStraight.position()) {
                     throw new IllegalStateException("inconsistent straight stripe position");
                 }
-                mStraight.put(stripe);
+                if (mTarget.getConfig() == Bitmap.Config.ALPHA_8) {
+                    for (int i = 0; i < stripe.length; i += 4) mStraight.put(stripe[i]);
+                } else {
+                    mStraight.put(stripe);
+                }
                 return;
             }
             final int width = mTarget.getWidth();

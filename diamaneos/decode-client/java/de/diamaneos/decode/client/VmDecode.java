@@ -1319,7 +1319,28 @@ public final class VmDecode {
     public static Decoded decodeRegionReply(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
             int priority, int left, int top, int width, int height, int sampleSize, int pixelFormat, long deadline,
             boolean allowPartial) throws UnavailableException, RejectedException {
+        return decodeRegionReply(context, fd, ownerPackage, ownerUser, priority, left, top, width, height,
+                sampleSize, pixelFormat, deadline, allowPartial, false);
+    }
+
+    /**
+     * A region of an Ultra HDR JPEG's gain image in its own stored pixels, clipped to it by the VM: opaque RGBA, or
+     * ALPHA_8 for a greyscale gain image.
+     */
+    public static Decoded decodeGainRegion(Context context, ParcelFileDescriptor fd, String ownerPackage,
+            int ownerUser, int priority, int left, int top, int width, int height, int sampleSize, long deadline)
+            throws UnavailableException, RejectedException {
+        return decodeRegionReply(context, fd, ownerPackage, ownerUser, priority, left, top, width, height,
+                sampleSize, IDecodeService.PIXEL_FORMAT_RGBA_8888, deadline, false, true);
+    }
+
+    private static Decoded decodeRegionReply(Context context, ParcelFileDescriptor fd, String ownerPackage,
+            int ownerUser, int priority, int left, int top, int width, int height, int sampleSize, int pixelFormat,
+            long deadline, boolean allowPartial, boolean gainmapOnly) throws UnavailableException, RejectedException {
         checkNotMainThread();
+        if (gainmapOnly && pixelFormat != IDecodeService.PIXEL_FORMAT_RGBA_8888) {
+            throw new RejectedException("gain pixel format");
+        }
         if (DecodeChecks.bytesPerPixel(pixelFormat) == 0) throw new RejectedException("pixel format");
         if (left < 0 || top < 0 || width < 1 || height < 1 || sampleSize < 1
                 || sampleSize > IDecodeService.MAX_REGION_SAMPLE) {
@@ -1329,6 +1350,7 @@ public final class VmDecode {
         final int maxHeight = (int) (((long) height + sampleSize - 1) / sampleSize);
         final DecodeRequest request = request(fd, ownerPackage, ownerUser, priority);
         request.pixelFormat = pixelFormat;
+        request.gainmapOnly = gainmapOnly;
         return client(context).call(priority, deadline, request.ownerPackage, capacityLane(request),
                 Math.min((long) maxWidth * maxHeight, (pixelFormat & 1) != 0
                         ? IDecodeService.MAX_HIGH_PRECISION_PIXELS : IDecodeService.MAX_PIXELS)
@@ -1339,10 +1361,11 @@ public final class VmDecode {
             }
             checkStatus(thumbnail.status);
             try {
-                if (thumbnail.rotation != 0 || thumbnail.mirrored || thumbnail.pixelFormat != pixelFormat) {
-                    throw new RejectedException("a turned region");
+                if (thumbnail.rotation != 0 || thumbnail.mirrored || thumbnail.pixelFormat != pixelFormat
+                        || thumbnail.gainmapOnly != gainmapOnly) {
+                    throw new RejectedException("a turned region or another reply mode");
                 }
-                return ReplyPixels.thumbnail(service, thumbnail, maxWidth, maxHeight, allowPartial);
+                return ReplyPixels.thumbnail(service, thumbnail, maxWidth, maxHeight, allowPartial, gainmapOnly);
             } finally {
                 try {
                     service.release(thumbnail.handle);

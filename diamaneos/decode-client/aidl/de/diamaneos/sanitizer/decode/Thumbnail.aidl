@@ -78,4 +78,7 @@ parcelable Thumbnail {
 
     /** True only for the explicitly requested independent gain pixels. */
     boolean gainmapOnly = false;
+
+    /** Gain pixels only: the gain image is greyscale, every pixel has R = G = B, and the caller hands it out as ALPHA_8. */
+    boolean gainmapMono = false;
 }
