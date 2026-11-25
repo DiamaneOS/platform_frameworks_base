@@ -1077,9 +1077,13 @@ final class GatedDecodes {
             // A window's answer, its copy and its frames, and with a post-processor the frames drawn at their size.
             header.op.checkFit(header.bytes.reserved() + 3 * MAX_ANIMATION_BYTES
                     + (postProcessor != null ? MAX_ANIMATION_BYTES : 0) + DecodeMemory.MAX_FRAME_OBJECT_BYTES);
-            final GateFrameWindows windows = GateFrameWindows.open(header.op, header.bytes, width, height,
-                    header.width, header.height,
-                    reply -> framesOf(reply, width, height, colorSpace, postProcessor));
+            // The VM gives frames as stored: they are asked in the stored box and turned here, as stock draws an
+            // animation through its codec's origin (SkAnimatedImage).
+            final boolean turned = header.rotation == 90 || header.rotation == 270;
+            final GateFrameWindows windows = GateFrameWindows.open(header.op, header.bytes,
+                    turned ? height : width, turned ? width : height, header.storedWidth, header.storedHeight,
+                    reply -> framesOf(reply, width, height, colorSpace, postProcessor, header.rotation,
+                            header.mirrored));
             return new GatedAnimation(windows, width, height, r);
         } catch (DecodeGate.Failure e) {
             throw decodeException(e, source);
@@ -1121,6 +1125,11 @@ final class GatedDecodes {
      */
     static Bitmap[] framesOf(DecodeGate.Frames f, int width, int height, @Nullable ColorSpace colorSpace,
             @Nullable PostProcessor postProcessor) throws DecodeGate.Failure {
+        return framesOf(f, width, height, colorSpace, postProcessor, 0, false);
+    }
+
+    private static Bitmap[] framesOf(DecodeGate.Frames f, int width, int height, @Nullable ColorSpace colorSpace,
+            @Nullable PostProcessor postProcessor, int rotation, boolean mirrored) throws DecodeGate.Failure {
         final Bitmap atlas = f.frames;
         Bitmap current = null;
         Bitmap[] frames = null;
@@ -1137,6 +1146,7 @@ final class GatedDecodes {
                 current = GatePixels.crop(f.frames, 0, i * f.height, f.width, f.height);
                 current = GateImageSettings.convert(current, colorSpace,
                         GateImageSettings.config(current, colorSpace, false, true, true));
+                current = upright(current, rotation, mirrored);
                 if (drawn) {
                     current = exactly(current, width, height);
                     if (!current.isMutable()) {
@@ -1173,6 +1183,17 @@ final class GatedDecodes {
             }
             if (!keepsAtlas) DecodeMemory.recycle(atlas, null);
         }
+    }
+
+    // A stored frame as the file shows it: mirrored first, then turned, as the still decodes are.
+    private static Bitmap upright(Bitmap frame, int rotation, boolean mirrored) throws DecodeGate.Failure {
+        if (rotation == 0 && !mirrored) return frame;
+        final Matrix matrix = new Matrix();
+        if (mirrored) matrix.postScale(-1, 1);
+        matrix.postRotate(rotation);
+        final Bitmap turned = GatePixels.transform(frame, 0, 0, frame.getWidth(), frame.getHeight(), matrix, false);
+        DecodeMemory.recycle(frame, turned);
+        return turned;
     }
 
     // A header that failed: what stock throws when the source itself was missing, else a DecodeException.

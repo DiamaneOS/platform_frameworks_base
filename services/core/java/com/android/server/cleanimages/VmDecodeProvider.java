@@ -787,9 +787,11 @@ public final class VmDecodeProvider extends ContentProvider {
                     reply.putFloatArray(DecodeGate.EXTRA_COLOR_DESCRIPTION, info.colorDescription);
                     reply.putInt(DecodeGate.EXTRA_BIT_DEPTH, info.bitDepth);
                     reply.putBoolean(DecodeGate.EXTRA_HAS_ALPHA, info.hasAlpha);
+                    // WebP too: stock's WebP codec reads the orientation of its EXIF chunk.
                     if (DecodeGate.METHOD_HEADER.equals(method) && (info.format == IDecodeService.FORMAT_JPEG
                             || info.format == IDecodeService.FORMAT_HEIF
-                            || info.format == IDecodeService.FORMAT_AVIF)) {
+                            || info.format == IDecodeService.FORMAT_AVIF
+                            || info.format == IDecodeService.FORMAT_WEBP)) {
                         // The turn and the mirror the file asks for (its orientation), from a tiny decode in the VM.
                         final VmDecode.Decoded tiny = VmDecode.decode(getContext(), fd, lane, ownerUser,
                                 VmDecode.PRIORITY_USER_WAITING, TURN_PROBE_SIDE, TURN_PROBE_SIDE,
