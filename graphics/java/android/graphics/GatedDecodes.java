@@ -233,7 +233,7 @@ final class GatedDecodes {
                 throw e;
             }
             GatePartialImages.bitmapFactory(op.sourceError);
-            markOpaque(bitmap, info.mimeType);
+            markOpaque(bitmap, info.mimeType, info.hasAlpha);
             final Bitmap.Config outputConfig = factoryConfig(info, opts, bytes);
             bitmap = GateImageSettings.convert(bitmap, requestedColor,
                     outputConfig == Bitmap.Config.HARDWARE || outputConfig == Bitmap.Config.ALPHA_8
@@ -404,13 +404,17 @@ final class GatedDecodes {
         return roundedDown(n, sample);
     }
 
-    // Marks an image without any transparent pixel as opaque, as Android's decoders give an opaque image (a JPEG
-    // always is). Read a stripe of rows at a time.
-    private static void markOpaque(Bitmap bitmap, String mimeType) throws DecodeGate.Failure {
+    // Marks an image opaque as Android's decoders do: from the encoded alpha the VM probe reports (stock gives an
+    // RGBA PNG alpha even when every pixel is opaque, BitmapFactory.cpp and ImageDecoder.cpp through the codec's
+    // computeOutputAlphaType). GIF and ICO, whose probe reports no encoded alpha, are judged from their pixels, a
+    // stripe of rows at a time.
+    private static void markOpaque(Bitmap bitmap, String mimeType, boolean encodedAlpha) throws DecodeGate.Failure {
         if (!bitmap.hasAlpha() || bitmap.getConfig() != Bitmap.Config.ARGB_8888) {
             return;
         }
-        if (!"image/jpeg".equals(mimeType)) {
+        final boolean pixelsDecide = "image/gif".equals(mimeType) || "image/x-ico".equals(mimeType);
+        if (!pixelsDecide && encodedAlpha && !"image/jpeg".equals(mimeType)) return;
+        if (pixelsDecide) {
             final int w = bitmap.getWidth();
             final int h = bitmap.getHeight();
             final int rows = Math.max(1, Math.min(h, 256 * 1024 / w));
@@ -898,7 +902,7 @@ final class GatedDecodes {
             if (header.bitDepth == 10 && "image/avif".equals(header.mimeType)) {
                 bitmap = GateImageSettings.convert(bitmap, colorSpace, Bitmap.Config.RGBA_1010102);
             }
-            markOpaque(bitmap, header.mimeType);
+            markOpaque(bitmap, header.mimeType, header.hasAlpha);
             // As stock nDecodeBitmap (decoder->opaque()): the encoded image's alpha, not its pixels.
             final boolean opaque = !header.hasAlpha;
             if (conserveMemory || postProcessor != null) {
@@ -1230,7 +1234,7 @@ final class GatedDecodes {
                 // As Android's region decoder: these formats only.
                 throw DecodeGate.failed(true, info.mimeType + " has no regions");
             }
-            return new Region(bytes, info.width, info.height, info.mimeType, op.owner);
+            return new Region(bytes, info.width, info.height, info.mimeType, info.hasAlpha, op.owner);
         } catch (OutOfMemoryError e) {
             bytes.close();
             throw new IOException("Image allocation unavailable", e);
@@ -1252,11 +1256,13 @@ final class GatedDecodes {
         final int width;
         final int height;
         private final String mMimeType;
+        private final boolean mEncodedAlpha;
         private final com.android.internal.diamaneos.cleancopies.GateOwner mSourceUser;
         private boolean mRecycled;
 
-        Region(DecodeGate.Bytes bytes, int width, int height, String mimeType,
+        Region(DecodeGate.Bytes bytes, int width, int height, String mimeType, boolean encodedAlpha,
                 com.android.internal.diamaneos.cleancopies.GateOwner sourceUser) {
+            mEncodedAlpha = encodedAlpha;
             mSourceUser = sourceUser;
             mBytes = bytes;
             this.width = width;
@@ -1320,7 +1326,7 @@ final class GatedDecodes {
                     bitmap.recycle();
                     bitmap = all;
                 }
-                markOpaque(bitmap, mMimeType);
+                markOpaque(bitmap, mMimeType, mEncodedAlpha || partly);
                 if (opts != null && !opts.inPremultiplied) {
                     bitmap = unpremultiplied(bitmap);
                 }
