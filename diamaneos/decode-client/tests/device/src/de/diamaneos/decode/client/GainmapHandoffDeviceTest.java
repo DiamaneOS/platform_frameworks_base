@@ -21,6 +21,25 @@ public class GainmapHandoffDeviceTest {
     }
 
     @Test public void bitmapFactoryRestoresStoredGainmapAndReplacesReusedMap() throws Exception {
+        final byte[] bytes = gatedJpeg();
+        Bitmap reused = Bitmap.createBitmap(64, 32, Bitmap.Config.ARGB_8888);
+        reused.setGainmap(new Gainmap(Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)));
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inBitmap = reused;
+        options.inMutable = true;
+        Bitmap result = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+        assertSame(reused, result);
+        assertTrue(result.hasGainmap());
+        Bitmap gain = result.getGainmap().getGainmapContents();
+        assertEquals(32, gain.getWidth());
+        assertEquals(16, gain.getHeight());
+        assertEquals(Color.RED, gain.getPixel(0, 0));
+        assertEquals(Color.BLUE, gain.getPixel(31, 0));
+        result.recycle();
+    }
+
+    // A small JPEG, with the gate forced on and a fake VM that answers with an HDR image of it.
+    private static byte[] gatedJpeg() throws Exception {
         DecodeGate.setForcedForTest(false);
         Bitmap seed = Bitmap.createBitmap(64, 32, Bitmap.Config.ARGB_8888);
         seed.eraseColor(Color.RED);
@@ -58,19 +77,27 @@ public class GainmapHandoffDeviceTest {
             taken.putBoolean(DecodeGate.EXTRA_TAKEN, true);
             return taken;
         });
-        Bitmap reused = Bitmap.createBitmap(64, 32, Bitmap.Config.ARGB_8888);
-        reused.setGainmap(new Gainmap(Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)));
-        BitmapFactory.Options options = new BitmapFactory.Options();
-        options.inBitmap = reused;
-        options.inMutable = true;
-        Bitmap result = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
-        assertSame(reused, result);
-        assertTrue(result.hasGainmap());
-        Bitmap gain = result.getGainmap().getGainmapContents();
-        assertEquals(32, gain.getWidth());
-        assertEquals(16, gain.getHeight());
-        assertEquals(Color.RED, gain.getPixel(0, 0));
-        assertEquals(Color.BLUE, gain.getPixel(31, 0));
-        result.recycle();
+        return bytes;
+    }
+
+    // As stock BitmapFactory (Options.nativeInBitmap clears the map before any decode), a refused reuse leaves the
+    // reused bitmap without its old gain map, gated or not.
+    @Test public void refusedReuseClearsTheGainmapAsStock() throws Exception {
+        final byte[] bytes = gatedJpeg();
+        final boolean[] kept = new boolean[2];
+        for (int i = 0; i < 2; i++) {
+            DecodeGate.setForcedForTest(i == 1);
+            final Bitmap reused = Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888);
+            reused.setGainmap(new Gainmap(Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)));
+            final BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inBitmap = reused;
+            options.inMutable = true;
+            assertThrows(IllegalArgumentException.class,
+                    () -> BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options));
+            kept[i] = reused.hasGainmap();
+            reused.recycle();
+        }
+        assertFalse("stock kept the gain map", kept[0]);
+        assertEquals("gated differs from stock", kept[0], kept[1]);
     }
 }
