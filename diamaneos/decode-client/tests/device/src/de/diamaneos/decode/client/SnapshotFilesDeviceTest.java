@@ -44,25 +44,26 @@ public class SnapshotFilesDeviceTest {
         }
         assertTrue("the test task was not found", taskId >= 0);
         SystemClock.sleep(1_000);
-        OwnerDeviceTest.shell("input keyevent KEYCODE_HOME");
-        // The files are in a random subdirectory of the user's snapshots directory.
+        DeviceShell.run("input keyevent KEYCODE_HOME");
+        // The files are in a random subdirectory of the user's snapshots directory. The commands use a glob, && and
+        // quotes, so they go through a shell (DeviceShell): the plain test shell command runs without one.
         String image = "";
         String proto = "";
         String hash = "";
         final long written = SystemClock.uptimeMillis() + 20_000;
         while (SystemClock.uptimeMillis() < written) {
             SystemClock.sleep(500);
-            final String found = OwnerDeviceTest.shell("su 0 sh -c 'ls /data/system_ce/0/snapshots/*/" + taskId
+            final String listed = DeviceShell.run("su 0 sh -c 'ls /data/system_ce/0/snapshots/*/" + taskId
                     + "_reduced.jpg'").trim();
-            if (!found.matches("/data/system_ce/0/snapshots/[0-9a-f-]+/[0-9]+_reduced\\.jpg")) {
+            if (!listed.matches("/data/system_ce/0/snapshots/[0-9a-f-]+/[0-9]+_reduced\\.jpg")) {
                 continue;
             }
-            image = found;
-            proto = found.substring(0, found.length() - "_reduced.jpg".length()) + ".proto";
-            final String out = OwnerDeviceTest.shell("su 0 sha256sum " + image).trim();
+            image = listed;
+            proto = listed.substring(0, listed.length() - "_reduced.jpg".length()) + ".proto";
+            final String out = DeviceShell.run("su 0 sha256sum " + image).trim();
             if (out.matches("[0-9a-f]{64} .*")) {
                 hash = out.substring(0, 64);
-                if (OwnerDeviceTest.shell("su 0 grep -q -F " + hash + " " + proto + " && echo RECORDED")
+                if (DeviceShell.run("su 0 grep -q -F " + hash + " " + proto + " && echo RECORDED")
                         .contains("RECORDED")) {
                     break;
                 }
@@ -70,12 +71,12 @@ public class SnapshotFilesDeviceTest {
         }
         assertTrue("no snapshot image written for task " + taskId, hash.length() == 64);
         assertTrue("the image's SHA-256 is not in the snapshot's proto",
-                OwnerDeviceTest.shell("su 0 grep -q -F " + hash + " " + proto + " && echo RECORDED")
+                DeviceShell.run("su 0 grep -q -F " + hash + " " + proto + " && echo RECORDED")
                         .contains("RECORDED"));
-        final String stat = OwnerDeviceTest.shell("su 0 stat -c '%u %a %h' " + image).trim();
+        final String stat = DeviceShell.run("su 0 stat -c '%u %a %h' " + image).trim();
         assertEquals("owner, mode and names of " + image, "1000 600 1", stat);
-        final String label = OwnerDeviceTest.shell("su 0 ls -Z " + image).trim();
+        final String label = DeviceShell.run("su 0 ls -Z " + image).trim();
         assertTrue("label of " + image + ": " + label, label.startsWith("u:object_r:system_data_file:s0 "));
-        OwnerDeviceTest.shell("am stack remove " + taskId);
+        DeviceShell.run("am stack remove " + taskId);
     }
 }

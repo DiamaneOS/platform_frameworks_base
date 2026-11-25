@@ -50,8 +50,9 @@ public class GateResidualDeviceTest {
         assertTrue(fifo.delete());
         assertTrue(fifo.getPath().matches("[A-Za-z0-9_./-]+"));
         // The test shell creates the FIFO because the app domain cannot create special files (mkfifo from the app
-        // fails with EACCES), then gives it the app's UID and data label.
-        String made = OwnerDeviceTest.shell("su 0 sh -c 'mkfifo -m 600 " + fifo.getPath()
+        // fails with EACCES), then gives it the app's UID and data label. Through a shell (DeviceShell): the plain
+        // test shell command runs without one, so the quotes and && would reach mkfifo as arguments.
+        String made = DeviceShell.run("su 0 sh -c 'mkfifo -m 600 " + fifo.getPath()
                 + " && chown " + android.os.Process.myUid() + ":" + android.os.Process.myUid()
                 + " " + fifo.getPath() + " && restorecon " + fifo.getPath() + " && echo GATE-FIFO-READY'");
         assertTrue("FIFO fixture was not made", made.contains("GATE-FIFO-READY"));
