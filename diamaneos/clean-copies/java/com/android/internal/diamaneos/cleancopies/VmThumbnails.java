@@ -45,11 +45,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  * grants, as Android opens it, and decoded in the protected VM by the system server (CleanImageProvider, method
  * {@link #METHOD_THUMBNAIL}), charged to the provider's package. The provider's orientation extra is applied here as
  * Android applies it, and the file's own orientation is applied in the VM as Android's decoder applies it. When the VM
- * cannot make the thumbnail, the load fails with the IOException callers already handle. When the decode service did
- * not answer, the load waits on the caller's (background) thread until the system server says the service answers
- * again, at most {@link #MAX_WAIT_MS} and only while the caller has not cancelled it, and loads once more: callers ask
- * for a thumbnail once, so what showed a placeholder during an outage fills in when it ends. Nothing of it is decoded
- * in this process.
+ * cannot make the thumbnail, or the decode service does not answer within the load's deadline, the load fails with
+ * the IOException callers already handle, as a stock load that cannot decode fails. Nothing of it is decoded in this
+ * process.
  *
  * @hide
  */
@@ -64,9 +62,6 @@ public final class VmThumbnails {
     public static final String EXTRA_ERROR = "error";
     /** With no thumbnail: the decode service did not answer, ask again once it does. */
     public static final String EXTRA_LATER = "later";
-
-    /** Total retry window including all attempts, each with its own five second entry deadline. */
-    static final long MAX_WAIT_MS = 60_000;
 
     public static final String EXTRA_DEADLINE = "thumbnailDeadline";
     public static final String EXTRA_DELEGATE = "thumbnailDelegate";
@@ -100,22 +95,7 @@ public final class VmThumbnails {
      */
     public static @NonNull Bitmap load(@NonNull ContentInterface content, @NonNull Uri uri, @NonNull Size size,
             @Nullable CancellationSignal signal, int allocator) throws IOException {
-        final long end = android.os.SystemClock.uptimeMillis() + MAX_WAIT_MS;
-        long wait = 1000;
-        while (true) {
-            final int mark = CleanCopyGate.decodeAnswersMark();
-            try {
-                return loadOnce(content, uri, size, signal, allocator,
-                        Math.min(end, android.os.SystemClock.uptimeMillis() + ATTEMPT_MS));
-            } catch (LaterException e) {
-                final long left = end - android.os.SystemClock.uptimeMillis();
-                if (left <= 0) throw e;
-                CleanCopyGate.awaitDecodeAnswers(mark, Math.min(wait, left),
-                        () -> signal != null && signal.isCanceled());
-                if (signal != null) signal.throwIfCanceled();
-                wait = Math.min(wait * 2, 5000);
-            }
-        }
+        return loadOnce(content, uri, size, signal, allocator, android.os.SystemClock.uptimeMillis() + ATTEMPT_MS);
     }
 
     /** No thumbnail because the decode service did not answer: worth asking once more when it does. */
