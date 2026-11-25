@@ -261,8 +261,52 @@ public final class DecodeMemory {
         }
     }
 
-    /** Reserves {@code bytes} (at least 0), or throws when they do not fit now or could never fit. */
+    /**
+     * Reserves {@code bytes} (at least 0), or throws when they do not fit now or could never fit. Before it refuses
+     * for lack of room now, pixels nothing references any more (a drawable an app dropped) are collected, as the
+     * runtime collects for native allocations, so a dropped image never blocks the next decode.
+     */
     public static Reservation reserve(long bytes) throws NoRoomException {
+        try {
+            return reserveNow(bytes);
+        } catch (NoRoomException e) {
+            if (!e.later || !reclaimUnreachable(Math.max(0, bytes))) throw e;
+            return reserveNow(bytes);
+        }
+    }
+
+    static final long RECLAIM_WAIT_MS = 200;
+    private static long sLastReclaim = -RECLAIM_WAIT_MS; // guarded by sLock
+
+    // One collection (at most one started per RECLAIM_WAIT_MS), then up to RECLAIM_WAIT_MS for its released charges.
+    // Never on the main thread, which keeps its own short waits.
+    private static boolean reclaimUnreachable(long n) {
+        if (android.os.Looper.getMainLooper() != null && android.os.Looper.getMainLooper().isCurrentThread()) {
+            return false;
+        }
+        final long now = android.os.SystemClock.uptimeMillis();
+        synchronized (sLock) {
+            if (sPixels.isEmpty()) return false;
+            if (now - sLastReclaim >= RECLAIM_WAIT_MS) {
+                sLastReclaim = now;
+            } else {
+                collectedLocked();
+                return n <= sMax - sHeld;
+            }
+        }
+        Runtime.getRuntime().gc();
+        final long end = now + RECLAIM_WAIT_MS;
+        while (true) {
+            synchronized (sLock) {
+                collectedLocked();
+                if (n <= sMax - sHeld) return true;
+            }
+            if (android.os.SystemClock.uptimeMillis() >= end) return false;
+            android.os.SystemClock.sleep(10);
+        }
+    }
+
+    private static Reservation reserveNow(long bytes) throws NoRoomException {
         final long n = Math.max(0, bytes);
         synchronized (sLock) {
             collectedLocked();
