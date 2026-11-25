@@ -121,7 +121,7 @@ final class GatedDecodes {
         final DecodeGate.Info info = DecodeGate.probe(op, bytes, true);
         if (!"image/gif".equals(info.mimeType)) return null;
         final Header header = new Header(op, bytes, info);
-        return new GatedMovie((GatedAnimation) animated(header, header.width, header.height, null, null, null));
+        return new GatedMovie((GatedAnimation) animated(header, header.width, header.height, null, null, null, null));
     }
 
     private static Bitmap retained(Bitmap bitmap, BitmapFactory.Options options) throws DecodeGate.Failure {
