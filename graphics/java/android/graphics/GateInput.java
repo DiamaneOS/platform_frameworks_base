@@ -154,7 +154,7 @@ final class GateInput {
 
     // Streams
 
-    /** Reads {@code in} to its end (at most {@link DecodeGate#MAX_BYTES}). The stream is left open. */
+    /** Reads one complete PNG or to the stream end, at most {@link DecodeGate#MAX_BYTES}. The stream stays open. */
     static DecodeGate.Bytes of(DecodeGate.Op op, InputStream in) throws DecodeGate.Failure {
         DecodeGate.mayAsk();
         if (op.critical && in.getClass() == ByteArrayInputStream.class
@@ -680,7 +680,7 @@ final class GateInput {
 
     private static DecodeGate.Bytes copyStream(InputStream in, java.util.concurrent.atomic.AtomicBoolean stop)
             throws DecodeGate.Failure {
-        final DecodeMemory.Reservation memory = reserve(PIECE + 64);
+        final DecodeMemory.Reservation memory = reserve(PIECE + 192);
         FileDescriptor out = null;
         boolean transferred = false;
         try {
@@ -689,12 +689,13 @@ final class GateInput {
             allocationForTest();
             final byte[] buffer = new byte[PIECE];
             final byte[] head = new byte[32];
+            final GatePngFrame png = new GatePngFrame();
             int total = 0;
             int n;
-            while (true) {
+            while (!png.complete()) {
                 stopped(stop);
                 try {
-                    n = in.read(buffer);
+                    n = in.read(buffer, 0, png.readLimit(buffer.length));
                 } catch (IOException e) {
                     throw DecodeGate.notNow("stream not read: " + e.getMessage());
                 }
@@ -708,6 +709,7 @@ final class GateInput {
                 if (total > DecodeGate.MAX_BYTES) {
                     throw DecodeGate.failed(true, "larger than the decode limit");
                 }
+                png.accept(buffer, n);
                 grow(memory, n);
                 digest.update(buffer, 0, n);
                 writeAll(out, buffer, n);
