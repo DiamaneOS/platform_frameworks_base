@@ -446,19 +446,30 @@ public class StorageManager {
                     mListeners.remove(nonce);
                 }
                 // DiamaneOS: a mount's listener also hears when its image goes without the app asking (its VM ended,
-                // its card went). It is kept until then, or until an unmount of the same path ends it.
+                // its card went). It is kept until then, or until an unmount of the same image ends it, whichever
+                // spelling of its path the unmount used.
                 if (delegate != null && status == OnObbStateChangeListener.MOUNTED) {
-                    delegate.mountedPath = filename;
+                    delegate.mountedPath = canonicalObbPath(filename);
                     mListeners.put(nonce, delegate);
                 } else if (status == OnObbStateChangeListener.UNMOUNTED) {
+                    final String ended = canonicalObbPath(filename);
                     for (int i = mListeners.size() - 1; i >= 0; i--) {
-                        if (filename.equals(mListeners.valueAt(i).mountedPath)) mListeners.removeAt(i);
+                        if (ended.equals(mListeners.valueAt(i).mountedPath)) mListeners.removeAt(i);
                     }
                 }
             }
 
             if (delegate != null) {
                 delegate.sendObbStateChanged(filename, status);
+            }
+        }
+
+        // DiamaneOS: the path an OBB image is known by, as mountObb resolves it.
+        private String canonicalObbPath(String path) {
+            try {
+                return new File(path).getCanonicalPath();
+            } catch (IOException | RuntimeException e) {
+                return path;
             }
         }
 
