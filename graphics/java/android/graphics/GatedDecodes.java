@@ -881,7 +881,8 @@ final class GatedDecodes {
                 bitmap = GateImageSettings.convert(bitmap, colorSpace, Bitmap.Config.RGBA_1010102);
             }
             markOpaque(bitmap, header.mimeType);
-            final boolean opaque = !bitmap.hasAlpha();
+            // As stock nDecodeBitmap (decoder->opaque()): the encoded image's alpha, not its pixels.
+            final boolean opaque = !header.hasAlpha;
             if (conserveMemory) {
                 // As stock: a low-RAM decode extracts no gain map.
                 bitmap.setGainmap(null);

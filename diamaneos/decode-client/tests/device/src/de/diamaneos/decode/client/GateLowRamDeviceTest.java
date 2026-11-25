@@ -36,11 +36,28 @@ public class GateLowRamDeviceTest {
         compareAll(encoded(Bitmap.CompressFormat.PNG));
     }
 
+    // An alpha channel whose pixels are all opaque: stock keeps the encoded alpha, so no RGB_565.
+    @Test public void alphaChannelPngWithOpaquePixelsMatchesStock() throws Exception {
+        compareAll(encoded(Bitmap.CompressFormat.PNG, true));
+    }
+
+    @Test public void lossyWebpMatchesStock() throws Exception {
+        compareAll(encoded(Bitmap.CompressFormat.WEBP_LOSSY, false));
+    }
+
+    @Test public void losslessWebpWithAlphaMatchesStock() throws Exception {
+        compareAll(encoded(Bitmap.CompressFormat.WEBP_LOSSLESS, true));
+    }
+
     private static byte[] encoded(Bitmap.CompressFormat format) {
+        return encoded(format, false);
+    }
+
+    private static byte[] encoded(Bitmap.CompressFormat format, boolean alphaChannel) {
         final Bitmap pixels = Bitmap.createBitmap(48, 32, Bitmap.Config.ARGB_8888);
         try {
             pixels.eraseColor(Color.rgb(40, 120, 200));
-            pixels.setHasAlpha(false);
+            pixels.setHasAlpha(alphaChannel);
             final ByteArrayOutputStream out = new ByteArrayOutputStream();
             assertTrue(pixels.compress(format, 90, out));
             return out.toByteArray();
