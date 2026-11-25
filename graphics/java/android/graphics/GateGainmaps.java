@@ -1,61 +1,130 @@
 /* Copyright (C) 2026 DiamaneOS */
 package android.graphics;
 
-/** Gain maps for a whole image assembled from the VM's stored base regions. */
+/**
+ * Gain maps at stock's size: Android's codec decodes the gain image at the base's target scale (hwui ImageDecoder
+ * extractGainmap, BitmapFactory decodeGainmap), a greyscale one as ALPHA_8. Here the VM decodes the gain image alone:
+ * whole when the target fits one reply, else in checked regions assembled as large bases are.
+ */
 final class GateGainmaps {
-    // The initial whole metadata reply and copy, before its independent gain-pixel stage.
-    private static final int MAX_BOX = (int) Math.sqrt(DecodeGate.MAX_VM_PIXELS);
+    // A small whole-image reply carries the gain map's parameters, its pixels are dropped at once.
+    private static final int PREVIEW_BOX = 64;
 
-    private static int box(int width, int height) {
-        return Math.max(1, Math.min(MAX_BOX, Math.max(width, height)));
-    }
-
+    /** Bytes of the parameter preview, held before the gain stage checks its own size ({@link #fill}). */
     static long extraBytes(int width, int height) {
-        final long pixels = (long) box(width, height) * box(width, height);
-        return 2 * pixels * 4 + 4 * Math.min(pixels, 2L * 1024 * 1024) * 4;
+        return 4L * PREVIEW_BOX * PREVIEW_BOX * 4;
     }
 
-    static void attach(DecodeGate.Op op, DecodeGate.Bytes bytes, Bitmap target, boolean stored)
-            throws DecodeGate.Failure {
-        final int box = box(target.getWidth(), target.getHeight());
-        final DecodeGate.Decoded decoded = DecodeGate.decode(op, bytes, box, box);
-        final Bitmap whole = decoded.bitmap;
+    /**
+     * Attaches the image's gain map to {@code target}, {@code storedWidth} x {@code storedHeight} as the file stores
+     * it: in stored orientation when {@code stored} (BitmapFactory), else upright as the target is.
+     */
+    static void attach(DecodeGate.Op op, DecodeGate.Bytes bytes, Bitmap target, boolean stored,
+            int storedWidth, int storedHeight) throws DecodeGate.Failure {
+        final DecodeGate.Decoded preview = DecodeGate.decode(op, bytes, PREVIEW_BOX, PREVIEW_BOX);
+        final Gainmap params;
+        try {
+            final Gainmap map = preview.bitmap.getGainmap();
+            params = map == null ? null : parameters(map);
+        } finally {
+            DecodeMemory.recycle(preview.bitmap, null);
+        }
+        if (params == null) {
+            target.setGainmap(null);
+            return;
+        }
+        fill(op, bytes, target, params, stored ? 0 : preview.rotation, !stored && preview.mirrored,
+                storedWidth, storedHeight);
+    }
+
+    /**
+     * Replaces the gain map a whole-image reply attached to the upright {@code target} with the gain image at
+     * stock's size. A target without one keeps none.
+     */
+    static void replace(DecodeGate.Op op, DecodeGate.Bytes bytes, Bitmap target, int rotation, boolean mirrored,
+            int storedWidth, int storedHeight) throws DecodeGate.Failure {
+        final Gainmap map = target.getGainmap();
+        if (map == null) return;
+        final Bitmap embedded = map.getGainmapContents();
+        final Gainmap params = parameters(map);
+        target.setGainmap(null);
+        DecodeMemory.recycle(embedded, null);
+        fill(op, bytes, target, params, rotation, mirrored, storedWidth, storedHeight);
+    }
+
+    // The parameters of {@code map} on a one-pixel placeholder, so its pixels can go before the gain stage.
+    private static Gainmap parameters(Gainmap map) {
+        return new Gainmap(map, Bitmap.createBitmap(1, 1, Bitmap.Config.ALPHA_8));
+    }
+
+    private static void fill(DecodeGate.Op op, DecodeGate.Bytes bytes, Bitmap target, Gainmap params, int rotation,
+            boolean mirrored, int storedWidth, int storedHeight) throws DecodeGate.Failure {
+        final Bitmap placeholder = params.getGainmapContents();
         Bitmap contents = null;
         boolean complete = false;
         try {
-            final Gainmap map = whole.getGainmap();
-            if (map == null) {
-                target.setGainmap(null);
-                complete = true;
-                return;
-            }
-            final Bitmap metadataPixels = map.getGainmapContents();
-            if ((long) metadataPixels.getWidth() * metadataPixels.getHeight() > 2L * 1024 * 1024
-                    || metadataPixels.getWidth() > whole.getWidth()
-                    || metadataPixels.getHeight() > whole.getHeight()) {
-                throw DecodeGate.failed(true, "gain map exceeds the checked producer limit");
-            }
-            final boolean turned = !stored && (decoded.rotation == 90 || decoded.rotation == 270);
+            final boolean turned = rotation == 90 || rotation == 270;
             final int baseWidth = turned ? target.getHeight() : target.getWidth();
             final int baseHeight = turned ? target.getWidth() : target.getHeight();
-            final long gainPixels = Math.min((long) baseWidth * baseHeight, DecodeGate.MAX_VM_PIXELS);
-            op.checkFit(bytes.reserved() + DecodeMemory.bitmapBytes(target)
-                    + 2 * DecodeMemory.bitmapBytes(whole) + 3 * gainPixels * 4 + (4L << 20));
-            contents = DecodeGate.gainmap(op, bytes, baseWidth, baseHeight);
-            if (!stored && (decoded.rotation != 0 || decoded.mirrored)) {
+            contents = pixels(op, bytes, DecodeMemory.bitmapBytes(target), baseWidth, baseHeight,
+                    storedWidth, storedHeight, rotation, mirrored);
+            target.setGainmap(new Gainmap(params, contents));
+            complete = true;
+        } finally {
+            if (!complete) DecodeMemory.recycle(contents, null);
+            placeholder.recycle();
+        }
+    }
+
+    // The gain image at the scale of a base of baseWidth x baseHeight (stored orientation), turned as asked.
+    private static Bitmap pixels(DecodeGate.Op op, DecodeGate.Bytes bytes, long targetBytes, int baseWidth,
+            int baseHeight, int storedWidth, int storedHeight, int rotation, boolean mirrored)
+            throws DecodeGate.Failure {
+        final boolean turned = rotation == 90 || rotation == 270;
+        if ((long) baseWidth * baseHeight <= DecodeGate.MAX_VM_PIXELS) {
+            // The VM keeps the gain image within the stored base, so at this scale it fits one reply.
+            final long most = (long) baseWidth * baseHeight * 4;
+            op.checkFit(bytes.reserved() + targetBytes + (rotation != 0 || mirrored ? 2 : 1) * most);
+            Bitmap contents = DecodeGate.gainmap(op, bytes, baseWidth, baseHeight);
+            if (rotation != 0 || mirrored) {
                 final Matrix forward = new Matrix();
-                if (decoded.mirrored) forward.postScale(-1, 1);
-                forward.postRotate(decoded.rotation);
+                if (mirrored) forward.postScale(-1, 1);
+                forward.postRotate(rotation);
                 final Bitmap upright = GatePixels.transform(contents, 0, 0,
                         contents.getWidth(), contents.getHeight(), forward, false);
                 DecodeMemory.recycle(contents, upright);
                 contents = upright;
             }
-            target.setGainmap(new Gainmap(map, contents));
-            complete = true;
+            return contents;
+        }
+        // The gain image's stored size: a one-row and a one-column region, which the VM clips to it.
+        final int gainWidth = edge(op, bytes, storedWidth, true);
+        final int gainHeight = edge(op, bytes, storedHeight, false);
+        if (gainWidth > storedWidth || gainHeight > storedHeight) {
+            throw DecodeGate.failed(false, "gain image larger than its base");
+        }
+        // As the VM's whole gain reply: the gain image scaled as the base is, rounded.
+        final int width = Math.max(1, (int) ((double) gainWidth * baseWidth / storedWidth + 0.5));
+        final int height = Math.max(1, (int) ((double) gainHeight * baseHeight / storedHeight + 0.5));
+        final int sample = Math.max(1, Math.min(DecodeGate.MAX_REGION_SAMPLE,
+                Math.min(gainWidth / width, gainHeight / height)));
+        op.checkFit(bytes.reserved() + targetBytes + (long) width * height * 4
+                + 2L * Math.min((long) width * height, DecodeGate.MAX_VM_PIXELS) * 4);
+        return GateLargePixels.decode(op, bytes, 0, 0, gainWidth, gainHeight, sample,
+                turned ? height : width, turned ? width : height, rotation, mirrored, null, true);
+    }
+
+    private static int edge(DecodeGate.Op op, DecodeGate.Bytes bytes, int stored, boolean row)
+            throws DecodeGate.Failure {
+        final Bitmap line = row ? DecodeGate.gainRegion(op, bytes, 0, 0, stored, 1, 1)
+                : DecodeGate.gainRegion(op, bytes, 0, 0, 1, stored, 1);
+        try {
+            if ((row ? line.getHeight() : line.getWidth()) != 1) {
+                throw DecodeGate.failed(false, "bad gain image edge");
+            }
+            return row ? line.getWidth() : line.getHeight();
         } finally {
-            if (!complete) DecodeMemory.recycle(contents, null);
-            DecodeMemory.recycle(whole, target);
+            DecodeMemory.recycle(line, null);
         }
     }
 

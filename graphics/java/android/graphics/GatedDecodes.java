@@ -227,7 +227,7 @@ final class GatedDecodes {
             }
             // DiamaneOS: regions carry stored base pixels, the whole-image reply supplies the checked gain map.
             try {
-                if (hdrFormat) GateGainmaps.attach(op, bytes, bitmap, true);
+                if (hdrFormat) GateGainmaps.attach(op, bytes, bitmap, true, info.width, info.height);
             } catch (DecodeGate.Failure e) {
                 bitmap.recycle();
                 throw e;
@@ -837,7 +837,7 @@ final class GatedDecodes {
                     && (allocator == ImageDecoder.ALLOCATOR_HARDWARE || allocator == ImageDecoder.ALLOCATOR_DEFAULT)) {
                 bitmap = GateLargeHardware.decode(header.op, header.bytes, header.storedWidth,
                         header.storedHeight, largeSample(header, width, height), width, height,
-                        header.rotation, header.mirrored, colorSpace, true, false,
+                        header.rotation, header.mirrored, colorSpace, !conserveMemory, false,
                         allocator == ImageDecoder.ALLOCATOR_HARDWARE);
                 if (bitmap != null) {
                     GatePartialImages.imageDecoder(header.op.sourceError, partialListener, source);
@@ -858,17 +858,29 @@ final class GatedDecodes {
                     : GateLargePixels.peakBytes(width, height, 4,
                             allocator == ImageDecoder.ALLOCATOR_HARDWARE,
                             "image/jpeg".equals(header.mimeType))));
+            // As stock: no gain map with a post-processor or LOW_RAM, else the gain image at the target's scale.
+            final boolean gainmap = "image/jpeg".equals(header.mimeType) && !conserveMemory && postProcessor == null;
             if ((long) width * height <= DecodeGate.MAX_VM_PIXELS) {
                 final DecodeGate.Decoded decoded = DecodeGate.decode(header.op, header.bytes, box, box);
                 bitmap = exactly(decoded.bitmap, width, height);
+                try {
+                    if (gainmap) {
+                        GateGainmaps.replace(header.op, header.bytes, bitmap, decoded.rotation, decoded.mirrored,
+                                header.storedWidth, header.storedHeight);
+                    }
+                } catch (DecodeGate.Failure e) {
+                    bitmap.recycle();
+                    throw e;
+                }
             } else {
                 bitmap = GateLargePixels.decode(header.op, header.bytes, 0, 0,
                         header.storedWidth, header.storedHeight, largeSample(header, width, height),
                         width, height, header.rotation, header.mirrored, colorSpace);
                 // DiamaneOS: the region-built base keeps the whole-image reply's upright gain map.
                 try {
-                    if ("image/jpeg".equals(header.mimeType)) {
-                        GateGainmaps.attach(header.op, header.bytes, bitmap, false);
+                    if (gainmap) {
+                        GateGainmaps.attach(header.op, header.bytes, bitmap, false, header.storedWidth,
+                                header.storedHeight);
                     }
                 } catch (DecodeGate.Failure e) {
                     bitmap.recycle();
@@ -883,9 +895,11 @@ final class GatedDecodes {
             markOpaque(bitmap, header.mimeType);
             // As stock nDecodeBitmap (decoder->opaque()): the encoded image's alpha, not its pixels.
             final boolean opaque = !header.hasAlpha;
-            if (conserveMemory) {
-                // As stock: a low-RAM decode extracts no gain map.
+            if (conserveMemory || postProcessor != null) {
+                // As stock: a low-RAM or post-processed decode extracts no gain map.
+                final Bitmap embedded = bitmap.hasGainmap() ? bitmap.getGainmap().getGainmapContents() : null;
                 bitmap.setGainmap(null);
+                DecodeMemory.recycle(embedded, null);
             }
             if (unpremultiplied && bitmap.hasAlpha() && !samplesTo(header, width, height)) {
                 // As Android: unpremultiplied pixels of an image with alpha are never scaled by a matrix.

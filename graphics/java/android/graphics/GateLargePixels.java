@@ -17,13 +17,21 @@ final class GateLargePixels {
     static Bitmap decode(DecodeGate.Op op, DecodeGate.Bytes bytes, int left, int top,
             int storedWidth, int storedHeight, int sample, int width, int height,
             int rotation, boolean mirrored, ColorSpace targetColor) throws DecodeGate.Failure {
+        return decode(op, bytes, left, top, storedWidth, storedHeight, sample, width, height, rotation, mirrored,
+                targetColor, false);
+    }
+
+    /** As above, from regions of the gain image when {@code gain}: opaque RGBA or ALPHA_8, as its replies are. */
+    static Bitmap decode(DecodeGate.Op op, DecodeGate.Bytes bytes, int left, int top,
+            int storedWidth, int storedHeight, int sample, int width, int height,
+            int rotation, boolean mirrored, ColorSpace targetColor, boolean gain) throws DecodeGate.Failure {
         Bitmap tile = null;
         Bitmap result = null;
         Canvas canvas = null;
         boolean complete = false;
         try {
             // A thin column gives the codec's exact sampled height without a full image allocation.
-            tile = DecodeGate.region(op, bytes, left, top, Math.min(sample, storedWidth), storedHeight, sample);
+            tile = region(op, bytes, left, top, Math.min(sample, storedWidth), storedHeight, sample, gain);
             final int sampledHeight = tile.getHeight();
             DecodeMemory.recycle(tile, null);
             tile = null;
@@ -41,13 +49,14 @@ final class GateLargePixels {
                 final int before = made == 0 ? 0 : 1;
                 final int askTop = (made - before) * sample;
                 final int askBottom = Math.min(storedHeight, (made + rows + 1) * sample);
-                tile = DecodeGate.region(op, bytes, left, top + askTop, storedWidth,
-                        askBottom - askTop, sample);
+                tile = region(op, bytes, left, top + askTop, storedWidth, askBottom - askTop, sample, gain);
                 if (result == null) {
                     sampledWidth = tile.getWidth();
                     sourceColor = tile.getColorSpace();
-                    result = GatePixels.blank(width, height, Bitmap.Config.ARGB_8888,
-                            tile.hasAlpha(), targetColor != null ? targetColor : sourceColor);
+                    final boolean grey = gain && tile.getConfig() == Bitmap.Config.ALPHA_8;
+                    result = GatePixels.blank(width, height, grey ? Bitmap.Config.ALPHA_8
+                            : Bitmap.Config.ARGB_8888, grey || (!gain && tile.hasAlpha()),
+                            grey ? null : targetColor != null ? targetColor : sourceColor);
                     final boolean turned = rotation == 90 || rotation == 270;
                     final Matrix matrix = new Matrix();
                     if (mirrored) matrix.postScale(-1, 1);
@@ -61,7 +70,8 @@ final class GateLargePixels {
                     canvas.concat(matrix);
                 }
                 if (tile.getWidth() != sampledWidth || tile.getHeight() < before + rows
-                        || !java.util.Objects.equals(sourceColor, tile.getColorSpace())) {
+                        || !java.util.Objects.equals(sourceColor, tile.getColorSpace())
+                        || (gain && tile.getConfig() != result.getConfig())) {
                     throw DecodeGate.failed(false, "inconsistent large image stripe");
                 }
                 final int saved = canvas.save();
@@ -82,6 +92,12 @@ final class GateLargePixels {
             DecodeMemory.recycle(tile, null);
             if (!complete) DecodeMemory.recycle(result, null);
         }
+    }
+
+    private static Bitmap region(DecodeGate.Op op, DecodeGate.Bytes bytes, int left, int top, int width, int height,
+            int sample, boolean gain) throws DecodeGate.Failure {
+        return gain ? DecodeGate.gainRegion(op, bytes, left, top, width, height, sample)
+                : DecodeGate.region(op, bytes, left, top, width, height, sample);
     }
 
     private GateLargePixels() { }

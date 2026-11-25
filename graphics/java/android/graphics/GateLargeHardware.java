@@ -73,7 +73,7 @@ final class GateLargeHardware {
             }
             result = target.finish(outputColor, alpha, Bitmap.getDefaultDensity());
             if (hdr) {
-                GateGainmaps.attach(op, bytes, result, storedGainmap);
+                GateGainmaps.attach(op, bytes, result, storedGainmap, storedWidth, storedHeight);
                 hardwareGainmap(result);
             }
             complete = true;
