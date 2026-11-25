@@ -306,6 +306,7 @@ public class KeyguardServiceDelegate {
             if (DEBUG) Log.v(TAG, "*** Keyguard disconnected (boo!)");
             mKeyguardService = null;
             mKeyguardReportedState.reset();
+            SdCardHold.onKeyguardStateUnknown(); // DiamaneOS
             try {
                 ActivityTaskManager.getService().setLockScreenShown(true /* showingKeyguard */,
                         false /* showingAod */);

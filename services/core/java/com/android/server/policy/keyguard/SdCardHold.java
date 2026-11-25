@@ -15,8 +15,8 @@ import android.util.Slog;
  * <p>The hold follows the lock screen, as the USB-C port control does: set while the lock screen
  * shows, cleared when it is dismissed, whatever the USB-C port setting. init writes
  * security.hold_new_sd to the kernel (vendor_diamaneos sdhold/hold_new_sd.rc). The kernel starts
- * with the hold set, and the system server sets it again when it starts, before the lock screen
- * state is known.
+ * with the hold set, and the system server sets it again when it starts and when the lock screen
+ * service disconnects, until the lock screen state is known again.
  */
 final class SdCardHold {
     private static final String TAG = "SdCardHold";
