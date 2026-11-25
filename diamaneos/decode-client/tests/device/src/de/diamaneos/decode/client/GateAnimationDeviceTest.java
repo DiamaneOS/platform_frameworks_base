@@ -5,6 +5,7 @@ import static org.junit.Assert.*;
 
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.ColorSpace;
 import android.graphics.DecodeGate;
 import android.graphics.ImageDecoder;
 import android.graphics.drawable.Animatable2;
@@ -91,6 +92,53 @@ public class GateAnimationDeviceTest {
                 drawable.isRunning());
         drawable.setVisible(true, true);
         assertEquals(stockRunning, drawable.isRunning());
+    }
+
+    @Test public void staticDecodeRejectsInvalidTargetColorSpaces() throws Exception {
+        final Bitmap pixel = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888);
+        final ByteArrayOutputStream encoded = new ByteArrayOutputStream();
+        try {
+            assertTrue(pixel.compress(Bitmap.CompressFormat.PNG, 100, encoded));
+        } finally {
+            pixel.recycle();
+        }
+        checkInvalidColorSpaces(encoded.toByteArray(), false);
+    }
+
+    @Test public void animationRejectsInvalidTargetColorSpaces() throws Exception {
+        checkInvalidColorSpaces(fixture(R.raw.vm_animation_compat_gif), true);
+    }
+
+    // As stock ImageDecoder (ColorSpace.getNativeInstance), a non-RGB or nonparametric target is an
+    // IllegalArgumentException from the decode call.
+    private void checkInvalidColorSpaces(byte[] encoded, boolean animated) throws Exception {
+        final ColorSpace noParameters = new ColorSpace.Rgb("NoTransferParams",
+                new float[] {0.640f, 0.330f, 0.300f, 0.600f, 0.150f, 0.060f},
+                ColorSpace.ILLUMINANT_D50, value -> Math.pow(value, 1.0 / 2.2),
+                value -> Math.pow(value, 2.2), 0, 1);
+        for (ColorSpace color : new ColorSpace[] {ColorSpace.get(ColorSpace.Named.CIE_LAB),
+                ColorSpace.get(ColorSpace.Named.CIE_XYZ), noParameters}) {
+            final ImageDecoder.Source source = ImageDecoder.createSource(ByteBuffer.wrap(encoded));
+            final int before = gateAnswers();
+            final ImageDecoder.OnHeaderDecodedListener settings = (decoder, info, value) -> {
+                assertSame(source, value);
+                assertEquals(animated, info.isAnimated());
+                decoder.setTargetColorSpace(color);
+            };
+            try {
+                if (animated) ImageDecoder.decodeDrawable(source, settings);
+                else ImageDecoder.decodeBitmap(source, settings);
+                fail("invalid target color space accepted: " + color);
+            } catch (IllegalArgumentException expected) {
+                assertTrue("the test exercised the gate", gateAnswers() > before);
+            }
+        }
+    }
+
+    // Header probes the VM answered, from the VM or its cache.
+    private static int gateAnswers() {
+        final int[] counts = DecodeGate.countsForTest();
+        return counts[1] + counts[4];
     }
 
     private byte[] fixture(int resource) throws Exception {

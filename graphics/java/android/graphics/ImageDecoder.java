@@ -1788,7 +1788,8 @@ public final class ImageDecoder implements AutoCloseable {
     private Bitmap decodeBitmapInternal() throws IOException {
         checkState(false);
         if (mGated != null) {
-            // DiamaneOS: decoded in the protected VM (DecodeGate).
+            // DiamaneOS: decoded in the protected VM (DecodeGate), the target colour space checked as stock.
+            getColorSpacePtr();
             return GatedDecodes.decode(mGated, mDesiredWidth, mDesiredHeight, mCropRect, mMutable,
                     mAllocator, mUnpremultipliedRequired, mDecodeAsAlphaMask, mPostProcessor,
                     mSource);
@@ -1975,6 +1976,7 @@ public final class ImageDecoder implements AutoCloseable {
                 if (decoder.mAnimated && decoder.mGated != null) {
                     // DiamaneOS: animated from the protected VM's frames (DecodeGate).
                     decoder.checkState(true);
+                    decoder.getColorSpacePtr();
                     return GatedDecodes.animated(decoder.mGated, decoder.mDesiredWidth,
                             decoder.mDesiredHeight, decoder.mCropRect, decoder.mPostProcessor, src);
                 }
