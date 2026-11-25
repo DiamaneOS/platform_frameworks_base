@@ -38,8 +38,8 @@ public final class GateOwner {
     /** The uid of the process the system server decodes it for, or {@link #UNKNOWN} (its own work). */
     public final int forUid;
     /**
-     * Where the system server acquires the image of another user itself ({@code uri:}, {@code uri-image:} or
-     * {@code usericon:}), or null. A remote caller's own bytes are never taken for another user.
+     * Where the system server acquires the image of another user itself (a user's photo, {@code usericon:}), or
+     * null. A remote caller's own bytes are never taken for another user.
      */
     public final String source;
 

@@ -63,11 +63,18 @@ public class OwnerDeviceTest {
     private static final Pattern REQUEST = Pattern.compile(
             "request of user (\\d+) (shared|per-user) in VM start (\\d+), .*, lane (\\S+)");
     private static int sProfile = -1;
+    private static boolean sMade;
     // Another start in every run: the service keeps answers per owner across runs.
     private static int sSeed = (int) (System.nanoTime() & 0xffff);
 
     @BeforeClass
     public static void workProfile() throws Exception {
+        // A run that already has a work profile names it (-e workUser N): a second managed profile cannot be made.
+        final String given = InstrumentationRegistry.getArguments().getString("workUser");
+        if (given != null) {
+            sProfile = Integer.parseInt(given);
+            return;
+        }
         // -e profileType private: a Private Space instead of a work profile.
         final boolean privateSpace = "private".equals(
                 InstrumentationRegistry.getArguments().getString("profileType"));
@@ -76,12 +83,13 @@ public class OwnerDeviceTest {
         final Matcher m = Pattern.compile("created user id (\\d+)").matcher(made);
         assertTrue("no work profile made: " + made, m.find());
         sProfile = Integer.parseInt(m.group(1));
+        sMade = true;
         Log.i(TAG, "work profile " + sProfile + ": " + shell("am start-user -w " + sProfile).trim());
     }
 
     @AfterClass
     public static void removeProfile() throws Exception {
-        if (sProfile > 0) {
+        if (sMade) {
             Log.i(TAG, "work profile " + sProfile + " removed: " + shell("pm remove-user " + sProfile).trim());
         }
     }
@@ -123,7 +131,7 @@ public class OwnerDeviceTest {
         assertNotNull(decodeAs(0, png));
         final int again = DecodeGate.countsForTest()[4];
         assertTrue("the same owner asks again: the answers kept (probe and decode)", again > hits);
-        assertNull("a bare FD cannot prove a foreign source user", decodeAs(sProfile, png));
+        assertNotNull("decoded for the profile this package may act for", decodeAs(sProfile, png));
         assertEquals("another owner: never the answers kept for user 0", again, DecodeGate.countsForTest()[4]);
     }
 
@@ -133,25 +141,25 @@ public class OwnerDeviceTest {
     }
 
     @Test
-    public void unverifiedForeignSourcesNeverReachTheService() throws Exception {
+    public void aCallerThatMayActForTheProfile_namesItForItsOwnBytes() throws Exception {
+        // This package holds INTERACT_ACROSS_USERS_FULL: as Android lets it act for the profile, its own bytes go as
+        // the profile's image (a caller without the permission is refused, host checks h1_cross_users).
         final double since = System.currentTimeMillis() / 1000.0;
-        final int[] users = {0, sProfile, sProfile, 0};
-        for (int user : users) {
-            Bitmap bitmap = decodeAs(user, png());
-            if (user == 0) assertNotNull("same-user positive control", bitmap);
-            else assertNull("a foreign source needs trusted acquisition", bitmap);
+        for (int user : new int[] {0, sProfile, sProfile, 0}) {
+            assertNotNull("decoded as user " + user, decodeAs(user, png()));
         }
         final String log = shell(String.format(java.util.Locale.ROOT,
                 "logcat -d -v epoch -T %.3f -s DecoderUsers:I", since));
         final Matcher m = REQUEST.matcher(log);
-        boolean seen = false;
+        boolean own = false;
+        boolean profile = false;
         while (m.find()) {
             if (m.group(4).equals("?gate:uid" + Process.myUid())) {
-                assertEquals("no unverified foreign source reached the guest", 0, Integer.parseInt(m.group(1)));
-                seen = true;
+                own |= Integer.parseInt(m.group(1)) == 0;
+                profile |= Integer.parseInt(m.group(1)) == sProfile;
             }
         }
-        assertTrue("the same-user control reached the guest: " + log, seen);
+        assertTrue("both users' requests reached the guest in this app's lane: " + log, own && profile);
     }
 
     @Test
@@ -184,7 +192,7 @@ public class OwnerDeviceTest {
     }
 
     @Test
-    public void aForeignResolverSourceIsAcquiredByTheSystemServer() throws Exception {
+    public void aForeignResolverSourceIsOpenedWithTheCallersRights() throws Exception {
         String installed = shell("pm install-existing --user " + sProfile + " "
                 + InstrumentationRegistry.getInstrumentation().getTargetContext().getPackageName());
         assertTrue(installed, installed.contains("installed"));
@@ -194,8 +202,8 @@ public class OwnerDeviceTest {
                 android.graphics.ImageDecoder.createSource(resolver, UserImageProvider.IMAGE)));
         android.net.Uri uri = android.content.ContentProvider.maybeAddUserId(UserImageProvider.IMAGE, sProfile);
         final double since = System.currentTimeMillis() / 1000.0;
-        // The caller's own snapshot is not used: the system server opens the URI in the profile itself.
-        assertNotNull("the profile's image, acquired by the system server", android.graphics.ImageDecoder
+        // As Android opens it: this process opens the profile's URI with its own rights and names the profile.
+        assertNotNull("the profile's image", android.graphics.ImageDecoder
                 .decodeBitmap(android.graphics.ImageDecoder.createSource(resolver, uri)));
         assertForeignRequestReachedTheGuest(since);
     }
@@ -216,9 +224,9 @@ public class OwnerDeviceTest {
     }
 
     @Test
-    public void aForeignRequestWithoutASourceItMayReadIsRefused() throws Exception {
-        assertFalse("no source: the caller's own bytes are never another user's", foreignCall(null));
-        assertFalse("a source of a provider the caller may not read", foreignCall("uri-image:content://"
+    public void aForeignRequestIsTakenOnlyAsTheCallerMayAct() throws Exception {
+        assertTrue("its own bytes named for the profile it may act for", foreignCall(null));
+        assertFalse("a URI source: URIs come as the caller's own descriptor", foreignCall("uri-image:content://"
                 + sProfile + "@com.android.contacts/contacts"));
         assertFalse("another user's photo than the one named", foreignCall("usericon:0"));
         assertFalse("not a content URI", foreignCall("uri:file:///data/system/users/" + sProfile + "/photo.png"));
@@ -282,10 +290,10 @@ public class OwnerDeviceTest {
                             new byte[] {(byte) 137, 80, 78, 71, 13, 10, 26, 10}, input.readNBytes(8));
                 }
             }
-            // The captured work user travels with the request: the system server opens the URI in the work
-            // profile itself, never taking this process's snapshot as the work profile's image.
+            // The captured work user travels with the request: this process's descriptor of the work endpoint is
+            // decoded as the work profile's image.
             final double since = System.currentTimeMillis() / 1000.0;
-            assertNotNull("the work source, acquired by the system server", android.graphics.ImageDecoder
+            assertNotNull("the work source", android.graphics.ImageDecoder
                     .decodeBitmap(android.graphics.ImageDecoder.createSource(
                             android.content.ContentResolver.wrap(work), UserImageProvider.IMAGE)));
             assertForeignRequestReachedTheGuest(since);

@@ -880,12 +880,6 @@ public final class VmIconLoads {
                 extras.putString(DecodeGate.EXTRA_AUTHORITY, request.authority());
             }
             extras.putInt(DecodeGate.EXTRA_OWNER_USER, request.ownerUser);
-            // DiamaneOS: another user's URI icon is opened by the system server itself.
-            final String source = afd == null ? null
-                    : DecodeGate.foreignSource("uri:", request.ownerUser, request.icon.getUri());
-            if (source != null) {
-                extras.putString(DecodeGate.EXTRA_SOURCE, source);
-            }
             extras.putBinder(DecodeGate.EXTRA_CALLBACK, new IRemoteCallback.Stub() {
                 @Override
                 public void sendResult(Bundle reply) {

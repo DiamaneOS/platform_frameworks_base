@@ -16,15 +16,9 @@
 
 package com.android.server.cleanimages;
 
-import android.content.ContentProvider;
-import android.content.ContentResolver;
 import android.content.Context;
-import android.content.Intent;
-import android.content.pm.PackageManager;
 import android.content.res.AssetFileDescriptor;
 import android.graphics.DecodeGate;
-import android.net.Uri;
-import android.os.Binder;
 import android.os.Bundle;
 import android.os.CancellationSignal;
 import android.os.IBinder;
@@ -34,9 +28,7 @@ import android.os.ParcelFileDescriptor;
 import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.os.SystemClock;
-import android.os.UserHandle;
 
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
@@ -44,17 +36,12 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
- * DiamaneOS: images of another user than the remote caller's own, which the decode gate's provider acquires itself.
- * The caller's descriptor holds bytes nothing ties to that user, so it is closed unused. The request names its source
- * instead ({@link DecodeGate#EXTRA_SOURCE}, GateOwner#source), checked here with the caller's binder identity:
- *
- * <ul>
- *   <li>{@code usericon:<user>}: the user's photo, opened by UserManagerService.getUserIcon with the caller's identity,
- *       so its own check (MANAGE_USERS or GET_ACCOUNTS_PRIVILEGED, the profile group) decides.</li>
- *   <li>{@code uri:<uri>} (opened as Icon opens it) and {@code uri-image:<uri>} (as ImageDecoder opens it): a content
- *       URI of that user, which the caller may name ({@link OwnerUsers}) and read
- *       (checkContentUriPermissionFull), opened as that user with the system identity.</li>
- * </ul>
+ * DiamaneOS: another user's photo, which the decode gate's provider acquires itself for a caller that may not name
+ * that user for its own bytes ({@link OwnerUsers#forBytes}). The caller's descriptor is closed unused. The request
+ * names its source ({@link DecodeGate#EXTRA_SOURCE}, GateOwner#source), checked here with the caller's binder identity:
+ * {@code usericon:<user>}, the user's photo, opened by UserManagerService.getUserIcon with the caller's identity, so its
+ * own check (MANAGE_USERS or GET_ACCOUNTS_PRIVILEGED, the profile group) decides. Content URIs of another user are the
+ * caller's to open with its own rights, as Android opens them, and come with the caller's descriptor.
  *
  * The open and the copy into a sealed memory file run on {@link #THREADS} threads of their own within the request's
  * time, never on the binder thread. Then the request is the provider's like any other, of that user for the caller. A
@@ -65,8 +52,6 @@ final class ForeignSources {
     static final int THREADS = 2;
     static final int WAITING = 16;
     private static final String USER_ICON = "usericon:";
-    private static final String URI = "uri:";
-    private static final String URI_IMAGE = "uri-image:";
 
     /** The provider's admission of a request whose descriptor is now the system server's own. */
     interface Taker {
@@ -108,7 +93,7 @@ final class ForeignSources {
         closeQuietly(extras.getParcelable(DecodeGate.EXTRA_FD, ParcelFileDescriptor.class));
         final String source = extras.getString(DecodeGate.EXTRA_SOURCE);
         final IBinder binder = extras.getBinder(DecodeGate.EXTRA_CALLBACK);
-        final Opener opener = binder == null ? null : opener(context, uid, Binder.getCallingPid(), named, source);
+        final Opener opener = binder == null ? null : opener(named, source);
         if (opener == null) {
             android.util.Log.w(TAG, "refused: uid " + uid + " named user " + named + " without a source it may read");
             return refusal("may not name user " + named);
@@ -131,7 +116,7 @@ final class ForeignSources {
     }
 
     // The source's check, with the caller's identity: what opens it, or null when the caller may not read it.
-    private static Opener opener(Context context, int uid, int pid, int named, String source) {
+    private static Opener opener(int named, String source) {
         if (source == null || named < 0) {
             return null;
         }
@@ -151,38 +136,7 @@ final class ForeignSources {
                     }
                 };
             }
-            final boolean image = source.startsWith(URI_IMAGE);
-            if (!image && !source.startsWith(URI)) {
-                return null;
-            }
-            final Uri uri = Uri.parse(source.substring(image ? URI_IMAGE.length() : URI.length()));
-            if (!ContentResolver.SCHEME_CONTENT.equals(uri.getScheme())
-                    || ContentProvider.getUserIdFromUri(uri, -1) != named
-                    || OwnerUsers.of(context, uid, named) != named) {
-                return null;
-            }
-            final long identity = Binder.clearCallingIdentity();
-            try {
-                if (context.checkContentUriPermissionFull(uri, pid, uid, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        != PackageManager.PERMISSION_GRANTED) {
-                    return null;
-                }
-            } finally {
-                Binder.restoreCallingIdentity(identity);
-            }
-            final Uri local = ContentProvider.getUriWithoutUserId(uri);
-            return cancel -> {
-                final ContentResolver resolver = context.createContextAsUser(UserHandle.of(named), 0)
-                        .getContentResolver();
-                if (image) {
-                    try {
-                        return resolver.openTypedAssetFileDescriptor(local, "image/*", null, cancel);
-                    } catch (FileNotFoundException e) {
-                        // ImageDecoder reads the plain open when no typed descriptor is offered.
-                    }
-                }
-                return resolver.openAssetFileDescriptor(local, "r", cancel);
-            };
+            return null;
         } catch (RemoteException | RuntimeException e) {
             return null;
         }

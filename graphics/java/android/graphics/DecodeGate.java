@@ -322,20 +322,17 @@ public final class DecodeGate {
      */
     public static OwnerScope userIconScope(int userId) {
         final OwnerScope scope = ownerScope(userId);
-        sScopeSource.set(foreignSource("usericon:", userId, null));
+        sScopeSource.set(userIconSource(userId));
         return scope;
     }
 
-    /**
-     * DiamaneOS: the source the system server acquires an image of {@code user} from, {@code kind} and the URI (with
-     * its user) or the user, when this process is not the system server and the user is not its own, else null.
-     */
-    public static String foreignSource(String kind, int user, Uri uri) {
+    // DiamaneOS: the photo of user {@code user} as the system server acquires it, when this process is not the
+    // system server and the user is not its own, else null.
+    private static String userIconSource(int user) {
         if (user < 0 || sLocal != null || ActivityThread.isSystem() || user == android.os.UserHandle.myUserId()) {
             return null;
         }
-        return uri == null ? kind + user
-                : kind + android.content.ContentProvider.maybeAddUserId(uri, user).toString();
+        return "usericon:" + user;
     }
 
     // Whose image a request made on this thread now is: the scope's user, and in the system server the incoming
@@ -529,14 +526,6 @@ public final class DecodeGate {
         final GateOwner current = owner();
         return new Op(allowedWait(), critical(), GateRefill.current(),
                 GateOwner.of(user, current.forUid, android.os.UserHandle.PER_USER_RANGE));
-    }
-
-    /** DiamaneOS: {@link #beginForUser} for content {@code uri}, which the system server opens for another user. */
-    static Op beginForUri(int user, Uri uri) {
-        final GateOwner current = owner();
-        return new Op(allowedWait(), critical(), GateRefill.current(),
-                GateOwner.of(user, current.forUid, android.os.UserHandle.PER_USER_RANGE)
-                        .withSource(foreignSource("uri-image:", user, uri)));
     }
 
     /** A retained source keeps its user, and a new Binder consumer supplies its own delegate. */
