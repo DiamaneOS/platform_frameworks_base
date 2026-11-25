@@ -44,9 +44,16 @@ public class GateAnimationLimitsDeviceTest {
         return f.get(target);
     }
 
+    // The frames of the window the drawable shows (every frame when they fit one VM reply).
     private static Bitmap[] frames(Drawable drawable) throws Exception {
         assertEquals("android.graphics.GatedAnimation", drawable.getClass().getName());
-        return (Bitmap[]) field(drawable, "mFrames");
+        return (Bitmap[]) field(field(field(drawable, "mWindows"), "mShown"), "frames");
+    }
+
+    private static Bitmap frameBitmap(Drawable drawable, int frame) throws Exception {
+        java.lang.reflect.Method m = drawable.getClass().getDeclaredMethod("frameBitmap", int.class);
+        m.setAccessible(true);
+        return (Bitmap) m.invoke(drawable, frame);
     }
 
     @After public void restore() throws Exception {
@@ -167,12 +174,19 @@ public class GateAnimationLimitsDeviceTest {
             assertTrue(gated instanceof AnimatedImageDrawable);
             assertEquals(width, gated.getIntrinsicWidth());
             assertEquals(height, gated.getIntrinsicHeight());
+            // Above 8 MiPix a frame is scaled to fit one VM reply, one frame a window, the next asked on demand.
             Bitmap[] frames = frames(gated);
-            assertEquals(2, frames.length);
-            long bytesHeld = 0;
-            for (Bitmap bitmap : frames) bytesHeld += bitmap.getAllocationByteCount();
-            assertTrue(bytesHeld <= IDecodeService.MAX_FRAMES_BYTES);
+            assertEquals(1, frames.length);
+            assertTrue((long) frames[0].getAllocationByteCount() <= IDecodeService.MAX_FRAMES_BYTES);
             assertTrue(frames[0].getWidth() < width);
+            Bitmap second = null;
+            for (long end = SystemClock.uptimeMillis() + 30_000; second == null && SystemClock.uptimeMillis() < end; ) {
+                second = frameBitmap(gated, 1);
+                if (second == null) SystemClock.sleep(50);
+            }
+            assertNotNull("the second frame's window never came", second);
+            assertEquals(frames[0].getWidth(), second.getWidth());
+            frames = new Bitmap[] {frames[0], second};
             Bitmap target = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888);
             try {
                 Canvas canvas = new Canvas(target);
