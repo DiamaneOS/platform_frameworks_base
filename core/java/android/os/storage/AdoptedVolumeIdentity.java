@@ -41,6 +41,33 @@ public final class AdoptedVolumeIdentity {
         }
     }
 
+    /**
+     * Forget all: every record goes, and these are the records whose native keys go with them. Refused, before
+     * anything changes, when a record's identity is ambiguous. The key of a partition whose filesystem is present now
+     * stays, as an explicit Forget keeps a key that a remaining record still names.
+     */
+    public static java.util.List<VolumeRecord> keysToForgetForAll(Collection<VolumeRecord> records,
+            java.util.List<VolumeInfo> volumes) {
+        for (VolumeRecord record : records) checkForget(record, volumes);
+        final java.util.List<VolumeRecord> forget = new java.util.ArrayList<>();
+        for (VolumeRecord record : records) {
+            if (TextUtils.isEmpty(record.partGuid)) continue;
+            boolean present = false;
+            for (VolumeInfo volume : volumes) {
+                present |= volume.type == VolumeInfo.TYPE_PRIVATE && volume.partGuid != null
+                        && sameKey(record.partGuid, volume.partGuid);
+            }
+            if (!present) forget.add(record);
+        }
+        return forget;
+    }
+
+    // Match vold's NormalizeHex separators and case folding for hexadecimal GUIDs.
+    private static boolean sameKey(String a, String b) {
+        final String key = a.replaceAll("[ :\\-]", "");
+        return !key.isEmpty() && key.equalsIgnoreCase(b.replaceAll("[ :\\-]", ""));
+    }
+
     public static boolean partitionKeyInUse(String partGuid, Collection<VolumeRecord> remaining) {
         // Match vold's NormalizeHex separators and case folding for hexadecimal GUIDs.
         String key = partGuid.replaceAll("[ :\\-]", "");

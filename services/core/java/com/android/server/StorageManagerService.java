@@ -2907,10 +2907,13 @@ class StorageManagerService extends IStorageManager.Stub
         enforceAdminUserOrSystemUser();
 
         synchronized (mLock) {
+            // DiamaneOS: the keys of a present filesystem stay, an ambiguous record refuses the whole forget.
+            final java.util.List<VolumeRecord> keys = android.os.storage.AdoptedVolumeIdentity.keysToForgetForAll(
+                    mRecords.values(), java.util.Arrays.asList(getVolumes(0)));
             for (int i = 0; i < mRecords.size(); i++) {
                 final String fsUuid = mRecords.keyAt(i);
                 final VolumeRecord rec = mRecords.valueAt(i);
-                if (!TextUtils.isEmpty(rec.partGuid)) {
+                if (keys.contains(rec)) {
                     mHandler.obtainMessage(H_PARTITION_FORGET, rec).sendToTarget();
                 }
                 mCallbacks.notifyVolumeForgotten(fsUuid);
