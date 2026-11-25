@@ -2306,11 +2306,20 @@ class StorageManagerService extends IStorageManager.Stub
             try {
                 vold.setListener(mListener);
                 // DiamaneOS: OBB IDs and cleanup belong to this Binder service instance.
-                mObbVold = new com.android.server.storage.ObbCleanup.Connection(binder, vold::destroyObb);
+                final com.android.server.storage.ObbCleanup.Connection live =
+                        new com.android.server.storage.ObbCleanup.Connection(binder, vold::destroyObb);
+                mObbVold = live;
                 mObbActionHandler.post(() -> {
                     synchronized (mObbMounts) {
                         for (ObbState state : mObbRecords.below("/")) {
-                            if (state.connection != mObbVold) retryObbCleanup(state);
+                            // DiamaneOS: only records of another vold session, by its Binder identity.
+                            if (com.android.server.storage.ObbCleanup.stale(state.connection, live)) {
+                                retryObbCleanup(state);
+                            }
+                        }
+                        // Resting cleanups start again with the new connection.
+                        for (int i = 0; i < mPendingObbCleanup.size(); i++) {
+                            retryObbCleanup(mPendingObbCleanup.valueAt(i));
                         }
                     }
                 });

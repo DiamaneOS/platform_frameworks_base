@@ -21,6 +21,11 @@ public final class ObbCleanup {
     public interface NativeEnd { void destroy(String id) throws Exception; }
     private ObbCleanup() {}
     public record Connection(Object identity, NativeEnd nativeEnd) {}
+
+    /** True when a record made in session {@code recorded} is not of the live session: its cleanup is retried. */
+    public static boolean stale(Connection recorded, Connection live) {
+        return recorded == null || live == null || recorded.identity() != live.identity();
+    }
     public static NativeEnd inSession(java.util.function.Supplier<Connection> current, Connection expected) {
         return id -> {
             Connection live = current.get();
@@ -42,23 +47,44 @@ public final class ObbCleanup {
     }
     public interface Delay { void post(Runnable work, long millis); }
 
-    /** Handler-confined pending native IDs, including rollback without a live listener. */
+    /** The first retry's delay, doubled after each failure, and the tries before the retries rest. */
+    static final long FIRST_RETRY_MS = 3000;
+    static final int TRIES = 6;
+
+    /**
+     * Handler-confined pending native IDs, including rollback without a live listener. A cleanup that keeps failing
+     * is tried {@link #TRIES} times, each wait twice the one before, then rests with its record kept until vold
+     * connects again or the app unmounts the image again ({@link #retry} once more).
+     */
     public static final class Pending<S extends ObbRecords.Record> {
         private final android.util.ArrayMap<String, S> mEntries = new android.util.ArrayMap<>();
+        private final android.util.ArrayMap<String, Integer> mTries = new android.util.ArrayMap<>();
         public int size() { return mEntries.size(); }
         public S valueAt(int index) { return mEntries.valueAt(index); }
-        public S remove(String id) { return mEntries.remove(id); }
+        public S remove(String id) {
+            mTries.remove(id);
+            return mEntries.remove(id);
+        }
         public void retry(S state, NativeEnd nativeEnd, Delay delay, java.util.function.Consumer<S> confirmed) {
             String id = state.volId();
-            if (id == null || mEntries.containsKey(id)) return;
+            if (id == null) return;
+            final S known = mEntries.get(id);
+            if (known != null && (known != state || mTries.containsKey(id))) return; // under way
             mEntries.put(id, state);
+            schedule(id, state, 0, nativeEnd, delay, confirmed);
+        }
+        private void schedule(String id, S state, int tried, NativeEnd nativeEnd, Delay delay,
+                java.util.function.Consumer<S> confirmed) {
+            mTries.put(id, tried);
             delay.post(() -> {
                 if (mEntries.get(id) != state) return;
-                if (!end(nativeEnd, id, () -> { remove(id); confirmed.accept(state); })) {
-                    remove(id);
-                    retry(state, nativeEnd, delay, confirmed);
+                if (end(nativeEnd, id, () -> { remove(id); confirmed.accept(state); })) return;
+                if (tried + 1 < TRIES) {
+                    schedule(id, state, tried + 1, nativeEnd, delay, confirmed);
+                } else {
+                    mTries.remove(id); // resting: the record stays, the next retry starts again
                 }
-            }, 3000);
+            }, FIRST_RETRY_MS << tried);
         }
     }
 }
