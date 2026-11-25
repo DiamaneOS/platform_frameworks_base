@@ -15,6 +15,7 @@
  */
 
 #include "Compile.h"
+#include "cmd/DeviceImages.h"
 
 #include <dirent.h>
 
@@ -833,9 +834,19 @@ int Compile(IAaptContext* context, io::IFileCollection* inputs, IArchiveWriter* 
       if (*type != ResourceType::kRaw) {
         if (*type == ResourceType::kXml || path_data.extension == "xml") {
           compile_func = &CompileXml;
-        } else if ((!options.no_png_crunch && path_data.extension == "png")
-                   || path_data.extension == "9.png") {
-          compile_func = &CompilePng;
+        } else {
+          // DiamaneOS: the device build parses no image (DeviceImages.h).
+          const ImageCompile how = ChooseImageCompile(path_data.extension, options.no_png_crunch,
+                                                      kCompileParsesImages);
+          if (how == ImageCompile::kRefuse) {
+            context->GetDiagnostics()->Error(android::DiagMessage(path_data.source)
+                                             << "nine-patch images are not compiled on the device");
+            error = true;
+            continue;
+          }
+          if (how == ImageCompile::kParse) {
+            compile_func = &CompilePng;
+          }
         }
       }
     } else {

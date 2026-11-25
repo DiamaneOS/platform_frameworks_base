@@ -15,6 +15,7 @@
  */
 
 #include "Compile.h"
+#include "cmd/DeviceImages.h"
 
 #include "android-base/file.h"
 #include "android-base/stringprintf.h"
@@ -51,6 +52,22 @@ int TestCompile(const std::string& path, const std::string& outDir, bool legacy,
     args.push_back("--legacy");
   }
   return CompileCommand(&diag).Execute(args, &std::cerr);
+}
+
+// DiamaneOS: the device build stores a PNG unparsed and refuses a nine-patch, the host build crunches as before.
+TEST(DeviceImagesTest, DeviceBuildParsesNoImage) {
+  EXPECT_EQ(ImageCompile::kStore, ChooseImageCompile("png", false, false));
+  EXPECT_EQ(ImageCompile::kRefuse, ChooseImageCompile("9.png", false, false));
+  EXPECT_EQ(ImageCompile::kRefuse, ChooseImageCompile("9.png", true, false));
+  EXPECT_EQ(ImageCompile::kStore, ChooseImageCompile("webp", false, false));
+  EXPECT_EQ(ImageCompile::kParse, ChooseImageCompile("png", false, true));
+  EXPECT_EQ(ImageCompile::kParse, ChooseImageCompile("9.png", true, true));
+  EXPECT_EQ(ImageCompile::kStore, ChooseImageCompile("png", true, true));
+#if defined(__ANDROID__)
+  EXPECT_FALSE(kCompileParsesImages);
+#else
+  EXPECT_TRUE(kCompileParsesImages);
+#endif
 }
 
 TEST_F(CompilerTest, MultiplePeriods) {
