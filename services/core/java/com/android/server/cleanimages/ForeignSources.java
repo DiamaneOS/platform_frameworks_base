@@ -69,10 +69,9 @@ final class ForeignSources {
 
     private static final ThreadPoolExecutor sOpeners = new ThreadPoolExecutor(THREADS, THREADS, 30,
             TimeUnit.SECONDS, new LinkedBlockingQueue<>(WAITING), r -> {
-                final Thread t = new Thread(() -> {
-                    DecodeGate.markGateThread();
-                    r.run();
-                }, "VmDecodeSource");
+                // Not a gate thread: it copies the source with DecodeGate.snapshot, which the gate's own threads
+                // may not ask for. It decodes nothing itself.
+                final Thread t = new Thread(r, "VmDecodeSource");
                 t.setDaemon(true);
                 return t;
             });

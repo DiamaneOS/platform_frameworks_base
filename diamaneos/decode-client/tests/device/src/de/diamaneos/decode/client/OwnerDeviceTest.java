@@ -234,10 +234,10 @@ public class OwnerDeviceTest {
 
     // A direct request to the provider naming the profile, with this process's own bytes: whether it was taken.
     private static boolean foreignCall(String source) throws Exception {
-        final ParcelFileDescriptor[] pipe = ParcelFileDescriptor.createPipe();
-        try (ParcelFileDescriptor write = pipe[1]) {
+        // A real image in a sealed memory file, as the gate sends it: the provider takes no other input.
+        try (DecodeGate.Input input = DecodeGate.snapshot(png())) {
             final android.os.Bundle extras = new android.os.Bundle();
-            extras.putParcelable(DecodeGate.EXTRA_FD, pipe[0]);
+            extras.putParcelable(DecodeGate.EXTRA_FD, input.fd());
             extras.putInt(DecodeGate.EXTRA_WIDTH, 16);
             extras.putInt(DecodeGate.EXTRA_HEIGHT, 16);
             extras.putInt(DecodeGate.EXTRA_OWNER_USER, sProfile);
@@ -250,8 +250,6 @@ public class OwnerDeviceTest {
             final android.os.Bundle reply = InstrumentationRegistry.getInstrumentation().getTargetContext()
                     .getContentResolver().call(DecodeGate.URI, DecodeGate.METHOD_DECODE, null, extras);
             return reply != null && reply.getBoolean(DecodeGate.EXTRA_TAKEN);
-        } finally {
-            pipe[0].close();
         }
     }
 
@@ -280,7 +278,9 @@ public class OwnerDeviceTest {
                     android.graphics.ImageDecoder.createSource(android.content.ContentResolver.wrap(own),
                             UserImageProvider.IMAGE)));
         }
-        final android.net.Uri workUri = android.content.ContentProvider.maybeAddUserId(UserImageProvider.IMAGE, sProfile);
+        // An image of its own: the work profile's plain image was decoded by an earlier test, and its answer is kept.
+        final android.net.Uri image = UserImageProvider.image(Color.rgb(40, 90, 10 + sSeed++ % 200), 0);
+        final android.net.Uri workUri = android.content.ContentProvider.maybeAddUserId(image, sProfile);
         try (android.content.ContentProviderClient work = resolver.acquireContentProviderClient(workUri)) {
             assertNotNull(work);
             try (android.content.res.AssetFileDescriptor raw = work.openAssetFile(UserImageProvider.IMAGE, "r")) {
@@ -295,7 +295,7 @@ public class OwnerDeviceTest {
             final double since = System.currentTimeMillis() / 1000.0;
             assertNotNull("the work source", android.graphics.ImageDecoder
                     .decodeBitmap(android.graphics.ImageDecoder.createSource(
-                            android.content.ContentResolver.wrap(work), UserImageProvider.IMAGE)));
+                            android.content.ContentResolver.wrap(work), image)));
             assertForeignRequestReachedTheGuest(since);
         }
     }
