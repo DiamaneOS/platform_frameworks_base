@@ -18,6 +18,7 @@ package de.diamaneos.decode.client;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -37,6 +38,8 @@ import android.util.Size;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 
+import com.android.internal.diamaneos.cleancopies.CleanCopyGate;
+import com.android.internal.diamaneos.cleancopies.VmThumbnailNotices;
 import com.android.internal.diamaneos.cleancopies.VmThumbnails;
 
 import org.junit.After;
@@ -191,6 +194,58 @@ public class ThumbnailsDeviceTest {
         assertFailsClosed(ThumbnailTestProvider.uri("png", newColour()));
         assertFailsClosed(ThumbnailTestProvider.uri("part", newColour()));
         assertFailsClosed(ThumbnailTestProvider.uri("pipe", newColour()));
+    }
+
+    // A thumbnail that failed while the VM was held down gets one change notice once the decode service answers
+    // again (the system server's notice, played here as the gate's test hook does), and only one however often it
+    // failed. A refused one gets none.
+    @Test
+    public void gatedCaller_outageFailure_isNotifiedOnceWhenTheServiceAnswers() throws Exception {
+        assumeDecodeService();
+        VmThumbnails.setForcedForTest(true);
+        loadFromVm(ThumbnailTestProvider.uri("png", "123456"));
+        final Uri failed = ThumbnailTestProvider.uri("png", newColour());
+        final Uri refused = ThumbnailTestProvider.uri("junk", null);
+        final java.util.concurrent.atomic.AtomicInteger notices = new java.util.concurrent.atomic.AtomicInteger();
+        final java.util.concurrent.atomic.AtomicInteger refusedNotices =
+                new java.util.concurrent.atomic.AtomicInteger();
+        final android.os.HandlerThread thread = new android.os.HandlerThread("thumbnail-notices");
+        thread.start();
+        final android.os.Handler handler = new android.os.Handler(thread.getLooper());
+        final android.database.ContentObserver observer = new android.database.ContentObserver(handler) {
+            @Override public void onChange(boolean self, Uri uri) {
+                if (failed.equals(uri)) notices.incrementAndGet();
+                if (refused.equals(uri)) refusedNotices.incrementAndGet();
+            }
+        };
+        mResolver.registerContentObserver(failed, false, observer);
+        mResolver.registerContentObserver(refused, false, observer);
+        try {
+            assertFailsClosed(refused);
+            holdVmDown(30);
+            assertFailsClosed(failed);
+            assertFailsClosed(failed);
+            assertTrue("the failed thumbnail is not remembered",
+                    VmThumbnailNotices.pendingForTest().contains(failed));
+            assertFalse("a refused thumbnail is remembered", VmThumbnailNotices.pendingForTest().contains(refused));
+            shell("setprop " + DOWN_UNTIL + " 0");
+            CleanCopyGate.decodeAnswersForTest();
+            for (long end = SystemClock.uptimeMillis() + 5_000; notices.get() == 0
+                    && SystemClock.uptimeMillis() < end; ) {
+                SystemClock.sleep(50);
+            }
+            SystemClock.sleep(1_000);
+            assertEquals("change notices for the failed thumbnail", 1, notices.get());
+            assertEquals("change notices for the refused thumbnail", 0, refusedNotices.get());
+            assertTrue("remembered after the notice", VmThumbnailNotices.pendingForTest().isEmpty());
+            // Another answer notice sends nothing more.
+            CleanCopyGate.decodeAnswersForTest();
+            SystemClock.sleep(1_000);
+            assertEquals("a second notice", 1, notices.get());
+        } finally {
+            mResolver.unregisterContentObserver(observer);
+            thread.quitSafely();
+        }
     }
 
     @Test
