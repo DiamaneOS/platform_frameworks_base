@@ -122,6 +122,11 @@ public final class DecodeGate {
      * takes it only from a caller that may act for that user.
      */
     public static final String EXTRA_OWNER_USER = "ownerUser";
+    /**
+     * DiamaneOS: where the system server acquires an image of {@link #EXTRA_OWNER_USER} that is not the caller's own
+     * user (GateOwner#source). The caller's descriptor is then not used.
+     */
+    public static final String EXTRA_SOURCE = "source";
     /** The system server only (never over binder): the uid of the app it decodes for, from an incoming call. */
     public static final String EXTRA_FOR_UID = "forUid";
     /** The package of the calling process, for the lane of bytes without a provider. */
@@ -200,6 +205,8 @@ public final class DecodeGate {
     private static volatile boolean sLocksLogged;
     // The user a scope names on this thread (ownerScope), GateOwner.UNKNOWN for none.
     private static final ThreadLocal<Integer> sScopeUser = ThreadLocal.withInitial(() -> GateOwner.UNKNOWN);
+    // The source a scope names on this thread (userIconScope), null for none.
+    private static final ThreadLocal<String> sScopeSource = new ThreadLocal<>();
     // Answers by request and bytes (see Call), and requests under way. An answer is charged its pixels, and for its
     // key, its bundle and the rest a fixed amount that covers them.
     private static final int ENTRY_BYTES = 2048;
@@ -282,14 +289,17 @@ public final class DecodeGate {
     /** A scope of {@link #ownerScope}: closing it ends it. */
     public static final class OwnerScope implements AutoCloseable {
         private final int mPrevious;
+        private final String mPreviousSource;
 
-        private OwnerScope(int previous) {
+        private OwnerScope(int previous, String previousSource) {
             mPrevious = previous;
+            mPreviousSource = previousSource;
         }
 
         @Override
         public void close() {
             sScopeUser.set(mPrevious);
+            sScopeSource.set(mPreviousSource);
         }
     }
 
@@ -300,9 +310,32 @@ public final class DecodeGate {
      * the outer one.
      */
     public static OwnerScope ownerScope(int userId) {
-        final OwnerScope scope = new OwnerScope(sScopeUser.get());
+        final OwnerScope scope = new OwnerScope(sScopeUser.get(), sScopeSource.get());
         sScopeUser.set(userId >= 0 ? userId : GateOwner.UNKNOWN);
+        sScopeSource.set(null);
         return scope;
+    }
+
+    /**
+     * DiamaneOS: {@link #ownerScope} for the photo of user {@code userId} (UserManager.getUserIcon). For another
+     * user's photo outside the system server, the system server opens the photo itself with the caller's access.
+     */
+    public static OwnerScope userIconScope(int userId) {
+        final OwnerScope scope = ownerScope(userId);
+        sScopeSource.set(foreignSource("usericon:", userId, null));
+        return scope;
+    }
+
+    /**
+     * DiamaneOS: the source the system server acquires an image of {@code user} from, {@code kind} and the URI (with
+     * its user) or the user, when this process is not the system server and the user is not its own, else null.
+     */
+    public static String foreignSource(String kind, int user, Uri uri) {
+        if (user < 0 || sLocal != null || ActivityThread.isSystem() || user == android.os.UserHandle.myUserId()) {
+            return null;
+        }
+        return uri == null ? kind + user
+                : kind + android.content.ContentProvider.maybeAddUserId(uri, user).toString();
     }
 
     // Whose image a request made on this thread now is: the scope's user, and in the system server the incoming
@@ -310,7 +343,8 @@ public final class DecodeGate {
     private static GateOwner owner() {
         final int calling = sLocal != null && Binder.getCallingPid() != Process.myPid()
                 ? Binder.getCallingUid() : GateOwner.UNKNOWN;
-        return GateOwner.of(sScopeUser.get(), calling, android.os.UserHandle.PER_USER_RANGE);
+        return GateOwner.of(sScopeUser.get(), calling, android.os.UserHandle.PER_USER_RANGE)
+                .withSource(sScopeSource.get());
     }
 
     /** Marks this thread as the gate's own (the provider's): nothing on it goes through the gate again. */
@@ -495,6 +529,14 @@ public final class DecodeGate {
         final GateOwner current = owner();
         return new Op(allowedWait(), critical(), GateRefill.current(),
                 GateOwner.of(user, current.forUid, android.os.UserHandle.PER_USER_RANGE));
+    }
+
+    /** DiamaneOS: {@link #beginForUser} for content {@code uri}, which the system server opens for another user. */
+    static Op beginForUri(int user, Uri uri) {
+        final GateOwner current = owner();
+        return new Op(allowedWait(), critical(), GateRefill.current(),
+                GateOwner.of(user, current.forUid, android.os.UserHandle.PER_USER_RANGE)
+                        .withSource(foreignSource("uri-image:", user, uri)));
     }
 
     /** A retained source keeps its user, and a new Binder consumer supplies its own delegate. */
@@ -1265,6 +1307,9 @@ public final class DecodeGate {
         }
         if (owner.user >= 0) {
             extras.putInt(EXTRA_OWNER_USER, owner.user);
+        }
+        if (owner.source != null) {
+            extras.putString(EXTRA_SOURCE, owner.source); // DiamaneOS
         }
         extras.putBinder(EXTRA_CALLBACK, new IRemoteCallback.Stub() {
             @Override

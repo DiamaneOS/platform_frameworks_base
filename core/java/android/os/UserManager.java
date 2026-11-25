@@ -6691,7 +6691,7 @@ public class UserManager {
             ParcelFileDescriptor fd = mService.getUserIcon(userId);
             if (fd != null) {
                 // DiamaneOS: the icon is an image of that user (DecodeGate).
-                try (var owner = android.graphics.DecodeGate.ownerScope(userId)) {
+                try (var owner = android.graphics.DecodeGate.userIconScope(userId)) {
                     return BitmapFactory.decodeFileDescriptor(fd.getFileDescriptor());
                 } finally {
                     try {

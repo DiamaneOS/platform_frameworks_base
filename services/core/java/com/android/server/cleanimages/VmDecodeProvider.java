@@ -72,9 +72,10 @@ import java.util.concurrent.TimeUnit;
  * lane. The decode service's lane is the app's uid and name and the origin together, so no caller is ever charged to
  * another app's lane. No binder thread waits for the VM.
  *
- * <p>Whose image a request is: an app's own user, from its binder identity, unless it names another user it may act
- * for ({@link DecodeGate#EXTRA_OWNER_USER}: INTERACT_ACROSS_USERS_FULL, or INTERACT_ACROSS_USERS within its profile
- * group), decoded for that app ({@code forApp}). The system server's own requests carry what DecodeGate took on the
+ * <p>Whose image a request is: an app's own user, from its binder identity. An image of another user
+ * ({@link DecodeGate#EXTRA_OWNER_USER}) is never the caller's own bytes: the system server acquires it from the source
+ * the caller names and may read ({@link ForeignSources}), decoded for that app ({@code forApp}). The system server's
+ * own requests carry what DecodeGate took on the
  * thread that made them: a scope's user, an incoming call's caller. With neither, the image is of no known user and the
  * decode service keeps it apart from every user's.
  *
@@ -331,9 +332,8 @@ public final class VmDecodeProvider extends ContentProvider {
         final int named = extras == null ? -1 : extras.getInt(DecodeGate.EXTRA_OWNER_USER, -1);
         final int owner = GateCallers.unverifiedUser(uid, named, UserHandle.PER_USER_RANGE);
         if (owner < 0) {
-            closeQuietly(extras.getParcelable(DecodeGate.EXTRA_FD, ParcelFileDescriptor.class));
-            Log.w(TAG, "refused: uid " + uid + " supplied an unverified descriptor for user " + named);
-            return refusal("may not name user " + named);
+            // DiamaneOS: another user's image is acquired here from the source the caller may read.
+            return ForeignSources.take(getContext(), this::take, method, extras, uid, named, attributedPackage());
         }
         return take(method, extras, uid, owner, uid, attributedPackage());
     }

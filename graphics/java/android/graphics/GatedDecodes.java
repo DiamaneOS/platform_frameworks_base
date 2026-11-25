@@ -612,7 +612,7 @@ final class GatedDecodes {
         } catch (IllegalArgumentException e) {
             throw new IOException("the image source user is unresolved", e);
         }
-        final DecodeGate.Op op = sourceUser >= 0 ? DecodeGate.beginForUser(sourceUser) : DecodeGate.begin();
+        final DecodeGate.Op op = sourceUser >= 0 ? DecodeGate.beginForUri(sourceUser, uri) : DecodeGate.begin();
         try (GateInput.Acquired input = GateInput.acquireUri(op, resolver, uri)) {
             if (input.descriptor != null) {
                 exempt[0] = input.descriptor;

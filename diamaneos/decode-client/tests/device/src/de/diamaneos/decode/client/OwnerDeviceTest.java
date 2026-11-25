@@ -184,7 +184,7 @@ public class OwnerDeviceTest {
     }
 
     @Test
-    public void aResolverSourceNeverLosesItsForeignUserBeforeDispatch() throws Exception {
+    public void aForeignResolverSourceIsAcquiredByTheSystemServer() throws Exception {
         String installed = shell("pm install-existing --user " + sProfile + " "
                 + InstrumentationRegistry.getInstrumentation().getTargetContext().getPackageName());
         assertTrue(installed, installed.contains("installed"));
@@ -193,12 +193,71 @@ public class OwnerDeviceTest {
         assertNotNull("same-user source positive control", android.graphics.ImageDecoder.decodeBitmap(
                 android.graphics.ImageDecoder.createSource(resolver, UserImageProvider.IMAGE)));
         android.net.Uri uri = android.content.ContentProvider.maybeAddUserId(UserImageProvider.IMAGE, sProfile);
-        try {
-            android.graphics.ImageDecoder.decodeBitmap(android.graphics.ImageDecoder.createSource(resolver, uri));
-            org.junit.Assert.fail("a remote snapshot cannot authenticate its foreign source user");
-        } catch (java.io.IOException expected) {
-            // Refused before VM admission until this source can be acquired by the broker itself.
+        final double since = System.currentTimeMillis() / 1000.0;
+        // The caller's own snapshot is not used: the system server opens the URI in the profile itself.
+        assertNotNull("the profile's image, acquired by the system server", android.graphics.ImageDecoder
+                .decodeBitmap(android.graphics.ImageDecoder.createSource(resolver, uri)));
+        assertForeignRequestReachedTheGuest(since);
+    }
+
+    @Test
+    public void anotherUsersPhotoComesThroughTheSystemServer() throws Exception {
+        final android.os.UserManager users = InstrumentationRegistry.getInstrumentation().getTargetContext()
+                .getSystemService(android.os.UserManager.class);
+        final Bitmap photo = Bitmap.createBitmap(48, 48, Bitmap.Config.ARGB_8888);
+        final int colour = Color.rgb(200, 30 + sSeed % 100, 60);
+        photo.eraseColor(colour);
+        users.setUserIcon(sProfile, photo);
+        final double since = System.currentTimeMillis() / 1000.0;
+        final Bitmap icon = users.getUserIcon(sProfile);
+        assertNotNull("UserManager.getUserIcon of the profile, decoded as the profile's image", icon);
+        assertEquals("the photo's pixels", colour, icon.getPixel(icon.getWidth() / 2, icon.getHeight() / 2));
+        assertForeignRequestReachedTheGuest(since);
+    }
+
+    @Test
+    public void aForeignRequestWithoutASourceItMayReadIsRefused() throws Exception {
+        assertFalse("no source: the caller's own bytes are never another user's", foreignCall(null));
+        assertFalse("a source of a provider the caller may not read", foreignCall("uri-image:content://"
+                + sProfile + "@com.android.contacts/contacts"));
+        assertFalse("another user's photo than the one named", foreignCall("usericon:0"));
+        assertFalse("not a content URI", foreignCall("uri:file:///data/system/users/" + sProfile + "/photo.png"));
+    }
+
+    // A direct request to the provider naming the profile, with this process's own bytes: whether it was taken.
+    private static boolean foreignCall(String source) throws Exception {
+        final ParcelFileDescriptor[] pipe = ParcelFileDescriptor.createPipe();
+        try (ParcelFileDescriptor write = pipe[1]) {
+            final android.os.Bundle extras = new android.os.Bundle();
+            extras.putParcelable(DecodeGate.EXTRA_FD, pipe[0]);
+            extras.putInt(DecodeGate.EXTRA_WIDTH, 16);
+            extras.putInt(DecodeGate.EXTRA_HEIGHT, 16);
+            extras.putInt(DecodeGate.EXTRA_OWNER_USER, sProfile);
+            if (source != null) extras.putString(DecodeGate.EXTRA_SOURCE, source);
+            extras.putBinder(DecodeGate.EXTRA_CALLBACK, new android.os.IRemoteCallback.Stub() {
+                @Override
+                public void sendResult(android.os.Bundle result) {
+                }
+            }.asBinder());
+            final android.os.Bundle reply = InstrumentationRegistry.getInstrumentation().getTargetContext()
+                    .getContentResolver().call(DecodeGate.URI, DecodeGate.METHOD_DECODE, null, extras);
+            return reply != null && reply.getBoolean(DecodeGate.EXTRA_TAKEN);
+        } finally {
+            pipe[0].close();
         }
+    }
+
+    // The guest saw a request of the profile's user in this app's lane after {@code since}.
+    private static void assertForeignRequestReachedTheGuest(double since) throws Exception {
+        final String log = shell(String.format(java.util.Locale.ROOT,
+                "logcat -d -v epoch -T %.3f -s DecoderUsers:I", since));
+        final Matcher request = REQUEST.matcher(log);
+        boolean seen = false;
+        while (request.find()) {
+            seen |= Integer.parseInt(request.group(1)) == sProfile
+                    && request.group(4).equals("?gate:uid" + Process.myUid());
+        }
+        assertTrue("a request of user " + sProfile + " in this app's lane reached the guest: " + log, seen);
     }
 
     @Test
@@ -219,17 +278,17 @@ public class OwnerDeviceTest {
             try (android.content.res.AssetFileDescriptor raw = work.openAssetFile(UserImageProvider.IMAGE, "r")) {
                 assertNotNull("the acquired work endpoint can open its unqualified URI", raw);
                 try (java.io.InputStream input = raw.createInputStream()) {
-                    assertArrayEquals("the work source is readable before the gate refuses its foreign label",
+                    assertArrayEquals("the work source is readable by this process",
                             new byte[] {(byte) 137, 80, 78, 71, 13, 10, 26, 10}, input.readNBytes(8));
                 }
             }
-            try {
-                android.graphics.ImageDecoder.decodeBitmap(android.graphics.ImageDecoder.createSource(
-                        android.content.ContentResolver.wrap(work), UserImageProvider.IMAGE));
-                org.junit.Assert.fail("the acquired work-user capability cannot become this process's source");
-            } catch (java.io.IOException expected) {
-                // The captured foreign source cannot be authenticated by a remote caller-supplied FD.
-            }
+            // The captured work user travels with the request: the system server opens the URI in the work
+            // profile itself, never taking this process's snapshot as the work profile's image.
+            final double since = System.currentTimeMillis() / 1000.0;
+            assertNotNull("the work source, acquired by the system server", android.graphics.ImageDecoder
+                    .decodeBitmap(android.graphics.ImageDecoder.createSource(
+                            android.content.ContentResolver.wrap(work), UserImageProvider.IMAGE)));
+            assertForeignRequestReachedTheGuest(since);
         }
     }
 

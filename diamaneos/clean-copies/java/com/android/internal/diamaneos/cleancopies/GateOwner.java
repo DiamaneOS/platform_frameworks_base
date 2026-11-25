@@ -24,7 +24,8 @@ package com.android.internal.diamaneos.cleancopies;
  * decodes it for. A component that knows the user names it in a scope (the user switching dialog, another user's
  * icon): that wins. In the system server an incoming binder call names its caller's user and uid. Else nothing is
  * known here ({@link #UNKNOWN}): the provider decides from the binder identity it sees, or, for the system server's own
- * work, keeps it apart from every user's. Plain Java, tested on the host.
+ * work, keeps it apart from every user's. Outside the system server an image of another user also names its
+ * {@link #source}, which the provider acquires itself. Plain Java, tested on the host.
  *
  * @hide
  */
@@ -36,10 +37,25 @@ public final class GateOwner {
     public final int user;
     /** The uid of the process the system server decodes it for, or {@link #UNKNOWN} (its own work). */
     public final int forUid;
+    /**
+     * Where the system server acquires the image of another user itself ({@code uri:}, {@code uri-image:} or
+     * {@code usericon:}), or null. A remote caller's own bytes are never taken for another user.
+     */
+    public final String source;
 
     private GateOwner(int user, int forUid) {
+        this(user, forUid, null);
+    }
+
+    private GateOwner(int user, int forUid, String source) {
         this.user = user;
         this.forUid = forUid;
+        this.source = source;
+    }
+
+    /** The same owner, its image acquired by the system server from {@code source} (null: none). */
+    public GateOwner withSource(String source) {
+        return new GateOwner(user, forUid, source);
     }
 
     /**
@@ -64,22 +80,23 @@ public final class GateOwner {
 
     /** Retains the source user and binds a subsequent operation to its current delegate. */
     public GateOwner forSource(int callingUid, int perUserRange) {
-        return new GateOwner(user, callingUid >= 0 ? callingUid : forUid);
+        return new GateOwner(user, callingUid >= 0 ? callingUid : forUid, source);
     }
 
     /** The part of every cache and request key: answers are never shared between owners. */
     public String key() {
-        return "u" + user + ",f" + forUid;
+        return "u" + user + ",f" + forUid + (source == null ? "" : ",s" + source);
     }
 
     @Override
     public boolean equals(Object o) {
-        return o instanceof GateOwner && ((GateOwner) o).user == user && ((GateOwner) o).forUid == forUid;
+        return o instanceof GateOwner && ((GateOwner) o).user == user && ((GateOwner) o).forUid == forUid
+                && java.util.Objects.equals(((GateOwner) o).source, source);
     }
 
     @Override
     public int hashCode() {
-        return 31 * user + forUid;
+        return 31 * (31 * user + forUid) + java.util.Objects.hashCode(source);
     }
 
     @Override
