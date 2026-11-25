@@ -28,25 +28,32 @@ import android.os.Binder;
 import android.os.ParcelFileDescriptor;
 import android.os.ServiceManager;
 
-/** Server-held input from the actual shortcut operation authorized by LauncherApps for the Binder caller. */
+/**
+ * Server-held input from the actual shortcut operation authorized by LauncherApps for the Binder caller: the icon file
+ * LauncherApps opens, or the icon URI it names, which the system server opens itself as the URI's user once the
+ * caller's read access is checked. Both are bound to the shortcut, so its decodes share the shortcut's own item
+ * domain.
+ */
 final class ShortcutAccess implements AutoCloseable {
+    // How long the open of an icon URI may take (CleanImageMaker SHORTCUT_MS).
+    private static final long OPEN_MS = 1_500;
     final String packageName;
     final String id;
     final int user;
     final int sourceUser;
     private final ParcelFileDescriptor mFile;
-    private final boolean mTrustedFile;
+    private final Uri mUri;
 
     private ShortcutAccess(String pkg, String shortcutId, int sourceUser, ParcelFileDescriptor file, Uri uri) {
         packageName = pkg;
         id = shortcutId;
         user = sourceUser;
         mFile = file;
-        mTrustedFile = uri == null;
+        mUri = uri;
         this.sourceUser = uri == null ? user : ContentProvider.getUserIdFromUri(uri, user);
     }
 
-    static ShortcutAccess resolve(Context context, int uid, String callerPackage, String pkg, String id, int user, ParcelFileDescriptor supplied) {
+    static ShortcutAccess resolve(Context context, int uid, String callerPackage, String pkg, String id, int user) {
         if (callerPackage == null || pkg == null || id == null || id.isEmpty() || id.length() > 1000 || user < 0) {
             return null;
         }
@@ -86,18 +93,36 @@ final class ShortcutAccess implements AutoCloseable {
             } finally {
                 Binder.restoreCallingIdentity(identity);
             }
-            return supplied == null ? null : new ShortcutAccess(pkg, id, user, supplied.dup(), input);
-        } catch (android.os.RemoteException | java.io.IOException | RuntimeException e) {
+            // DiamaneOS: opened here (open), never the caller's own descriptor.
+            return new ShortcutAccess(pkg, id, user, null, input);
+        } catch (android.os.RemoteException | RuntimeException e) {
             return null;
         }
     }
 
-    boolean hasTrustedFile() {
-        return mTrustedFile;
-    }
-
+    /** The icon's bytes: the file, or the URI opened as its user and copied, within {@link #OPEN_MS}. */
     ParcelFileDescriptor open(Context context) throws java.io.IOException {
-        return mFile.dup();
+        if (mFile != null) {
+            return mFile.dup();
+        }
+        final android.os.CancellationSignal cancel = new android.os.CancellationSignal();
+        final Object token = new Object();
+        com.android.internal.os.BackgroundThread.getHandler().postAtTime(cancel::cancel, token,
+                android.os.SystemClock.uptimeMillis() + OPEN_MS);
+        final long identity = Binder.clearCallingIdentity();
+        try (android.content.res.AssetFileDescriptor afd = context.createContextAsUser(
+                android.os.UserHandle.of(sourceUser), 0).getContentResolver().openAssetFileDescriptor(
+                        ContentProvider.getUriWithoutUserId(mUri), "r", cancel)) {
+            if (afd == null) {
+                return null;
+            }
+            try (android.graphics.DecodeGate.Input bytes = android.graphics.DecodeGate.snapshot(afd)) {
+                return bytes.fd().dup();
+            }
+        } finally {
+            Binder.restoreCallingIdentity(identity);
+            com.android.internal.os.BackgroundThread.getHandler().removeCallbacksAndMessages(token);
+        }
     }
 
     @Override

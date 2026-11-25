@@ -70,7 +70,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.UUID;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
@@ -685,13 +684,9 @@ public final class CleanImageMaker {
                 if (left <= 0) {
                     return null;
                 }
-                // Only LauncherApps supplies file input bound to the shortcut. Give other input a fresh domain
-                // for the recipient, with a stable quota lane for that UID.
-                final String identity = input.hasTrustedFile()
-                        ? packageName + "/profile" + user + "/" + input.id + "/to" + forUid
-                                + "/recipient" + recipientSerial + "/source" + sourceSerial
-                                + "/shortcut" + shortcutSerial
-                        : "?shortcut:" + forUid + "/" + UUID.randomUUID();
+                // The input is the system server's own (ShortcutAccess), bound to the shortcut: its item domain.
+                final String identity = packageName + "/profile" + user + "/" + input.id + "/to" + forUid
+                        + "/recipient" + recipientSerial + "/source" + sourceSerial + "/shortcut" + shortcutSerial;
                 try (ParcelFileDescriptor fd = input.open(mContext);
                         VmDecode.ForApp app = VmDecode.forApp(VmDecode.SHORTCUT_ITEM)) {
                     if (fd == null || userSerial(user) != shortcutSerial
@@ -699,8 +694,7 @@ public final class CleanImageMaker {
                             || !installedFor(packageName, user)) {
                         return null;
                     }
-                    final int decodeUser = input.hasTrustedFile() ? input.sourceUser : recipient;
-                    final Bitmap bitmap = VmDecode.decode(mContext, fd, identity, decodeUser,
+                    final Bitmap bitmap = VmDecode.decode(mContext, fd, identity, input.sourceUser,
                             VmDecode.PRIORITY_USER_WAITING, SHORTCUT_MAX_SIDE, SHORTCUT_MAX_SIDE,
                             VmDecode.deadlineIn(left)).bitmap;
                     return userSerial(user) == shortcutSerial && userSerial(input.sourceUser) == sourceSerial

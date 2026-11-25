@@ -199,6 +199,7 @@ public final class CleanImageProvider extends ContentProvider {
                     maker.watch(extras.getBinder(CleanCopyClient.EXTRA_CALLBACK), uid, Binder.getCallingPid()));
             return reply;
         } else if (CleanCopyClient.METHOD_SHORTCUT.equals(method)) {
+            // The caller's own copy of the icon is not used: ShortcutAccess opens the shortcut's input itself.
             try (ParcelFileDescriptor supplied = extras.getParcelable(CleanCopyClient.EXTRA_FD,
                     ParcelFileDescriptor.class)) {
                 if (!maker.shortcutCaller(uid)) {
@@ -206,7 +207,7 @@ public final class CleanImageProvider extends ContentProvider {
                 }
                 try (ShortcutAccess input = ShortcutAccess.resolve(getContext(), uid,
                         extras.getString("callingPackage"), extras.getString(CleanCopyClient.EXTRA_PACKAGE),
-                        extras.getString("shortcutId"), user, supplied)) {
+                        extras.getString("shortcutId"), user)) {
                     final Bundle reply = new Bundle();
                     if (input != null) {
                         reply.putParcelable(CleanCopyClient.EXTRA_BITMAP, maker.shortcutIcon(input, uid));
