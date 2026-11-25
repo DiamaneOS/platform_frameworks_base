@@ -321,8 +321,9 @@ services/core/java/com/android/server/wm/ActivityTaskManagerService.java | the a
     Context context = mContext.createPackageContext(proc.mInfo.packageName, 0);
 services/core/java/com/android/server/wm/AppCompatRecreateOnConfigChangePolicy.java | the app's context for configuration flags, no image
     .createPackageContextAsUser(mActivityRecord.packageName,
-services/core/java/com/android/server/wm/AppSnapshotLoader.java | task snapshot files the system wrote
-    bitmap = BitmapFactory.decodeFile(bitmapFile.getPath(), options);
+services/core/java/com/android/server/wm/SnapshotImageFiles.java | a task snapshot the system server encoded itself, read through CleanFileStream against the SHA-256 recorded when it was written (pixels app-chosen, every byte of JPEG structure from the system's encoder), anything else through the decode gate
+    return BitmapFactory.decodeStream(own, null, options);
+    return BitmapFactory.decodeFile(file.getPath(), options);
 services/core/java/com/android/server/wm/LaunchWarningWindow.java | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
     icon.setImageDrawable(next.info.applicationInfo.loadIcon(context.getPackageManager()));
     icon.setImageDrawable(cur.info.applicationInfo.loadIcon(context.getPackageManager()));
