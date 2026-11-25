@@ -368,6 +368,10 @@ public class StorageNotification implements CoreStartable {
             case VolumeInfo.STATE_NOT_WRITTEN_BACK:
                 notif = onVolumeNotWrittenBack(vol);
                 break;
+            case VolumeInfo.STATE_FORMATTED_UNVERIFIED:
+            case VolumeInfo.STATE_FORMAT_RESULT_UNVERIFIED:
+                notif = onVolumeFormatUnverified(vol); // DiamaneOS
+                break;
             case VolumeInfo.STATE_REMOVED:
                 notif = onVolumeRemoved(vol);
                 break;
@@ -567,6 +571,20 @@ public class StorageNotification implements CoreStartable {
                 mContext.getString(R.string.ext_media_not_written_back_notification_message))
                 .setContentIntent(buildVolumeSettingsPendingIntent(vol))
                 .setCategory(Notification.CATEGORY_ERROR)
+                .build();
+    }
+
+    /**
+     * DiamaneOS: a format or erase finished, but its result is not verified yet or could not be verified. A notice
+     * with the card's state that opens its storage page, where the verification is retried or the erase confirmed
+     * again. No action of its own.
+     */
+    private Notification onVolumeFormatUnverified(VolumeInfo vol) {
+        final DiskInfo disk = vol.getDisk();
+        return buildNotificationBuilder(vol, disk != null ? disk.getDescription() : vol.getDescription(),
+                mContext.getString(vol.getStateDescription()))
+                .setContentIntent(buildVolumeSettingsPendingIntent(vol))
+                .setCategory(Notification.CATEGORY_STATUS)
                 .build();
     }
 
