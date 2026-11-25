@@ -54,7 +54,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * {@link #AUTHORITY}) has them probed or decoded by the decode service and sends the pixels back. Decoded here as
  * before are only a regular file on a verified read-only system partition, decided from the open file
  * ({@link VerifiedSystemFiles}), never from a path, an asset of an APK of the system image or of the process's own
- * ({@link #gatesStream}), a clean copy's image and a file the system server made from pixels of the VM
+ * ({@link #gatesStream}), a clean copy's image and a file the system server wrote with its own encoder
  * ({@link CleanFileStream}). Other streams, byte arrays, buffers and memory are never exempt.
  *
  * <p>The bytes go over as a memory file of at most {@link #MAX_BYTES}, known by their SHA-256, handed to the system
@@ -388,8 +388,8 @@ public final class DecodeGate {
     /**
      * True when this process gates and takes {@code in}'s bytes to the VM: every stream but an asset of an APK of the
      * system image or of this process's own (every APK it can come from, as the clean copy gate decides), a clean
-     * copy's image (made in this process from pixels of the VM) and a file the system server made from pixels of the
-     * VM, read and checked against its recorded hash ({@link CleanFileStream}).
+     * copy's image (made in this process from pixels of the VM) and a file the system server wrote with its own
+     * encoder, read and checked against its recorded hash ({@link CleanFileStream}).
      */
     public static boolean gatesStream(InputStream in) {
         if (in == null || !gates()) {

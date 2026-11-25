@@ -35,11 +35,19 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Set;
 
 /**
- * An image file the system server wrote itself from pixels made in the protected VM (a wallpaper made clean, or its
- * crop), read whole into memory and decoded here as it is: the decode gate (android.graphics.DecodeGate) does not take
- * it to the VM again. Only {@link #read} makes one, and only when the SHA-256 of exactly the bytes it read is one of
- * the hashes the system server recorded for files it wrote. The bytes hashed are the bytes decoded, so nothing can
- * change between the check and the decode. A file of any other origin, an app's descriptor among them, never matches.
+ * An image file the system server wrote itself with its own encoder, read whole into memory and decoded here as it is:
+ * the decode gate (android.graphics.DecodeGate) does not take it to the VM. Only {@link #read} makes one, and only when
+ * the SHA-256 of exactly the bytes it read is one of the hashes the system server recorded for files it wrote. The
+ * bytes hashed are the bytes decoded, so nothing can change between the check and the decode. A file of any other
+ * origin, an app's descriptor among them, never matches.
+ *
+ * <p>Two kinds of file, one trust argument. A wallpaper made clean, or its crop: the pixels of the VM's decode of the
+ * app's image (WallpaperVmSanitizer). A task or activity snapshot: the pixels of the task's own window, captured by
+ * the system server (com.android.server.wm.SnapshotImageFiles), also checked there for owner system, label
+ * system_data_file and size on the open descriptor. In both the pixel values are the app's choice and in both every
+ * byte of the file's structure (markers, tables, chunk and segment lengths, sizes, metadata) was written by the
+ * system server's own encoder. A decoder bug needs malformed structure that encoder never emits, so the native decode
+ * here parses encoder output of untrusted pixels, not untrusted bytes.
  *
  * @hide
  */
