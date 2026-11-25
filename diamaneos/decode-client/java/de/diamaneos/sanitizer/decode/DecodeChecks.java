@@ -185,15 +185,39 @@ public final class DecodeChecks {
      * the animation's count within MAX_FRAMES, and exactly the frames framesWindowCount gives.
      */
     public static String check(Frames f, int maxWidth, int maxHeight, int firstFrame, int frameWindow) {
+        return check(f, maxWidth, maxHeight, firstFrame, frameWindow, 0);
+    }
+
+    /**
+     * As above with frameBand (a band's top row + 1, 0 for whole frames): one frame, the whole frame's height within
+     * the box, exactly the band's rows from that top.
+     */
+    public static String check(Frames f, int maxWidth, int maxHeight, int firstFrame, int frameWindow, int frameBand) {
         final String broken = check(f, maxWidth, maxHeight);
         if (broken != null || f.status != IDecodeService.STATUS_OK) return broken;
-        if (frameWindow == 0) return f.firstFrame == 0 && f.totalFrames == 0 ? null : "frame window";
-        if (f.firstFrame != firstFrame || f.totalFrames < 1 || f.totalFrames > IDecodeService.MAX_FRAMES) {
+        if (frameWindow == 0) {
+            return f.firstFrame == 0 && f.totalFrames == 0 && f.frameHeight == 0 && frameBand == 0 ? null
+                    : "frame window";
+        }
+        if (f.firstFrame != firstFrame || f.totalFrames < 1 || f.totalFrames > IDecodeService.MAX_TIMELINE_FRAMES
+                || firstFrame >= f.totalFrames) {
             return "frame window";
         }
+        if (frameBand != 0) {
+            final int top = frameBand - 1;
+            return frameWindow == 1 && f.frameCount == 1 && f.frameHeight >= 1 && f.frameHeight <= maxHeight
+                    && top < f.frameHeight && f.height == Math.min(framesBandRows(f.width), f.frameHeight - top)
+                    ? null : "frame band";
+        }
+        if (f.frameHeight != 0) return "frame band";
         final int descriptionBytes = f.colorSpace == IDecodeService.COLOR_SPACE_CUSTOM ? 64 : 0;
         return f.frameCount == framesWindowCount(firstFrame, frameWindow, f.totalFrames,
                 (long) f.width * f.height * 4, descriptionBytes) ? null : "window frame count";
+    }
+
+    /** The rows a frame band of this width holds: its pixels, headers and a colour description fit MAX_FRAMES_BYTES. */
+    public static int framesBandRows(int width) {
+        return width < 1 ? 0 : Math.max(1, (IDecodeService.MAX_FRAMES_BYTES - 16 - 4 - 64) / 4 / width);
     }
 
     /** The frames a window holds: the window, at most the frames left, at most what fits MAX_FRAMES_BYTES. */

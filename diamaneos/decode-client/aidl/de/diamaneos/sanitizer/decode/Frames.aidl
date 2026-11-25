@@ -56,4 +56,7 @@ parcelable Frames {
      */
     int firstFrame = 0;
     int totalFrames = 0;
+
+    /** A band (DecodeRequest.frameBand): the whole frame's height, height being the band's. 0 otherwise. */
+    int frameHeight = 0;
 }

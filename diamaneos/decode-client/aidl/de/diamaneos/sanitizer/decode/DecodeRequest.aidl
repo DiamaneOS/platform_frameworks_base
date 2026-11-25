@@ -73,4 +73,11 @@ parcelable DecodeRequest {
      */
     int firstFrame = 0;
     int frameWindow = 0;
+
+    /**
+     * decodeFrames with frameWindow 1: the top row + 1 of a band of that frame (0: the whole frame). The frame is
+     * then exactly min(box, canvas) per side, the band its rows from the top on, as many as DecodeChecks.framesBandRows
+     * gives (Frames.frameHeight the whole frame's height).
+     */
+    int frameBand = 0;
 }

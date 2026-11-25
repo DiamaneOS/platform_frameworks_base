@@ -99,6 +99,8 @@ interface IDecodeService {
     const int MAX_FRAMES = 8192;
     const int MAX_FRAME_MILLIS = 16777215;
     const int MAX_FRAMES_BYTES = 33554432;
+    /** A window's animation (DecodeRequest.frameWindow): at most this many frames, 4 bytes of timeline each. */
+    const int MAX_TIMELINE_FRAMES = 1048576;
 
     /** decodeRegion: the largest sample size. */
     const int MAX_REGION_SAMPLE = 64;

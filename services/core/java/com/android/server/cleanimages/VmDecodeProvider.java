@@ -829,12 +829,13 @@ public final class VmDecodeProvider extends ContentProvider {
                     reply.putIntArray(DecodeGate.EXTRA_DURATIONS, animation.durations);
                     reply.putInt(DecodeGate.EXTRA_LOOPS, animation.loopCount);
                 } else if (DecodeGate.METHOD_FRAME_WINDOW.equals(method)) {
-                    // The window's first frame and size travel in the region fields (left, top).
+                    // The window's first frame, size and band travel in the region fields (left, top, sample).
                     final VmDecode.Animation animation = VmDecode.decodeFrames(getContext(), fd, lane, ownerUser,
-                            VmDecode.PRIORITY_USER_WAITING, width, height, regionLeft, regionTop,
+                            VmDecode.PRIORITY_USER_WAITING, width, height, regionLeft, regionTop, sample,
                             VmDecode.deadlineIn(left));
                     reply.putInt(DecodeGate.EXTRA_FIRST, animation.firstFrame);
                     reply.putInt(DecodeGate.EXTRA_TOTAL, animation.totalFrames);
+                    reply.putInt(DecodeGate.EXTRA_FRAME_HEIGHT, animation.frameHeight);
                     reply.putParcelable(DecodeGate.EXTRA_BITMAP, animation.frames);
                     reply.putInt(DecodeGate.EXTRA_FRAME_COUNT, animation.frameCount);
                     reply.putIntArray(DecodeGate.EXTRA_DURATIONS, animation.durations);

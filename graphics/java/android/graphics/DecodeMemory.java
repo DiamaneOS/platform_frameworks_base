@@ -97,6 +97,14 @@ public final class DecodeMemory {
         keepStorage(frames, (long) frames.length * FRAME_OBJECT_BYTES, memory);
     }
 
+    /** An animation's whole timeline of frame times (GateFrameWindows), up to MAX_TIMELINE_FRAMES entries. */
+    static void keepTimeline(int[] durations, Reservation memory) {
+        if (durations.length < 1 || durations.length > DecodeGate.MAX_TIMELINE_FRAMES) {
+            throw new IllegalArgumentException("timeline length");
+        }
+        keepStorage(durations, (long) durations.length * Integer.BYTES, memory);
+    }
+
     // Reply bundles share this array even after their original pixels are recycled.
     static void keepDurations(int[] durations, Reservation memory) {
         if (durations.length < 1 || durations.length > MAX_FRAMES) {

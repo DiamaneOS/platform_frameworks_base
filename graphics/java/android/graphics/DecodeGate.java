@@ -112,6 +112,8 @@ public final class DecodeGate {
     // A frames reply's limit and a frame's longest time (IDecodeService.MAX_FRAMES_BYTES, MAX_FRAME_MILLIS).
     static final long MAX_FRAMES_BYTES = 32L << 20;
     static final int MAX_FRAME_MILLIS = 0xffffff;
+    // A windowed animation's frames at most (IDecodeService.MAX_TIMELINE_FRAMES): 4 bytes of timeline each.
+    static final int MAX_TIMELINE_FRAMES = 1 << 20;
 
     /** The largest region sample size (IDecodeService.MAX_REGION_SAMPLE). */
     public static final int MAX_REGION_SAMPLE = 64;
@@ -162,6 +164,8 @@ public final class DecodeGate {
     /** A frame window's reply: its first frame (the asked one) and the animation's frame count. */
     public static final String EXTRA_FIRST = "firstFrame";
     public static final String EXTRA_TOTAL = "totalFrames";
+    /** A frame band's reply: the whole frame's height (the band's top row + 1 travels as EXTRA_SAMPLE). */
+    public static final String EXTRA_FRAME_HEIGHT = "frameHeight";
     public static final String EXTRA_ERROR = "error";
     public static final String EXTRA_SOURCE_ERROR = "sourceError";
     /** True when the VM refused the bytes themselves (broken, unsupported). */
@@ -1074,7 +1078,7 @@ public final class DecodeGate {
             throws Failure {
         final int boxW = Math.max(1, Math.min(MAX_BOX, maxWidth));
         final int boxH = Math.max(1, Math.min(MAX_BOX, maxHeight));
-        if (first < 0 || first >= DecodeMemory.MAX_FRAMES || window < 1 || window > DecodeMemory.MAX_FRAMES) {
+        if (first < 0 || first >= MAX_TIMELINE_FRAMES || window < 1 || window > DecodeMemory.MAX_FRAMES) {
             throw failed(true, "frame window");
         }
         final Bundle r = request(op, METHOD_FRAME_WINDOW, bytes, boxW, boxH, first, window, 0);
@@ -1082,8 +1086,9 @@ public final class DecodeGate {
         final int count = r.getInt(EXTRA_FRAME_COUNT);
         final int total = r.getInt(EXTRA_TOTAL);
         final int[] durations = r.getIntArray(EXTRA_DURATIONS);
-        boolean good = frames != null && count >= 1 && total >= 1 && total <= DecodeMemory.MAX_FRAMES
+        boolean good = frames != null && count >= 1 && total >= 1 && total <= MAX_TIMELINE_FRAMES
                 && r.getInt(EXTRA_FIRST) == first && first < total && count <= Math.min(window, total - first)
+                && r.getInt(EXTRA_FRAME_HEIGHT) == 0
                 && frames.getWidth() <= boxW && frames.getHeight() % count == 0
                 && frames.getHeight() / count <= boxH && durations != null && durations.length == count
                 && r.getInt(EXTRA_LOOPS) >= 0 && r.getInt(EXTRA_LOOPS) <= 65535;
@@ -1098,6 +1103,36 @@ public final class DecodeGate {
         }
         return new Frames(frames, count, frames.getWidth(), frames.getHeight() / count, durations,
                 r.getInt(EXTRA_LOOPS), first, total);
+    }
+
+    /** The rows a frame band of this width holds (IDecodeService frames bands, DecodeChecks.framesBandRows). */
+    static int framesBandRows(int width) {
+        return width < 1 ? 0 : (int) Math.max(1, (MAX_FRAMES_BYTES - 16 - 4 - 64) / 4 / width);
+    }
+
+    /**
+     * Rows of frame {@code frame} from {@code top} on, the frame at exactly {@code width} x {@code height} (the box
+     * within the canvas), as many rows as {@link #framesBandRows} gives: one band of a frame above one VM reply.
+     */
+    static Frames frameBand(Op op, Bytes bytes, int width, int height, int frame, int top) throws Failure {
+        if (width < 1 || height < 1 || width > MAX_BOX || height > MAX_BOX || top < 0 || top >= height
+                || frame < 0 || frame >= MAX_TIMELINE_FRAMES) {
+            throw failed(true, "frame band");
+        }
+        final Bundle r = request(op, METHOD_FRAME_WINDOW, bytes, width, height, frame, 1, top + 1);
+        final Bitmap band = r.getParcelable(EXTRA_BITMAP, Bitmap.class);
+        final int total = r.getInt(EXTRA_TOTAL);
+        final int[] durations = r.getIntArray(EXTRA_DURATIONS);
+        final boolean good = band != null && r.getInt(EXTRA_FRAME_COUNT) == 1 && r.getInt(EXTRA_FIRST) == frame
+                && total > frame && total <= MAX_TIMELINE_FRAMES && r.getInt(EXTRA_FRAME_HEIGHT) == height
+                && band.getWidth() == width && band.getHeight() == Math.min(framesBandRows(width), height - top)
+                && durations != null && durations.length == 1 && durations[0] >= 0
+                && durations[0] <= MAX_FRAME_MILLIS && r.getInt(EXTRA_LOOPS) >= 0 && r.getInt(EXTRA_LOOPS) <= 65535;
+        if (!good) {
+            DecodeMemory.recycle(band, null);
+            throw failed(false, "bad frame band reply");
+        }
+        return new Frames(band, 1, width, band.getHeight(), durations, r.getInt(EXTRA_LOOPS), frame, total);
     }
 
     private static boolean quarterTurn(int rotation) {

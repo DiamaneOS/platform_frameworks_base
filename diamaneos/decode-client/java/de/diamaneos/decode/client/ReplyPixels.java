@@ -208,8 +208,10 @@ final class ReplyPixels {
                 }
                 }
                 DecodeMemory.keep(frames, memory);
-                return new VmDecode.Animation(frames, f.frameCount, f.width, f.height, f.durations.clone(),
-                        f.loopCount, f.firstFrame, f.totalFrames);
+                final VmDecode.Animation animation = new VmDecode.Animation(frames, f.frameCount, f.width,
+                        f.height, f.durations.clone(), f.loopCount, f.firstFrame, f.totalFrames);
+                animation.frameHeight = f.frameHeight;
+                return animation;
             } catch (RemoteException | VmDecode.RejectedException | VmDecode.UnavailableException
                     | RuntimeException | OutOfMemoryError e) {
                 frames.recycle();
