@@ -275,7 +275,11 @@ final class GateInput {
             FileInputStream in = null;
             boolean transferred = false;
             try {
-                in = new FileInputStream(file);
+                try {
+                    in = new FileInputStream(file);
+                } catch (FileNotFoundException e) {
+                    throw DecodeGate.sourceUnavailable(e); // as stock ImageDecoder.createFromFile
+                }
                 stopped(stop);
                 if (!forceVm && DecodeGate.exempt(in.getFD()) && op.left() > 0) {
                     final Acquired input = new Acquired(null, in, null);
@@ -325,7 +329,11 @@ final class GateInput {
         } catch (android.os.RemoteException | RuntimeException e) {
             throw DecodeGate.notNow("provider identity unavailable");
         }
-        if (info == null || info.applicationInfo == null) throw DecodeGate.notNow("provider identity unavailable");
+        if (info == null) {
+            // Stock: ContentResolver finds no provider and ImageDecoder passes its FileNotFoundException on.
+            throw DecodeGate.sourceUnavailable(new FileNotFoundException("No content provider: " + uri));
+        }
+        if (info.applicationInfo == null) throw DecodeGate.notNow("provider identity unavailable");
         final String key = "provider-uid:" + info.applicationInfo.uid;
         final ProviderPlace place = new ProviderPlace(key);
         synchronized (sLock) {
@@ -365,8 +373,14 @@ final class GateInput {
                     }
                     return acquired(copyFd(afd.getFileDescriptor(), afd.getStartOffset(), afd.getDeclaredLength(), stop));
                 }
-                try (InputStream in = resolver.openInputStream(uri)) {
-                    if (in == null) throw DecodeGate.failed(true, "no image behind the URI");
+                final InputStream opened;
+                try {
+                    opened = resolver.openInputStream(uri);
+                } catch (FileNotFoundException e) {
+                    throw DecodeGate.sourceUnavailable(e); // as stock ImageDecoder.java:300
+                }
+                try (InputStream in = opened) {
+                    if (in == null) throw DecodeGate.sourceUnavailable(new FileNotFoundException(uri.toString()));
                     stopped(stop);
                     return acquired(copyStream(in, stop));
                 }

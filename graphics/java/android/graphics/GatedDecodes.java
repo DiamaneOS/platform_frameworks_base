@@ -660,13 +660,13 @@ final class GatedDecodes {
         DecodeGate.Bytes read(DecodeGate.Op op) throws DecodeGate.Failure;
     }
 
-    private static Header header(Input input, ImageDecoder.Source source) throws ImageDecoder.DecodeException {
+    private static Header header(Input input, ImageDecoder.Source source) throws IOException {
         final DecodeGate.Op op = DecodeGate.begin();
         try {
             return header(op, input.read(op), source);
         } catch (DecodeGate.Failure e) {
             op.close();
-            throw decodeException(e, source);
+            throw headerException(e, source);
         } catch (OutOfMemoryError e) {
             op.close();
             throw decodeException(DecodeGate.notNow("no memory for the image header"), source);
@@ -677,20 +677,20 @@ final class GatedDecodes {
     }
 
     static Header header(byte[] data, int offset, int length, ImageDecoder.Source source)
-            throws ImageDecoder.DecodeException {
+            throws IOException {
         return header(op -> GateInput.of(op, data, offset, length), source);
     }
 
-    static Header header(ByteBuffer buffer, ImageDecoder.Source source) throws ImageDecoder.DecodeException {
+    static Header header(ByteBuffer buffer, ImageDecoder.Source source) throws IOException {
         return header(op -> GateInput.of(op, buffer), source);
     }
 
-    static Header header(InputStream in, ImageDecoder.Source source) throws ImageDecoder.DecodeException {
+    static Header header(InputStream in, ImageDecoder.Source source) throws IOException {
         return header(op -> GateInput.of(op, in), source);
     }
 
     static Header header(FileDescriptor fd, long offset, long length, ImageDecoder.Source source)
-            throws ImageDecoder.DecodeException {
+            throws IOException {
         return header(op -> GateInput.of(op, fd, offset, length), source);
     }
 
@@ -719,7 +719,7 @@ final class GatedDecodes {
             return header(op, input.takeBytes(), source);
         } catch (DecodeGate.Failure e) {
             op.close();
-            throw decodeException(op.received(e), source);
+            throw headerException(op.received(e), source);
         } catch (OutOfMemoryError e) {
             op.close();
             throw decodeException(DecodeGate.notNow("no memory for the image header"), source);
@@ -743,7 +743,7 @@ final class GatedDecodes {
             return header(op, input.takeBytes(), source);
         } catch (DecodeGate.Failure e) {
             op.close();
-            throw decodeException(op.received(e), source);
+            throw headerException(op.received(e), source);
         } catch (OutOfMemoryError e) {
             op.close();
             throw decodeException(DecodeGate.notNow("no memory for the image header"), source);
@@ -757,12 +757,18 @@ final class GatedDecodes {
             ImageDecoder.Source source) throws IOException {
         return header(op -> {
             if (op.critical) throw DecodeGate.notThisWay("a callable image source needs a worker thread");
-            try (android.content.res.AssetFileDescriptor fd = callable.call()) {
-                if (fd == null) throw DecodeGate.failed(true, "no image from the callable");
-                return GateInput.of(op, fd.getFileDescriptor(), fd.getStartOffset(), fd.getDeclaredLength());
-            } catch (DecodeGate.Failure e) {
-                throw e;
+            final android.content.res.AssetFileDescriptor opened;
+            try {
+                opened = callable.call();
+            } catch (IOException e) {
+                throw DecodeGate.sourceUnavailable(e); // as stock ImageDecoder.java:613-619
             } catch (Exception e) {
+                throw DecodeGate.sourceUnavailable(new IOException(e));
+            }
+            if (opened == null) throw DecodeGate.sourceUnavailable(new java.io.FileNotFoundException());
+            try (android.content.res.AssetFileDescriptor fd = opened) {
+                return GateInput.of(op, fd.getFileDescriptor(), fd.getStartOffset(), fd.getDeclaredLength());
+            } catch (IOException | RuntimeException e) {
                 throw DecodeGate.notNow("callable input not read: " + e.getClass().getSimpleName());
             }
         }, source);
@@ -1165,6 +1171,11 @@ final class GatedDecodes {
         }
     }
 
+    // A header that failed: what stock throws when the source itself was missing, else a DecodeException.
+    private static IOException headerException(DecodeGate.Failure e, ImageDecoder.Source source) {
+        return e.sourceException != null ? e.sourceException : decodeException(e, source);
+    }
+
     private static ImageDecoder.DecodeException decodeException(DecodeGate.Failure e,
             ImageDecoder.Source source) {
         return new ImageDecoder.DecodeException(e.sourceError != 0 ? e.sourceError
@@ -1205,6 +1216,7 @@ final class GatedDecodes {
                 GateInput.Acquired input = GateInput.acquireFile(op, new java.io.File(path), true)) {
             return region(op, input.takeBytes());
         } catch (DecodeGate.Failure e) {
+            if (e.sourceException != null) throw e.sourceException; // as stock BitmapRegionDecoder.java:200
             throw new IOException("Image input unavailable", e);
         } catch (OutOfMemoryError e) {
             throw new IOException("Image allocation unavailable", e);

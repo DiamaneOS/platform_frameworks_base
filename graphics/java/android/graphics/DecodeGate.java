@@ -471,6 +471,9 @@ public final class DecodeGate {
         final boolean again;
         long memory;
         final int sourceError;
+        // Set when the source itself is missing, or its callable failed, before any image byte was read: the
+        // exception stock ImageDecoder throws there, thrown as it is.
+        IOException sourceException;
 
         Failure(boolean refused, boolean again, String message) {
             this(refused, again, message, 0);
@@ -1683,6 +1686,14 @@ public final class DecodeGate {
     static Failure inputFailed(Throwable cause) {
         final Failure failure = notNow("stream not read: " + cause.getMessage());
         failure.initCause(cause);
+        return failure;
+    }
+
+    // The source is missing, or its callable failed, before any image byte was read. Nothing is decoded and the
+    // caller throws what stock ImageDecoder throws there (ImageDecoder.java:300-302, 373-374 and 613-619).
+    static Failure sourceUnavailable(IOException stock) {
+        final Failure failure = notThisWay("source unavailable: " + stock.getClass().getSimpleName());
+        failure.sourceException = stock;
         return failure;
     }
 
