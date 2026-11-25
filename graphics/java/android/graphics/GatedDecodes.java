@@ -724,10 +724,10 @@ final class GatedDecodes {
      */
     static Bitmap decode(Header header, int width, int height, @Nullable Rect crop, boolean mutable,
             int allocator, boolean unpremultiplied, boolean alphaMask, @Nullable PostProcessor postProcessor,
-            ImageDecoder.Source source) throws ImageDecoder.DecodeException {
+            ImageDecoder.Source source, boolean conserveMemory) throws ImageDecoder.DecodeException {
         try {
             return retained(decodePixels(header, width, height, crop, mutable, allocator, unpremultiplied,
-                    alphaMask, postProcessor, source));
+                    alphaMask, postProcessor, source, conserveMemory));
         } catch (DecodeGate.Failure e) {
             throw decodeException(e, source);
         } catch (OutOfMemoryError e) {
@@ -737,7 +737,7 @@ final class GatedDecodes {
 
     private static Bitmap decodePixels(Header header, int width, int height, @Nullable Rect crop, boolean mutable,
             int allocator, boolean unpremultiplied, boolean alphaMask, @Nullable PostProcessor postProcessor,
-            ImageDecoder.Source source) throws ImageDecoder.DecodeException {
+            ImageDecoder.Source source, boolean conserveMemory) throws ImageDecoder.DecodeException {
         try {
             if ((long) width * height > MAX_OUTPUT_PIXELS) {
                 throw DecodeGate.failed(true, "larger than the gate makes");
@@ -766,6 +766,11 @@ final class GatedDecodes {
                 }
             }
             markOpaque(bitmap, header.mimeType);
+            final boolean opaque = !bitmap.hasAlpha();
+            if (conserveMemory) {
+                // As stock: a low-RAM decode extracts no gain map.
+                bitmap.setGainmap(null);
+            }
             if (unpremultiplied && bitmap.hasAlpha() && !samplesTo(header, width, height)) {
                 // As Android: unpremultiplied pixels of an image with alpha are never scaled by a matrix.
                 throw new IllegalStateException("Cannot scale unpremultiplied pixels!");
@@ -790,6 +795,11 @@ final class GatedDecodes {
             }
             if (unpremultiplied) {
                 bitmap = unpremultiplied(bitmap);
+            }
+            if (lowRam565(conserveMemory, opaque, postProcessor != null, allocator, mutable)) {
+                final Bitmap small = GatePixels.copy(bitmap, Bitmap.Config.RGB_565, mutable);
+                DecodeMemory.recycle(bitmap, small);
+                bitmap = small;
             }
             if (mutable) {
                 if (bitmap.isMutable()) return bitmap;
@@ -817,6 +827,14 @@ final class GatedDecodes {
         } catch (DecodeGate.Failure e) {
             throw decodeException(e, source);
         }
+    }
+
+    // As stock nDecodeBitmap (libs/hwui/jni/ImageDecoder.cpp): a low-RAM decode of an opaque image with no
+    // post-processor is RGB_565, unless the result could end in hardware, where 565 would save nothing.
+    static boolean lowRam565(boolean conserveMemory, boolean opaque, boolean postProcessed, int allocator,
+            boolean mutable) {
+        return conserveMemory && opaque && !postProcessed && allocator != ImageDecoder.ALLOCATOR_HARDWARE
+                && (allocator != ImageDecoder.ALLOCATOR_DEFAULT || mutable);
     }
 
     // The VM's sample size for the stored stripes of an image above its pixel limit at width x height upright: as

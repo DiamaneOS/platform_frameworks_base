@@ -1792,7 +1792,7 @@ public final class ImageDecoder implements AutoCloseable {
             getColorSpacePtr();
             return GatedDecodes.decode(mGated, mDesiredWidth, mDesiredHeight, mCropRect, mMutable,
                     mAllocator, mUnpremultipliedRequired, mDecodeAsAlphaMask, mPostProcessor,
-                    mSource);
+                    mSource, mConserveMemory);
         }
         return nDecodeBitmap(mNativePtr, this, mPostProcessor != null,
                 mDesiredWidth, mDesiredHeight, mCropRect,
