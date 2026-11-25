@@ -40,6 +40,9 @@ public class Movie {
         mNativeMovie = nativeMovie;
     }
 
+    // DiamaneOS: a checked VM-frame subclass has no native movie instance.
+    Movie() { }
+
     public native int width();
     public native int height();
     public native boolean isOpaque();
@@ -67,8 +70,8 @@ public class Movie {
             return nativeDecodeAsset(asset);
         }
         if (DecodeGate.gatesStream(is)) {
-            // DiamaneOS: the protected VM makes no movies, nothing is decoded here (DecodeGate).
-            return null;
+            // DiamaneOS: only checked VM frames back movies of gated inputs.
+            return GatedDecodes.movie(is);
         }
 
         return nativeDecodeStream(is);
@@ -78,8 +81,12 @@ public class Movie {
     private static native Movie nativeDecodeStream(InputStream is);
     public static Movie decodeByteArray(byte[] data, int offset, int length) {
         if (DecodeGate.gates()) {
-            // DiamaneOS: the protected VM makes no movies, nothing is decoded here (DecodeGate).
-            return null;
+            // DiamaneOS: validate the public range before reading bytes in the VM.
+            if (data == null) throw new NullPointerException("data");
+            if ((offset | length) < 0 || offset > data.length - length) {
+                throw new ArrayIndexOutOfBoundsException();
+            }
+            return GatedDecodes.movie(data, offset, length);
         }
         return nativeDecodeByteArray(data, offset, length);
     }
@@ -112,7 +119,8 @@ public class Movie {
     @Override
     protected void finalize() throws Throwable {
         try {
-            nativeDestructor(mNativeMovie);
+            // DiamaneOS: VM-frame movies have no native instance to destroy.
+            if (mNativeMovie != 0) nativeDestructor(mNativeMovie);
             mNativeMovie = 0;
         } finally {
             super.finalize();

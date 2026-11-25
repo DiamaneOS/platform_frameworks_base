@@ -94,10 +94,34 @@ final class GatedDecodes {
     static Movie movie(String path) {
         try (DecodeGate.Op op = DecodeGate.begin();
                 GateInput.Acquired input = GateInput.acquireFile(op, new java.io.File(path))) {
-            return input.stream != null ? DecodeGate.trustedMovie(input.stream) : null;
-        } catch (DecodeGate.Failure | RuntimeException | OutOfMemoryError e) {
+            return input.stream != null ? DecodeGate.trustedMovie(input.stream) : movie(op, input.bytes);
+        } catch (DecodeGate.Failure | IOException | RuntimeException | OutOfMemoryError e) {
             return null;
         }
+    }
+
+    static Movie movie(InputStream input) {
+        try (DecodeGate.Op op = DecodeGate.begin(); DecodeGate.Bytes bytes = GateInput.of(op, input)) {
+            return movie(op, bytes);
+        } catch (DecodeGate.Failure | IOException | RuntimeException | OutOfMemoryError e) {
+            return null;
+        }
+    }
+
+    static Movie movie(byte[] data, int offset, int length) {
+        try (DecodeGate.Op op = DecodeGate.begin(); DecodeGate.Bytes bytes = GateInput.of(op, data, offset, length)) {
+            return movie(op, bytes);
+        } catch (DecodeGate.Failure | IOException | RuntimeException | OutOfMemoryError e) {
+            return null;
+        }
+    }
+
+    private static Movie movie(DecodeGate.Op op, DecodeGate.Bytes bytes)
+            throws DecodeGate.Failure, ImageDecoder.DecodeException {
+        final DecodeGate.Info info = DecodeGate.probe(op, bytes, true);
+        if (!"image/gif".equals(info.mimeType)) return null;
+        final Header header = new Header(op, bytes, info);
+        return new GatedMovie((GatedAnimation) animated(header, header.width, header.height, null, null, null));
     }
 
     private static Bitmap retained(Bitmap bitmap, BitmapFactory.Options options) throws DecodeGate.Failure {

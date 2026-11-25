@@ -85,6 +85,10 @@ public final class GatedAnimation extends AnimatedImageDrawable {
         mRepeatCount = loops == 0 ? REPEAT_INFINITE : loops - 1;
     }
 
+    int frameCount() { return mCount; }
+    int frameDuration(int frame) { return mDurations[frame]; }
+    Bitmap frameBitmap(int frame) { return mFrames[frame]; }
+
     /** Decodes another XML source through the VM when this drawable already holds VM frames. */
     public static GatedAnimation decodeXml(java.io.InputStream stream, Resources resources, int density)
             throws IOException {

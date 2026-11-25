@@ -8,6 +8,7 @@ import android.graphics.Canvas;
 import android.graphics.ColorSpace;
 import android.graphics.DecodeGate;
 import android.graphics.ImageDecoder;
+import android.graphics.Movie;
 import android.graphics.drawable.Animatable2;
 import android.graphics.drawable.AnimatedImageDrawable;
 import android.graphics.drawable.Drawable;
@@ -128,6 +129,60 @@ public class GateAnimationDeviceTest {
             assertSame(source, expected.getSource());
             assertSame(failure, expected.getCause());
         }
+    }
+
+    @Test public void movieBytesKeepTheStockShapeAndFrameTimeline() throws Exception {
+        final byte[] bytes = fixture(R.raw.vm_animation_compat_gif);
+        final int before = DecodeGate.countsForTest()[0];
+        final Movie movie = Movie.decodeByteArray(bytes, 0, bytes.length);
+        checkMovie(movie);
+        assertTrue(movie.duration() > 0);
+        assertFalse(movie.isOpaque());
+        canvasBitmap = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888);
+        final Canvas canvas = new Canvas(canvasBitmap);
+        canvas.scale(64f / movie.width(), 64f / movie.height());
+        movie.setTime(0);
+        movie.draw(canvas, 0, 0);
+        final int[] first = new int[64 * 64];
+        canvasBitmap.getPixels(first, 0, 64, 0, 0, 64, 64);
+        movie.setTime(movie.duration());
+        canvasBitmap.eraseColor(0);
+        movie.draw(canvas, 0, 0, new android.graphics.Paint());
+        final int[] last = new int[64 * 64];
+        canvasBitmap.getPixels(last, 0, 64, 0, 0, 64, 64);
+        assertFalse("Movie frame timeline stayed on the first frame", java.util.Arrays.equals(first, last));
+        assertFalse(movie.setTime(Integer.MAX_VALUE));
+        assertFalse(movie.setTime(Integer.MIN_VALUE));
+        assertFalse(movie.setTime(-1));
+        assertThrows(ArrayIndexOutOfBoundsException.class, () -> Movie.decodeByteArray(bytes, -1, bytes.length));
+        assertThrows(ArrayIndexOutOfBoundsException.class,
+                () -> Movie.decodeByteArray(bytes, Integer.MAX_VALUE, Integer.MAX_VALUE));
+        assertTrue("Movie did not decode in the VM", DecodeGate.countsForTest()[0] > before);
+    }
+
+    @Test public void movieFileAndStreamUseCheckedVmFrames() throws Exception {
+        final byte[] bytes = fixture(R.raw.vm_animation_compat_gif);
+        try (InputStream input = new java.io.ByteArrayInputStream(bytes)) {
+            checkMovie(Movie.decodeStream(input));
+        }
+        final java.io.File file = java.io.File.createTempFile("gate-movie-", ".gif",
+                InstrumentationRegistry.getInstrumentation().getTargetContext().getCacheDir());
+        try {
+            try (java.io.OutputStream output = new java.io.FileOutputStream(file)) { output.write(bytes); }
+            checkMovie(Movie.decodeFile(file.getAbsolutePath()));
+        } finally {
+            assertTrue(file.delete());
+        }
+    }
+
+    private void checkMovie(Movie movie) throws Exception {
+        assertNotNull(movie);
+        assertEquals("android.graphics.GatedMovie", movie.getClass().getName());
+        assertTrue(movie.width() > 0);
+        assertTrue(movie.height() > 0);
+        final java.lang.reflect.Field nativeMovie = Movie.class.getDeclaredField("mNativeMovie");
+        nativeMovie.setAccessible(true);
+        assertEquals("gated Movie retained a native decoder", 0L, nativeMovie.getLong(movie));
     }
 
     // As stock ImageDecoder (ColorSpace.getNativeInstance), a non-RGB or nonparametric target is an
