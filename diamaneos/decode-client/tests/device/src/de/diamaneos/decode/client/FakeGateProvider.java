@@ -37,6 +37,8 @@ final class FakeGateProvider implements DecodeGate.Local {
     volatile int width = 64;
     volatile int height = 32;
     volatile boolean refuse;
+    // The encoded alpha the probe reports (EXTRA_HAS_ALPHA), as the VM reads it from the file.
+    volatile boolean hasAlpha = true;
     final AtomicInteger calls = new AtomicInteger();
 
     FakeGateProvider(long delayMs) {
@@ -81,6 +83,7 @@ final class FakeGateProvider implements DecodeGate.Local {
             reply.putInt(DecodeGate.EXTRA_WIDTH, width);
             reply.putInt(DecodeGate.EXTRA_HEIGHT, height);
             reply.putInt(DecodeGate.EXTRA_FORMAT, 2); // PNG
+            reply.putBoolean(DecodeGate.EXTRA_HAS_ALPHA, hasAlpha);
             return reply;
         }
         final int outW = DecodeGate.METHOD_REGION.equals(method) ? (w + sample - 1) / sample : Math.min(w, width);

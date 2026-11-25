@@ -40,7 +40,10 @@ public class GateSettingsDeviceTest {
 
     private static void mode(boolean gated) {
         DecodeGate.resetForTest();
-        DecodeGate.setLocal(gated ? new FakeGateProvider(0) : null);
+        // The fixture is an RGB PNG: the fake reports it without alpha, as the VM probe does.
+        final FakeGateProvider provider = gated ? new FakeGateProvider(0) : null;
+        if (provider != null) provider.hasAlpha = false;
+        DecodeGate.setLocal(provider);
         DecodeGate.setForcedForTest(gated);
     }
 
