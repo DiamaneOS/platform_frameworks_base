@@ -13,8 +13,7 @@ final class GateFactoryStraight {
             final Bitmap reused = options.inBitmap;
             if (reused != null && (reused.isRecycled() || !reused.isMutable()
                     || reused.getConfig() == Bitmap.Config.HARDWARE)) return null;
-            final Bitmap.Config config = reused != null && reused.getConfig() != null ? reused.getConfig()
-                    : options.inPreferredConfig == Bitmap.Config.RGBA_F16 ? Bitmap.Config.RGBA_F16 : sourceConfig;
+            final Bitmap.Config config = options.inPreferredConfig == Bitmap.Config.RGBA_F16 ? Bitmap.Config.RGBA_F16 : sourceConfig;
             final ColorSpace color = target != null ? target : config == Bitmap.Config.RGBA_F16
                     ? header.colorSpace : originalColor;
             pixels = GateStraightPixels.decode(header, sampledWidth, sampledHeight, sample, null, color,
@@ -29,6 +28,7 @@ final class GateFactoryStraight {
                                 : config == Bitmap.Config.RGB_565 ? 2 : 4) > reused.getAllocationByteCount()) return null;
                 try { reused.reconfigure(width, height, config); }
                 catch (IllegalArgumentException | IllegalStateException e) { return null; }
+                reused.setHasAlpha(true);
                 reused.setPremultiplied(false);
                 if (!Bitmap.writeStraightPixels(pixels, reused)) return null;
                 return result = reused;

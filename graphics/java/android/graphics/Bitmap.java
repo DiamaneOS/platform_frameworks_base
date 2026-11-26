@@ -2820,7 +2820,9 @@ public final class Bitmap implements Parcelable {
     static boolean writeStraightPixels(Bitmap source, Bitmap destination) {
         source.checkRecycled("Cannot transform recycled pixels");
         destination.checkRecycled("Cannot fill recycled pixels");
-        return nativeWriteStraightPixels(source.mNativePtr, destination.mNativePtr);
+        final boolean written = nativeWriteStraightPixels(source.mNativePtr, destination.mNativePtr);
+        destination.mColorSpace = null;
+        return written;
     }
 
     private static native boolean nativeWriteStraightPixels(long source, long destination);

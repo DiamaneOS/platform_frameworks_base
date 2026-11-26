@@ -55,11 +55,13 @@ public class GateStraightDeviceTest {
         for (int kind = 0; kind < 2; kind++) {
             final byte[] input = kind == 0 ? png(true) : avif;
             final Bitmap.Config storage = kind == 0 ? Bitmap.Config.RGBA_F16 : Bitmap.Config.RGBA_1010102;
-            for (int mode = 0; mode < 4; mode++) for (int[] scale : new int[][] {
+            for (int mode = 0; mode < 5; mode++) for (int[] scale : new int[][] {
                     {1, 0, 0}, {2, 0, 0}, {2, 160, 240}, {1, 480, 160}}) {
                 Bitmap stock = null, gated = null, stockRead = null, gatedRead = null;
                 final BitmapFactory.Options before = straightOptions(mode, scale, storage);
                 final BitmapFactory.Options after = straightOptions(mode, scale, storage);
+                final int stockGeneration = before.inBitmap != null ? before.inBitmap.getGenerationId() : 0;
+                final int gateGeneration = after.inBitmap != null ? after.inBitmap.getGenerationId() : 0;
                 try {
                     DecodeGate.setForcedForTest(false);
                     stock = BitmapFactory.decodeByteArray(input, 0, input.length, before);
@@ -80,9 +82,12 @@ public class GateStraightDeviceTest {
                     assertEquals(stock.isMutable(), gated.isMutable());
                     assertEquals(stock.getWidth(), gated.getWidth());
                     assertEquals(stock.getHeight(), gated.getHeight());
-                    if (mode == 2) {
+                    if (mode == 2 || mode == 4) {
                         assertTrue(stock == before.inBitmap);
                         assertTrue(gated == after.inBitmap);
+                        assertTrue("stock reused pixels invalidate their generation", stockGeneration != stock.getGenerationId());
+                        assertTrue("gated reused pixels invalidate their generation", gateGeneration != gated.getGenerationId());
+                        assertTrue("old reused pixels were replaced", gated.getPixel(0, 0) != android.graphics.Color.MAGENTA);
                     }
                     stockRead = mode == 3 ? stock.copy(storage, false) : stock;
                     gatedRead = mode == 3 ? gated.copy(storage, false) : gated;
@@ -133,8 +138,15 @@ public class GateStraightDeviceTest {
         options.inSampleSize = scale[0];
         options.inDensity = scale[1];
         options.inTargetDensity = scale[2];
-        options.inMutable = mode == 1 || mode == 2;
-        if (mode == 2) options.inBitmap = Bitmap.createBitmap(128, 64, storage);
+        options.inMutable = mode == 1 || mode == 2 || mode == 4;
+        if (mode == 2) options.inBitmap = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888, true,
+                ColorSpace.get(ColorSpace.Named.DISPLAY_P3));
+        if (mode == 4) {
+            final float ratio = scale[1] == 0 ? 1f : (float) scale[2] / scale[1];
+            options.inBitmap = Bitmap.createBitmap(Math.max(1, (int) (64 / scale[0] * ratio + 0.5f)),
+                    Math.max(1, (int) (32 / scale[0] * ratio + 0.5f)), storage);
+        }
+        if (options.inBitmap != null) options.inBitmap.eraseColor(android.graphics.Color.MAGENTA);
         if (mode == 3) options.inPreferredConfig = Bitmap.Config.HARDWARE;
         return options;
     }

@@ -54,8 +54,12 @@ inline bool writeStraightPixels(Bitmap& source, Bitmap& destination) {
             (input.alphaType() != kUnpremul_SkAlphaType && input.alphaType() != kOpaque_SkAlphaType) ||
             (output.alphaType() != kUnpremul_SkAlphaType && output.alphaType() != kOpaque_SkAlphaType) ||
             input.getPixels() == nullptr || output.getPixels() == nullptr) return false;
+    destination.setColorSpace(input.refColorSpace());
+    destination.getSkBitmap(&output);
     if (input.width() == output.width() && input.height() == output.height()) {
-        return input.readPixels(output.info(), output.getPixels(), output.rowBytes(), 0, 0);
+        const bool written = input.readPixels(output.info(), output.getPixels(), output.rowBytes(), 0, 0);
+        if (written) output.notifyPixelsChanged();
+        return written;
     }
     if (input.colorType() != output.colorType() ||
             !SkColorSpace::Equals(input.colorSpace(), output.colorSpace())) return false;
@@ -66,6 +70,7 @@ inline bool writeStraightPixels(Bitmap& source, Bitmap& destination) {
     SkCanvas canvas(output, SkCanvas::ColorBehavior::kLegacy);
     canvas.scale(output.width() / float(input.width()), output.height() / float(input.height()));
     canvas.drawImage(image, 0.0f, 0.0f, SkSamplingOptions(SkFilterMode::kLinear), &paint);
+    output.notifyPixelsChanged();
     return true;
 }
 
