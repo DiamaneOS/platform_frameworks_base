@@ -155,6 +155,9 @@ public class GateLargeInputDeviceTest {
     }
 
     @Test public void ownedLargestObservedStockPositiveHeifGridMatchesStock() throws Exception {
+        final File ownedDirectory = InstrumentationRegistry.getInstrumentation().getTargetContext().getExternalFilesDir(null);
+        assertNotNull("owned external fixture directory", ownedDirectory);
+        Log.i("LargeInputProof", "owned HEIF fixture directory=" + ownedDirectory);
         final String path = InstrumentationRegistry.getArguments().getString("largeHeif");
         assumeTrue("owned HEIF grid fixture supplied by the run", path != null);
         final String hash = InstrumentationRegistry.getArguments().getString("largeHeifSha256");

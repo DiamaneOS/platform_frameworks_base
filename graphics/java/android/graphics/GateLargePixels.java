@@ -30,11 +30,15 @@ final class GateLargePixels {
         Canvas canvas = null;
         boolean complete = false;
         try {
-            // A thin column gives the codec's exact sampled height without a full image allocation.
-            tile = region(op, bytes, left, top, Math.min(sample, storedWidth), storedHeight, sample, gain);
-            final int sampledHeight = tile.getHeight();
-            DecodeMemory.recycle(tile, null);
-            tile = null;
+            // Unit sampling has the checked header's height. Other samples use the codec's exact size.
+            final int sampledHeight;
+            if (sample == 1) sampledHeight = storedHeight;
+            else {
+                tile = region(op, bytes, left, top, Math.min(sample, storedWidth), storedHeight, sample, gain);
+                sampledHeight = tile.getHeight();
+                DecodeMemory.recycle(tile, null);
+                tile = null;
+            }
             final int upperWidth = GatedDecodes.roundedUp(storedWidth, sample);
             // Two neighbouring rows let the same bilinear filter cross each stripe boundary.
             final int mostRows = Math.max(1, DecodeGate.MAX_VM_PIXELS / upperWidth - 2);
