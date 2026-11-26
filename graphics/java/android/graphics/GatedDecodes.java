@@ -212,7 +212,7 @@ final class GatedDecodes {
                     && opts.inPreferredConfig == Bitmap.Config.HARDWARE && opts.inBitmap == null
                     && !opts.inMutable && GateLargeHardware.supportsColor(requestedColor)) {
                 bitmap = GateLargeHardware.decode(op, bytes, info.width, info.height, storedSample,
-                        width, height, 0, false, requestedColor, true, true, false);
+                        width, height, 0, false, requestedColor, !info.plainJpegHeader, true, false);
                 if (bitmap != null) {
                     GatePartialImages.bitmapFactory(op.sourceError);
                     if (outPadding != null) outPadding.set(-1, -1, -1, -1);
@@ -239,7 +239,7 @@ final class GatedDecodes {
             }
             // DiamaneOS: regions carry stored base pixels, the whole-image reply supplies the checked gain map.
             try {
-                if (hdrFormat) GateGainmaps.attach(op, bytes, bitmap, true, info.width, info.height);
+                if (hdrFormat && (!info.plainJpegHeader || bitmap.hasGainmap())) GateGainmaps.attach(op, bytes, bitmap, true, info.width, info.height);
             } catch (DecodeGate.Failure e) {
                 bitmap.recycle();
                 throw e;
@@ -646,6 +646,7 @@ final class GatedDecodes {
         final ColorSpace colorSpace;
         final int bitDepth;
         final boolean hasAlpha;
+        final boolean plainJpegHeader;
 
         Header(DecodeGate.Op op, DecodeGate.Bytes bytes, DecodeGate.Info info) {
             this(op, bytes, info, false);
@@ -663,6 +664,7 @@ final class GatedDecodes {
             this.mirrored = !stored && info.mirrored;
             this.bitDepth = info.bitDepth;
             this.hasAlpha = info.hasAlpha;
+            this.plainJpegHeader = info.plainJpegHeader;
             this.colorSpace = info.bitDepth > 8 ? GateWidePixels.outputColor(info.colorSpace) : info.colorSpace;
             this.mimeType = info.mimeType != null ? info.mimeType : "image/unknown";
             this.animated = info.animated && ("image/gif".equals(mimeType) || "image/webp".equals(mimeType)
@@ -929,7 +931,7 @@ final class GatedDecodes {
                     && (allocator == ImageDecoder.ALLOCATOR_HARDWARE || allocator == ImageDecoder.ALLOCATOR_DEFAULT)) {
                 bitmap = GateLargeHardware.decode(header.op, header.bytes, header.storedWidth,
                         header.storedHeight, largeSample(header, width, height), width, height,
-                        header.rotation, header.mirrored, colorSpace, !conserveMemory, false,
+                        header.rotation, header.mirrored, colorSpace, !conserveMemory && !header.plainJpegHeader, false,
                         allocator == ImageDecoder.ALLOCATOR_HARDWARE);
                 if (bitmap != null) {
                     GatePartialImages.imageDecoder(header.op.sourceError, partialListener, source);
@@ -956,7 +958,7 @@ final class GatedDecodes {
                 final DecodeGate.Decoded decoded = DecodeGate.decode(header.op, header.bytes, box, box);
                 bitmap = exactly(decoded.bitmap, width, height);
                 try {
-                    if (gainmap) {
+                    if (gainmap && (!header.plainJpegHeader || bitmap.hasGainmap())) {
                         GateGainmaps.replace(header.op, header.bytes, bitmap, decoded.rotation, decoded.mirrored,
                                 header.storedWidth, header.storedHeight);
                     }
@@ -970,7 +972,7 @@ final class GatedDecodes {
                         width, height, header.rotation, header.mirrored, colorSpace);
                 // DiamaneOS: the region-built base keeps the whole-image reply's upright gain map.
                 try {
-                    if (gainmap) {
+                    if (gainmap && !header.plainJpegHeader) {
                         GateGainmaps.attach(header.op, header.bytes, bitmap, false, header.storedWidth,
                                 header.storedHeight);
                     }

@@ -44,4 +44,6 @@ parcelable ImageInfo {
     int sourceError = 0;
     /** Exactly 16 checked XYZ D50 and transfer values for COLOR_SPACE_CUSTOM, empty for named tags. */
     float[] colorDescription;
+    /** A complete, validated JFIF/ICC-only baseline JPEG header: no gain metadata or EXIF transform. */
+    boolean plainJpegHeader = false;
 }

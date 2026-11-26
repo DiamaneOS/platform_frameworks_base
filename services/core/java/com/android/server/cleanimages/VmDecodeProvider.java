@@ -802,8 +802,10 @@ public final class VmDecodeProvider extends ContentProvider {
                     reply.putFloatArray(DecodeGate.EXTRA_COLOR_DESCRIPTION, info.colorDescription);
                     reply.putInt(DecodeGate.EXTRA_BIT_DEPTH, info.bitDepth);
                     reply.putBoolean(DecodeGate.EXTRA_HAS_ALPHA, info.hasAlpha);
+                    reply.putBoolean(DecodeGate.EXTRA_PLAIN_JPEG_HEADER, info.plainJpegHeader);
                     // WebP too: stock's WebP codec reads the orientation of its EXIF chunk.
-                    if (DecodeGate.METHOD_HEADER.equals(method) && (info.format == IDecodeService.FORMAT_JPEG
+                    if (DecodeGate.METHOD_HEADER.equals(method) && !info.plainJpegHeader
+                            && (info.format == IDecodeService.FORMAT_JPEG
                             || info.format == IDecodeService.FORMAT_HEIF
                             || info.format == IDecodeService.FORMAT_AVIF
                             || info.format == IDecodeService.FORMAT_WEBP)) {

@@ -52,6 +52,8 @@ public final class DecodeChecks {
         if (i.sourceError != 0 && !(i.status == IDecodeService.STATUS_INVALID && i.sourceError == 2)) {
             return "sourceError";
         }
+        if (i.plainJpegHeader && (i.status != IDecodeService.STATUS_OK || i.format != IDecodeService.FORMAT_JPEG
+                || i.bitDepth != 8 || i.hasAlpha || i.sourceError != 0)) return "plainJpegHeader";
         if (i.status != IDecodeService.STATUS_OK) return null;
         if (!format(i.format)) return "format";
         if (!size(i.width, i.height, IDecodeService.MAX_DIMENSION, IDecodeService.MAX_DIMENSION)) return "size";

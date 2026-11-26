@@ -1395,6 +1395,7 @@ public final class VmDecode {
         public final float[] colorDescription;
         public final int bitDepth;
         public final boolean hasAlpha;
+        public final boolean plainJpegHeader;
 
         Info(int width, int height, int format, boolean animated) {
             this(width, height, format, animated, IDecodeService.COLOR_SPACE_SRGB);
@@ -1405,11 +1406,12 @@ public final class VmDecode {
         }
 
         Info(int width, int height, int format, boolean animated, int colorSpace, int bitDepth, boolean hasAlpha) {
-            this(width, height, format, animated, colorSpace, bitDepth, hasAlpha, null);
+            this(width, height, format, animated, colorSpace, bitDepth, hasAlpha, null, false);
         }
 
         Info(int width, int height, int format, boolean animated, int colorSpace, int bitDepth, boolean hasAlpha,
-                float[] description) {
+                float[] description, boolean plainJpegHeader) {
+            this.plainJpegHeader = plainJpegHeader;
             this.colorDescription = description == null ? null : description.clone();
             this.bitDepth = bitDepth;
             this.hasAlpha = hasAlpha;
@@ -1446,7 +1448,7 @@ public final class VmDecode {
                 throw new RejectedException(e.getMessage());
             }
             if (!DecodeChecks.isColorSpace(info.colorSpace, info.colorDescription)) throw new RejectedException("bad colour space");
-            return new Info(info.width, info.height, info.format, info.animated, info.colorSpace, info.bitDepth, info.hasAlpha, info.colorDescription);
+            return new Info(info.width, info.height, info.format, info.animated, info.colorSpace, info.bitDepth, info.hasAlpha, info.colorDescription, info.plainJpegHeader);
         });
     }
 

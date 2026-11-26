@@ -157,6 +157,7 @@ public final class DecodeGate {
     public static final String EXTRA_COLOR_DESCRIPTION = "colorDescription";
     public static final String EXTRA_BIT_DEPTH = "bitDepth";
     public static final String EXTRA_HAS_ALPHA = "hasAlpha";
+    public static final String EXTRA_PLAIN_JPEG_HEADER = "plainJpegHeader";
     public static final String EXTRA_ANIMATED = "animated";
     /** Frames: their count, times in milliseconds, and how often they play (0: forever). */
     public static final String EXTRA_FRAME_COUNT = "frameCount";
@@ -746,6 +747,7 @@ public final class DecodeGate {
         final ColorSpace colorSpace;
         final int bitDepth;
         final boolean hasAlpha;
+        final boolean plainJpegHeader;
 
         Info(int width, int height, String mimeType, boolean animated, int rotation, boolean mirrored) {
             this(width, height, mimeType, animated, rotation, mirrored, 0);
@@ -758,11 +760,12 @@ public final class DecodeGate {
 
         Info(int width, int height, String mimeType, boolean animated, int rotation, boolean mirrored,
                 int colorSpace, int bitDepth, boolean hasAlpha) {
-            this(width, height, mimeType, animated, rotation, mirrored, colorSpace, bitDepth, hasAlpha, null);
+            this(width, height, mimeType, animated, rotation, mirrored, colorSpace, bitDepth, hasAlpha, null, false);
         }
 
         Info(int width, int height, String mimeType, boolean animated, int rotation, boolean mirrored,
-                int colorSpace, int bitDepth, boolean hasAlpha, float[] description) {
+                int colorSpace, int bitDepth, boolean hasAlpha, float[] description, boolean plainJpegHeader) {
+            this.plainJpegHeader = plainJpegHeader;
             this.bitDepth = bitDepth;
             this.hasAlpha = hasAlpha;
             this.width = width;
@@ -964,8 +967,10 @@ public final class DecodeGate {
         if (!GateColorSpaces.isValid(colorSpace, description)) {
             throw failed(false, "bad probe colour space");
         }
+        if (r.getBoolean(EXTRA_PLAIN_JPEG_HEADER) && (r.getInt(EXTRA_FORMAT) != 1
+                || bitDepth != 8 || r.getBoolean(EXTRA_HAS_ALPHA, true))) throw failed(false, "bad gain metadata negative");
         return new Info(width, height, mimeTypeOf(r.getInt(EXTRA_FORMAT), bytes.head()),
-                r.getBoolean(EXTRA_ANIMATED), rotation, r.getBoolean(EXTRA_MIRROR), colorSpace, bitDepth, r.getBoolean(EXTRA_HAS_ALPHA, true), description);
+                r.getBoolean(EXTRA_ANIMATED), rotation, r.getBoolean(EXTRA_MIRROR), colorSpace, bitDepth, r.getBoolean(EXTRA_HAS_ALPHA, true), description, r.getBoolean(EXTRA_PLAIN_JPEG_HEADER));
     }
 
     /** {@code bytes} decoded in the VM to fit {@code maxWidth} x {@code maxHeight}, upright. */
