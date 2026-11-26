@@ -1092,7 +1092,11 @@ public final class CleanCopyGate implements ImageFileGate {
                 } catch (DecodeMemory.NoRoomException e) {
                     throw new IOException("no room for APK image", e);
                 }
-                bytes = new byte[(int) size];
+                try {
+                    bytes = new byte[(int) size];
+                } catch (OutOfMemoryError e) {
+                    return null;
+                }
                 try (InputStream in = apk.getInputStream(entry)) {
                     int at = 0;
                     while (at < bytes.length) {
