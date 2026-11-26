@@ -100,8 +100,21 @@ final class ShortcutAccess implements AutoCloseable {
         }
     }
 
-    /** The icon's bytes: the file, or the URI opened as its user and copied, within {@link #OPEN_MS}. */
-    ParcelFileDescriptor open(Context context) throws java.io.IOException {
+    /**
+     * The lane of {@link OwnerLanes} the URI's open takes: its provider (authority) and user. Null for a file, which
+     * LauncherApps opened already.
+     */
+    String lane() {
+        return mUri == null ? null : mUri.getAuthority() + "/" + sourceUser;
+    }
+
+    /**
+     * The icon's bytes: the file, or the URI opened as its user and copied. The provider is asked to stop after
+     * {@link #OPEN_MS}. {@code holds} gets the provider's descriptor as soon as it is open, so a caller that stops
+     * waiting can close it and end the read (OwnerLanes).
+     */
+    ParcelFileDescriptor open(Context context, java.util.function.Consumer<AutoCloseable> holds)
+            throws java.io.IOException {
         if (mFile != null) {
             return mFile.dup();
         }
@@ -116,6 +129,7 @@ final class ShortcutAccess implements AutoCloseable {
             if (afd == null) {
                 return null;
             }
+            holds.accept(afd);
             try (android.graphics.DecodeGate.Input bytes = android.graphics.DecodeGate.snapshot(afd)) {
                 return bytes.fd().dup();
             }

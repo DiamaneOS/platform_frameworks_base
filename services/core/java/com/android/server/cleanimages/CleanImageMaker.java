@@ -183,6 +183,9 @@ public final class CleanImageMaker {
                 t.setDaemon(true);
                 return t;
             });
+    // Opens of shortcut icon URIs, one per provider and user at a time: a provider that never answers or never ends
+    // its pipe holds only its own lane, never these two threads or another app's icons.
+    private final OwnerLanes mShortcutLanes = new OwnerLanes("CleanImagesShortcutOpen");
     // The APK zip each maker thread has open, for a run of files of one APK.
     private final ThreadLocal<ZipHolder> mZips = ThreadLocal.withInitial(ZipHolder::new);
 
@@ -687,7 +690,9 @@ public final class CleanImageMaker {
                 // The input is the system server's own (ShortcutAccess), bound to the shortcut: its item domain.
                 final String identity = packageName + "/profile" + user + "/" + input.id + "/to" + forUid
                         + "/recipient" + recipientSerial + "/source" + sourceSerial + "/shortcut" + shortcutSerial;
-                try (ParcelFileDescriptor fd = input.open(mContext);
+                final String lane = input.lane();
+                try (ParcelFileDescriptor fd = lane == null ? input.open(mContext, held -> { })
+                        : mShortcutLanes.open(lane, held -> input.open(mContext, held), left);
                         VmDecode.ForApp app = VmDecode.forApp(VmDecode.SHORTCUT_ITEM)) {
                     if (fd == null || userSerial(user) != shortcutSerial
                             || userSerial(input.sourceUser) != sourceSerial || userSerial(recipient) != recipientSerial
