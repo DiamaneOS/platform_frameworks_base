@@ -64,7 +64,7 @@ public class GateGainmapStockDeviceTest {
     }
 
     @Test public void fractionalImageDecoderGainSizeMatchesStock() throws Exception {
-        for (int[] size : new int[][] {{640, 480, 319, 239}, {4096, 3072, 4095, 3071}}) {
+        for (int[] size : new int[][] {{640, 480, 319, 239}, {4096, 3072, 4095, 3071}, {640, 480, 1, 1}}) {
             final byte[] bytes = hdr(size[0], size[1], size[0] / 2, size[1] / 2, false);
             for (int allocator : new int[] {ImageDecoder.ALLOCATOR_SOFTWARE, ImageDecoder.ALLOCATOR_DEFAULT,
                     ImageDecoder.ALLOCATOR_HARDWARE}) {

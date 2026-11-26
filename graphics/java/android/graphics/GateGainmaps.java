@@ -105,12 +105,16 @@ final class GateGainmaps {
         }
         // DiamaneOS: ImageDecoder truncates its float scale, BitmapFactory rounds its fine scale.
         // ImageDecoder uses checked regions at every size, so the whole gain reply's rounding cannot add a pixel.
-        final int width = Math.max(1, bitmapFactory
+        final int scaledWidth = bitmapFactory
                 ? (int) ((double) gainWidth * baseWidth / storedWidth + 0.5)
-                : (int) (gainWidth * ((float) baseWidth / storedWidth)));
-        final int height = Math.max(1, bitmapFactory
+                : (int) (gainWidth * ((float) baseWidth / storedWidth));
+        final int scaledHeight = bitmapFactory
                 ? (int) ((double) gainHeight * baseHeight / storedHeight + 0.5)
-                : (int) (gainHeight * ((float) baseHeight / storedHeight)));
+                : (int) (gainHeight * ((float) baseHeight / storedHeight));
+        // Stock ImageDecoder keeps both original gain dimensions if setTargetSize rejects either zero dimension.
+        final boolean original = !bitmapFactory && (scaledWidth == 0 || scaledHeight == 0);
+        final int width = original ? gainWidth : Math.max(1, scaledWidth);
+        final int height = original ? gainHeight : Math.max(1, scaledHeight);
         final int sample = Math.max(1, Math.min(DecodeGate.MAX_REGION_SAMPLE,
                 Math.min(gainWidth / width, gainHeight / height)));
         op.checkFit(bytes.reserved() + targetBytes + (long) width * height * 4
