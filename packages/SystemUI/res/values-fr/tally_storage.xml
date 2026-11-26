@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Copyright (C) 2026 The DiamaneOS Project
+  SPDX-License-Identifier: Apache-2.0
+
+  French for values/tally_storage.xml, translated by the DiamaneOS project.
+-->
+<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
+    <string name="tally_storage_waiting_title_sd">"Cette carte SD est en attente"</string>
+    <string name="tally_storage_waiting_title_usb">"Cette clé USB est en attente"</string>
+    <string name="tally_storage_waiting_title">"Ce périphérique de stockage est en attente"</string>
+    <string name="tally_storage_waiting_message">"Pas assez de mémoire libre pour le moment. Éjectez un autre support pour ouvrir celui-ci."</string>
+</resources>

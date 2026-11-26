@@ -103,6 +103,8 @@ public class VolumeInfo implements Parcelable {
     public static final int STATE_UNOPENABLE = IVold.VOLUME_STATE_UNOPENABLE;
     /** DiamaneOS: unmounted, but not everything could be written back to it first. Never "safe to remove". */
     public static final int STATE_NOT_WRITTEN_BACK = IVold.VOLUME_STATE_NOT_WRITTEN_BACK;
+    /** DiamaneOS: no protected VM place is free for the volume yet. It is mounted as soon as one is. */
+    public static final int STATE_WAITING_FOR_PLACE = IVold.VOLUME_STATE_WAITING_FOR_PLACE;
 
     public static final int MOUNT_FLAG_PRIMARY = IVold.MOUNT_FLAG_PRIMARY;
     public static final int MOUNT_FLAG_VISIBLE_FOR_READ = IVold.MOUNT_FLAG_VISIBLE_FOR_READ;
@@ -141,6 +143,8 @@ public class VolumeInfo implements Parcelable {
         // Apps see a volume the VM could not open as unmounted, not as corrupted.
         sStateToEnvironment.put(VolumeInfo.STATE_UNOPENABLE, Environment.MEDIA_UNMOUNTED);
         sStateToEnvironment.put(VolumeInfo.STATE_NOT_WRITTEN_BACK, Environment.MEDIA_UNMOUNTED);
+        // Apps see a volume that waits for a place as being checked: it mounts by itself.
+        sStateToEnvironment.put(VolumeInfo.STATE_WAITING_FOR_PLACE, Environment.MEDIA_CHECKING);
 
         sEnvironmentToBroadcast.put(Environment.MEDIA_UNMOUNTED, Intent.ACTION_MEDIA_UNMOUNTED);
         sEnvironmentToBroadcast.put(Environment.MEDIA_CHECKING, Intent.ACTION_MEDIA_CHECKING);
@@ -162,6 +166,7 @@ public class VolumeInfo implements Parcelable {
         sStateToDescrip.put(VolumeInfo.STATE_BAD_REMOVAL, R.string.ext_media_status_bad_removal);
         sStateToDescrip.put(VolumeInfo.STATE_UNOPENABLE, R.string.ext_media_status_unopenable);
         sStateToDescrip.put(VolumeInfo.STATE_NOT_WRITTEN_BACK, R.string.ext_media_status_not_written_back);
+        sStateToDescrip.put(VolumeInfo.STATE_WAITING_FOR_PLACE, R.string.ext_media_status_checking);
     }
 
     /** vold state */

@@ -361,6 +361,9 @@ public class StorageNotification implements CoreStartable {
             case VolumeInfo.STATE_UNOPENABLE:
                 notif = onVolumeUnopenable(vol);
                 break;
+            case VolumeInfo.STATE_WAITING_FOR_PLACE:
+                notif = onVolumeWaitingForPlace(vol);
+                break;
             case VolumeInfo.STATE_NOT_WRITTEN_BACK:
                 notif = onVolumeNotWrittenBack(vol);
                 break;
@@ -520,6 +523,27 @@ public class StorageNotification implements CoreStartable {
                 mContext.getString(R.string.ext_media_unopenable_notification_message))
                 .setContentIntent(buildVolumeSettingsPendingIntent(vol))
                 .setCategory(Notification.CATEGORY_ERROR)
+                .build();
+    }
+
+    /**
+     * DiamaneOS: no protected VM place is free for the volume (two drives are open already). It opens by itself once
+     * one is ejected. A plain notice that says so, no actions.
+     */
+    private Notification onVolumeWaitingForPlace(VolumeInfo vol) {
+        final DiskInfo disk = vol.getDisk();
+        final int title;
+        if (disk != null && disk.isSd()) {
+            title = com.android.systemui.res.R.string.tally_storage_waiting_title_sd;
+        } else if (disk != null && disk.isUsb()) {
+            title = com.android.systemui.res.R.string.tally_storage_waiting_title_usb;
+        } else {
+            title = com.android.systemui.res.R.string.tally_storage_waiting_title;
+        }
+        return buildNotificationBuilder(vol, mContext.getString(title),
+                mContext.getString(com.android.systemui.res.R.string.tally_storage_waiting_message))
+                .setContentIntent(buildVolumeSettingsPendingIntent(vol))
+                .setCategory(Notification.CATEGORY_STATUS)
                 .build();
     }
 
