@@ -974,6 +974,7 @@ public final class OverlayManagerService extends SystemService {
                     "Transaction overlay identifier must be non-null");
 
             final int callingUid = Binder.getCallingUid();
+            final int callingPid = Binder.getCallingPid(); // DiamaneOS: for FabricatedFileValues
             final int realUserId;
             if (request.type == TYPE_REGISTER_FABRICATED
                     || request.type == TYPE_UNREGISTER_FABRICATED) {
@@ -1032,7 +1033,7 @@ public final class OverlayManagerService extends SystemService {
                         Objects.requireNonNull(fabricated,
                                 "no fabricated overlay attached to request");
                         // DiamaneOS: file values (nine-patches parsed by idmap2d) from the system only.
-                        FabricatedFileValues.enforceCaller(callingUid, fabricated);
+                        FabricatedFileValues.enforceCaller(callingUid, callingPid, fabricated);
                         return mImpl.registerFabricatedOverlay(fabricated);
 
                     case TYPE_UNREGISTER_FABRICATED:

@@ -17,7 +17,6 @@
 package com.android.server.om;
 
 import android.annotation.NonNull;
-import android.os.Binder;
 import android.os.FabricatedOverlayInternal;
 import android.os.FabricatedOverlayInternalEntry;
 import android.os.Process;
@@ -36,10 +35,11 @@ final class FabricatedFileValues {
 
     /**
      * Throws IllegalArgumentException, the commit path's answer to an invalid request, when a caller other than the
-     * system server's own process hands in a file value. Call on the binder thread, with the caller's identity.
+     * system server's own process hands in a file value. {@code callingUid} and {@code callingPid} are the caller's,
+     * read on the binder thread before its identity is cleared.
      */
-    static void enforceCaller(int callingUid, @NonNull FabricatedOverlayInternal overlay) {
-        if ((callingUid == Process.SYSTEM_UID && Binder.getCallingPid() == Process.myPid())
+    static void enforceCaller(int callingUid, int callingPid, @NonNull FabricatedOverlayInternal overlay) {
+        if ((callingUid == Process.SYSTEM_UID && callingPid == Process.myPid())
                 || overlay.entries == null) {
             return;
         }
