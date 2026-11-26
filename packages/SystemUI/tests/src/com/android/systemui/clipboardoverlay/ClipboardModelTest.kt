@@ -25,7 +25,10 @@ import android.os.PersistableBundle
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.SmallTest
 import com.android.systemui.SysuiTestCase
+import com.android.systemui.res.R
+import de.diamaneos.decode.client.VmDecode
 import java.io.IOException
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -35,6 +38,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mock
+import org.mockito.Mockito.never
+import org.mockito.Mockito.verify
 import org.mockito.MockitoAnnotations
 import org.mockito.kotlin.whenever
 
@@ -46,10 +51,54 @@ class ClipboardModelTest : SysuiTestCase() {
     @Mock private lateinit var mMockContentResolver: ContentResolver
     private lateinit var mSampleClipData: ClipData
 
+    // DiamaneOS: the clipboard's thumbnails come from the VM (ClipboardVmThumbnail), here a fake that records what
+    // it was asked and gives a bitmap or throws.
+    private class FakeVm(val result: () -> Bitmap) : ClipboardVmThumbnail.Loader {
+        var owner: String? = null
+        var maxWidth = 0
+        var maxHeight = 0
+        var calls = 0
+
+        override fun load(
+            context: Context,
+            resolver: ContentResolver,
+            uri: Uri,
+            owner: String,
+            priority: Int,
+            maxWidth: Int,
+            maxHeight: Int,
+            deadline: Long,
+        ): Bitmap {
+            calls++
+            this.owner = owner
+            this.maxWidth = maxWidth
+            this.maxHeight = maxHeight
+            return result()
+        }
+    }
+
+    private val testBitmap = Bitmap.createBitmap(50, 50, Bitmap.Config.ARGB_8888)
+    private lateinit var mFakeVm: FakeVm
+
     @Before
     fun setup() {
         MockitoAnnotations.initMocks(this)
         mSampleClipData = ClipData("Test", arrayOf("text/plain"), ClipData.Item("Test Item"))
+        mFakeVm = FakeVm { testBitmap }
+        ClipboardVmThumbnail.loader = mFakeVm
+    }
+
+    @After
+    fun tearDown() {
+        ClipboardVmThumbnail.loader = ClipboardVmThumbnail.VM
+    }
+
+    private fun imageModel(source: String): ClipboardModel {
+        whenever(mMockContext.contentResolver).thenReturn(mMockContentResolver)
+        whenever(mMockContext.resources).thenReturn(mContext.resources)
+        whenever(mMockContentResolver.getType(any())).thenReturn("text")
+        val imageClipData = ClipData("Test", arrayOf("image/png"), ClipData.Item(Uri.parse("test")))
+        return ClipboardModel.fromClipData(mMockContext, mClipboardUtils, imageClipData, source)
     }
 
     @Test
@@ -89,27 +138,51 @@ class ClipboardModelTest : SysuiTestCase() {
     @Test
     @Throws(IOException::class)
     fun test_imageClipData() {
-        val testBitmap = Bitmap.createBitmap(50, 50, Bitmap.Config.ARGB_8888)
-        whenever(mMockContext.contentResolver).thenReturn(mMockContentResolver)
-        whenever(mMockContext.resources).thenReturn(mContext.resources)
-        whenever(mMockContentResolver.loadThumbnail(any(), any(), any())).thenReturn(testBitmap)
-        whenever(mMockContentResolver.getType(any())).thenReturn("text")
-        val imageClipData = ClipData("Test", arrayOf("image/png"), ClipData.Item(Uri.parse("test")))
-        val model = ClipboardModel.fromClipData(mMockContext, mClipboardUtils, imageClipData, "")
+        val model = imageModel("source app")
         assertEquals(ClipboardModel.Type.IMAGE, model.type)
         assertEquals(testBitmap, model.loadThumbnail(mMockContext))
+        // Asked of the VM in the clipboard's box, charged to the source, never decoded here.
+        val size = mContext.resources.getDimensionPixelSize(R.dimen.overlay_x_scale)
+        assertEquals(1, mFakeVm.calls)
+        assertEquals("source app", mFakeVm.owner)
+        assertEquals(size, mFakeVm.maxWidth)
+        assertEquals(size * 4, mFakeVm.maxHeight)
+        verify(mMockContentResolver, never()).loadThumbnail(any(), any(), any())
+        // Kept: a second look asks nothing again.
+        assertEquals(testBitmap, model.loadThumbnail(mMockContext))
+        assertEquals(1, mFakeVm.calls)
+    }
+
+    /** The decode service unavailable: no preview, and the image is not decoded in SystemUI instead. */
+    @Test
+    fun test_imageVmUnavailable_failsClosed() {
+        mFakeVm = FakeVm { throw VmDecode.UnavailableException("the VM is not available") }
+        ClipboardVmThumbnail.loader = mFakeVm
+        val model = imageModel("")
+        assertNull(model.loadThumbnail(mMockContext))
+        assertEquals(1, mFakeVm.calls)
+        verify(mMockContentResolver, never()).loadThumbnail(any(), any(), any())
+    }
+
+    /** An image the VM refuses: no preview. */
+    @Test
+    fun test_imageVmRefused_noPreview() {
+        mFakeVm = FakeVm { throw VmDecode.RejectedException("invalid file") }
+        ClipboardVmThumbnail.loader = mFakeVm
+        val model = imageModel("")
+        assertNull(model.loadThumbnail(mMockContext))
+        verify(mMockContentResolver, never()).loadThumbnail(any(), any(), any())
     }
 
     @Test
     fun test_nullMimeType() {
-        val testBitmap = Bitmap.createBitmap(50, 50, Bitmap.Config.ARGB_8888)
         whenever(mMockContext.contentResolver).thenReturn(mMockContentResolver)
         whenever(mMockContext.resources).thenReturn(mContext.resources)
-        whenever(mMockContentResolver.loadThumbnail(any(), any(), any())).thenReturn(testBitmap)
         whenever(mMockContentResolver.getType(any())).thenReturn("text")
         val imageClipData = ClipData("Test", arrayOf(), ClipData.Item(Uri.parse("test")))
         val model = ClipboardModel.fromClipData(mMockContext, mClipboardUtils, imageClipData, "")
         assertEquals(ClipboardModel.Type.URI, model.type)
         assertEquals(null, model.loadThumbnail(mMockContext))
+        assertEquals(0, mFakeVm.calls)
     }
 }

@@ -55,9 +55,10 @@ data class ClipboardModel(
         if (_bitmap == null && type == Type.IMAGE && uri != null) {
             try {
                 val size = context.resources.getDimensionPixelSize(R.dimen.overlay_x_scale)
-                // DiamaneOS: decoded in the protected VM, never in SystemUI. Null (no preview) when that fails.
+                // DiamaneOS: decoded in the protected VM, never in SystemUI, and turned as loadThumbnail turns it.
+                // Null (no preview) when that fails.
                 _bitmap =
-                    VmDecode.decodeUri(
+                    ClipboardVmThumbnail.loader.load(
                         context,
                         context.contentResolver,
                         uri,
