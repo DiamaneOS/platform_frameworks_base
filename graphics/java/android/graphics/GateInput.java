@@ -154,6 +154,87 @@ final class GateInput {
 
     // Streams
 
+    /** One decode's stream, paused after a VM-valid header until its listener returns. */
+    static final class HeaderStream implements AutoCloseable {
+        private final InputStream input;
+        private DecodeMemory.Reservation charge;
+        private FileDescriptor out;
+        private final MessageDigest digest;
+        private final byte[] buffer;
+        private final byte[] head;
+        private final GatePngFrame png = new GatePngFrame();
+        private int total;
+        private boolean ended;
+
+        HeaderStream(InputStream input) throws DecodeGate.Failure {
+            this.input = input;
+            charge = reserve(PIECE + 192);
+            try {
+                digest = newDigest(charge);
+                out = memory(charge);
+                buffer = new byte[PIECE];
+                head = new byte[32];
+            } catch (DecodeGate.Failure | RuntimeException | Error e) {
+                if (out != null) closeQuietly(out);
+                charge.close();
+                throw e;
+            }
+        }
+
+        /** Reads one bounded piece, never a later piece after a header has been returned. */
+        boolean next() throws DecodeGate.Failure {
+            if (ended || png.complete()) return false;
+            final int count;
+            try {
+                count = input.read(buffer, 0, png.readLimit(buffer.length));
+            } catch (IOException e) {
+                throw DecodeGate.inputFailed(e);
+            }
+            if (count <= 0) {
+                ended = true;
+                return false;
+            }
+            if (total < head.length) {
+                System.arraycopy(buffer, 0, head, total, Math.min(count, head.length - total));
+            }
+            if (count > DecodeGate.MAX_BYTES - total) {
+                throw DecodeGate.failed(true, "larger than the decode limit");
+            }
+            grow(charge, count);
+            total += count;
+            png.accept(buffer, count);
+            digest.update(buffer, 0, count);
+            writeAll(out, buffer, count);
+            return true;
+        }
+
+        /** An independently sealed prefix for the VM, never the mutable staging descriptor. */
+        DecodeGate.Bytes prefix() throws DecodeGate.Failure {
+            return copyFd(out, 0, total, null);
+        }
+
+        /** The listener has returned, so the rest may now be read for the pixel operation. */
+        DecodeGate.Bytes finish() throws DecodeGate.Failure {
+            while (next()) { }
+            if (total == 0) throw DecodeGate.failed(true, "no bytes");
+            final DecodeGate.Bytes bytes = done(out, java.util.Arrays.copyOf(head, Math.min(total, head.length)),
+                    digest, charge);
+            charge = null;
+            return bytes;
+        }
+
+        @Override public void close() {
+            if (out != null) {
+                closeQuietly(out);
+                out = null;
+            }
+            if (charge != null) {
+                charge.close();
+                charge = null;
+            }
+        }
+    }
+
     /** Reads one complete PNG or to the stream end, at most {@link DecodeGate#MAX_BYTES}. The stream stays open. */
     static DecodeGate.Bytes of(DecodeGate.Op op, InputStream in) throws DecodeGate.Failure {
         DecodeGate.mayAsk();

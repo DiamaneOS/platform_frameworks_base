@@ -509,6 +509,7 @@ public final class DecodeGate {
         private final String mInputUser;
         private volatile boolean mPermit;
         int sourceError;
+        boolean headerPrefix;
 
         Op(long wait, boolean critical, GateRefill refill) {
             this(wait, critical, refill, DecodeGate.owner());
@@ -944,7 +945,11 @@ public final class DecodeGate {
     /** The probe of {@code bytes} in the VM, with the turn the file asks for when {@code turn} (else 0). */
     static Info probe(Op op, Bytes bytes, boolean turn) throws Failure {
         final Bundle r = request(op, turn ? METHOD_HEADER : METHOD_PROBE, bytes, 0, 0);
-        if (r.getInt(EXTRA_SOURCE_ERROR) != 0) throw failed(false, "partial probe reply");
+        if (r.getInt(EXTRA_SOURCE_ERROR) != 0) {
+            if (op.headerPrefix) throw new Failure(true, false, "incomplete header prefix",
+                    ImageDecoder.DecodeException.SOURCE_INCOMPLETE);
+            throw failed(false, "partial probe reply");
+        }
         final int width = r.getInt(EXTRA_WIDTH);
         final int height = r.getInt(EXTRA_HEIGHT);
         final int rotation = r.getInt(EXTRA_ROTATION);
@@ -1374,7 +1379,7 @@ public final class DecodeGate {
         if (cached != null) {
             try {
                 sCacheHits.incrementAndGet();
-                return answerOf(cached.bundle);
+                return answerOf(cached.bundle, op.headerPrefix);
             } finally { cached.release(); }
         }
         final Call call;
@@ -1437,7 +1442,7 @@ public final class DecodeGate {
                 timedOut(op);
                 throw notNow("missed its time, finishing in the background");
             }
-            return answerOf(answer);
+            return answerOf(answer, op.headerPrefix);
         } finally { call.releaseReader(); }
     }
 
@@ -1467,6 +1472,14 @@ public final class DecodeGate {
     }
 
     // An answer for one caller: an error as a Failure, pixels as a copy of their own (the cache keeps the original).
+    private static Bundle answerOf(Bundle answer, boolean headerPrefix) throws Failure {
+        if (headerPrefix && answer.getBoolean(EXTRA_REFUSED) && answer.getString(EXTRA_ERROR) != null) {
+            // A short prefix is not a verdict on the complete image and starts no refill or failure notice.
+            throw new Failure(true, false, answer.getString(EXTRA_ERROR), answer.getInt(EXTRA_SOURCE_ERROR));
+        }
+        return answerOf(answer);
+    }
+
     private static Bundle answerOf(Bundle answer) throws Failure {
         final String error = answer.getString(EXTRA_ERROR);
         final int sourceError = answer.getInt(EXTRA_SOURCE_ERROR);

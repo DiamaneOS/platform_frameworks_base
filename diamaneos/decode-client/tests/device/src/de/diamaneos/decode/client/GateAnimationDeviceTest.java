@@ -264,6 +264,118 @@ public class GateAnimationDeviceTest {
         }
     }
 
+    @Test public void streamHeaderPrecedesItsLaterThrowAsStockDoes() throws Exception {
+        final byte[] jpeg = streamJpeg();
+        for (boolean gated : new boolean[] {false, true}) {
+            DecodeGate.setForcedForTest(gated);
+            final java.util.List<String> events = new java.util.ArrayList<>();
+            final ThrowingImageStream input = new ThrowingImageStream(jpeg, 4096, events);
+            final ImageDecoder.Source source = streamSource(input);
+            try {
+                ImageDecoder.decodeBitmap(source, (decoder, info, src) -> {
+                    events.add("header");
+                    decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
+                    decoder.setTargetSampleSize(2);
+                });
+                fail("later stream error was swallowed, gated=" + gated);
+            } catch (ImageDecoder.DecodeException expected) {
+                events.add("exception");
+                assertEquals(ImageDecoder.DecodeException.SOURCE_EXCEPTION, expected.getError());
+                assertSame(input.failure, expected.getCause());
+            }
+            assertEquals("gated=" + gated, java.util.Arrays.asList("header", "throw", "exception"), events);
+            assertFalse("the caller's stream was closed", input.closed);
+        }
+    }
+
+    @Test public void streamListenerOptionsAndExceptionMatchStock() throws Exception {
+        final byte[] jpeg = streamJpeg();
+        for (boolean gated : new boolean[] {false, true}) {
+            DecodeGate.setForcedForTest(gated);
+            final java.util.List<String> events = new java.util.ArrayList<>();
+            final ThrowingImageStream complete = new ThrowingImageStream(jpeg, -1, events);
+            final Bitmap bitmap = ImageDecoder.decodeBitmap(streamSource(complete), (decoder, info, src) -> {
+                decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
+                decoder.setTargetSize(64, 48);
+            });
+            try {
+                assertEquals(64, bitmap.getWidth());
+                assertEquals(48, bitmap.getHeight());
+            } finally {
+                bitmap.recycle();
+            }
+            final ThrowingImageStream stopped = new ThrowingImageStream(jpeg, -1, events);
+            final IllegalStateException listenerFailure = new IllegalStateException("listener stopped");
+            final int[] atHeader = {-1};
+            try {
+                ImageDecoder.decodeBitmap(streamSource(stopped), (decoder, info, src) -> {
+                    atHeader[0] = stopped.at;
+                    throw listenerFailure;
+                });
+                fail("listener exception was swallowed");
+            } catch (IllegalStateException expected) {
+                assertSame(listenerFailure, expected);
+            }
+            assertEquals("listener failure read later bytes", atHeader[0], stopped.at);
+            assertFalse("the caller's stream was closed", stopped.closed);
+        }
+    }
+
+    private static ImageDecoder.Source streamSource(InputStream input) {
+        return ImageDecoder.createSource(InstrumentationRegistry.getInstrumentation().getTargetContext()
+                .getResources(), input, Bitmap.DENSITY_NONE);
+    }
+
+    private static byte[] streamJpeg() {
+        final Bitmap image = Bitmap.createBitmap(512, 384, Bitmap.Config.ARGB_8888);
+        try {
+            final int[] pixels = new int[512 * 384];
+            final java.util.Random random = new java.util.Random(0x516a);
+            for (int i = 0; i < pixels.length; i++) pixels[i] = 0xff000000 | random.nextInt(1 << 24);
+            image.setPixels(pixels, 0, 512, 0, 0, 512, 384);
+            final ByteArrayOutputStream encoded = new ByteArrayOutputStream();
+            assertTrue(image.compress(Bitmap.CompressFormat.JPEG, 95, encoded));
+            assertTrue(encoded.size() > 8192);
+            return encoded.toByteArray();
+        } finally {
+            image.recycle();
+        }
+    }
+
+    private static final class ThrowingImageStream extends InputStream {
+        final byte[] bytes;
+        final int failAt;
+        final java.util.List<String> events;
+        final java.io.IOException failure = new java.io.IOException("later fixture read");
+        int at;
+        boolean closed;
+
+        ThrowingImageStream(byte[] bytes, int failAt, java.util.List<String> events) {
+            this.bytes = bytes;
+            this.failAt = failAt;
+            this.events = events;
+        }
+
+        @Override public int read(byte[] target, int offset, int count) throws java.io.IOException {
+            if (failAt >= 0 && at >= failAt) {
+                events.add("throw");
+                throw failure;
+            }
+            if (at == bytes.length) return -1;
+            final int n = Math.min(count, (failAt >= 0 ? failAt : bytes.length) - at);
+            System.arraycopy(bytes, at, target, offset, n);
+            at += n;
+            return n;
+        }
+
+        @Override public int read() throws java.io.IOException {
+            final byte[] one = new byte[1];
+            return read(one, 0, 1) < 0 ? -1 : one[0] & 255;
+        }
+
+        @Override public void close() { closed = true; }
+    }
+
     @Test public void movieBytesKeepTheStockShapeAndFrameTimeline() throws Exception {
         final byte[] bytes = fixture(R.raw.vm_animation_compat_gif);
         final int before = DecodeGate.countsForTest()[0];

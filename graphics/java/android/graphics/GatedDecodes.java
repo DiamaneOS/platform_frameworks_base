@@ -621,7 +621,8 @@ final class GatedDecodes {
      */
     static final class Header implements AutoCloseable {
         final DecodeGate.Op op;
-        final DecodeGate.Bytes bytes;
+        DecodeGate.Bytes bytes;
+        GateInput.HeaderStream stream;
         final int width;
         final int height;
         final String mimeType;
@@ -654,8 +655,18 @@ final class GatedDecodes {
 
         @Override
         public void close() {
+            if (stream != null) stream.close();
             bytes.close();
             op.close();
+        }
+
+        void finishInput() throws DecodeGate.Failure {
+            if (stream == null) return;
+            // The listener's options have been applied before the remaining stream read.
+            bytes.close();
+            bytes = stream.finish();
+            stream.close();
+            stream = null;
         }
     }
 
@@ -690,7 +701,59 @@ final class GatedDecodes {
     }
 
     static Header header(InputStream in, ImageDecoder.Source source) throws IOException {
-        return header(op -> GateInput.of(op, in), source);
+        final DecodeGate.Op op = DecodeGate.begin();
+        if (op.critical) {
+            try {
+                return header(op, GateInput.of(op, in), source);
+            } catch (DecodeGate.Failure e) {
+                op.close();
+                throw headerException(e, source);
+            } catch (OutOfMemoryError e) {
+                op.close();
+                throw decodeException(DecodeGate.notNow("no memory for the image header"), source);
+            } catch (RuntimeException | Error e) {
+                op.close();
+                throw e;
+            }
+        }
+        GateInput.HeaderStream stream = null;
+        DecodeGate.Bytes prefix = null;
+        try {
+            DecodeGate.mayAsk();
+            stream = new GateInput.HeaderStream(in);
+            DecodeGate.Failure last = null;
+            while (stream.next()) {
+                prefix = stream.prefix();
+                final DecodeGate.Info info;
+                try {
+                    op.headerPrefix = true;
+                    info = DecodeGate.probe(op, prefix, true);
+                } catch (DecodeGate.Failure e) {
+                    prefix.close();
+                    prefix = null;
+                    // A prefix may end before the codec's header does. A transport or resource failure stops here.
+                    if (!e.refused && e.sourceError != ImageDecoder.DecodeException.SOURCE_INCOMPLETE) throw e;
+                    last = e;
+                    continue;
+                } finally {
+                    op.headerPrefix = false;
+                }
+                final Header header = new Header(op, prefix, info);
+                header.stream = stream;
+                return header;
+            }
+            throw last != null ? last : DecodeGate.failed(true, "no image header");
+        } catch (DecodeGate.Failure e) {
+            if (prefix != null) prefix.close();
+            if (stream != null) stream.close();
+            op.close();
+            throw headerException(e, source);
+        } catch (RuntimeException | Error e) {
+            if (prefix != null) prefix.close();
+            if (stream != null) stream.close();
+            op.close();
+            throw e;
+        }
     }
 
     static Header header(FileDescriptor fd, long offset, long length, ImageDecoder.Source source)
@@ -826,6 +889,7 @@ final class GatedDecodes {
         Bitmap bitmap = null;
         Bitmap result = null;
         try {
+            header.finishInput();
             if ((long) width * height > MAX_OUTPUT_PIXELS) {
                 throw DecodeGate.failed(true, "larger than the gate makes");
             }
@@ -1075,6 +1139,7 @@ final class GatedDecodes {
             throws ImageDecoder.DecodeException {
         GateImageSettings.validateColorSpace(colorSpace);
         try {
+            header.finishInput();
             final Rect r = animationCrop(crop, width, height);
             // A window's answer, its copy and its frames, and with a post-processor the frames drawn at their size.
             header.op.checkFit(header.bytes.reserved() + 3 * MAX_ANIMATION_BYTES

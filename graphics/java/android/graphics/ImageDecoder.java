@@ -371,10 +371,14 @@ public final class ImageDecoder implements AutoCloseable {
             boolean closeInputStream, boolean preferAnimation, Source source) throws IOException {
         if (DecodeGate.gatesStream(is)) {
             // DiamaneOS: in a gated process the bytes are decoded in the protected VM (DecodeGate).
+            ImageDecoder decoder = null;
             try {
-                return gated(GatedDecodes.header(is, source));
+                decoder = gated(GatedDecodes.header(is, source));
+                decoder.mInputStream = is;
+                decoder.mOwnsInputStream = closeInputStream;
+                return decoder;
             } finally {
-                if (closeInputStream) {
+                if (decoder == null && closeInputStream) {
                     IoUtils.closeQuietly(is);
                 }
             }
