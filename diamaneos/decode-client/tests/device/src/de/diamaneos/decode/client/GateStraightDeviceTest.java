@@ -73,7 +73,7 @@ public class GateStraightDeviceTest {
                     final ByteBuffer reference = pixels(stockRead), actual = pixels(gatedRead);
                     final boolean wide = config == Bitmap.Config.RGBA_F16;
                     final HashSet<Integer> nativeLevels = new HashSet<>(), gateLevels = new HashSet<>();
-                    boolean nativeHidden = false;
+                    boolean nativeHidden = false, nativeTransparent = false;
                     for (int y = 0; y < stockRead.getHeight(); y++) {
                         for (int x = 0; x < stockRead.getWidth(); x++) {
                             final int before = y * stockRead.getRowBytes() + x * (wide ? 8 : 4);
@@ -83,6 +83,7 @@ public class GateStraightDeviceTest {
                             final int green = wide ? reference.getShort(before + 2) & 65535
                                     : reference.get(before + 1) & 255;
                             nativeHidden |= alpha == 0 && green != 0;
+                            nativeTransparent |= alpha == 0;
                             nativeLevels.add(wide ? reference.getShort(before) & 65535 : reference.get(before) & 255);
                             gateLevels.add(wide ? actual.getShort(after) & 65535 : actual.get(after) & 255);
                             for (int channel = 0; channel < 4; channel++) {
@@ -96,7 +97,10 @@ public class GateStraightDeviceTest {
                             }
                         }
                     }
-                    if (!hardware) assertTrue("native fixture lacks transparent RGB", nativeHidden);
+                    // A cropped decode is drawn into its bitmap, so stock gives transparent pixels no colour: the
+                    // fixture then only needs transparent pixels, which the comparison above covers.
+                    if (!hardware && !crop) assertTrue("native fixture lacks transparent RGB", nativeHidden);
+                    if (!hardware && crop) assertTrue("native fixture lacks transparent pixels", nativeTransparent);
                     if (deep && !conserve) {
                         assertTrue("native deep fixture lacks precision", nativeLevels.size() > 1024);
                         assertTrue("gate reduced deep pixels to eight bits", gateLevels.size() > 1024);
