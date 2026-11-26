@@ -112,9 +112,13 @@ public class GateLargeInputDeviceTest {
         stock.recycle();
         DecodeGate.setForcedForTest(true);
         DecodeGate.resetForTest();
+        DecodeGate.setWaitForTest(null);
+        final long started = android.os.SystemClock.uptimeMillis();
         final Bitmap gated = decode(file, factory, targetWidth, targetHeight);
+        final long elapsed = android.os.SystemClock.uptimeMillis() - started;
         assertNotNull("gated input", gated);
         try {
+            assertTrue("production worker deadline, elapsed=" + elapsed, elapsed < 15_000L);
             assertEquals(width, gated.getWidth());
             assertEquals(height, gated.getHeight());
             samePixels(base, gated);
@@ -127,7 +131,7 @@ public class GateLargeInputDeviceTest {
                 samePixels(gain, map.getGainmapContents());
             }
             Log.i("LargeInputProof", "stock pair factory=" + factory + " base=" + width + "x" + height
-                    + " gain=" + gainWidth + "x" + gainHeight);
+                    + " gain=" + gainWidth + "x" + gainHeight + " productionElapsedMs=" + elapsed);
         } finally {
             if (gated.hasGainmap()) gated.getGainmap().getGainmapContents().recycle();
             gated.recycle();
