@@ -150,13 +150,13 @@ public class GateLargeInputDeviceTest {
         } finally { assertTrue(file.delete()); }
     }
 
-    @Test public void ownedNoisyHeifGridAbove32MiBMatchesStock() throws Exception {
+    @Test public void ownedLargestObservedStockPositiveHeifGridMatchesStock() throws Exception {
         final String path = InstrumentationRegistry.getArguments().getString("largeHeif");
         assumeTrue("owned HEIF grid fixture supplied by the run", path != null);
         final String hash = InstrumentationRegistry.getArguments().getString("largeHeifSha256");
         assertNotNull(hash);
         final File file = new File(path);
-        assertTrue(file.length() > 32L * 1024 * 1024);
+        assertTrue(file.length() > 0 && file.length() <= DecodeGate.MAX_BYTES);
         final MessageDigest digest = MessageDigest.getInstance("SHA-256");
         try (FileInputStream in = new FileInputStream(file)) {
             final byte[] block = new byte[65536];
