@@ -103,7 +103,7 @@ public final class VmThumbnailNotices {
     static void send(ContentResolver resolver, ArrayList<Uri> due) {
         for (Uri uri : due) {
             try {
-                resolver.notifyChange(uri, null);
+                resolver.notifyChange(uri, null, 0);
             } catch (RuntimeException e) {
                 // A provider this process may no longer reach (uninstalled, another user): no notice for it.
                 Log.w(TAG, "no change notice for a thumbnail: " + e.getClass().getSimpleName());
