@@ -196,6 +196,18 @@ final class GatedDecodes {
         Bitmap bitmap = null;
         Bitmap result = null;
         try {
+            if (wide && info.hasAlpha && opts != null && !opts.inPremultiplied) {
+                bitmap = GateFactoryStraight.decode(new Header(op, bytes, info, true), storedSample,
+                        codecSampled(info.mimeType, info.width, storedSample),
+                        codecSampled(info.mimeType, info.height, storedSample), width, height,
+                        requestedColor, info.colorSpace, factoryConfig(info, null, bytes), opts);
+                if (bitmap == null) return null;
+                GatePartialImages.bitmapFactory(op.sourceError);
+                if (outPadding != null) outPadding.set(-1, -1, -1, -1);
+                opts.outConfig = bitmap.getConfig();
+                opts.outColorSpace = bitmap.getColorSpace();
+                return result = bitmap;
+            }
             if ((long) width * height > DecodeGate.MAX_VM_PIXELS && hdrFormat && opts != null
                     && opts.inPreferredConfig == Bitmap.Config.HARDWARE && opts.inBitmap == null
                     && !opts.inMutable && GateLargeHardware.supportsColor(requestedColor)) {
@@ -636,15 +648,19 @@ final class GatedDecodes {
         final boolean hasAlpha;
 
         Header(DecodeGate.Op op, DecodeGate.Bytes bytes, DecodeGate.Info info) {
+            this(op, bytes, info, false);
+        }
+
+        Header(DecodeGate.Op op, DecodeGate.Bytes bytes, DecodeGate.Info info, boolean stored) {
             this.op = op;
             this.bytes = bytes;
-            final boolean turned = info.rotation == 90 || info.rotation == 270;
+            final boolean turned = !stored && (info.rotation == 90 || info.rotation == 270);
             this.width = turned ? info.height : info.width;
             this.height = turned ? info.width : info.height;
             this.storedWidth = info.width;
             this.storedHeight = info.height;
-            this.rotation = info.rotation;
-            this.mirrored = info.mirrored;
+            this.rotation = stored ? 0 : info.rotation;
+            this.mirrored = !stored && info.mirrored;
             this.bitDepth = info.bitDepth;
             this.hasAlpha = info.hasAlpha;
             this.colorSpace = info.bitDepth > 8 ? GateWidePixels.outputColor(info.colorSpace) : info.colorSpace;

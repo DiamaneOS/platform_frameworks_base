@@ -2816,6 +2816,14 @@ public final class Bitmap implements Parcelable {
         return nativeWriteHardwarePixels(source.mNativePtr, buffer, left, top, reserved);
     }
 
+    // DiamaneOS: transform already validated straight pixels into exclusively held reserved software storage.
+    static boolean writeStraightPixels(Bitmap source, Bitmap destination) {
+        source.checkRecycled("Cannot transform recycled pixels");
+        destination.checkRecycled("Cannot fill recycled pixels");
+        return nativeWriteStraightPixels(source.mNativePtr, destination.mNativePtr);
+    }
+
+    private static native boolean nativeWriteStraightPixels(long source, long destination);
     private static native long nativeWritableAllocationBytes(HardwareBuffer buffer, int width, int height);
     private static native boolean nativeWriteHardwarePixels(long bitmapPtr, HardwareBuffer buffer,
             int left, int top, long reserved);

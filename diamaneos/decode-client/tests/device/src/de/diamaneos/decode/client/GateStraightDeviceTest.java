@@ -3,6 +3,9 @@ package de.diamaneos.decode.client;
 
 import static org.junit.Assert.*;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.util.Log;
+import androidx.test.platform.app.InstrumentationRegistry;
 import android.graphics.ColorSpace;
 import android.graphics.DecodeGate;
 import android.graphics.ImageDecoder;
@@ -42,6 +45,99 @@ public class GateStraightDeviceTest {
     @Test public void conservedStraightF16MatchesNative() throws Exception { compare(true, false, true, false, false); }
     @Test public void extendedStraightBytesMatchNative() throws Exception { compare(false, false, false, true, false); }
     @Test public void hardwareStraightPixelsMatchNative() throws Exception { compare(false, false, false, false, true); }
+
+    @Test public void bitmapFactoryWideStraightStorageMatchesStock() throws Exception {
+        final byte[] avif;
+        try (java.io.InputStream in = InstrumentationRegistry.getInstrumentation().getTargetContext()
+                .getResources().openRawResource(de.diamaneos.decode.client.tests.R.raw.vm_avif_alpha_10bit)) {
+            avif = in.readAllBytes();
+        }
+        for (int kind = 0; kind < 2; kind++) {
+            final byte[] input = kind == 0 ? png(true) : avif;
+            final Bitmap.Config storage = kind == 0 ? Bitmap.Config.RGBA_F16 : Bitmap.Config.RGBA_1010102;
+            for (int mode = 0; mode < 4; mode++) for (int[] scale : new int[][] {
+                    {1, 0, 0}, {2, 0, 0}, {2, 160, 240}, {1, 480, 160}}) {
+                Bitmap stock = null, gated = null, stockRead = null, gatedRead = null;
+                final BitmapFactory.Options before = straightOptions(mode, scale, storage);
+                final BitmapFactory.Options after = straightOptions(mode, scale, storage);
+                try {
+                    DecodeGate.setForcedForTest(false);
+                    stock = BitmapFactory.decodeByteArray(input, 0, input.length, before);
+                    DecodeGate.setForcedForTest(true);
+                    DecodeGate.resetForTest();
+                    gated = BitmapFactory.decodeByteArray(input, 0, input.length, after);
+                    if (stock == null) {
+                        assertEquals("only the hardware outcome may be unsupported", 3, mode);
+                        assertNull(gated);
+                        Log.i("StraightFactoryProof", "stock and gate refuse hardware kind=" + kind);
+                        continue;
+                    }
+                    assertNotNull("gated wide straight", gated);
+                    if (mode != 3) assertFalse("stock fixture is straight", stock.isPremultiplied());
+                    assertEquals("stock alpha outcome", stock.isPremultiplied(), gated.isPremultiplied());
+                    assertEquals(stock.getConfig(), gated.getConfig());
+                    assertEquals(stock.getColorSpace(), gated.getColorSpace());
+                    assertEquals(stock.isMutable(), gated.isMutable());
+                    assertEquals(stock.getWidth(), gated.getWidth());
+                    assertEquals(stock.getHeight(), gated.getHeight());
+                    if (mode == 2) {
+                        assertTrue(stock == before.inBitmap);
+                        assertTrue(gated == after.inBitmap);
+                    }
+                    stockRead = mode == 3 ? stock.copy(storage, false) : stock;
+                    gatedRead = mode == 3 ? gated.copy(storage, false) : gated;
+                    assertNotNull(stockRead);
+                    assertNotNull(gatedRead);
+                    final ByteBuffer expected = pixels(stockRead), actual = pixels(gatedRead);
+                    final HashSet<Integer> levels = new HashSet<>();
+                    boolean hidden = false;
+                    for (int y = 0; y < stockRead.getHeight(); y++) for (int x = 0; x < stockRead.getWidth(); x++) {
+                        final int a = y * stockRead.getRowBytes() + x * (kind == 0 ? 8 : 4);
+                        final int b = y * gatedRead.getRowBytes() + x * (kind == 0 ? 8 : 4);
+                        final int alpha = kind == 0 ? expected.getShort(a + 6) & 65535 : expected.getInt(a) >>> 30;
+                        final int green = kind == 0 ? expected.getShort(a + 2) & 65535 : (expected.getInt(a) >>> 10) & 1023;
+                        hidden |= alpha == 0 && green != 0;
+                        levels.add(kind == 0 ? expected.getShort(a) & 65535 : expected.getInt(a) & 1023);
+                        for (int channel = 0; channel < 4; channel++) {
+                            final int wanted = kind == 0 ? expected.getShort(a + channel * 2) & 65535
+                                    : (expected.getInt(a) >>> (channel * 10)) & (channel == 3 ? 3 : 1023);
+                            final int value = kind == 0 ? actual.getShort(b + channel * 2) & 65535
+                                    : (actual.getInt(b) >>> (channel * 10)) & (channel == 3 ? 3 : 1023);
+                            assertTrue("straight factory raw kind=" + kind + " mode=" + mode + " at " + x + "," + y
+                                    + "/" + channel + " expected=" + wanted + " actual=" + value,
+                                    Math.abs(wanted - value) <= 1);
+                        }
+                    }
+                    if (mode == 0 && scale[0] == 1 && scale[1] == 0) {
+                        assertEquals(storage, stock.getConfig());
+                        assertTrue("stock transparent RGB control", hidden);
+                        assertTrue("stock deep precision control", levels.size() > (kind == 0 ? 1024 : 256));
+                    }
+                    Log.i("StraightFactoryProof", "kind=" + kind + " mode=" + mode
+                            + " sample/density=" + java.util.Arrays.toString(scale));
+                } finally {
+                    if (stockRead != null && stockRead != stock) stockRead.recycle();
+                    if (gatedRead != null && gatedRead != gated) gatedRead.recycle();
+                    if (stock != null) stock.recycle();
+                    if (gated != null) gated.recycle();
+                    if (before.inBitmap != null && before.inBitmap != stock) before.inBitmap.recycle();
+                    if (after.inBitmap != null && after.inBitmap != gated) after.inBitmap.recycle();
+                }
+            }
+        }
+    }
+
+    private static BitmapFactory.Options straightOptions(int mode, int[] scale, Bitmap.Config storage) {
+        final BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inPremultiplied = false;
+        options.inSampleSize = scale[0];
+        options.inDensity = scale[1];
+        options.inTargetDensity = scale[2];
+        options.inMutable = mode == 1 || mode == 2;
+        if (mode == 2) options.inBitmap = Bitmap.createBitmap(128, 64, storage);
+        if (mode == 3) options.inPreferredConfig = Bitmap.Config.HARDWARE;
+        return options;
+    }
 
     private static void compare(boolean deep, boolean crop, boolean conserve, boolean extended, boolean hardware)
             throws Exception {

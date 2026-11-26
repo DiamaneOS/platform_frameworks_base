@@ -3,6 +3,10 @@
 
 #include "GateWritableBuffer.h"
 #include "SkBitmap.h"
+#include "SkCanvas.h"
+#include "SkColorSpace.h"
+#include "SkImage.h"
+#include "SkPaint.h"
 #include <hwui/Bitmap.h>
 #include <cstdint>
 #include <limits>
@@ -39,5 +43,30 @@ inline bool writeBufferPixels(AHardwareBuffer* buffer, Bitmap& source, int left,
     return copied && unlocked == 0;
 }
 #endif
+
+// BitmapFactory's legacy density transform, accepting only immutable checked straight pixels and private output.
+inline bool writeStraightPixels(Bitmap& source, Bitmap& destination) {
+    if (source.isHardware() || destination.isHardware() || !source.isImmutable() || destination.isImmutable()) return false;
+    SkBitmap input, output;
+    source.getSkBitmap(&input);
+    destination.getSkBitmap(&output);
+    if (input.width() < 1 || input.height() < 1 || output.width() < 1 || output.height() < 1 ||
+            (input.alphaType() != kUnpremul_SkAlphaType && input.alphaType() != kOpaque_SkAlphaType) ||
+            (output.alphaType() != kUnpremul_SkAlphaType && output.alphaType() != kOpaque_SkAlphaType) ||
+            input.getPixels() == nullptr || output.getPixels() == nullptr) return false;
+    if (input.width() == output.width() && input.height() == output.height()) {
+        return input.readPixels(output.info(), output.getPixels(), output.rowBytes(), 0, 0);
+    }
+    if (input.colorType() != output.colorType() ||
+            !SkColorSpace::Equals(input.colorSpace(), output.colorSpace())) return false;
+    const auto image = input.asImage();
+    if (!image) return false;
+    SkPaint paint;
+    paint.setBlendMode(SkBlendMode::kSrc);
+    SkCanvas canvas(output, SkCanvas::ColorBehavior::kLegacy);
+    canvas.scale(output.width() / float(input.width()), output.height() / float(input.height()));
+    canvas.drawImage(image, 0.0f, 0.0f, SkSamplingOptions(SkFilterMode::kLinear), &paint);
+    return true;
+}
 
 }  // namespace android::diamaneos

@@ -460,6 +460,12 @@ static jlong Bitmap_writableAllocationBytes(JNIEnv* env, jclass, jobject buffer,
 #endif
 }
 
+// DiamaneOS: only checked pixel bitmaps enter this transform.
+static jboolean Bitmap_writeStraightPixels(JNIEnv*, jclass, jlong source, jlong destination) {
+    LocalScopedBitmap input(source), output(destination);
+    return input.valid() && output.valid() && diamaneos::writeStraightPixels(input->bitmap(), output->bitmap());
+}
+
 static jboolean Bitmap_writeHardwarePixels(JNIEnv* env, jclass, jlong source, jobject buffer,
                                           jint left, jint top, jlong reserved) {
 #ifdef __ANDROID__
@@ -1492,6 +1498,7 @@ static const JNINativeMethod gBitmapMethods[] = {
         {"nativeHardwareAllocationBytes", "(J)J", (void*)Bitmap_hardwareAllocationBytes},
         {"nativeWritableAllocationBytes", "(Landroid/hardware/HardwareBuffer;II)J",
          (void*)Bitmap_writableAllocationBytes},
+        {"nativeWriteStraightPixels", "(JJ)Z", (void*)Bitmap_writeStraightPixels}, // DiamaneOS
         {"nativeWriteHardwarePixels", "(JLandroid/hardware/HardwareBuffer;IIJ)Z",
          (void*)Bitmap_writeHardwarePixels},
         {"nativeCopyPreserveInternalConfig", "(J)Landroid/graphics/Bitmap;",
