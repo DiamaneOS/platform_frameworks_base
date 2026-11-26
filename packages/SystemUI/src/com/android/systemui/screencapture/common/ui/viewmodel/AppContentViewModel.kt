@@ -61,7 +61,14 @@ constructor(
             launchTraced("AppContentViewModel#icon") {
                 val drawable =
                     try {
-                        model.icon?.loadDrawable(context)
+                        // DiamaneOS: the app's icon made in the VM or through the image gate.
+                        com.android.systemui.util.loadAppImage(
+                            context,
+                            model.icon,
+                            context.userId,
+                            model.packageName,
+                            APP_ICON_MAX_PX,
+                        )
                     } catch (e: Exception) {
                         if (e is CancellationException) throw e
                         null
@@ -83,6 +90,11 @@ constructor(
                     }
             }
         }
+    }
+
+    private companion object {
+        // DiamaneOS: the most an app's content icon is made to.
+        const val APP_ICON_MAX_PX = 256
     }
 
     @AssistedFactory

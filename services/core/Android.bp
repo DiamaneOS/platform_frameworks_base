@@ -200,6 +200,7 @@ java_library_static {
     ],
 
     static_libs: [
+        "diamaneos-decode-client", // images from apps decoded in the protected VM
         "android.frameworks.vibrator-V1-java", // AIDL
         "android.frameworks.devicestate-V1-java", // AIDL
         "android.hardware.authsecret-V1.0-java",

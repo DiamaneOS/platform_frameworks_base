@@ -193,6 +193,7 @@ constructor(
     }
 
     suspend fun getModeIcon(mode: ZenMode): Icon.Loaded {
+        ZenModeAppIcons.load(context, mode)?.let { return it } // DiamaneOS: an app's icon, decoded in the VM
         val zenIcon = iconLoader.getIcon(context, mode).await()
         val drawable = zenIcon.drawable
         // Return a copy of the icon, to prevent callers from making changes that will be reflected

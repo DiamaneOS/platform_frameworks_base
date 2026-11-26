@@ -260,7 +260,7 @@ public class Bubble implements BubbleViewProvider {
         mFlags = 0;
         mUser = shortcutInfo.getUserHandle();
         mPackageName = shortcutInfo.getPackage();
-        mIcon = shortcutInfo.getIcon();
+        mIcon = withoutAppImage(shortcutInfo.getIcon());
         mDesiredHeight = desiredHeight;
         mDesiredHeightResId = desiredHeightResId;
         mTitle = title;
@@ -346,7 +346,7 @@ public class Bubble implements BubbleViewProvider {
         mLocusId = null;
         mFlags = 0;
         mUser = info.getUserHandle();
-        mIcon = info.getIcon();
+        mIcon = withoutAppImage(info.getIcon());
         mType = BubbleType.TYPE_SHORTCUT;
         mHasLauncherCategory = false;
         mKey = getBubbleKeyForShortcut(info);
@@ -871,7 +871,7 @@ public class Bubble implements BubbleViewProvider {
             mFlags = entry.getBubbleMetadata().getFlags();
             mDesiredHeight = entry.getBubbleMetadata().getDesiredHeight();
             mDesiredHeightResId = entry.getBubbleMetadata().getDesiredHeightResId();
-            mIcon = entry.getBubbleMetadata().getIcon();
+            mIcon = withoutAppImage(entry.getBubbleMetadata().getIcon());
 
             if (!mPendingIntentActive || mPendingIntent == null) {
                 if (mPendingIntent != null) {
@@ -898,6 +898,25 @@ public class Bubble implements BubbleViewProvider {
             // This will update the UI if needed
             setShowDot(showDot());
         }
+    }
+
+    /**
+     * A bubble icon that could name another app's compressed image is not loaded here: a URI, createWithData bytes,
+     * or a resource of any package but the framework (its bitmap files would be decoded here, in whatever
+     * configuration the bubble shows). The bubble shows the shortcut or app icon instead (DiamaneOS: images from apps
+     * are decoded only in the protected VM, the shortcut icon too, see BubbleViewInfoTask). Pixels and the framework's
+     * icons are kept.
+     */
+    private static Icon withoutAppImage(Icon icon) {
+        if (icon == null) {
+            return null;
+        }
+        final int type = icon.getType();
+        if (type == Icon.TYPE_RESOURCE) {
+            return "android".equals(icon.getResPackage()) ? icon : null;
+        }
+        return type == Icon.TYPE_URI || type == Icon.TYPE_URI_ADAPTIVE_BITMAP || type == Icon.TYPE_DATA
+                ? null : icon;
     }
 
     /**
@@ -1415,7 +1434,7 @@ public class Bubble implements BubbleViewProvider {
                     Person sender = latestMessage.getSenderPerson();
                     bubbleMessage.senderName = sender != null ? sender.getName() : null;
                     bubbleMessage.senderAvatar = null;
-                    bubbleMessage.senderIcon = sender != null ? sender.getIcon() : null;
+                    bubbleMessage.senderIcon = sender != null ? withoutAppImage(sender.getIcon()) : null;
                     return bubbleMessage;
                 }
             } else if (Notification.InboxStyle.class.equals(style)) {

@@ -26,6 +26,9 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.content.pm.PackageManager.ApplicationInfoFlags
 import android.content.pm.ResolveInfo
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.Icon
 import android.media.AudioDeviceAttributes
@@ -1564,6 +1567,46 @@ class MediaSwitchingControllerTest(flags: FlagsParameterization) : SysuiTestCase
         assertThat(mMediaSwitchingController.getAppIcon()).isEqualTo(drawable)
     }
 
+    // DiamaneOS: the same app playing in a work profile and its parent: the dialog takes its own user's notification.
+    @Test
+    fun getAppIcon_sameAppPlayingInTwoUsers_takesTheDialogsUser() {
+        val personal = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
+        val work = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.BLUE) }
+        val playing = listOf(playingIn(0, personal), playingIn(10, work))
+        mNotifCollection.stub { on { allNotifs } doReturn playing }
+        mMediaSwitchingController = createMediaSwitchingController(userHandle = UserHandle.of(10))
+
+        val icon = mMediaSwitchingController.getAppIcon() as BitmapDrawable
+
+        assertThat(icon.bitmap.getPixel(0, 0)).isEqualTo(Color.BLUE)
+    }
+
+    @Test
+    fun getNotificationIcon_onlyAnotherUserPlays_returnsNull() {
+        val personal = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+        val playing = listOf(playingIn(0, personal))
+        mNotifCollection.stub { on { allNotifs } doReturn playing }
+        mMediaSwitchingController = createMediaSwitchingController(userHandle = UserHandle.of(10))
+
+        assertThat(mMediaSwitchingController.getNotificationIcon()).isNull()
+    }
+
+    private fun playingIn(user: Int, icon: Bitmap): NotificationEntry {
+        val notification =
+            mock<Notification> {
+                on { isMediaNotification } doReturn true
+                on { smallIcon } doReturn Icon.createWithBitmap(icon)
+                on { getLargeIcon() } doReturn Icon.createWithBitmap(icon)
+            }
+        val sbn =
+            mock<StatusBarNotification> {
+                on { this.notification } doReturn notification
+                on { packageName } doReturn mPackageName
+                on { normalizedUserId } doReturn user
+            }
+        return mock<NotificationEntry> { on { this.sbn } doReturn sbn }
+    }
+
     @Test
     fun getDeviceIconCompat_deviceIconIsNotNull_returnsIcon() {
         whenever(mLocalMediaManager.getCurrentConnectedDevice()).thenReturn(mMediaDevice2)
@@ -2225,4 +2268,29 @@ class MediaSwitchingControllerTest(flags: FlagsParameterization) : SysuiTestCase
             )
         }
     }
+
+    @Test
+    fun activeSessionFallback_asksForTheDialogsUser() {
+        val work = UserHandle.of(10)
+        whenever(mNotifCollection.getAllNotifs()).thenReturn(emptyList())
+        whenever(mMediaSessionManager.getActiveSessionsForUser(anyOrNull(), any()))
+            .thenReturn(emptyList())
+        mMediaSwitchingController = createMediaSwitchingController(userHandle = work, token = null)
+        mMediaSwitchingController.start(mCb)
+        verify(mMediaSessionManager).getActiveSessionsForUser(null, work)
+    }
+
+    @Test
+    @DisableFlags(FLAG_FIX_OUTPUT_SWITCHER_MULTIUSER_SUPPORT)
+    fun packageFallback_withFlagOff_takesTheDialogsInstallation() {
+        val work = UserHandle.of(10)
+        val pm = mock<PackageManager>()
+        val icon = mock<Drawable>()
+        createUserContext(work, pm)
+        whenever(pm.getApplicationIcon(mPackageName)).thenReturn(icon)
+        whenever(mNotifCollection.getAllNotifs()).thenReturn(emptyList())
+        mMediaSwitchingController = createMediaSwitchingController(userHandle = work)
+        assertThat(mMediaSwitchingController.getAppIcon()).isSameInstanceAs(icon)
+    }
+
 }

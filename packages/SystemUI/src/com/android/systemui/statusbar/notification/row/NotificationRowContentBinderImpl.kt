@@ -153,7 +153,7 @@ constructor(
         if (inflateSynchronously) {
             task.onPostExecute(task.doInBackground())
         } else {
-            task.executeOnExecutor(inflationExecutor)
+            task.startWithImages() // DiamaneOS: the app's images first (NotificationRowImages)
         }
     }
 
@@ -416,16 +416,26 @@ constructor(
             }
         }
 
+        // DiamaneOS: the row's images, made in the protected VM before the views (NotificationRowImages).
+        val images = NotificationRowImages(context, entry, row)
+
+        fun startWithImages() =
+            images.start({ isCancelled }, { updateApplicationInfo(entry.sbn) }) {
+                if (!isCancelled && status == AsyncTask.Status.PENDING) executeOnExecutor(inflationExecutor)
+            }
+
         private fun doInBackgroundInternal(): InflationProgress {
             val sbn: StatusBarNotification = entry.sbn
             // Ensure the ApplicationInfo is updated before a builder is recovered.
             updateApplicationInfo(sbn)
-            val recoveredBuilder = Notification.Builder.recoverBuilder(context, sbn.notification)
+            // DiamaneOS: built from the checked copy, never from the app's own notification.
+            val checked = images.checked() ?: throw InflationException("notification images could not be removed")
+            val recoveredBuilder = Notification.Builder.recoverBuilder(context, checked)
             // In some tests, we want to replace the static badge logic with a fake.
             if (userProfileBadgeProvider != null) {
                 recoveredBuilder.setUserProfileBadgeProvider(userProfileBadgeProvider)
             }
-            var packageContext: Context = sbn.getPackageContext(context)
+            var packageContext: Context = images.packageContext() // DiamaneOS: through the image gate
             if (recoveredBuilder.usesTemplate()) {
                 // For all of our templates, we want it to be RTL
                 packageContext = RtlEnabledContext(packageContext)
@@ -545,6 +555,7 @@ constructor(
 
         override fun abort() {
             logger.logAsyncTaskProgress(entry.logKey, "cancelling inflate")
+            images.abort() // DiamaneOS
             cancel(/* mayInterruptIfRunning= */ true)
             if (cancellationSignal != null) {
                 logger.logAsyncTaskProgress(entry.logKey, "cancelling apply")
@@ -730,7 +741,8 @@ constructor(
                 if (reInflateFlags and FLAG_CONTENT_VIEW_SINGLE_LINE != 0) {
                     logger.logAsyncTaskProgress(entry.logKey, "inflating single line view model")
                     SingleLineViewInflater.inflateSingleLineViewModel(
-                        notification = entry.sbn.notification,
+                        // DiamaneOS: the checked copy (NotificationRowImages).
+                        notification = NotificationRowImages.sourceOf(entry.sbn.notification, systemUiContext),
                         messagingStyle = messagingStyle,
                         metricStyle = metricStyle,
                         builder = builder,
@@ -749,7 +761,8 @@ constructor(
                     )
                     if (bindParams.redactionType == REDACTION_TYPE_OTP) {
                         SingleLineViewInflater.inflateSingleLineViewModel(
-                            notification = entry.sbn.notification,
+                            // DiamaneOS: the checked copy (NotificationRowImages).
+                            notification = NotificationRowImages.sourceOf(entry.sbn.notification, systemUiContext),
                             messagingStyle = messagingStyle,
                             metricStyle = metricStyle,
                             builder = builder,
@@ -867,7 +880,8 @@ constructor(
                         logger.logAsyncTaskProgress(row.loggingKey, "creating public remote view")
                         if (bindParams.redactionType == REDACTION_TYPE_OTP) {
                             createSensitiveContentMessageNotification(
-                                    entry.sbn.notification,
+                                    // DiamaneOS: the checked copy (NotificationRowImages).
+                                    NotificationRowImages.sourceOf(entry.sbn.notification, systemUiContext),
                                     builder.style,
                                     systemUiContext,
                                     packageContext,

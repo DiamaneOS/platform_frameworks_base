@@ -36,8 +36,8 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
-import android.graphics.Bitmap;
-import android.graphics.drawable.Drawable;
+import android.content.pm.ResolveInfo;
+import android.graphics.drawable.Icon;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.SystemClock;
@@ -51,7 +51,6 @@ import com.android.internal.R;
 import com.android.internal.accessibility.util.AccessibilityStatsLogUtils;
 import com.android.internal.annotations.VisibleForTesting;
 import com.android.internal.notification.SystemNotificationChannels;
-import com.android.internal.util.ImageUtils;
 
 import java.util.ArrayList;
 import java.util.Calendar;
@@ -292,12 +291,15 @@ public class PolicyWarningUIController {
                         final CharSequence displayName =
                                 a11yServiceInfo.getResolveInfo().serviceInfo.loadLabel(
                                         mContext.getPackageManager());
-                        final Drawable drawable = a11yServiceInfo.getResolveInfo().loadIcon(
-                                mContext.getPackageManager());
-                        final int size = mContext.getResources().getDimensionPixelSize(
-                                android.R.dimen.app_icon_size);
+                        // DiamaneOS: only a reference to the service's icon goes into the warning. Loading it
+                        // here would decode its image files natively in the system server: SystemUI draws it
+                        // through its image gate, the files decoded in the protected VM.
+                        final ResolveInfo resolveInfo = a11yServiceInfo.getResolveInfo();
+                        final int iconRes = resolveInfo.getIconResource();
+                        final String iconPackage = resolveInfo.resolvePackageName != null
+                                ? resolveInfo.resolvePackageName : componentName.getPackageName();
                         sendNotification(userId, componentName, displayName,
-                                ImageUtils.buildScaledBitmap(drawable, size, size));
+                                iconRes != 0 ? Icon.createWithResource(iconPackage, iconRes) : null);
                         return true;
                     }
                     break;
@@ -333,7 +335,7 @@ public class PolicyWarningUIController {
 
         private void sendNotification(int userId, ComponentName serviceComponentName,
                 CharSequence name,
-                Bitmap bitmap) {
+                Icon icon) {
             final Notification.Builder notificationBuilder = new Notification.Builder(mContext,
                     SystemNotificationChannels.ACCESSIBILITY_SECURITY_POLICY);
             notificationBuilder.setSmallIcon(R.drawable.ic_accessibility_24dp)
@@ -355,8 +357,11 @@ public class PolicyWarningUIController {
                     .setContentIntent(
                             createPendingIntent(mContext, userId, ACTION_A11Y_SETTINGS,
                                     serviceComponentName));
-            if (bitmap != null) {
-                notificationBuilder.setLargeIcon(bitmap);
+            if (icon != null) {
+                notificationBuilder.setLargeIcon(icon);
+                // DiamaneOS: the service's user, so SystemUI loads the icon from the right user's package.
+                notificationBuilder.getExtras().putInt(
+                        de.diamaneos.decode.client.NotificationImageGate.EXTRA_IMAGE_USER, userId);
             }
             mNotificationManager.notify(serviceComponentName.flattenToShortString(),
                     NOTE_A11Y_VIEW_AND_CONTROL_ACCESS,

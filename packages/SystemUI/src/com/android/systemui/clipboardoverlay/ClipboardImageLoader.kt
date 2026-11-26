@@ -15,6 +15,7 @@
  */
 package com.android.systemui.clipboardoverlay
 
+import de.diamaneos.decode.client.VmDecode
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
@@ -44,22 +45,31 @@ constructor(
 ) {
     private val TAG: String = "ClipboardImageLoader"
 
-    suspend fun load(uri: Uri, timeoutMs: Long = 300) =
+    suspend fun load(uri: Uri, timeoutMs: Long = 3000) = // DiamaneOS
         withTimeoutOrNull(timeoutMs) {
             withContext(bgDispatcher) {
                 try {
                     val size = context.resources.getDimensionPixelSize(R.dimen.overlay_x_scale)
-                    if (clipboardOverlayMultiuser()) {
-                        userTracker.userContentResolver.loadThumbnail(
-                            uri,
-                            Size(size, size * 4),
-                            null,
-                        )
-                    } else {
-                        context.contentResolver.loadThumbnail(uri, Size(size, size * 4), null)
-                    }
-                } catch (e: IOException) {
-                    Log.e(TAG, "Thumbnail loading failed!", e)
+                    val resolver =
+                        if (clipboardOverlayMultiuser()) userTracker.userContentResolver
+                        else context.contentResolver
+                    // DiamaneOS: decoded in the protected VM, never in SystemUI, in the clipboard's own lane per
+                    // provider.
+                    VmDecode.decodeUri(
+                        context,
+                        resolver,
+                        uri,
+                        VmDecode.unknownOwner("clipboard"),
+                        VmDecode.PRIORITY_USER_WAITING,
+                        size,
+                        size * 4,
+                        VmDecode.deadlineIn(timeoutMs),
+                    )
+                } catch (e: VmDecode.UnavailableException) {
+                    Log.w(TAG, "Thumbnail not decoded in the VM: ${e.message}")
+                    null
+                } catch (e: VmDecode.RejectedException) {
+                    Log.w(TAG, "Thumbnail not decoded in the VM: ${e.message}")
                     null
                 }
             }

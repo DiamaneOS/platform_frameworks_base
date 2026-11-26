@@ -18,6 +18,8 @@ package com.android.systemui.qs.external.ui.viewmodel
 
 import android.app.IUriGrantsManager
 import android.content.Context
+import android.graphics.drawable.Drawable
+import android.os.UserHandle
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,8 +36,11 @@ import com.android.systemui.res.R
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
+import de.diamaneos.decode.client.ForeignIcons
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
 
 class TileRequestDialogViewModel
 @AssistedInject
@@ -62,14 +67,34 @@ constructor(
 
     override suspend fun onActivated() {
         withContext(backgroundDispatcher) {
-            tileData.icon
-                ?.loadDrawableCheckingUriGrant(
-                    dialogContext,
-                    iUriGrantsManager,
-                    tileData.callingUid,
-                    tileData.packageName,
-                )
-                ?.run { _icon = DrawableIcon(this) }
+            // DiamaneOS: the icon the requesting app passed, of any type: its URI grant is checked as before, then it
+            // is made without decoding the app's bytes here (URI and data icons in the protected VM, the app's
+            // resources through an image gate).
+            val icon = tileData.icon
+            if (
+                icon != null &&
+                    ForeignIcons.uriGranted(
+                        icon,
+                        iUriGrantsManager,
+                        tileData.callingUid,
+                        tileData.packageName,
+                    )
+            ) {
+                // Made on an image thread: this background thread does not wait for it.
+                suspendCancellableCoroutine<Drawable?> { cont ->
+                        ForeignIcons.loadAsync(
+                            dialogContext,
+                            icon,
+                            UserHandle.getUserId(tileData.callingUid),
+                            tileData.packageName,
+                            TILE_ICON_MAX_PX,
+                            { it.run() },
+                        ) {
+                            cont.resume(it)
+                        }
+                    }
+                    ?.run { _icon = DrawableIcon(this) }
+            }
         }
     }
 
@@ -80,5 +105,6 @@ constructor(
 
     companion object {
         private val defaultIcon: QSTile.Icon = ResourceIcon.get(R.drawable.android)
+        private const val TILE_ICON_MAX_PX = 256 // DiamaneOS
     }
 }

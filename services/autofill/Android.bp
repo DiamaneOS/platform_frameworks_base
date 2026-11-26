@@ -19,7 +19,12 @@ java_library_static {
     name: "services.autofill",
     defaults: ["platform_service_defaults"],
     srcs: [":services.autofill-sources"],
-    libs: ["services.core"],
+    libs: [
+        "services.core",
+        // DiamaneOS: an autofill service's views are shown without decoding its images (NoImageViews). The library
+        // is built into services.core.
+        "diamaneos-decode-client",
+    ],
     lint: {
         baseline_filename: "lint-baseline.xml",
     },

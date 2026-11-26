@@ -74,6 +74,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import de.diamaneos.decode.client.ForeignIcons
 
 /** Loads media information from media style [StatusBarNotification] classes. */
 @SysUISingleton
@@ -415,9 +416,19 @@ constructor(
         if (deviceName != null && deviceIcon > -1) {
             // Name and icon must be present, but intent may be null
             val enabled = deviceIntent != null && deviceIntent.isActivity
+            // DiamaneOS: the app's resource through an image gate, its bitmap files decoded in the protected VM on
+            // an image thread. Nothing waits here: until it is made the device shows no icon, then the notification
+            // is loaded again (MediaIconReload).
             val deviceDrawable =
-                Icon.createWithResource(sbn.packageName, deviceIcon)
-                    .loadDrawable(sbn.getPackageContext(context))
+                ForeignIcons.loadNoWait(
+                    context,
+                    Icon.createWithResource(sbn.packageName, deviceIcon),
+                    sbn.normalizedUserId,
+                    sbn.packageName,
+                    DEVICE_ICON_MAX_PX,
+                ) {
+                    MediaIconReload.reload(sbn)
+                }
             return MediaDeviceData(enabled, deviceDrawable, deviceName, deviceIntent)
         }
         return null
@@ -558,3 +569,6 @@ constructor(
         val resumeProgress: Double? = null,
     )
 }
+
+/** The most a cast device icon of an app is decoded to. */
+private const val DEVICE_ICON_MAX_PX = 256

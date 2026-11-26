@@ -31,12 +31,24 @@ import android.widget.RemoteViews.RemoteResponse
 import androidx.core.view.doOnLayout
 import com.android.systemui.animation.LaunchableView
 import com.android.systemui.animation.LaunchableViewDelegate
+import de.diamaneos.decode.client.WidgetImages
 
-/** AppWidgetHostView that displays in communal hub with support for rounded corners. */
-class CommunalAppWidgetHostView(
-    context: Context,
+/**
+ * AppWidgetHostView that displays in communal hub with support for rounded corners. DiamaneOS: the widget's views are
+ * checked on an image thread before they are shown, and its app's images are decoded in the protected VM, never here
+ * ([WidgetImages]). The view keeps the themed context it is made with.
+ */
+class CommunalAppWidgetHostView
+private constructor(
+    private val widgetImages: WidgetImages,
     private val interactionHandler: RemoteViews.InteractionHandler,
-) : AppWidgetHostView(context, interactionHandler), LaunchableView {
+) : AppWidgetHostView(widgetImages.context(), interactionHandler), LaunchableView {
+
+    constructor(
+        context: Context,
+        interactionHandler: RemoteViews.InteractionHandler,
+    ) : this(WidgetImages(context), interactionHandler)
+
     private val launchableViewDelegate =
         LaunchableViewDelegate(this, superSetVisibility = { super.setVisibility(it) })
 
@@ -49,8 +61,11 @@ class CommunalAppWidgetHostView(
     private var pendingUpdate: Boolean = false
     private var pendingRemoteViews: RemoteViews? = null
 
+    // The latest update while it is being checked: checked again when the view comes back after a detach dropped it.
+    private var uncheckedUpdate: RemoteViews? = null
+
     init {
-        enforcedCornerRadius = RoundedCornerEnforcement.computeEnforcedRadius(context)
+        enforcedCornerRadius = RoundedCornerEnforcement.computeEnforcedRadius(widgetImages.context())
         enforcedRectangle = Rect()
     }
 
@@ -61,6 +76,10 @@ class CommunalAppWidgetHostView(
     }
 
     override fun setAppWidget(appWidgetId: Int, info: AppWidgetProviderInfo?) {
+        // The widget's app: its images are charged to it, its package contexts load through its own gate. An update
+        // of the widget the view showed before is dropped.
+        uncheckedUpdate = null
+        widgetImages.setApp(info?.provider?.packageName, info?.profile?.identifier ?: context.userId)
         super.setAppWidget(appWidgetId, info)
         setPadding(0, 0, 0, 0)
     }
@@ -77,6 +96,36 @@ class CommunalAppWidgetHostView(
         }
 
     override fun updateAppWidget(remoteViews: RemoteViews?) {
+        if (remoteViews == null) {
+            uncheckedUpdate = null
+            widgetImages.cancel()
+            showAppWidget(null)
+            return
+        }
+        // Checked on an image thread first: what is shown is the checked copy, or nothing. Only the latest update
+        // waits for its check.
+        uncheckedUpdate = remoteViews
+        widgetImages.prepare(remoteViews, context.mainExecutor) { checked ->
+            uncheckedUpdate = null
+            showAppWidget(checked)
+        }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        // An update whose check a detach dropped is checked now.
+        uncheckedUpdate?.let { updateAppWidget(it) }
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        // A detached view keeps no image thread busy: its update is checked again if it comes back.
+        if (uncheckedUpdate != null) {
+            widgetImages.cancel()
+        }
+    }
+
+    private fun showAppWidget(remoteViews: RemoteViews?) {
         // Workaround for Jetpack Compose bug which fails to render the widget if we add the
         // RemoteViews before this parent view has been laid out. Therefore we wait for layout
         // before calling the super.updateAppWidget() to actually render the widget.

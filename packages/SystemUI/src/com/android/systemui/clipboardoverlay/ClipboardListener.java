@@ -96,6 +96,7 @@ public class ClipboardListener implements
         @Override
         public void onUserChanged(int newUser, @NonNull Context userContext) {
             UserTracker.Callback.super.onUserChanged(newUser, userContext);
+            if (mClipboardOverlay != null) mClipboardOverlay.invalidatePreview(); // DiamaneOS
             mClipboardManagerForUser.removePrimaryClipChangedListener(ClipboardListener.this);
             setUser(mUserTracker.getUserHandle());
             mClipboardManagerForUser.addPrimaryClipChangedListener(ClipboardListener.this);
@@ -141,6 +142,8 @@ public class ClipboardListener implements
 
     @Override
     public void onPrimaryClipChanged() {
+        // DiamaneOS: clear and suppressed replacements also retire a pending image.
+        if (mClipboardOverlay != null) mClipboardOverlay.invalidatePreview();
         if (!mClipboardManagerForUser.hasPrimaryClip()) {
             return;
         }
@@ -258,6 +261,8 @@ public class ClipboardListener implements
     }
 
     interface ClipboardOverlay {
+        void invalidatePreview(); // DiamaneOS
+
         void setClipData(ClipData clipData, String clipSource);
 
         void setOnSessionCompleteListener(Runnable runnable);

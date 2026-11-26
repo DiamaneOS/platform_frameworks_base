@@ -57,6 +57,7 @@ import com.android.systemui.util.time.SystemClock
 import com.android.systemui.util.view.ViewUtil
 import com.android.systemui.util.wakelock.WakeLock
 import javax.inject.Inject
+import de.diamaneos.decode.client.ForeignIcons
 
 /**
  * A controller to display and hide the Media Tap-To-Transfer chip on the **receiving** device.
@@ -181,23 +182,27 @@ constructor(
             return
         }
 
-        appIcon.loadDrawableAsync(
+        // DiamaneOS: the sending app's icon is never decoded here: data and URI icons in the protected VM, an app's
+        // resources through an image gate, made on an image thread and charged to the route's app (never to a package
+        // an icon names). The listener runs on the main handler, it updates the UI.
+        ForeignIcons.loadAsync(
             context,
-            Icon.OnDrawableLoadedListener { drawable ->
-                displayView(
-                    ChipReceiverInfo(
-                        routeInfo,
-                        drawable,
-                        appName,
-                        id = routeInfo.id,
-                        instanceId = instanceId,
-                    )
+            appIcon, // DiamaneOS
+            context.userId,
+            routeInfo.clientPackageName ?: "",
+            APP_ICON_MAX_PX,
+            { mainHandler.post(it) },
+        ) { drawable ->
+            displayView(
+                ChipReceiverInfo(
+                    routeInfo,
+                    drawable,
+                    appName,
+                    id = routeInfo.id,
+                    instanceId = instanceId,
                 )
-            },
-            // Notify the listener on the main handler since the listener will update
-            // the UI.
-            mainHandler,
-        )
+            ) // DiamaneOS
+        }
     }
 
     override fun start() {
@@ -356,6 +361,7 @@ constructor(
 
     companion object {
         private const val ICON_TRANSLATION_ANIM_DURATION = 500L
+        private const val APP_ICON_MAX_PX = 256 // DiamaneOS
         private const val ICON_BOUNCE_ANIM_DURATION = 750L
         private const val ICON_TRANSLATION_SUCCEEDED_DURATION = 167L
         private const val BOUNCE_TRANSLATION_RATIO = 0.15f

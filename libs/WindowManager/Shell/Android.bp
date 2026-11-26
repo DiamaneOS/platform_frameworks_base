@@ -152,6 +152,8 @@ java_defaults {
         // DiamaneOS Tally: SystemUI's Tally flag and the Tally token library.
         "//frameworks/base/packages/SystemUI/aconfig/diamaneos:de_diamaneos_systemui_flags_lib",
         "tallytokens",
+        // DiamaneOS: icons other apps hand the shell (picture in picture, bubbles) are decoded in the protected VM.
+        "diamaneos-decode-client",
     ],
     libs: [
         // Soong fails to automatically add this dependency because all the

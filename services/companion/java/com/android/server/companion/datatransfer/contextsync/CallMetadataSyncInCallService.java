@@ -168,6 +168,7 @@ public class CallMetadataSyncInCallService extends InCallService {
                 && mNumberOfActiveSyncAssociations > 0) {
             mCurrentCalls.putAll(getCalls().stream().collect(Collectors.toMap(call -> call,
                     call -> new CrossDeviceCall(this, call, getCallAudioState()))));
+            mCurrentCalls.values().forEach(this::loadCallingAppIcon);
             mCurrentCalls.keySet().forEach(call -> call.registerCallback(mTelecomCallback,
                     getMainThreadHandler()));
             sync(getUserId());
@@ -192,8 +193,10 @@ public class CallMetadataSyncInCallService extends InCallService {
     public void onCallAdded(Call call) {
         if (CompanionDeviceConfig.isEnabled(CompanionDeviceConfig.ENABLE_CONTEXT_SYNC_TELECOM)
                 && mNumberOfActiveSyncAssociations > 0) {
-            mCurrentCalls.put(call,
-                    new CrossDeviceCall(this, call, getCallAudioState()));
+            final CrossDeviceCall crossDeviceCall =
+                    new CrossDeviceCall(this, call, getCallAudioState());
+            mCurrentCalls.put(call, crossDeviceCall);
+            loadCallingAppIcon(crossDeviceCall);
             call.registerCallback(mTelecomCallback);
             sync(getUserId());
         }
@@ -245,6 +248,24 @@ public class CallMetadataSyncInCallService extends InCallService {
             telecomManager.silenceRinger();
         }
     }
+
+    // DiamaneOS: the calling app's icon is made in the protected VM without holding the call up, and the calls are
+    // synced again once it is there, if it is still a current call. Icons made close together share one sync.
+    private void loadCallingAppIcon(CrossDeviceCall crossDeviceCall) {
+        crossDeviceCall.loadCallingAppIcon(this, getMainExecutor(), () -> {
+            if (mNumberOfActiveSyncAssociations > 0 && mCurrentCalls.containsValue(crossDeviceCall)) {
+                getMainThreadHandler().removeCallbacks(mIconSync);
+                getMainThreadHandler().postDelayed(mIconSync, ICON_SYNC_DELAY_MS);
+            }
+        });
+    }
+
+    private static final long ICON_SYNC_DELAY_MS = 250;
+    private final Runnable mIconSync = () -> {
+        if (mNumberOfActiveSyncAssociations > 0) {
+            sync(getUserId());
+        }
+    };
 
     private void sync(int userId) {
         mCdmsi.crossDeviceSync(userId, mCurrentCalls.values());

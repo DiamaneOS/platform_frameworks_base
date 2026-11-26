@@ -329,6 +329,37 @@ public class PeopleSpaceUtilsTest extends SysuiTestCase {
         assertThat(actual.getNotificationDataUri()).isEqualTo(URI);
     }
 
+    // DiamaneOS: a work notification's image is opened in the work profile, wherever the tile is drawn.
+    @Test
+    public void testAugmentTileFromNotification_imageUriKeepsTheNotificationsUser() {
+        Uri image = Uri.parse("content://com.example.images/attachment/1");
+        Notification notification = new Notification.Builder(mContext, "test")
+                .setShortcutId(SHORTCUT_ID_1)
+                .setStyle(new Notification.MessagingStyle(PERSON)
+                        .addMessage(new Notification.MessagingStyle.Message(
+                                NOTIFICATION_TEXT_1, 0, PERSON)
+                                .setData("image/png", image)))
+                .build();
+        NotificationEntry notificationEntry = new NotificationEntryBuilder()
+                .setNotification(notification)
+                .setShortcutInfo(new ShortcutInfo.Builder(mContext, SHORTCUT_ID_1).build())
+                .setUser(UserHandle.of(10))
+                .setPkg(PACKAGE_NAME)
+                .build();
+        PeopleSpaceTile tile =
+                new PeopleSpaceTile
+                        .Builder(SHORTCUT_ID_1, "userName", ICON, new Intent())
+                        .setPackageName(PACKAGE_NAME)
+                        .setUserHandle(new UserHandle(10))
+                        .build();
+        PeopleSpaceTile actual = PeopleSpaceUtils
+                .augmentTileFromNotification(mContext, tile, new PeopleTileKey(tile),
+                        notificationEntry, 0, Optional.empty(), mBackupManager);
+
+        assertThat(actual.getNotificationDataUri())
+                .isEqualTo(Uri.parse("content://10@com.example.images/attachment/1"));
+    }
+
     @Test
     public void testAugmentTileFromNotificationGroupWithAudioUri() {
         Notification notification = new Notification.Builder(mContext, "test")

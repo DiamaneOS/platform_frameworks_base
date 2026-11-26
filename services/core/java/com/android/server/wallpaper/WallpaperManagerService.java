@@ -244,7 +244,9 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
 
         public WallpaperObserver(WallpaperData wallpaper) {
             super(getWallpaperDir(wallpaper.userId).getAbsolutePath(),
-                    CLOSE_WRITE | MOVED_TO | DELETE | DELETE_SELF);
+                    // DiamaneOS: ignore descriptors for retired wallpaper inputs.
+                    WallpaperVmController.observerEvents(
+                            CLOSE_WRITE | MOVED_TO | DELETE | DELETE_SELF));
             mUserId = wallpaper.userId;
             mWallpaperDir = getWallpaperDir(wallpaper.userId);
             mWallpaper = wallpaper;
@@ -412,6 +414,11 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
 
         @Override
         public void onEvent(int event, String path) {
+            // DiamaneOS: an image an app wrote is made clean in the protected VM first (WallpaperVmController).
+            if (path != null && mVmController.onEvent(event, path, mWallpaperDir, mWallpaperFile,
+                    mWallpaperLockFile, this::dataForEvent, () -> updateWallpapers(event, path))) {
+                return;
+            }
             if (path != null) updateWallpapers(event, path);
         }
     }
@@ -609,6 +616,24 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
     @VisibleForTesting
     final WallpaperDisplayHelper mWallpaperDisplayHelper;
     final WallpaperCropper mWallpaperCropper;
+    // DiamaneOS: app images decoded in the protected VM before anything here decodes them.
+    private final WallpaperVmController mVmController;
+
+    // DiamaneOS: the source of wallpaper became a clean copy from the VM after the default was shown for it: crop it,
+    // store the crop hints that now refer to the clean file, bind the image wallpaper again and tell the callbacks.
+    private void showCleanWallpaperLocked(WallpaperData wallpaper) {
+        mWallpaperCropper.generateCrop(wallpaper);
+        saveSettingsLocked(wallpaper.userId);
+        final boolean isImage = WallpaperData.NO_COMPONENT.equals(wallpaper.getComponent())
+                || mImageWallpaper.equals(wallpaper.getComponent());
+        if (wallpaper.cropExists() && isImage) {
+            wallpaper.mBindSource = BindSource.SET_STATIC;
+            bindWallpaperDescriptionLocked(new WallpaperDescription.Builder()
+                    .setComponent(mImageWallpaper).build(), /* force= */ true,
+                    /* fromUser= */ false, wallpaper, null);
+        }
+        notifyCallbacksLocked(wallpaper);
+    }
 
     private AtomicBoolean mHasSetWallpaper = new AtomicBoolean(false);
 
@@ -1523,6 +1548,8 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
         mWallpaperDisplayHelper = new WallpaperDisplayHelper(
                 displayManager, windowManager, mWindowManagerInternal, mContext.getResources());
         mWallpaperCropper = new WallpaperCropper(mWallpaperDisplayHelper);
+        mVmController = new WallpaperVmController(mContext, mLock, mWallpaperDisplayHelper,
+                this::showCleanWallpaperLocked); // DiamaneOS
         mActivityManager = mContext.getSystemService(ActivityManager.class);
 
         if (mContext.getResources().getBoolean(
@@ -1665,7 +1692,12 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
         boolean isImageComponent =
                 WallpaperData.NO_COMPONENT.equals(wallpaper.getComponent())
                         || mImageWallpaper.equals(wallpaper.getComponent());
-        if (isImageComponent) {
+        if (isImageComponent && WallpaperVmController.needsVm(wallpaper)) {
+            // DiamaneOS: not a clean copy from the VM yet: hidden until it is.
+            synchronized (mLock) {
+                mVmController.migrateIfNeededLocked(wallpaper);
+            }
+        } else if (isImageComponent) {
             // No crop file? Make sure we've finished the processing sequence if necessary
             if (!wallpaper.cropExists()) {
                 if (DEBUG) {
@@ -1798,6 +1830,7 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
         boolean cropExists = wallpaper.cropExists();
         if (sourceExists) wallpaper.getWallpaperFile().delete();
         if (cropExists) wallpaper.getCropFile().delete();
+        WallpaperVmController.onCleared(wallpaper); // DiamaneOS
         WallpaperUtils.clearDefaultWallpaperCrops();
 
         return sourceExists || cropExists;
@@ -1891,6 +1924,12 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
                         systemWallpaper.mWhich == (FLAG_LOCK | FLAG_SYSTEM)
                                 ? systemWallpaper
                                 : getWallpaperSafeLocked(userId, FLAG_LOCK);
+
+                // DiamaneOS: stored wallpapers that are not clean copies from the VM are hidden until they are.
+                mVmController.migrateIfNeededLocked(systemWallpaper);
+                if (lockWallpaper != systemWallpaper) {
+                    mVmController.migrateIfNeededLocked(lockWallpaper);
+                }
 
                 // Not started watching yet, in case wallpaper data was loaded for other reasons.
                 if (systemWallpaper.wallpaperObserver == null) {
@@ -3388,6 +3427,8 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
             }
             ParcelFileDescriptor fd = ParcelFileDescriptor.open(wallpaper.getWallpaperFile(),
                     MODE_CREATE|MODE_READ_WRITE|MODE_TRUNCATE);
+            // DiamaneOS: the app can write this inode for as long as it keeps the fd: never clean by its bytes.
+            WallpaperVmSanitizer.onOpenedForApp(wallpaper.getWallpaperFile(), fd.getFileDescriptor());
             if (!SELinux.restorecon(wallpaper.getWallpaperFile())) {
                 Slog.w(TAG, "restorecon failed for wallpaper file: " +
                         wallpaper.getWallpaperFile().getPath());

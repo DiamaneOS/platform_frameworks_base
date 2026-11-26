@@ -160,7 +160,8 @@ class MotionCuesUi(
         Log.i(TAG, "Updating motion cues data")
         synchronized(lock) {
             paint.color = data.color
-            bubbleShape = loadDrawableFromClient(data.shapeRes)
+            // DiamaneOS: shown again with the client's shape once it is made in the VM.
+            bubbleShape = loadDrawableFromClient(data.shapeRes) { updateMotionCuesVisualStyle(data) }
             bubbleShape?.let {
                 DrawableCompat.setTint(it, data.color)
                 bubbleShapeResId = data.shapeRes
@@ -175,11 +176,21 @@ class MotionCuesUi(
         overlayView?.postInvalidate()
     }
 
-    private fun loadDrawableFromClient(drawableResId: Int): Drawable? {
+    private fun loadDrawableFromClient(drawableResId: Int, onMade: () -> Unit): Drawable? {
         val pkgName = clientPackageName ?: return null
+        val user = userId
         return try {
-            val clientContext = context.createPackageContextAsUser(pkgName, 0, UserHandle.of(userId))
-            clientContext.getDrawable(drawableResId)
+            // DiamaneOS: the client's resource through an image gate, its bitmap files decoded in the VM on an image
+            // thread, never here. Null until it is made, then the style is applied again.
+            de.diamaneos.decode.client.ForeignIcons.loadNoWait(
+                context,
+                android.graphics.drawable.Icon.createWithResource(pkgName, drawableResId),
+                user,
+                pkgName,
+                512,
+            ) {
+                if (isStarted && clientPackageName == pkgName && userId == user) onMade()
+            }
         } catch (e: PackageManager.NameNotFoundException) {
             Log.e(TAG, "Client package not found: $pkgName", e)
             null

@@ -113,16 +113,12 @@ constructor(
         var failedToLoad = false
         val drawable: Drawable? =
             try {
-                icon?.loadDrawableCheckingUriGrant(
-                    userContext,
-                    uriGrantsManager,
-                    callingAppUid,
-                    packageName,
-                )
+                // DiamaneOS: made in the VM or through an image gate, never waited for (CustomTileIcons).
+                CustomTileIcons.load(userContext, icon, uriGrantsManager, callingAppUid, packageName)
             } catch (e: Exception) {
                 failedToLoad = true
                 null
-            } ?: defaultIcon?.loadDrawable(userContext)
+            } ?: CustomTileIcons.load(userContext, defaultIcon, packageName) // DiamaneOS
         return IconResult(
             drawable?.constantState?.newDrawable()?.let {
                 Icon.Loaded(it, contentDescription = null)

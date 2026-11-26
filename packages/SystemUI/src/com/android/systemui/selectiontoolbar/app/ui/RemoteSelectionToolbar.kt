@@ -1493,7 +1493,7 @@ class RemoteSelectionToolbar(
                 buttonText.setPaddingRelative(0, 0, 0, 0)
             } else {
                 buttonIcon.visibility = View.VISIBLE
-                buttonIcon.setImageDrawable(menuItem.icon.loadDrawable(menuItemButton.context))
+                SelectionToolbarIcons.show(buttonIcon, menuItem.icon) // DiamaneOS: never decoded here
                 buttonText.setPaddingRelative(iconTextSpacing, 0, 0, 0)
             }
             val contentDescription = menuItem.contentDescription

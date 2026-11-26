@@ -1,0 +1,228 @@
+Action.MERGE_APPEND = 1
+Action.MERGE_IGNORE = 2
+Action.MERGE_REPLACE = 0
+Action.mViewId: int
+ApplicationInfoCache.mCachedApplicationInfos: List
+AttributeReflectionAction.COLOR_RESOURCE = 2
+AttributeReflectionAction.DIMEN_RESOURCE = 1
+AttributeReflectionAction.STRING_RESOURCE = 3
+AttributeReflectionAction.mAttrId: int
+AttributeReflectionAction.mResourceType: int
+BaseReflectionAction.BITMAP = 12
+BaseReflectionAction.BLEND_MODE = 17
+BaseReflectionAction.BOOLEAN = 1
+BaseReflectionAction.BUNDLE = 13
+BaseReflectionAction.BYTE = 2
+BaseReflectionAction.CHAR = 8
+BaseReflectionAction.CHAR_SEQUENCE = 10
+BaseReflectionAction.COLOR_STATE_LIST = 15
+BaseReflectionAction.DOUBLE = 7
+BaseReflectionAction.DURATION = 19
+BaseReflectionAction.FLOAT = 6
+BaseReflectionAction.ICON = 16
+BaseReflectionAction.INSTANT = 18
+BaseReflectionAction.INT = 4
+BaseReflectionAction.INTENT = 14
+BaseReflectionAction.LIST_CHAR_SEQUENCE = 20
+BaseReflectionAction.LONG = 5
+BaseReflectionAction.SHORT = 3
+BaseReflectionAction.STRING = 9
+BaseReflectionAction.URI = 11
+BaseReflectionAction.mMethodName: String
+BaseReflectionAction.mType: int
+BitmapCache.mBitmapHashes: SparseIntArray
+BitmapCache.mBitmapMemory: long
+BitmapCache.mBitmaps: ArrayList
+BitmapReflectionAction.mBitmap: Bitmap
+BitmapReflectionAction.mBitmapId: int
+BitmapReflectionAction.mMethodName: String
+ComplexUnitDimensionReflectionAction.mUnit: int
+ComplexUnitDimensionReflectionAction.mValue: float
+HierarchyRootData.mApplicationInfoCache: ApplicationInfoCache
+HierarchyRootData.mBitmapCache: BitmapCache
+HierarchyRootData.mClassCookies: Map
+HierarchyRootData.mRemoteCollectionCache: RemoteCollectionCache
+LayoutParamAction.LAYOUT_HEIGHT = 9
+LayoutParamAction.LAYOUT_MARGIN_BOTTOM = 3
+LayoutParamAction.LAYOUT_MARGIN_END = 5
+LayoutParamAction.LAYOUT_MARGIN_LEFT = 0
+LayoutParamAction.LAYOUT_MARGIN_RIGHT = 2
+LayoutParamAction.LAYOUT_MARGIN_START = 4
+LayoutParamAction.LAYOUT_MARGIN_TOP = 1
+LayoutParamAction.LAYOUT_WIDTH = 8
+LayoutParamAction.mProperty: int
+LayoutParamAction.mValue: int
+LayoutParamAction.mValueType: int
+NightModeReflectionAction.mDarkValue: Object
+NightModeReflectionAction.mLightValue: Object
+ReflectionAction.mValue: Object
+RemoteCollectionCache.mIdToUriMapping: SparseArray
+RemoteCollectionCache.mUriToCollectionMapping: Map
+RemoteCollectionItems.mHasLegacyNullItems: boolean
+RemoteCollectionItems.mHasStableIds: boolean
+RemoteCollectionItems.mHierarchyRootData: HierarchyRootData
+RemoteCollectionItems.mIds: long[]
+RemoteCollectionItems.mViewTypeCount: int
+RemoteCollectionItems.mViews: RemoteViews[]
+RemoteResponse.INTERACTION_TYPE_CHECKED_CHANGE = 1
+RemoteResponse.INTERACTION_TYPE_CLICK = 0
+RemoteResponse.mElementNames: ArrayList
+RemoteResponse.mFillIntent: Intent
+RemoteResponse.mInteractionType: int
+RemoteResponse.mPendingIntent: PendingIntent
+RemoteResponse.mViewIds: IntArray
+RemoteViews.ATTRIBUTE_REFLECTION_ACTION_TAG = 32
+RemoteViews.BITMAP_REFLECTION_ACTION_TAG = 12
+RemoteViews.COMPLEX_UNIT_DIMENSION_REFLECTION_ACTION_TAG = 25
+RemoteViews.LAYOUT_PARAM_ACTION_TAG = 19
+RemoteViews.NIGHT_MODE_REFLECTION_ACTION_TAG = 30
+RemoteViews.REFLECTION_ACTION_TAG = 2
+RemoteViews.REMOVE_FROM_PARENT_ACTION_TAG = 23
+RemoteViews.RESOURCE_REFLECTION_ACTION_TAG = 24
+RemoteViews.SET_COMPOUND_BUTTON_CHECKED_TAG = 26
+RemoteViews.SET_DRAWABLE_TINT_TAG = 3
+RemoteViews.SET_DRAW_INSTRUCTION_TAG = 35
+RemoteViews.SET_EMPTY_VIEW_ACTION_TAG = 6
+RemoteViews.SET_INT_TAG_TAG = 22
+RemoteViews.SET_ON_CHECKED_CHANGE_RESPONSE_TAG = 29
+RemoteViews.SET_ON_CLICK_RESPONSE_TAG = 1
+RemoteViews.SET_ON_STYLUS_HANDWRITING_RESPONSE_TAG = 34
+RemoteViews.SET_PENDING_INTENT_TEMPLATE_TAG = 8
+RemoteViews.SET_RADIO_GROUP_CHECKED = 27
+RemoteViews.SET_REMOTE_ADAPTER_TAG = 33
+RemoteViews.SET_REMOTE_COLLECTION_ITEMS_ADAPTER_TAG = 31
+RemoteViews.SET_REMOTE_INPUTS_ACTION_TAG = 18
+RemoteViews.SET_REMOTE_VIEW_ADAPTER_INTENT_TAG = 10
+RemoteViews.SET_RIPPLE_DRAWABLE_COLOR_TAG = 21
+RemoteViews.SET_VIEW_OUTLINE_RADIUS_TAG = 28
+RemoteViews.TEXT_VIEW_DRAWABLE_ACTION_TAG = 11
+RemoteViews.TEXT_VIEW_SIZE_ACTION_TAG = 13
+RemoteViews.VALUE_TYPE_ATTRIBUTE = 4
+RemoteViews.VALUE_TYPE_COMPLEX_UNIT = 2
+RemoteViews.VALUE_TYPE_RAW = 1
+RemoteViews.VALUE_TYPE_RESOURCE = 3
+RemoteViews.VIEW_CONTENT_NAVIGATION_TAG = 5
+RemoteViews.VIEW_GROUP_ACTION_ADD_TAG = 4
+RemoteViews.VIEW_GROUP_ACTION_REMOVE_TAG = 7
+RemoteViews.VIEW_PADDING_ACTION_TAG = 14
+RemoteViews.mActions: ArrayList
+RemoteViews.mApplication: ApplicationInfo
+RemoteViews.mApplicationId: int
+RemoteViews.mApplicationInfoCache: ApplicationInfoCache
+RemoteViews.mApplyFlags: int
+RemoteViews.mBitmapCache: BitmapCache
+RemoteViews.mClassCookies: Map
+RemoteViews.mCollectionCache: RemoteCollectionCache
+RemoteViews.mFillInIntent: SparseArray
+RemoteViews.mHasDrawInstructions: boolean
+RemoteViews.mIdealSize: SizeF
+RemoteViews.mIsRoot: boolean
+RemoteViews.mLandscape: RemoteViews
+RemoteViews.mLayoutId: int
+RemoteViews.mLayoutInflaterFactory2: Factory2
+RemoteViews.mLightBackgroundLayoutId: int
+RemoteViews.mOriginalDensity: float
+RemoteViews.mPendingIntentTemplate: SparseArray
+RemoteViews.mPortrait: RemoteViews
+RemoteViews.mProviderInstanceId: long
+RemoteViews.mSizedRemoteViews: List
+RemoteViews.mViewId: int
+ResourceReflectionAction.COLOR_RESOURCE = 2
+ResourceReflectionAction.DIMEN_RESOURCE = 1
+ResourceReflectionAction.STRING_RESOURCE = 3
+ResourceReflectionAction.mResId: int
+ResourceReflectionAction.mResourceType: int
+RunnableAction.mRunnable: Runnable
+SetCompoundButtonCheckedAction.mChecked: boolean
+SetDrawInstructionAction.mInstructions: DrawInstructions
+SetDrawableTint.mColorFilter: int
+SetDrawableTint.mFilterMode: Mode
+SetDrawableTint.mTargetBackground: boolean
+SetEmptyView.mEmptyViewId: int
+SetIntTagAction.mKey: int
+SetIntTagAction.mTag: int
+SetIntTagAction.mViewId: int
+SetOnCheckedChangeResponse.mResponse: RemoteResponse
+SetOnClickResponse.mResponse: RemoteResponse
+SetOnStylusHandwritingResponse.mPendingIntent: PendingIntent
+SetPendingIntentTemplate.mPendingIntentTemplate: PendingIntent
+SetRadioGroupCheckedAction.mCheckedId: int
+SetRemoteCollectionItemListAdapterAction.mIntentId: int
+SetRemoteCollectionItemListAdapterAction.mIsReplacedIntoAction: boolean
+SetRemoteCollectionItemListAdapterAction.mItems: RemoteCollectionItems
+SetRemoteCollectionItemListAdapterAction.mServiceIntent: Intent
+SetRemoteInputsAction.mRemoteInputs: Parcelable[]
+SetRemoteViewsAdapterIntent.mIntent: Intent
+SetRemoteViewsAdapterIntent.mIsAsync: boolean
+SetRippleDrawableColor.mColorStateList: ColorStateList
+SetViewOutlinePreferredRadiusAction.mValue: int
+SetViewOutlinePreferredRadiusAction.mValueType: int
+TextViewDrawableAction.mD1: int
+TextViewDrawableAction.mD2: int
+TextViewDrawableAction.mD3: int
+TextViewDrawableAction.mD4: int
+TextViewDrawableAction.mDrawablesLoaded: boolean
+TextViewDrawableAction.mI1: Icon
+TextViewDrawableAction.mI2: Icon
+TextViewDrawableAction.mI3: Icon
+TextViewDrawableAction.mI4: Icon
+TextViewDrawableAction.mId1: Drawable
+TextViewDrawableAction.mId2: Drawable
+TextViewDrawableAction.mId3: Drawable
+TextViewDrawableAction.mId4: Drawable
+TextViewDrawableAction.mIsRelative: boolean
+TextViewDrawableAction.mUseIcons: boolean
+TextViewSizeAction.mSize: float
+TextViewSizeAction.mUnits: int
+ViewContentNavigation.mNext: boolean
+ViewGroupActionAdd.NO_ID = -1
+ViewGroupActionAdd.mIndex: int
+ViewGroupActionAdd.mNestedViews: RemoteViews
+ViewGroupActionAdd.mStableId: int
+ViewGroupActionRemove.REMOVE_ALL_VIEWS_ID = -2
+ViewGroupActionRemove.mViewIdToKeep: int
+ViewPaddingAction.mBottom: float
+ViewPaddingAction.mLeft: float
+ViewPaddingAction.mRight: float
+ViewPaddingAction.mTop: float
+ViewPaddingAction.mUnits: int
+class Action extends Object
+class ApplicationInfoCache extends Object
+class AttributeReflectionAction extends BaseReflectionAction
+class BaseReflectionAction extends Action
+class BitmapCache extends Object
+class BitmapReflectionAction extends Action
+class ComplexUnitDimensionReflectionAction extends BaseReflectionAction
+class HierarchyRootData extends Object
+class LayoutParamAction extends Action
+class NightModeReflectionAction extends BaseReflectionAction
+class ReflectionAction extends BaseReflectionAction
+class RemoteCollectionCache extends Object
+class RemoteCollectionItems extends Object
+class RemoteResponse extends Object
+class RemoteViews extends Object
+class RemoveFromParentAction extends Action
+class ResourceReflectionAction extends BaseReflectionAction
+class RunnableAction extends RuntimeAction
+class RuntimeAction extends Action
+class SetCompoundButtonCheckedAction extends Action
+class SetDrawInstructionAction extends Action
+class SetDrawableTint extends Action
+class SetEmptyView extends Action
+class SetIntTagAction extends Action
+class SetOnCheckedChangeResponse extends Action
+class SetOnClickResponse extends Action
+class SetOnStylusHandwritingResponse extends Action
+class SetPendingIntentTemplate extends Action
+class SetRadioGroupCheckedAction extends Action
+class SetRemoteCollectionItemListAdapterAction extends Action
+class SetRemoteInputsAction extends Action
+class SetRemoteViewsAdapterIntent extends Action
+class SetRippleDrawableColor extends Action
+class SetViewOutlinePreferredRadiusAction extends Action
+class TextViewDrawableAction extends Action
+class TextViewSizeAction extends Action
+class ViewContentNavigation extends Action
+class ViewGroupActionAdd extends Action
+class ViewGroupActionRemove extends Action
+class ViewPaddingAction extends Action

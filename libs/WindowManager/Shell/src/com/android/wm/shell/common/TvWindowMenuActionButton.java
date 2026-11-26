@@ -98,13 +98,16 @@ public class TvWindowMenuActionButton extends RelativeLayout {
             // Disallow loading icon from content URI
             return;
         }
-        icon.loadDrawableAsync(mContext, d -> {
+        // DiamaneOS: the app's icon is never decoded here: data in the protected VM, the app's
+        // resources through an image gate, made on an image thread.
+        de.diamaneos.decode.client.ForeignIcons.loadAsync(mContext, icon, mContext.getUserId(),
+                de.diamaneos.decode.client.VmDecode.unknownOwner("tv-pip"), 256, handler::post, d -> {
             // The image hasn't been set any other way and the drawable belongs to the most
             // recently set Icon.
-            if (mIconImageView.getDrawable() == null && mCurrentIcon == icon) {
+            if (d != null && mIconImageView.getDrawable() == null && mCurrentIcon == icon) {
                 mIconImageView.setImageDrawable(d);
             }
-        }, handler);
+        });
     }
 
     /**

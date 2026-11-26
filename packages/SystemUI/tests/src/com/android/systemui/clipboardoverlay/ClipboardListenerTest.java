@@ -443,4 +443,31 @@ public class ClipboardListenerTest extends SysuiTestCase {
         verify(mClipboardToast, times(1)).showCopiedToast();
         verifyNoMoreInteractions(mOverlayControllerProvider);
     }
+
+    @Test
+    public void aClearedClipboard_invalidatesThePendingPreview() {
+        mClipboardListener.onPrimaryClipChanged();
+        when(mClipboardManager.hasPrimaryClip()).thenReturn(false);
+        mClipboardListener.onPrimaryClipChanged();
+        verify(mOverlayController).invalidatePreview();
+    }
+
+    @Test
+    public void aLockedReplacement_invalidatesThePendingPreview() {
+        mClipboardListener.onPrimaryClipChanged();
+        when(mKeyguardManager.isDeviceLocked()).thenReturn(true);
+        mClipboardListener.onPrimaryClipChanged();
+        verify(mOverlayController).invalidatePreview();
+    }
+
+    @Test
+    @EnableFlags(Flags.FLAG_OVERRIDE_SUPPRESS_OVERLAY_CONDITION)
+    public void aSuppressedReplacement_invalidatesThePendingPreview() {
+        mClipboardListener.onPrimaryClipChanged();
+        when(mClipboardOverlaySuppressionController.shouldSuppressOverlay(any(), any(), anyBoolean()))
+                .thenReturn(true);
+        mClipboardListener.onPrimaryClipChanged();
+        verify(mOverlayController).invalidatePreview();
+    }
+
 }

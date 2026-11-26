@@ -217,8 +217,13 @@ class LegacyMediaDataManagerImpl(
             }
         }
 
+    // DiamaneOS: app images of media, never decoded here (MediaIconSafety).
+    private val iconSafety =
+        MediaIconSafety(context, foregroundExecutor) { key, sbn -> onNotificationAdded(key, sbn) }
+
     init {
         dumpManager.registerNormalDumpable(TAG, this)
+        iconSafety.start() // DiamaneOS
 
         // Initialize the internal processing pipeline. The listeners at the front of the pipeline
         // are set as internal listeners so that they receive events. From there, events are
@@ -263,6 +268,7 @@ class LegacyMediaDataManagerImpl(
     }
 
     override fun onNotificationAdded(key: String, sbn: StatusBarNotification) {
+        iconSafety.onAdded(key, sbn, isMediaNotification(sbn)) // DiamaneOS
         if (useQsMediaPlayer && isMediaNotification(sbn)) {
             var isNewlyActiveEntry = false
             var isConvertingToActive = false
@@ -398,10 +404,10 @@ class LegacyMediaDataManagerImpl(
                     userId = sbn.normalizedUserId,
                     initialized = true,
                     app = result.appName,
-                    appIcon = result.appIcon,
+                    appIcon = iconSafety.appIcon(result.appIcon, sbn), // DiamaneOS
                     artist = result.artist,
                     song = result.song,
-                    artwork = result.artworkIcon,
+                    artwork = iconSafety.artwork(result.artworkIcon, sbn), // DiamaneOS
                     actions = result.actionIcons,
                     actionsToShowInCompact = result.actionsToShowInCompact,
                     semanticActions = result.semanticActions,
@@ -703,6 +709,7 @@ class LegacyMediaDataManagerImpl(
         }
 
     override fun onNotificationRemoved(key: String) {
+        iconSafety.onRemoved(key) // DiamaneOS
         Assert.isMainThread()
         val removed = mediaEntries.remove(key) ?: return
         if (keyguardUpdateMonitor.isUserInLockdown(removed.userId)) {

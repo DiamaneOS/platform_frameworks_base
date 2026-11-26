@@ -23,6 +23,7 @@ import static com.android.wm.shell.shared.bubbles.FlyoutDrawableLoader.loadFlyou
 
 import android.annotation.Nullable;
 import android.content.Context;
+import android.content.pm.LauncherApps;
 import android.content.pm.ShortcutInfo;
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
@@ -54,6 +55,8 @@ import dagger.assisted.AssistedInject;
 import java.lang.ref.WeakReference;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import de.diamaneos.decode.client.ForeignIcons;
 
 /**
  * Simple task to inflate views & load necessary info to display a bubble.
@@ -409,9 +412,18 @@ public class BubbleViewInfoTask {
         } else {
             Drawable bubbleDrawable = null;
             try {
-                // Badged bubble image
-                bubbleDrawable = iconFactory.getBubbleDrawable(c, info.shortcutInfo,
-                        b.getIcon());
+                // Badged bubble image. DiamaneOS: the shortcut's icon (a file, a URI or a resource of the app) is
+                // decoded in the protected VM, never here. The bubble's own icon holds only pixels or framework
+                // icons (see Bubble).
+                if (info.shortcutInfo != null) {
+                    // Made on an image thread, this shared thread does not wait for it: until then the bubble
+                    // shows the app icon.
+                    bubbleDrawable = ForeignIcons.shortcutDrawableNoWait(c,
+                            c.getSystemService(LauncherApps.class), info.shortcutInfo,
+                            ForeignIcons.shortcutPx(c));
+                } else if (b.getIcon() != null) {
+                    bubbleDrawable = b.getIcon().loadDrawable(c);
+                }
             } catch (Exception e) {
                 // If we can't create the icon we'll default to the app icon
                 Log.w(TAG, "Exception creating icon for the bubble: " + b.getKey());

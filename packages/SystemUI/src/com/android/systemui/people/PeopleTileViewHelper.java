@@ -764,13 +764,9 @@ public class PeopleTileViewHelper {
     }
 
      Drawable resolveImage(Uri uri, Context context) throws IOException {
-        final ImageDecoder.Source source =
-                ImageDecoder.createSource(context.getContentResolver(), uri);
-        final Drawable drawable =
-                ImageDecoder.decodeDrawable(source, (decoder, info, s) -> {
-                    onHeaderDecoded(decoder, info, s);
-                });
-        return drawable;
+        // DiamaneOS: decoded in the protected VM, never here (PeopleTileImages).
+        return PeopleTileImages.resolve(context, uri, mTile.getPackageName(), getUserId(mTile),
+                mWidth, mHeight);
     }
 
     private static int getPowerOfTwoForSampleRatio(double ratio) {

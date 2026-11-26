@@ -116,6 +116,8 @@ public class ClipboardOverlayController implements ClipboardListener.ClipboardOv
     private boolean mShowingUi;
     private boolean mIsMinimized;
     private ClipboardModel mClipboardModel;
+    // DiamaneOS: counts clips and views shown: an image preview shows only for the newest, while the overlay is up.
+    private int mPreviewGeneration;
     private ClipboardIndicationCallback mIndicationCallback = new ClipboardIndicationCallback() {
         @Override
         public void onIndicationTextChanged(@NonNull CharSequence text) {
@@ -215,9 +217,16 @@ public class ClipboardOverlayController implements ClipboardListener.ClipboardOv
         }
     }
 
+    // DiamaneOS: called before the listener can suppress a clipboard change.
+    @Override
+    public void invalidatePreview() {
+        mPreviewGeneration++;
+    }
+
     @Override // ClipboardListener.ClipboardOverlay
     public void setClipData(ClipData data, String source) {
         ClipboardModel model = ClipboardModel.fromClipData(mContext, mClipboardUtils, data, source);
+        mPreviewGeneration++; // DiamaneOS: a preview still loading is not shown for this clip.
         boolean wasExiting = (mExitAnimator != null && mExitAnimator.isRunning());
         if (wasExiting) {
             mExitAnimator.cancel();
@@ -257,6 +266,7 @@ public class ClipboardOverlayController implements ClipboardListener.ClipboardOv
 
     private void setExpandedView(Runnable onViewReady) {
         final ClipboardModel model = mClipboardModel;
+        final int preview = ++mPreviewGeneration; // DiamaneOS
         mView.setMinimized(false);
         switch (model.getType()) {
             case TEXT:
@@ -281,7 +291,9 @@ public class ClipboardOverlayController implements ClipboardListener.ClipboardOv
                     onViewReady.run();
                 } else {
                     mClipboardImageLoader.loadAsync(model.getUri(), (bitmap) -> mView.post(() -> {
-                        if (bitmap == null) {
+                        if (preview != mPreviewGeneration) {
+                            return; // DiamaneOS: no image or animation for a retired clip.
+                        } else if (bitmap == null) {
                             mView.showDefaultTextPreview();
                         } else {
                             mView.showImagePreview(bitmap);
@@ -480,6 +492,7 @@ public class ClipboardOverlayController implements ClipboardListener.ClipboardOv
         // Note this may be called multiple times if multiple dismissal events happen at the same
         // time.
         mTimeoutHandler.cancelTimeout();
+        mPreviewGeneration++; // DiamaneOS: no preview after this.
         mWindow.remove();
         if (mCloseDialogsReceiver != null) {
             mBroadcastDispatcher.unregisterReceiver(mCloseDialogsReceiver);

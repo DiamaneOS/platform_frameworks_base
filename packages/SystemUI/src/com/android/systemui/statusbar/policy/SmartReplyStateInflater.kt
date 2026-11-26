@@ -16,6 +16,8 @@
 
 package com.android.systemui.statusbar.policy
 
+import de.diamaneos.decode.client.VmDecode
+import de.diamaneos.decode.client.VmIcons
 import android.app.ActivityOptions
 import android.app.Notification
 import android.app.Notification.Action.SEMANTIC_ACTION_MARK_CONVERSATION_AS_PRIORITY
@@ -374,22 +376,25 @@ interface SmartActionInflater {
     ): Button
 }
 
-private const val ICON_TASK_TIMEOUT_MS = 500L
+private const val ICON_TASK_TIMEOUT_MS = 2000L // DiamaneOS
 private val iconTaskThreadPool = ThreadPoolExecutor(0, 25, 1, TimeUnit.MINUTES, SynchronousQueue())
 
 fun loadIconDrawableWithTimeout(icon: Icon, packageContext: Context, targetSize: Int): Drawable? {
-    if (icon.type != Icon.TYPE_URI && icon.type != Icon.TYPE_URI_ADAPTIVE_BITMAP) {
+    if (!VmIcons.needsVm(icon)) { // DiamaneOS
         return icon.loadDrawable(packageContext)
     }
     val bitmapTask = FutureTask {
         val bitmap: Bitmap?
         val durationMillis = measureTimeMillis {
-            val source = ImageDecoder.createSource(packageContext.contentResolver, icon.uri)
+            // DiamaneOS: decoded in the protected VM, never in SystemUI.
             bitmap =
-                ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
-                    decoder.setTargetSize(targetSize, targetSize)
-                    decoder.allocator = ImageDecoder.ALLOCATOR_DEFAULT
-                }
+                VmIcons.decode( // DiamaneOS
+                    icon,
+                    packageContext,
+                    packageContext.packageName,
+                    targetSize,
+                    VmDecode.deadlineIn(VmIcons.UI_DEADLINE_MS),
+                )
         }
         if (durationMillis > ICON_TASK_TIMEOUT_MS) {
             Log.w(TAG, "Loading $icon took ${durationMillis / 1000f} sec")

@@ -510,6 +510,7 @@ android_library {
         "SystemUISharedLib",
         "SystemUI-shared-utils",
         "SystemUI-statsd",
+        "diamaneos-decode-client",
         "SettingsLib",
         "com_android_server_accessibility_flags_lib",
         "com_android_systemui_flags_lib",

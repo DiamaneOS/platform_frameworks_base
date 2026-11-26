@@ -483,12 +483,21 @@ private fun ShortcutIcon(
     contentDescription: String? = null,
 ) {
     val context = LocalContext.current
-    val drawable =
-        remember(icon.packageName, icon.resourceId) {
-            Icon.createWithResource(icon.packageName, icon.resourceId).loadDrawable(context)
-        } ?: return
+    // DiamaneOS: the app's resource through the image gate, made on an image thread, shown once made, charged to
+    // the shortcut helper's own lane (the focused app names the package).
+    var drawable by remember(icon.packageName, icon.resourceId) { mutableStateOf<android.graphics.drawable.Drawable?>(null) }
+    LaunchedEffect(icon.packageName, icon.resourceId) {
+        drawable =
+            com.android.systemui.util.loadShortcutHelperImage(
+                context,
+                Icon.createWithResource(icon.packageName, icon.resourceId),
+                context.userId,
+                256,
+            )
+    }
+    val shown = drawable ?: return
     Image(
-        painter = rememberDrawablePainter(drawable),
+        painter = rememberDrawablePainter(shown),
         contentDescription = contentDescription,
         modifier = modifier,
     )

@@ -550,6 +550,13 @@ public class WallpaperCropper {
     private void generateCropInternal(WallpaperData wallpaper) {
         boolean success = false;
 
+        // DiamaneOS: only a clean copy made in the protected VM is ever decoded here (WallpaperVmSanitizer).
+        if (!WallpaperVmSanitizer.isClean(wallpaper.getWallpaperFile())) {
+            Slog.w(TAG, "Wallpaper source is not a clean copy from the VM, no crop made");
+            wallpaper.getCropFile().delete();
+            return;
+        }
+
         // Only generate crop for default display.
         final WallpaperDisplayHelper.DisplayData wpData =
                 mWallpaperDisplayHelper.getDisplayDataOrCreate(DEFAULT_DISPLAY);
@@ -943,6 +950,10 @@ public class WallpaperCropper {
                 (int) Math.ceil(wallpaperData.cropHint.width() / wallpaperData.mSampleSize),
                 (int) Math.ceil(wallpaperData.cropHint.height() / wallpaperData.mSampleSize));
         if (wallpaperImageSize.equals(0, 0)) {
+            if (!WallpaperVmSanitizer.isClean(wallpaperFile)) {
+                // DiamaneOS: never read the header of an image that has not been through the VM.
+                return false;
+            }
             BitmapFactory.Options options = new BitmapFactory.Options();
             options.inJustDecodeBounds = true;
             BitmapFactory.decodeFile(wallpaperFile.getAbsolutePath(), options);

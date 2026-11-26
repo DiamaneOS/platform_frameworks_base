@@ -64,6 +64,7 @@ import android.widget.LinearLayout;
 import com.android.internal.protolog.ProtoLog;
 import com.android.wm.shell.R;
 import com.android.wm.shell.common.ShellExecutor;
+import com.android.wm.shell.common.pip.PipActionIcons;
 import com.android.wm.shell.common.pip.PipUiEventLogger;
 import com.android.wm.shell.common.pip.PipUtils;
 import com.android.wm.shell.protolog.ShellProtoLogGroup;
@@ -79,6 +80,9 @@ import java.util.Objects;
  * Translucent window that gets started on top of a task in PIP to allow the user to control it.
  */
 public class PipMenuView extends FrameLayout {
+
+    // DiamaneOS: action icons are never decoded here (PipActionIcons).
+    private final PipActionIcons mActionIcons = new PipActionIcons();
 
     private static final String TAG = "PipMenuView";
 
@@ -458,6 +462,7 @@ public class PipMenuView extends FrameLayout {
                 }
 
                 // Recreate the layout
+                final int iconUpdate = mActionIcons.newUpdate(); // DiamaneOS
                 final boolean isLandscapePip = stackBounds != null
                         && (stackBounds.width() > stackBounds.height());
                 for (int i = 0; i < mActions.size(); i++) {
@@ -473,12 +478,13 @@ public class PipMenuView extends FrameLayout {
                         actionView.setImageDrawable(null);
                     } else {
                         // TODO: Check if the action drawable has changed before we reload it
-                        action.getIcon().loadDrawableAsync(mContextForUser, d -> {
+                        // DiamaneOS: through PipActionIcons, the app's image decoded in the VM.
+                        mActionIcons.load(mContextForUser, action, mMainHandler, iconUpdate, d -> {
                             if (d != null) {
                                 d.setTint(Color.WHITE);
                                 actionView.setImageDrawable(d);
                             }
-                        }, mMainHandler);
+                        });
                     }
                     actionView.setCustomCloseBackgroundVisibility(
                             isCloseAction ? View.VISIBLE : View.GONE);

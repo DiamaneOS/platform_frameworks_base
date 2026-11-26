@@ -355,7 +355,14 @@ public class RemoteInputView extends LinearLayout implements View.OnClickListene
             attachment.setVisibility(GONE);
             return;
         }
-        iconView.setImageURI(item.getClip().getItemAt(0).getUri());
+        // DiamaneOS: another app's image, made in the VM and shown once made, never decoded here (RemoteInputImages).
+        iconView.setImageDrawable(RemoteInputImages.load(getContext(), item.getClip().getItemAt(0).getUri(),
+                made -> {
+                    if (mRemoteInputEntryAdapter.getRemoteInputAttachment() == item) {
+                        iconView.setImageDrawable(made);
+                        attachment.setVisibility(VISIBLE);
+                    }
+                }));
         if (iconView.getDrawable() == null) {
             attachment.setVisibility(GONE);
         } else {
