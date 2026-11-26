@@ -171,6 +171,35 @@ public class GateAnimationWindowsDeviceTest {
         assertTrue("gated ended after " + gated + " ms", gated >= FRAMES * 20 - 40);
     }
 
+    @Test public void applicationPostProcessorIsRecordedOnceAcrossWindowsAsStock() throws Exception {
+        final byte[] bytes = fixture(R.raw.vm_animation_windows_gif);
+        for (boolean gated : new boolean[] {false, true}) {
+            DecodeGate.setForcedForTest(gated);
+            final AtomicInteger calls = new AtomicInteger();
+            final java.util.concurrent.atomic.AtomicBoolean returned = new java.util.concurrent.atomic.AtomicBoolean();
+            final Drawable drawable = ImageDecoder.decodeDrawable(ImageDecoder.createSource(ByteBuffer.wrap(bytes)),
+                    (decoder, info, source) -> decoder.setPostProcessor(canvas -> {
+                        if (returned.get()) throw new IllegalStateException("drawing resources released");
+                        final int call = calls.incrementAndGet();
+                        final android.graphics.Paint paint = new android.graphics.Paint();
+                        paint.setColor(call == 1 ? Color.MAGENTA : Color.CYAN);
+                        canvas.drawRect(0, 0, 32, 32, paint);
+                        return android.graphics.PixelFormat.UNKNOWN;
+                    }));
+            assertEquals("application callback count before return, gated=" + gated, 1, calls.get());
+            returned.set(true);
+            if (gated) {
+                for (int i = 0; i < FRAMES; i++) {
+                    final Bitmap pixels = frame(drawable, i);
+                    assertEquals("recorded overlay on frame " + i, Color.MAGENTA, pixels.getPixel(4, 4));
+                }
+            } else {
+                assertTrue(playOnce(drawable) >= FRAMES * 20 - 40);
+            }
+            assertEquals("application callback escaped into playback, gated=" + gated, 1, calls.get());
+        }
+    }
+
     // 9000 frames, past the every-frame limit: the late frames come in their windows, each naming its index.
     @Test public void timelinePastEveryFrameLimitPlaysToItsEnd() throws Exception {
         final byte[] bytes = fixture(R.raw.vm_animation_timeline_gif);

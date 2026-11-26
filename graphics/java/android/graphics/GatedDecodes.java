@@ -1149,9 +1149,10 @@ final class GatedDecodes {
             // The VM gives frames as stored: they are asked in the stored box and turned here, as stock draws an
             // animation through its codec's origin (SkAnimatedImage).
             final boolean turned = header.rotation == 90 || header.rotation == 270;
+            final PostProcessor replay = GateAnimationPostProcess.record(postProcessor, width, height);
             final GateFrameWindows windows = GateFrameWindows.open(header.op, header.bytes,
                     turned ? height : width, turned ? width : height, header.storedWidth, header.storedHeight,
-                    reply -> framesOf(reply, width, height, colorSpace, postProcessor, header.rotation,
+                    reply -> framesOf(reply, width, height, colorSpace, replay, header.rotation,
                             header.mirrored));
             return new GatedAnimation(windows, width, height, r);
         } catch (DecodeGate.Failure e) {
