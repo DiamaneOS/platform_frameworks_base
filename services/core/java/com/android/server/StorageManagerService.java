@@ -165,6 +165,7 @@ import com.android.server.pm.Installer;
 import com.android.server.pm.UserManagerInternal;
 import com.android.server.storage.AppFuseBridge;
 import com.android.server.storage.ImmutableVolumeInfo;
+import com.android.server.storage.ObbRecords;
 import com.android.server.storage.StorageSessionController;
 import com.android.server.storage.StorageSessionController.ExternalStorageServiceException;
 import com.android.server.storage.WatchedVolumeInfo;
@@ -624,8 +625,10 @@ class StorageManagerService extends IStorageManager.Stub
      */
     final private Map<IBinder, List<ObbState>> mObbMounts = new HashMap<IBinder, List<ObbState>>();
 
-    /** Map from raw paths to {@link ObbState}. */
-    final private Map<String, ObbState> mObbPathToStateMap = new HashMap<String, ObbState>();
+    /** DiamaneOS: the mounted images by owner and canonical path, and by volume ID (ObbRecords). */
+    private final ObbRecords<ObbState> mObbRecords = new ObbRecords<>();
+    // DiamaneOS: failed native cleanup retains its ID and user until terminal confirmation.
+    private final ArrayMap<String, ObbState> mPendingObbCleanup = new ArrayMap<>();
 
     // Not guarded by a lock.
     private final StorageManagerInternalImpl mStorageManagerInternal
@@ -649,11 +652,12 @@ class StorageManagerService extends IStorageManager.Stub
         return UserHandle.getAppId(uid);
     }
 
-    class ObbState implements IBinder.DeathRecipient {
+    class ObbState implements IBinder.DeathRecipient, ObbRecords.Record {
         public ObbState(String rawPath, String canonicalPath, int callingUid,
                 IObbActionListener token, int nonce, String volId) {
             this.rawPath = rawPath;
             this.canonicalPath = canonicalPath;
+            this.ownerUid = callingUid;  // DiamaneOS: records and checks go by the full uid
             this.ownerGid = UserHandle.getSharedAppGid(callingUid);
             // DiamaneOS: the shared app gid is the same in every user. vold needs the caller's user as well.
             this.userId = UserHandle.getUserId(callingUid);
@@ -665,6 +669,7 @@ class StorageManagerService extends IStorageManager.Stub
         final String rawPath;
         final String canonicalPath;
 
+        final int ownerUid;
         final int ownerGid;
         final int userId;
 
@@ -678,6 +683,21 @@ class StorageManagerService extends IStorageManager.Stub
 
         public IBinder getBinder() {
             return token.asBinder();
+        }
+
+        @Override
+        public int ownerUid() {
+            return ownerUid;
+        }
+
+        @Override
+        public String canonicalPath() {
+            return canonicalPath;
+        }
+
+        @Override
+        public String volId() {
+            return volId;
         }
 
         @Override
@@ -699,6 +719,7 @@ class StorageManagerService extends IStorageManager.Stub
             StringBuilder sb = new StringBuilder("ObbState{");
             sb.append("rawPath=").append(rawPath);
             sb.append(",canonicalPath=").append(canonicalPath);
+            sb.append(",ownerUid=").append(ownerUid);  // DiamaneOS
             sb.append(",ownerGid=").append(ownerGid);
             sb.append(",token=").append(token);
             sb.append(",binder=").append(getBinder());
@@ -714,6 +735,7 @@ class StorageManagerService extends IStorageManager.Stub
     // OBB action handler messages
     private static final int OBB_RUN_ACTION = 1;
     private static final int OBB_FLUSH_MOUNT_STATE = 2;
+    private static final int OBB_VOLUME_ENDED = 3;  // DiamaneOS: vold destroyed an OBB volume
 
     // Last fstrim operation tracking
     private static final String LAST_FSTRIM_FILE = "last-fstrim";
@@ -1646,6 +1668,11 @@ class StorageManagerService extends IStorageManager.Stub
             WatchedVolumeInfo vol = null;
             synchronized (mLock) {
                 vol = mVolumes.remove(volId);
+            }
+
+            // DiamaneOS: an OBB volume's end, whoever ended it: its record goes once (OBB_VOLUME_ENDED).
+            if (vol != null && vol.getType() == VolumeInfo.TYPE_OBB) {
+                mObbActionHandler.sendMessage(mObbActionHandler.obtainMessage(OBB_VOLUME_ENDED, volId));
             }
 
             if (vol != null) {
@@ -3261,8 +3288,10 @@ class StorageManagerService extends IStorageManager.Stub
         warnOnNotMounted();
 
         final ObbState state;
+        // DiamaneOS: only the caller's own image, by its canonical path.
+        final String canonicalPath = ObbRecords.canonical(rawPath);
         synchronized (mObbMounts) {
-            state = mObbPathToStateMap.get(rawPath);
+            state = mObbRecords.find(Binder.getCallingUid(), canonicalPath);
         }
         if (state == null) {
             Slog.w(TAG, "Failed to find OBB mounted at " + rawPath);
@@ -3275,8 +3304,9 @@ class StorageManagerService extends IStorageManager.Stub
     @Override
     public boolean isObbMounted(String rawPath) {
         Objects.requireNonNull(rawPath, "rawPath cannot be null");
+        final String canonicalPath = ObbRecords.canonical(rawPath);  // DiamaneOS: the caller's own only
         synchronized (mObbMounts) {
-            return mObbPathToStateMap.containsKey(rawPath);
+            return mObbRecords.find(Binder.getCallingUid(), canonicalPath) != null;
         }
     }
 
@@ -3336,13 +3366,14 @@ class StorageManagerService extends IStorageManager.Stub
         Objects.requireNonNull(rawPath, "rawPath cannot be null");
 
         final ObbState existingState;
+        final int callingUid = Binder.getCallingUid();
+        final String canonicalPath = ObbRecords.canonical(rawPath);  // DiamaneOS: the caller's own only
         synchronized (mObbMounts) {
-            existingState = mObbPathToStateMap.get(rawPath);
+            existingState = mObbRecords.find(callingUid, canonicalPath);
         }
 
         if (existingState != null) {
             // TODO: separate state object from request data
-            final int callingUid = Binder.getCallingUid();
             final ObbState newState = new ObbState(rawPath, existingState.canonicalPath,
                     callingUid, token, nonce, existingState.volId);
             final ObbAction action = new UnmountObbAction(newState, force);
@@ -4343,10 +4374,11 @@ class StorageManagerService extends IStorageManager.Stub
             throw e;
         }
 
-        mObbPathToStateMap.put(obbState.rawPath, obbState);
+        mObbRecords.add(obbState);
     }
 
-    private void removeObbStateLocked(ObbState obbState) {
+    /** Removes the state's record: true only for the call that removed it (DiamaneOS). */
+    private boolean removeObbStateLocked(ObbState obbState) {
         final IBinder binder = obbState.getBinder();
         final List<ObbState> obbStates = mObbMounts.get(binder);
         if (obbStates != null) {
@@ -4358,7 +4390,7 @@ class StorageManagerService extends IStorageManager.Stub
             }
         }
 
-        mObbPathToStateMap.remove(obbState.rawPath);
+        return mObbRecords.remove(obbState);
     }
 
     private class ObbActionHandler extends Handler {
@@ -4385,42 +4417,78 @@ class StorageManagerService extends IStorageManager.Stub
                     if (DEBUG_OBB)
                         Slog.i(TAG, "Flushing all OBB state for path " + path);
 
+                    // DiamaneOS: each image below the volume ends once, in vold too (vold may have ended it already,
+                    // and then its onVolumeDestroyed finds no record).
+                    final List<ObbState> obbStatesToRemove = new ArrayList<>();
                     synchronized (mObbMounts) {
-                        final List<ObbState> obbStatesToRemove = new ArrayList<>();
-
-                        final Iterator<ObbState> i = mObbPathToStateMap.values().iterator();
-                        while (i.hasNext()) {
-                            final ObbState state = i.next();
-
-                            /*
-                             * If this entry's source file is in the volume path
-                             * that got unmounted, remove it because it's no
-                             * longer valid.
-                             */
-                            if (state.canonicalPath.startsWith(path)) {
-                                obbStatesToRemove.add(state);
-                            }
+                        for (final ObbState obbState : mObbRecords.below(path)) {
+                            obbStatesToRemove.add(obbState);
                         }
-
-                        for (final ObbState obbState : obbStatesToRemove) {
-                            if (DEBUG_OBB)
-                                Slog.i(TAG, "Removing state for " + obbState.rawPath);
-
-                            removeObbStateLocked(obbState);
-
-                            try {
-                                obbState.token.onObbResult(obbState.rawPath, obbState.nonce,
-                                        OnObbStateChangeListener.UNMOUNTED);
-                            } catch (RemoteException e) {
-                                Slog.i(TAG, "Couldn't send unmount notification for  OBB: "
-                                        + obbState.rawPath);
-                            }
+                    }
+                    for (final ObbState obbState : obbStatesToRemove) {
+                        if (DEBUG_OBB)
+                            Slog.i(TAG, "Removing state for " + obbState.rawPath);
+                        if (endObbInVold(obbState.volId)) {
+                            synchronized (mObbMounts) { removeObbStateLocked(obbState); }
+                            notifyObbEnded(obbState);
+                        } else {
+                            retryObbCleanup(obbState);
                         }
+                    }
+                    break;
+                }
+                case OBB_VOLUME_ENDED: {
+                    // DiamaneOS: vold destroyed the volume (its VM ended, a drive took its place, the app's unmount):
+                    // the one terminal event of an image. The record goes once and the app hears of it.
+                    final ObbState obbState;
+                    mPendingObbCleanup.remove((String) msg.obj);
+                    synchronized (mObbMounts) {
+                        obbState = mObbRecords.findByVolId((String) msg.obj);
+                        if (obbState != null) removeObbStateLocked(obbState);
+                    }
+                    if (obbState != null) {
+                        Slog.w(TAG, "OBB " + obbState.volId + " ended in vold, its record goes");
+                        notifyObbEnded(obbState);
                     }
                     break;
                 }
             }
         }
+    }
+
+    /** DiamaneOS: tells the app that mounted the image that it is not mounted any more. */
+    private static void notifyObbEnded(ObbState obbState) {
+        try {
+            obbState.token.onObbResult(obbState.rawPath, obbState.nonce,
+                    OnObbStateChangeListener.UNMOUNTED);
+        } catch (RemoteException e) {
+            Slog.i(TAG, "Couldn't send unmount notification for  OBB: " + obbState.rawPath);
+        }
+    }
+
+    /** DiamaneOS: destroyObb is idempotent and returns only after the native object ended. */
+    private boolean endObbInVold(String volId) {
+        if (volId == null) return true;
+        return com.android.server.storage.ObbCleanup.end(mVold::destroyObb, volId,
+                () -> mPendingObbCleanup.remove(volId));
+    }
+
+    /** DiamaneOS: even rollback without a live listener retains its native ID until cleanup succeeds. */
+    private void retryObbCleanup(ObbState state) {
+        final String id = state.volId;
+        if (id == null || mPendingObbCleanup.containsKey(id)) return;
+        mPendingObbCleanup.put(id, state);
+        mObbActionHandler.postDelayed(() -> {
+            if (mPendingObbCleanup.get(id) != state) return;
+            mPendingObbCleanup.remove(id);
+            if (!endObbInVold(id)) {
+                retryObbCleanup(state);
+                return;
+            }
+            synchronized (mObbMounts) {
+                if (removeObbStateLocked(state)) notifyObbEnded(state);
+            }
+        }, 3000);
     }
 
     private static class ObbException extends Exception {
@@ -4496,9 +4564,16 @@ class StorageManagerService extends IStorageManager.Stub
 
             final boolean isMounted;
             synchronized (mObbMounts) {
-                isMounted = mObbPathToStateMap.containsKey(mObbState.rawPath);
+                // DiamaneOS: the same image of the same owner, whatever path named it.
+                isMounted = mObbRecords.find(mObbState.ownerUid, mObbState.canonicalPath) != null;
             }
-            if (isMounted) {
+            boolean pending = false;
+            for (int i = 0; i < mPendingObbCleanup.size(); i++) {
+                ObbState state = mPendingObbCleanup.valueAt(i);
+                if (state.ownerUid == mObbState.ownerUid
+                        && state.canonicalPath.equals(mObbState.canonicalPath)) pending = true;
+            }
+            if (isMounted || pending) {
                 throw new ObbException(ERROR_ALREADY_MOUNTED,
                         "Attempt to mount OBB which is already mounted: " + mObbInfo.filename);
             }
@@ -4517,6 +4592,8 @@ class StorageManagerService extends IStorageManager.Stub
 
                 notifyObbStateChange(MOUNTED);
             } catch (Exception e) {
+                // DiamaneOS: a failed mount or a listener gone before it was linked leaves nothing in vold.
+                if (!endObbInVold(mObbState.volId)) retryObbCleanup(mObbState);
                 throw new ObbException(ERROR_COULD_NOT_MOUNT, e);
             }
         }
@@ -4545,33 +4622,32 @@ class StorageManagerService extends IStorageManager.Stub
 
             final ObbState existingState;
             synchronized (mObbMounts) {
-                existingState = mObbPathToStateMap.get(mObbState.rawPath);
+                // DiamaneOS: the image this request was made for, if it is still recorded.
+                existingState = mObbRecords.findByVolId(mObbState.volId);
             }
 
             if (existingState == null) {
                 throw new ObbException(ERROR_NOT_MOUNTED, "Missing existingState");
             }
 
-            if (existingState.ownerGid != mObbState.ownerGid) {
+            // DiamaneOS: the app's own full uid, in its own user (the shared app gid is the same in every user).
+            if (existingState.ownerUid != mObbState.ownerUid) {
                 notifyObbStateChange(new ObbException(ERROR_PERMISSION_DENIED,
                         "Permission denied to unmount OBB " + existingState.rawPath
-                                + " (owned by GID " + existingState.ownerGid + ")"));
+                                + " (owned by UID " + existingState.ownerUid + ")"));
                 return;
             }
 
-            try {
-                mVold.unmount(mObbState.volId);
-                mVold.destroyObb(mObbState.volId);
-                mObbState.volId = null;
-
-                synchronized (mObbMounts) {
-                    removeObbStateLocked(existingState);
-                }
-
-                notifyObbStateChange(UNMOUNTED);
-            } catch (Exception e) {
-                throw new ObbException(ERROR_COULD_NOT_UNMOUNT, e);
+            // DiamaneOS: retain the user's record until vold confirms a terminal native result.
+            if (!endObbInVold(existingState.volId)) {
+                retryObbCleanup(existingState);
+                throw new ObbException(ERROR_COULD_NOT_UNMOUNT, "Native cleanup remains pending");
             }
+            synchronized (mObbMounts) {
+                removeObbStateLocked(existingState);
+            }
+            mObbState.volId = null;
+            notifyObbStateChange(UNMOUNTED);
         }
 
         @Override
@@ -4892,19 +4968,7 @@ class StorageManagerService extends IStorageManager.Stub
                 pw.decreaseIndent();
             }
             pw.decreaseIndent();
-
-            pw.println();
-            pw.println("mObbPathToStateMap:");
-            pw.increaseIndent();
-            final Iterator<Entry<String, ObbState>> maps =
-                    mObbPathToStateMap.entrySet().iterator();
-            while (maps.hasNext()) {
-                final Entry<String, ObbState> e = maps.next();
-                pw.print(e.getKey());
-                pw.print(" -> ");
-                pw.println(e.getValue());
-            }
-            pw.decreaseIndent();
+            // DiamaneOS: mObbMounts above lists every recorded image (ObbRecords holds the same states).
         }
 
         synchronized (mCloudMediaProviders) {

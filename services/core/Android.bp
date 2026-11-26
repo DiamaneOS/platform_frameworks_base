@@ -374,3 +374,13 @@ cc_library {
     ],
     min_sdk_version: "29",
 }
+
+// DiamaneOS: the phone tests compile the same OBB record and native completion logic as services.
+filegroup {
+    name: "diamaneos-obb-storage-test-source",
+    srcs: [
+        "java/com/android/server/storage/ObbRecords.java",
+        "java/com/android/server/storage/ObbCleanup.java",
+    ],
+    visibility: ["//frameworks/base/diamaneos/decode-client"],
+}
