@@ -654,6 +654,8 @@ class StorageManagerService extends IStorageManager.Stub
             this.rawPath = rawPath;
             this.canonicalPath = canonicalPath;
             this.ownerGid = UserHandle.getSharedAppGid(callingUid);
+            // DiamaneOS: the shared app gid is the same in every user. vold needs the caller's user as well.
+            this.userId = UserHandle.getUserId(callingUid);
             this.token = token;
             this.nonce = nonce;
             this.volId = volId;
@@ -663,6 +665,7 @@ class StorageManagerService extends IStorageManager.Stub
         final String canonicalPath;
 
         final int ownerGid;
+        final int userId;
 
         // Token of remote Binder caller
         final IObbActionListener token;
@@ -1373,7 +1376,7 @@ class StorageManagerService extends IStorageManager.Stub
         synchronized (mLock) {
             for (int i = 0; i < mVolumes.size(); i++) {
                 final WatchedVolumeInfo vol = mVolumes.valueAt(i);
-                if (!vol.isPrimary() && vol.isMountedWritable() && vol.isVisible()
+                if (!vol.isPrimary() && vol.isMountedReadable() && vol.isVisible()
                         && vol.getMountUserId() != mCurrentUserId) {
                     // If there's a visible secondary volume mounted,
                     // we need to update the currentUserId and remount
@@ -3253,10 +3256,11 @@ class StorageManagerService extends IStorageManager.Stub
         Objects.requireNonNull(token, "token cannot be null");
         Objects.requireNonNull(obbInfo, "obbInfo cannot be null");
 
-        validateObbInfo(obbInfo, rawPath);
+        // DiamaneOS: vold opens only the path checked here.
+        final String checkedPath = validateObbInfo(obbInfo, rawPath);
 
         final int callingUid = Binder.getCallingUid();
-        final ObbState obbState = new ObbState(rawPath, canonicalPath,
+        final ObbState obbState = new ObbState(rawPath, checkedPath,
                 callingUid, token, nonce, null);
         final ObbAction action = new MountObbAction(obbState, callingUid, obbInfo);
         mObbActionHandler.sendMessage(mObbActionHandler.obtainMessage(OBB_RUN_ACTION, action));
@@ -3265,7 +3269,8 @@ class StorageManagerService extends IStorageManager.Stub
             Slog.i(TAG, "Send to OBB handler: " + action.toString());
     }
 
-    private void validateObbInfo(ObbInfo obbInfo, String rawPath) {
+    /** Checks the OBB path against the caller and returns its canonical form, the path vold may open. */
+    private String validateObbInfo(ObbInfo obbInfo, String rawPath) {
         String obbFilePath;
         try {
             obbFilePath = new File(rawPath).getCanonicalPath();
@@ -3291,6 +3296,7 @@ class StorageManagerService extends IStorageManager.Stub
         } else {
             throw new SecurityException("Invalid path to Obb file : " + obbFilePath);
         }
+        return obbFilePath;
     }
 
     @Override
@@ -4466,7 +4472,8 @@ class StorageManagerService extends IStorageManager.Stub
             }
 
             try {
-                mObbState.volId = mVold.createObb(mObbState.canonicalPath, mObbState.ownerGid);
+                mObbState.volId = mVold.createObb(mObbState.canonicalPath, mObbState.ownerGid,
+                        mObbState.userId);
                 mVold.mount(mObbState.volId, 0, -1, null);
 
                 if (DEBUG_OBB)

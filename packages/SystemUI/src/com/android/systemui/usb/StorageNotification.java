@@ -343,8 +343,11 @@ public class StorageNotification implements CoreStartable {
                 notif = onVolumeChecking(vol);
                 break;
             case VolumeInfo.STATE_MOUNTED:
-            case VolumeInfo.STATE_MOUNTED_READ_ONLY:
                 notif = onVolumeMounted(vol);
+                break;
+            case VolumeInfo.STATE_MOUNTED_READ_ONLY:
+                // DiamaneOS: only a card the filesystem VM served read-only gets this state (vold fs-in-vm).
+                notif = onVolumeMountedReadOnly(vol);
                 break;
             case VolumeInfo.STATE_FORMATTING:
                 notif = onVolumeFormatting(vol);
@@ -354,6 +357,12 @@ public class StorageNotification implements CoreStartable {
                 break;
             case VolumeInfo.STATE_UNMOUNTABLE:
                 notif = onVolumeUnmountable(vol);
+                break;
+            case VolumeInfo.STATE_UNOPENABLE:
+                notif = onVolumeUnopenable(vol);
+                break;
+            case VolumeInfo.STATE_NOT_WRITTEN_BACK:
+                notif = onVolumeNotWrittenBack(vol);
                 break;
             case VolumeInfo.STATE_REMOVED:
                 notif = onVolumeRemoved(vol);
@@ -490,6 +499,69 @@ public class StorageNotification implements CoreStartable {
         return buildNotificationBuilder(vol, title, text)
                 .setContentIntent(action)
                 .setCategory(Notification.CATEGORY_ERROR)
+                .build();
+    }
+
+    /**
+     * DiamaneOS: the filesystem VM could not open the volume. A plain notice: no format button, no way to mount it
+     * anyway, no other app. Nothing says the card is corrupted, because nothing showed that it is.
+     */
+    private Notification onVolumeUnopenable(VolumeInfo vol) {
+        final DiskInfo disk = vol.getDisk();
+        final int title;
+        if (disk != null && disk.isSd()) {
+            title = R.string.ext_media_unopenable_notification_title_sd;
+        } else if (disk != null && disk.isUsb()) {
+            title = R.string.ext_media_unopenable_notification_title_usb;
+        } else {
+            title = R.string.ext_media_unopenable_notification_title;
+        }
+        return buildNotificationBuilder(vol, mContext.getString(title),
+                mContext.getString(R.string.ext_media_unopenable_notification_message))
+                .setContentIntent(buildVolumeSettingsPendingIntent(vol))
+                .setCategory(Notification.CATEGORY_ERROR)
+                .build();
+    }
+
+    /**
+     * DiamaneOS: the card was unmounted, but its filesystem VM could not write everything back first. Instead of
+     * "safe to remove": a plain notice, no actions.
+     */
+    private Notification onVolumeNotWrittenBack(VolumeInfo vol) {
+        final DiskInfo disk = vol.getDisk();
+        final int title;
+        if (disk != null && disk.isSd()) {
+            title = R.string.ext_media_not_written_back_notification_title_sd;
+        } else if (disk != null && disk.isUsb()) {
+            title = R.string.ext_media_not_written_back_notification_title_usb;
+        } else {
+            title = R.string.ext_media_not_written_back_notification_title;
+        }
+        return buildNotificationBuilder(vol, mContext.getString(title),
+                mContext.getString(R.string.ext_media_not_written_back_notification_message))
+                .setContentIntent(buildVolumeSettingsPendingIntent(vol))
+                .setCategory(Notification.CATEGORY_ERROR)
+                .build();
+    }
+
+    /**
+     * DiamaneOS: the card is mounted read-only because its check did not finish in time or its filesystem has an
+     * error. It stays readable. Tapping opens its storage page.
+     */
+    private Notification onVolumeMountedReadOnly(VolumeInfo vol) {
+        final DiskInfo disk = vol.getDisk();
+        final int title;
+        if (disk != null && disk.isSd()) {
+            title = R.string.ext_media_read_only_notification_title_sd;
+        } else if (disk != null && disk.isUsb()) {
+            title = R.string.ext_media_read_only_notification_title_usb;
+        } else {
+            title = R.string.ext_media_read_only_notification_title;
+        }
+        return buildNotificationBuilder(vol, mContext.getString(title),
+                mContext.getString(R.string.ext_media_read_only_notification_message))
+                .setContentIntent(buildVolumeSettingsPendingIntent(vol))
+                .setCategory(Notification.CATEGORY_STATUS)
                 .build();
     }
 
