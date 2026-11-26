@@ -30,15 +30,17 @@ import android.util.Slog;
 
 import com.android.internal.diamaneos.cleancopies.CleanFileStream;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.security.DigestOutputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Set;
 
 /**
- * The task and activity snapshot images the system server writes and reads back. Each image is encoded in memory, the
+ * The task and activity snapshot images the system server writes and reads back. Each image is streamed to disk, the
  * SHA-256 of exactly the bytes written is kept in the snapshot's proto, and on load a file whose bytes are those is
  * decoded here as it is, without the VM ({@link CleanFileStream}). Every other file goes to the VM through the decode
  * gate as before: no recorded hash (a proto from before this change), other bytes, another owner or label, a link, a
@@ -63,18 +65,27 @@ final class SnapshotImageFiles {
     private SnapshotImageFiles() {}
 
     /**
-     * Encodes {@code bitmap} into memory, writes those bytes to {@code file} and returns their SHA-256 (lowercase
+     * Encodes {@code bitmap} to {@code file} while hashing the same bytes and returns their SHA-256 (lowercase
      * hex), or an empty string when the encoder reported a failure (the file is then decoded in the VM).
      */
     static String write(Bitmap bitmap, Bitmap.CompressFormat format, int quality, File file) throws IOException {
-        final ByteArrayOutputStream encoded = new ByteArrayOutputStream();
-        final boolean done = bitmap.compress(format, quality, encoded);
-        final byte[] bytes = encoded.toByteArray();
-        try (FileOutputStream out = new FileOutputStream(file)) {
-            out.write(bytes);
+        final MessageDigest digest;
+        try {
+            digest = MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            throw new IOException("no SHA-256 for the snapshot", e);
         }
-        final String hash = done ? CleanFileStream.sha256(bytes) : null;
-        return hash == null ? "" : hash;
+        final boolean done;
+        try (DigestOutputStream out = new DigestOutputStream(new FileOutputStream(file), digest)) {
+            done = bitmap.compress(format, quality, out);
+        }
+        // DiamaneOS: publish a digest only after both the encoder and the output close have succeeded.
+        if (!done) return "";
+        final StringBuilder hex = new StringBuilder(64);
+        for (byte value : digest.digest()) {
+            hex.append(Character.forDigit((value >> 4) & 15, 16)).append(Character.forDigit(value & 15, 16));
+        }
+        return hex.toString();
     }
 
     /**
