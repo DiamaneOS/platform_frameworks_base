@@ -41,6 +41,15 @@ final class GatePngFrame {
         return complete;
     }
 
+    boolean recognized() {
+        return !disabled && signature == SIGNATURE.length;
+    }
+
+    /** The first image-data chunk starts after the complete PNG metadata header. */
+    boolean headerReady() {
+        return recognized() && header == 8 && type == 0x49444154;
+    }
+
     void accept(byte[] bytes, int count) {
         if (disabled || complete) return;
         for (int i = 0; i < count && !disabled && !complete; i++) {

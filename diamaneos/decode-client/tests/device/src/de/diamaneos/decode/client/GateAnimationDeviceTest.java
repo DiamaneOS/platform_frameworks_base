@@ -321,6 +321,33 @@ public class GateAnimationDeviceTest {
         }
     }
 
+    @Test public void smallPositiveStreamReadsStillDecodeAsStock() throws Exception {
+        final byte[] jpeg = streamJpeg();
+        for (boolean gated : new boolean[] {false, true}) {
+            DecodeGate.setForcedForTest(gated);
+            final java.util.List<String> events = new java.util.ArrayList<>();
+            final ThrowingImageStream input = new ThrowingImageStream(jpeg, -1, events);
+            input.chunk = 7;
+            final long start = android.os.SystemClock.uptimeMillis();
+            final Bitmap bitmap = ImageDecoder.decodeBitmap(streamSource(input), (decoder, info, src) -> {
+                events.add("header");
+                assertEquals(512, info.getSize().getWidth());
+                assertEquals(384, info.getSize().getHeight());
+                decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
+                decoder.setTargetSize(64, 48);
+            });
+            try {
+                assertEquals(64, bitmap.getWidth());
+                assertEquals(48, bitmap.getHeight());
+                assertEquals(java.util.Collections.singletonList("header"), events);
+                assertTrue("short reads exhausted the decode deadline", android.os.SystemClock.uptimeMillis()
+                        - start < 15_000);
+            } finally {
+                bitmap.recycle();
+            }
+        }
+    }
+
     private static ImageDecoder.Source streamSource(InputStream input) {
         return ImageDecoder.createSource(InstrumentationRegistry.getInstrumentation().getTargetContext()
                 .getResources(), input, Bitmap.DENSITY_NONE);
@@ -348,6 +375,7 @@ public class GateAnimationDeviceTest {
         final java.util.List<String> events;
         final java.io.IOException failure = new java.io.IOException("later fixture read");
         int at;
+        int chunk = Integer.MAX_VALUE;
         boolean closed;
 
         ThrowingImageStream(byte[] bytes, int failAt, java.util.List<String> events) {
@@ -362,7 +390,7 @@ public class GateAnimationDeviceTest {
                 throw failure;
             }
             if (at == bytes.length) return -1;
-            final int n = Math.min(count, (failAt >= 0 ? failAt : bytes.length) - at);
+            final int n = Math.min(chunk, Math.min(count, (failAt >= 0 ? failAt : bytes.length) - at));
             System.arraycopy(bytes, at, target, offset, n);
             at += n;
             return n;

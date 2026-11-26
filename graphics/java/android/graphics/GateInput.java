@@ -165,6 +165,7 @@ final class GateInput {
         private final GatePngFrame png = new GatePngFrame();
         private int total;
         private boolean ended;
+        private long nextProbe = 8;
 
         HeaderStream(InputStream input) throws DecodeGate.Failure {
             this.input = input;
@@ -184,16 +185,23 @@ final class GateInput {
         /** Reads one bounded piece, never a later piece after a header has been returned. */
         boolean next() throws DecodeGate.Failure {
             if (ended || png.complete()) return false;
-            final int count;
-            try {
-                count = input.read(buffer, 0, png.readLimit(buffer.length));
-            } catch (IOException e) {
-                throw DecodeGate.inputFailed(e);
+            final int limit = png.recognized() ? png.readLimit(buffer.length)
+                    : (int) Math.min(png.readLimit(buffer.length), nextProbe - total);
+            int count = 0;
+            while (count < limit) {
+                final int n;
+                try {
+                    n = input.read(buffer, count, limit - count);
+                } catch (IOException e) {
+                    throw DecodeGate.inputFailed(e);
+                }
+                if (n <= 0) {
+                    ended = true;
+                    break;
+                }
+                count += n;
             }
-            if (count <= 0) {
-                ended = true;
-                return false;
-            }
+            if (count == 0) return false;
             if (total < head.length) {
                 System.arraycopy(buffer, 0, head, total, Math.min(count, head.length - total));
             }
@@ -208,6 +216,18 @@ final class GateInput {
             return true;
         }
 
+        /** Fragmented reads never multiply the probes or the cumulative prefix bytes copied. */
+        boolean canProbe() {
+            if (png.recognized()) return png.headerReady();
+            if (!ended && total < nextProbe) return false;
+            nextProbe = Math.max((long) total + 1, nextProbe * 2);
+            return true;
+        }
+
+        boolean completeHeader() {
+            return png.headerReady();
+        }
+
         /** An independently sealed prefix for the VM, never the mutable staging descriptor. */
         DecodeGate.Bytes prefix() throws DecodeGate.Failure {
             return copyFd(out, 0, total, null);
@@ -215,6 +235,7 @@ final class GateInput {
 
         /** The listener has returned, so the rest may now be read for the pixel operation. */
         DecodeGate.Bytes finish() throws DecodeGate.Failure {
+            nextProbe = Long.MAX_VALUE;
             while (next()) { }
             if (total == 0) throw DecodeGate.failed(true, "no bytes");
             final DecodeGate.Bytes bytes = done(out, java.util.Arrays.copyOf(head, Math.min(total, head.length)),

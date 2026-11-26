@@ -723,6 +723,7 @@ final class GatedDecodes {
             stream = new GateInput.HeaderStream(in);
             DecodeGate.Failure last = null;
             while (stream.next()) {
+                if (!stream.canProbe()) continue;
                 prefix = stream.prefix();
                 final DecodeGate.Info info;
                 try {
@@ -732,7 +733,8 @@ final class GatedDecodes {
                     prefix.close();
                     prefix = null;
                     // A prefix may end before the codec's header does. A transport or resource failure stops here.
-                    if (!e.refused && e.sourceError != ImageDecoder.DecodeException.SOURCE_INCOMPLETE) throw e;
+                    if (stream.completeHeader()
+                            || !e.refused && e.sourceError != ImageDecoder.DecodeException.SOURCE_INCOMPLETE) throw e;
                     last = e;
                     continue;
                 } finally {
