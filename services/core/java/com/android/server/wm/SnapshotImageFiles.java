@@ -25,6 +25,8 @@ import android.system.ErrnoException;
 import android.system.Os;
 import android.system.OsConstants;
 import android.system.StructStat;
+import android.util.Log;
+import android.util.Slog;
 
 import com.android.internal.diamaneos.cleancopies.CleanFileStream;
 
@@ -48,6 +50,12 @@ import java.util.Set;
 final class SnapshotImageFiles {
     /** The label of the snapshot directories and files (/data/system_ce). */
     static final String LABEL = "u:object_r:system_data_file:s0";
+
+    /**
+     * Debug lines saying which way each snapshot image was decoded, only when log.tag.SnapshotImageFiles is DEBUG
+     * (device tests).
+     */
+    private static final String TAG = "SnapshotImageFiles";
 
     /** The largest image decoded here: far above a full-size snapshot of a phone display. */
     static final long MAX_BYTES = 32L * 1024 * 1024;
@@ -75,6 +83,9 @@ final class SnapshotImageFiles {
      */
     static Bitmap decode(File file, @Nullable String sha256, BitmapFactory.Options options, int userId) {
         final CleanFileStream own = openOwn(file, sha256);
+        if (Log.isLoggable(TAG, Log.DEBUG)) {
+            Slog.d(TAG, file.getName() + (own != null ? " decoded here, the recorded bytes" : " decoded in the VM"));
+        }
         if (own != null) {
             return BitmapFactory.decodeStream(own, null, options);
         }
