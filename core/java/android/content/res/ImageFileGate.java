@@ -84,4 +84,18 @@ public interface ImageFileGate {
      */
     @Nullable
     Resources resourcesFor(@NonNull String packageName);
+
+    /**
+     * DiamaneOS: a mark of the calling thread's loads, taken before a drawable of a gated APK is loaded. When
+     * {@link #cleanSince} then answers true, the drawable may be cached for this gate (in a cache of its own, never
+     * shared with plain loads or other gates). The default caches nothing.
+     */
+    default long loadMark() {
+        return -1;
+    }
+
+    /** DiamaneOS: true when every image the loads since {@code mark} took is one this gate may cache. */
+    default boolean cleanSince(long mark) {
+        return false;
+    }
 }

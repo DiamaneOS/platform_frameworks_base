@@ -33,6 +33,8 @@ import android.util.Log;
 import android.util.LruCache;
 import android.util.TypedValue;
 
+import com.android.internal.diamaneos.cleancopies.CleanCopyKey;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -103,6 +105,7 @@ public final class AppResourceImages implements ImageFileGate {
     private Map<String, Made> mRound = new HashMap<>(); // guarded by mLock
     private final Set<String> mFiles = new LinkedHashSet<>(); // guarded by mLock
     private volatile LateImages mLate; // files not made yet wait for it, see setLate
+    private volatile CleanCopies mStore; // clean copies made ahead of time, see setStore
 
     /**
      * A gate for SystemUI: {@code context} is SystemUI's own (it binds the decode service), {@code ownerPackage} the
@@ -155,6 +158,15 @@ public final class AppResourceImages implements ImageFileGate {
         return sMisses.get()[0] > 0;
     }
 
+    /**
+     * True when a load on this thread since {@link #beginTracking} could not make an app image for a reason other than
+     * the VM refusing the file (the VM down, out of time or budget): trying again later may make it.
+     */
+    static boolean missedForNow() {
+        final int[] counts = sMisses.get();
+        return counts[0] > counts[2];
+    }
+
     private static Made missing() {
         sMisses.get()[0]++;
         return null;
@@ -184,11 +196,25 @@ public final class AppResourceImages implements ImageFileGate {
         return images.waitingXml(res, id, density, drawable);
     }
 
+    /**
+     * A file the memory cache does not hold is looked for in {@code store} before the VM is asked (or, off the threads
+     * that may ask, before it is left empty, and then the store is told so it can have it made). Files this gate makes
+     * are kept there too. For images whose clean copies are made ahead of time, such as the splash screen's.
+     */
+    public void setStore(CleanCopies store) {
+        mStore = store;
+    }
+
     /** While {@code cancelled} answers true, the VM is not asked: the work is no longer wanted. */
     public void setCancelled(BooleanSupplier cancelled) {
         synchronized (mLock) {
             mCancelled = cancelled;
         }
+    }
+
+    @Override
+    public long cacheScope() {
+        return (CleanCopyClient.userSerial(mContext, mUserId) << 32) ^ (mUserId & 0xffffffffL);
     }
 
     @Override
@@ -348,6 +374,11 @@ public final class AppResourceImages implements ImageFileGate {
 
     @Override
     public Drawable onXmlDrawableFailed(Resources res, TypedValue value, Exception e) {
+        // An <animated-image> shows the still frame its file was made into (CleanCopyGate.stillFrame).
+        final Drawable still = com.android.internal.diamaneos.cleancopies.CleanCopyGate.stillFrame(res, value);
+        if (still != null) {
+            return still;
+        }
         Log.w(TAG, "app XML drawable not loaded, empty: " + value.string + ": " + e);
         missing();
         return empty();
@@ -415,8 +446,19 @@ public final class AppResourceImages implements ImageFileGate {
             }
         }
         if (!vmAllowedHere()) {
-            // Not a thread that may wait for the VM: what is cached, else empty (never charged here).
-            final Made hit = key == null ? null : cached(key);
+            // Not a thread that may wait for the VM: what is cached or stored, else empty (never charged here).
+            final Made hit = key == null ? null : cachedOrStored(key);
+            final CleanCopies store = mStore;
+            if (hit == null && key != null && store != null) {
+                final String resourceName = resourceName(res, value);
+                store.missed(key, apkPath, file, density, maxWidth, maxHeight, resourceName, mUserId);
+                // Meanwhile the newest copy of the same resource (after an app update): made in the VM too.
+                final CleanCopies.Entry older = resourceName != null
+                        ? store.fallback(apkPath, file, density, maxWidth, maxHeight, resourceName, mUserId) : null;
+                if (older != null) {
+                    return new Made(older.bitmap, older.chunk);
+                }
+            }
             return hit != null ? hit : missing();
         }
         final ImageBudget.Admission admission = budget.admit(roundKey);
@@ -431,7 +473,12 @@ public final class AppResourceImages implements ImageFileGate {
             sMisses.get()[2]++;
             return missing();
         }
-        Made made = key == null ? null : cached(key);
+        Made made = key == null ? null : cachedOrStored(key);
+        final CleanCopies store = mStore;
+        if (made != null && store != null) {
+            // Made before for another gate and only held in memory: kept on disk too.
+            store.saveIfMissing(key, made.bitmap, made.chunk);
+        }
         if (made != null) {
             if (admission == ImageBudget.Admission.NEW && !budget.charge(roundKey, pixels(made.bitmap))) {
                 return missing();
@@ -480,6 +527,9 @@ public final class AppResourceImages implements ImageFileGate {
         if (key != null) {
             VmIcons.cachePut(key, made.bitmap);
             sChunks.put(key, made.chunk != null ? made.chunk : NO_CHUNK);
+            if (store != null) {
+                store.save(key, made.bitmap, made.chunk);
+            }
         }
         return keep(roundKey, made);
     }
@@ -493,6 +543,32 @@ public final class AppResourceImages implements ImageFileGate {
 
     private static long pixels(Bitmap bitmap) {
         return VmIcons.pixels(bitmap); // an Ultra HDR gain map counts too
+    }
+
+    // The resource a file is loaded as, for the newest-copy fallback of a store (the system server makes the
+    // identity, see CleanCopyKey.identity).
+    private static String resourceName(Resources res, TypedValue value) {
+        try {
+            return value.resourceId == 0 ? null : res.getResourceName(value.resourceId);
+        } catch (Resources.NotFoundException e) {
+            return null;
+        }
+    }
+
+    // What the memory cache holds, else the clean copy the store keeps (then cached in memory too).
+    private Made cachedOrStored(String key) {
+        final Made hit = cached(key);
+        final CleanCopies store = mStore;
+        if (hit != null || store == null) {
+            return hit;
+        }
+        final CleanCopies.Entry entry = store.load(key);
+        if (entry == null) {
+            return null;
+        }
+        VmIcons.cachePut(key, entry.bitmap);
+        sChunks.put(key, entry.chunk != null ? entry.chunk : NO_CHUNK);
+        return new Made(entry.bitmap, entry.chunk);
     }
 
     private static Made cached(String key) {
@@ -510,11 +586,11 @@ public final class AppResourceImages implements ImageFileGate {
             Log.w(TAG, "notification image budget spent, empty: " + file);
             return null;
         }
-        Bitmap bitmap;
+        final Made made;
         try {
             budget.countVmCall();
-            bitmap = VmDecode.decodeBytes(mContext, bytes, 0, bytes.length, mOwner,
-                    VmDecode.PRIORITY_USER_WAITING, plan.boxWidth, plan.boxHeight, VmDecode.deadlineIn(left));
+            made = decodePlanned(mContext, bytes, plan, density, mOwner, VmDecode.PRIORITY_USER_WAITING,
+                    VmDecode.deadlineIn(left));
         } catch (VmDecode.RejectedException e) {
             // Refused by the VM: not asked for again, and its icon is not tried again.
             if (key != null) {
@@ -527,6 +603,14 @@ public final class AppResourceImages implements ImageFileGate {
             Log.w(TAG, "app image file not decoded, empty: " + file + ": " + e.getMessage());
             return null;
         }
+        return made;
+    }
+
+    // The file's bytes decoded in the VM as planned, with the density and nine-patch data it keeps.
+    private static Made decodePlanned(Context context, byte[] bytes, ImagePlan plan, int density, String owner,
+            int priority, long deadline) throws VmDecode.RejectedException, VmDecode.UnavailableException {
+        Bitmap bitmap = VmDecode.decodeBytes(context, bytes, 0, bytes.length, owner, priority, plan.boxWidth,
+                plan.boxHeight, deadline);
         bitmap = VmIcons.immutable(bitmap);
         // Scaled down to fit the box: its density goes down with it, so it keeps the size the app designed.
         if (density != Bitmap.DENSITY_NONE && plan.storedWidth > bitmap.getWidth()) {
@@ -537,15 +621,40 @@ public final class AppResourceImages implements ImageFileGate {
         return new Made(bitmap, keepsChunk ? plan.chunk : null);
     }
 
-    // By APK (path, time and size, so an update decodes again), file in it, density and box. Null when the APK is
-    // not known: such a file is never cached, so two packages can never share an entry.
+    /**
+     * The clean copy of one image file, made in the VM the way a gate makes it ({@code bytes} the file's bytes, read
+     * as an opaque blob, {@code density} and the box as in its key), charged to {@code owner} at background priority.
+     * For the system server's store of clean copies.
+     */
+    public static CleanCopies.Entry makeCopy(Context context, byte[] bytes, int density, int maxWidth, int maxHeight,
+            String owner, long timeoutMs) throws VmDecode.RejectedException, VmDecode.UnavailableException {
+        return makeCopy(context, bytes, density, maxWidth, maxHeight, owner, timeoutMs, VmDecode.PRIORITY_BACKGROUND);
+    }
+
+    /** {@link #makeCopy} at {@code priority} (a copy a system process waits for). */
+    public static CleanCopies.Entry makeCopy(Context context, byte[] bytes, int density, int maxWidth, int maxHeight,
+            String owner, long timeoutMs, int priority)
+            throws VmDecode.RejectedException, VmDecode.UnavailableException {
+        final int[] box = VmIcons.cacheableBox(maxWidth, maxHeight);
+        final ImagePlan plan = ImagePlan.of(bytes, bytes.length, box[0], box[1]);
+        final Made made = decodePlanned(context, bytes, plan, density, owner, priority,
+                VmDecode.deadlineIn(timeoutMs));
+        return new CleanCopies.Entry(made.bitmap, made.chunk);
+    }
+
+    /**
+     * The key a gate caches and stores the file {@code file} of the APK at {@code apkPath} by, decoded at
+     * {@code density} in a box of {@code maxWidth} x {@code maxHeight}. Null when the APK is not known.
+     */
+    public static String keyOf(String apkPath, String file, int density, int maxWidth, int maxHeight) {
+        return key(apkPath, file, density, maxWidth, maxHeight);
+    }
+
+    // By APK (path, time and size, so an update decodes again), file in it, density and box, the key every process
+    // keeps clean copies under. Null when the APK is not known: such a file is never cached, so two packages can never
+    // share an entry.
     private static String key(String apkPath, String file, int density, int maxWidth, int maxHeight) {
-        if (apkPath == null) {
-            return null;
-        }
-        final File apk = new File(apkPath);
-        return "rfile:" + apkPath + ':' + apk.lastModified() + ':' + apk.length() + ':' + file + ':' + density
-                + ':' + maxWidth + 'x' + maxHeight;
+        return CleanCopyKey.of(apkPath, file, density, maxWidth, maxHeight);
     }
 
     private static int bitmapDensity(TypedValue value) {

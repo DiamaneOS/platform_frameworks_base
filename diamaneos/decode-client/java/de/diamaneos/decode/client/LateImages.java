@@ -52,6 +52,11 @@ import java.util.List;
  * {@link ImageBudget#MAX_IMAGES} images, {@link ImageBudget#MAX_PIXELS} pixels and {@link ImageBudget#TIME_MS}). When
  * it ends, the waiting drawables get their pixels on the showing thread and the views redraw. What could not be made
  * stays empty.
+ *
+ * <p>In the system server the app's bitmap files come from its clean copy store first ({@link #setStore}): a file
+ * with a kept copy (one an earlier show made) shows at once, without any VM work, and what the image thread makes is
+ * kept there. A file without a copy takes the late path above, never a decode on the showing thread. URI and data
+ * images always take the late path.
  */
 public final class LateImages {
     private static final String TAG = "VmDecode";
@@ -93,6 +98,16 @@ public final class LateImages {
     private static final android.util.LruCache<String, Drawable.ConstantState> sMadeIcons =
             new android.util.LruCache<>(16);
     private Context mUserContext; // for the cache keys of URI and data images, guarded by mLock
+    // The store of clean copies the app's bitmap files are taken from first (the system server's), or null.
+    private static volatile CleanCopies sStore;
+
+    /**
+     * The store of clean copies every LateImages takes an app's bitmap files from before the late path (the system
+     * server's clean icon cache, set once at its start), and keeps the files its image thread makes in. Null: none.
+     */
+    public static void setStore(CleanCopies store) {
+        sStore = store;
+    }
 
     /**
      * For the views of {@code ownerPackage} (the app every decode is charged to) for {@code userId}, shown with
@@ -112,6 +127,11 @@ public final class LateImages {
         mShownGate = new AppResourceImages(context, mOwner, userId, new ImageBudget(0, 0, 0), mPictureWidth,
                 mPictureHeight, false);
         mShownGate.setLate(this);
+        final CleanCopies store = sStore;
+        if (store != null) {
+            // A kept copy shows at once: the shown gate only reads it from disk, it never asks the VM.
+            mShownGate.setStore(store);
+        }
     }
 
     /**
@@ -283,6 +303,11 @@ public final class LateImages {
         try {
             gate = NotificationImageGate.forNotification(mContext, mOwner, mUserId, mIconPx, mPictureWidth,
                     mPictureHeight);
+            final CleanCopies store = sStore;
+            if (store != null) {
+                // What this thread makes in the VM is kept, so the next show takes it at once.
+                gate.resourceImages().setStore(store);
+            }
             final ApplicationInfo ai = mContext.getPackageManager().getApplicationInfoAsUser(mOwner, 0, mUserId);
             final Context app = gate.packageContext(
                     mContext.createApplicationContext(ai, Context.CONTEXT_RESTRICTED));

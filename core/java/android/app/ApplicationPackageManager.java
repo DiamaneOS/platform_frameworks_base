@@ -142,6 +142,7 @@ import android.window.DesktopExperienceFlags;
 import com.android.internal.R;
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.diamaneos.cleancopies.CleanCopyGate;
 import com.android.internal.gmscompat.sysservice.GmcPackageManager;
 import com.android.internal.os.ApplicationSharedMemory;
 import com.android.internal.os.SomeArgs;
@@ -1933,11 +1934,26 @@ public class ApplicationPackageManager extends PackageManager {
         if (resId != 0) {
             try {
                 final Resources r = getResourcesForApplication(appInfo);
-                final Drawable dr = isIcon
+                // DiamaneOS: an image of the app comes from its clean copy (CleanCopyGate). One without a copy yet
+                // is neither kept nor shown with holes: an icon shows the default icon and fills itself in once the
+                // copy is made (null in the launcher, which reloads its own), anything else is null. One shown from
+                // an older copy of the same resource (after an update) is not kept either.
+                final int misses = CleanCopyGate.misses();
+                final int provisional = CleanCopyGate.provisional();
+                final java.util.function.Supplier<Drawable> load = () -> isIcon
                         ? r.getDrawableForDensityCapped(
                                 resId, /* density= */ 0, /* theme= */ null)
                         : r.getDrawable(resId, null);
-                if (dr != null) {
+                final Drawable dr = CleanCopyGate.iconLoad(load);
+                if (CleanCopyGate.misses() != misses) {
+                    return isIcon ? CleanCopyGate.fillingIcon(packageName,
+                            UserHandle.getUserId(appInfo.uid), () -> {
+                                final int before = CleanCopyGate.misses();
+                                final Drawable again = CleanCopyGate.iconLoad(load);
+                                return CleanCopyGate.misses() != before ? null : again;
+                            }) : null;
+                }
+                if (dr != null && CleanCopyGate.provisional() == provisional) {
                     putCachedIcon(name, dr);
                 }
 

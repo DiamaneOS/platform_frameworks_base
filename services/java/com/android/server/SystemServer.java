@@ -1001,6 +1001,8 @@ public final class SystemServer implements Dumpable {
             // Initialize the system context.
             createSystemContext();
             com.android.server.policy.keyguard.UsbPortSecurityHooks.setInitialMode(mSystemContext);
+            // DiamaneOS: apps' images loaded here come from clean copies made in the VM.
+            com.android.server.cleanimages.CleanImageMaker.installGate(mSystemContext);
 
             // Call per-process mainline module initialization.
             ActivityThread.initializeMainlineModules();
@@ -2461,6 +2463,11 @@ public final class SystemServer implements Dumpable {
                 }
                 t.traceEnd();
             }
+
+            // DiamaneOS: the clean icon cache's warm-up (copies of apps' icons and splash images).
+            t.traceBegin("StartCleanImageService");
+            mSystemServiceManager.startService(com.android.server.cleanimages.CleanImageService.class);
+            t.traceEnd();
 
             if (context.getResources().getBoolean(R.bool.config_enableWallpaperService)) {
                 t.traceBegin("StartWallpaperManagerService");

@@ -657,6 +657,7 @@ public class ResourcesImpl {
                 mComplexColorCache.onConfigurationChange(configChanges);
                 mAnimatorCache.onConfigurationChange(configChanges);
                 mStateListAnimatorCache.onConfigurationChange(configChanges);
+                ImageFileGates.onConfigurationChange(this, configChanges); // DiamaneOS
 
                 flushLayoutCache();
             }
@@ -772,6 +773,7 @@ public class ResourcesImpl {
             mComplexColorCache.clear();
             mAnimatorCache.clear();
             mStateListAnimatorCache.clear();
+            ImageFileGates.clear(this); // DiamaneOS
             flushLayoutCache();
         }
     }
@@ -830,15 +832,19 @@ public class ResourcesImpl {
                 key = cacheKeyForCookieAsset(value.assetCookie, value.data, isCapped);
             }
 
-            // DiamaneOS: drawables of an APK behind an image file gate are made for that Resources object only.
-            // They are neither taken from nor put into the caches shared with other Resources objects.
-            final boolean gated = !isColorDrawable && ImageFileGates.gateFor(wrapper, mAssets, value) != null;
-            int cacheGeneration = caches.getGeneration();
+            // DiamaneOS: drawables of an APK behind an image file gate are made for that gate only. They are never
+            // taken from or put into the caches shared with plain loads: the gate's own cache keeps those it made
+            // wholly of exact copies (ImageFileGate.cleanSince).
+            final ImageFileGate gate = isColorDrawable ? null : ImageFileGates.gateFor(wrapper, mAssets, value);
+            final boolean gated = gate != null;
+            final DrawableCache drawableCache = gated ? ImageFileGates.cacheFor(this, gate) : caches;
+            final long gateMark = gated ? gate.loadMark() : -1;
+            int cacheGeneration = drawableCache.getGeneration();
             // First, check whether we have a cached version of this drawable
             // that was inflated against the specified theme. Skip the cache if
             // we're currently preloading or we're not using the cache.
-            if (!mPreloading && useCache && !gated) {
-                Drawable cachedDrawable = caches.getInstance(key, wrapper, theme);
+            if (!mPreloading && useCache && (!gated || gateMark != -1)) {
+                Drawable cachedDrawable = drawableCache.getInstance(key, wrapper, theme);
                 if (cachedDrawable != null) {
                     cachedDrawable.setChangingConfigurations(value.changingConfigurations);
                     return cachedDrawable;
@@ -887,8 +893,9 @@ public class ResourcesImpl {
             // pollute the cache with drawables loaded from a foreign density.
             if (dr != null) {
                 dr.setChangingConfigurations(value.changingConfigurations);
-                if (useCache && !gated) { // DiamaneOS
-                    cacheDrawable(value, isColorDrawable, caches, theme, canApplyTheme, key, dr,
+                if (useCache && (!gated
+                        || (gateMark != -1 && !mPreloading && gate.cleanSince(gateMark)))) { // DiamaneOS
+                    cacheDrawable(value, isColorDrawable, drawableCache, theme, canApplyTheme, key, dr,
                             cacheGeneration);
                     if (needsNewDrawableAfterCache) {
                         Drawable.ConstantState state = dr.getConstantState();

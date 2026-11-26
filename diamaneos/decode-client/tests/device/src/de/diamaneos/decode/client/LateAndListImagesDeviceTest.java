@@ -183,6 +183,35 @@ public class LateAndListImagesDeviceTest {
     }
 
     @Test
+    public void lateImages_storedCopy_showsAtOnce_noLatePath() throws Exception {
+        // In the system server a service's bitmap file with a kept clean copy shows at once from the store: the
+        // copy's pixels (blue), not the file's (a VM decode would give its own), and nothing waits.
+        final java.io.File dir = new java.io.File(mContext.getCacheDir(), "late-store-test");
+        final CleanImageStore store = new CleanImageStore(dir);
+        store.clear();
+        final android.util.DisplayMetrics m = mContext.getResources().getDisplayMetrics();
+        final int width = Math.max(1, Math.min(m.widthPixels, m.heightPixels));
+        final int height = Math.max(1, (int) (320 * m.density));
+        final android.util.TypedValue value = new android.util.TypedValue();
+        mContext.getResources().getValue(R.mipmap.vm_test_icon, value, true);
+        final String key = AppResourceImages.keyOf(mContext.getApplicationInfo().sourceDir,
+                value.string.toString(), Bitmap.DENSITY_NONE, width, height);
+        final Bitmap blue = Bitmap.createBitmap(6, 6, Bitmap.Config.ARGB_8888);
+        blue.eraseColor(0xff0000ff);
+        store.save(key, blue, null);
+        LateImages.setStore(store);
+        try {
+            final Drawable icon = LateImages.packageDrawable(mContext, mPackage, mContext.getUserId(),
+                    R.mipmap.vm_test_icon, new Handler(Looper.getMainLooper()));
+            assertTrue(String.valueOf(icon), icon instanceof BitmapDrawable);
+            assertEquals(0xff0000ff, ((BitmapDrawable) icon).getBitmap().getPixel(3, 3));
+        } finally {
+            LateImages.setStore(null);
+            store.clear();
+        }
+    }
+
+    @Test
     public void widgetLists_itemsInsideTheUpdate_checkedWithIt() throws Exception {
         // With remote_adapter_conversion on (this release), a widget's list items come inside the update: they are
         // checked and their images re-made with the rest of the views.

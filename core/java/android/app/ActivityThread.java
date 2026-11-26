@@ -8278,6 +8278,8 @@ public final class ActivityThread extends ClientTransactionHandler
         }
 
         ActivityThreadHooks.onBind2(appContext, extraAppBindArgs);
+        // DiamaneOS: listed system apps take other apps' images from clean copies made in the VM.
+        com.android.internal.diamaneos.cleancopies.CleanCopyGate.installForApp(appContext);
 
         com.android.internal.os.ExecSpawning.maybeRunPendingZygotePreload(data.appInfo);
 

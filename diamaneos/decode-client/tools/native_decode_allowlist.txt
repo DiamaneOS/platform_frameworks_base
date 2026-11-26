@@ -1,35 +1,36 @@
 # Allowlist of native-decode call sites for native_decode_scan.py (one line per file):
 #   <calls> <path> | <why they are fine>
-# "left open" lines are the launcher icons the package manager loads (the clean icon cache topic of the design
-# note), the Shell's splash screens and broadcast radio station images (design note): every other image an app hands
-# over at run time goes through the VM or an image gate. Lines without an image ("no image") are package contexts
+# "left open" lines are broadcast radio station images (design note): every other image an app hands over at run time
+# goes through the VM or an image gate. Launcher and manifest icons the package manager loads come from clean copies
+# made in the VM (the clean icon cache): in SystemUI and the system server every app image file goes through the
+# process gate (CleanCopyGate), which never decodes one. Lines without an image ("no image") are package contexts
 # and resources used for strings, ids or settings, which the scan lists because they could load an image. A rebase that adds a call fails the scan until the
 # call is converted or its line is justified here.
 1 libs/WindowManager/Shell/src/com/android/wm/shell/bubbles/Bubble.java | reads a dimension the app names for its bubble, no image
 1 libs/WindowManager/Shell/src/com/android/wm/shell/bubbles/BubbleController.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
 1 libs/WindowManager/Shell/src/com/android/wm/shell/bubbles/BubbleViewInfoTask.java | the bubble icon after Bubble.withoutAppImage (VM pixels, framework icons or the app icon)
-2 libs/WindowManager/Shell/src/com/android/wm/shell/bubbles/appinfo/PackageManagerBubbleAppInfoProvider.kt | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)
+2 libs/WindowManager/Shell/src/com/android/wm/shell/bubbles/appinfo/PackageManagerBubbleAppInfoProvider.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
 1 libs/WindowManager/Shell/src/com/android/wm/shell/bubbles/bar/BubbleBarMenuView.java | the bubble icon after Bubble.withoutAppImage (VM pixels, framework icons or the app icon)
 1 libs/WindowManager/Shell/src/com/android/wm/shell/pip/phone/PipMenuView.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image (the action icons go through PipActionIcons)
-3 libs/WindowManager/Shell/src/com/android/wm/shell/pip/tv/TvPipNotificationController.java | TV only, launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)
+3 libs/WindowManager/Shell/src/com/android/wm/shell/pip/tv/TvPipNotificationController.java | TV only, launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
 1 libs/WindowManager/Shell/src/com/android/wm/shell/pip2/phone/PipMenuView.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image (the action icons go through PipActionIcons)
-2 libs/WindowManager/Shell/src/com/android/wm/shell/startingsurface/SplashscreenContentDrawer.java | left open: the app's splash screen images, decoded in the Shell (starting windows, design note)
-1 libs/WindowManager/Shell/src/com/android/wm/shell/startingsurface/SplashscreenWindowCreator.java | left open: the app's splash screen images, decoded in the Shell (starting windows, design note)
+2 libs/WindowManager/Shell/src/com/android/wm/shell/startingsurface/SplashscreenContentDrawer.java | the app's package context behind the splash gate (image files only from clean copies made in the VM, SplashImages), and the upstream high-density icon loader, no longer called (the splash's app icon comes through SplashImages.appIcon)
+1 libs/WindowManager/Shell/src/com/android/wm/shell/startingsurface/SplashscreenWindowCreator.java | the app's package context behind the splash gate (image files only from clean copies made in the VM, SplashImages)
 1 packages/SystemUI/src/com/android/keyguard/KeyguardSliceView.java | slices of SystemUI's own KeyguardSliceProvider
 1 packages/SystemUI/src/com/android/systemui/DessertCaseView.java | SystemUI's own resources or files, nothing an app hands over
-1 packages/SystemUI/src/com/android/systemui/accessibility/hearingaid/HearingDevicesToolItemParser.java | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)
+1 packages/SystemUI/src/com/android/systemui/accessibility/hearingaid/HearingDevicesToolItemParser.java | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
 2 packages/SystemUI/src/com/android/systemui/ambientcue/data/repository/AmbientCueRepository.kt | images of a system-only source (privileged system service or SystemUI itself), not an app (ambient cue service)
-1 packages/SystemUI/src/com/android/systemui/biometrics/ui/BiometricPromptLogoProvider.kt | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)
+1 packages/SystemUI/src/com/android/systemui/biometrics/ui/BiometricPromptLogoProvider.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
 1 packages/SystemUI/src/com/android/systemui/brightness/ui/viewmodel/BrightnessSliderViewModel.kt | SystemUI's own resources or files, nothing an app hands over
 1 packages/SystemUI/src/com/android/systemui/clipboardoverlay/ClipboardModel.kt | our code: loadThumbnail decodes in the VM through ClipboardImageLoader
 3 packages/SystemUI/src/com/android/systemui/clipboardoverlay/ClipboardOverlayView.java | two of SystemUI's own icons, and the text classifier's action icons (system service, app launcher icons)
-1 packages/SystemUI/src/com/android/systemui/controls/management/AppAdapter.kt | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)
-1 packages/SystemUI/src/com/android/systemui/controls/ui/ControlsUiControllerImpl.kt | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)
-1 packages/SystemUI/src/com/android/systemui/dreams/ui/viewmodel/DreamSwitcherDialogViewModel.kt | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note), dream service icons
+1 packages/SystemUI/src/com/android/systemui/controls/management/AppAdapter.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+1 packages/SystemUI/src/com/android/systemui/controls/ui/ControlsUiControllerImpl.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+1 packages/SystemUI/src/com/android/systemui/dreams/ui/viewmodel/DreamSwitcherDialogViewModel.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate), dream service icons
 1 packages/SystemUI/src/com/android/systemui/flashlight/ui/viewmodel/FlashlightSliderViewModel.kt | SystemUI's own resources or files, nothing an app hands over
 1 packages/SystemUI/src/com/android/systemui/globalactions/GlobalActionsDialogLite.java | the user's own picture file, written by the system
-1 packages/SystemUI/src/com/android/systemui/keyboard/shortcut/ui/viewmodel/ShortcutHelperViewModel.kt | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)
-1 packages/SystemUI/src/com/android/systemui/keyguard/WorkLockActivity.java | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)
+1 packages/SystemUI/src/com/android/systemui/keyboard/shortcut/ui/viewmodel/ShortcutHelperViewModel.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+1 packages/SystemUI/src/com/android/systemui/keyguard/WorkLockActivity.java | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
 1 packages/SystemUI/src/com/android/systemui/keyguard/smartspace/LockscreenSmartspaceGeneralView.java | images of a system-only source (privileged system service or SystemUI itself), not an app (smartspace service)
 1 packages/SystemUI/src/com/android/systemui/media/RingtonePlayer.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
 1 packages/SystemUI/src/com/android/systemui/media/controls/domain/pipeline/LegacyMediaDataManagerImpl.kt | SystemUI's own resources or files, nothing an app hands over
@@ -37,51 +38,51 @@
 1 packages/SystemUI/src/com/android/systemui/media/controls/domain/pipeline/MediaDataLoader.kt | SystemUI's own resources or files, nothing an app hands over
 1 packages/SystemUI/src/com/android/systemui/media/controls/domain/pipeline/MediaDataProcessor.kt | SystemUI's own resources or files, nothing an app hands over
 2 packages/SystemUI/src/com/android/systemui/media/controls/shared/MediaProcessingHelper.kt | its images were converted before (VM pixels or gated resources), see the media pipeline and MediaIconSafety
-4 packages/SystemUI/src/com/android/systemui/media/controls/ui/controller/MediaControlPanel.java | one launcher icon (left open, clean icon cache), the others: its images were converted before (VM pixels or gated resources), see the media pipeline and MediaIconSafety
+4 packages/SystemUI/src/com/android/systemui/media/controls/ui/controller/MediaControlPanel.java | one launcher icon (from clean copies made in the VM: the process gate), the others: its images were converted before (VM pixels or gated resources), see the media pipeline and MediaIconSafety
 1 packages/SystemUI/src/com/android/systemui/media/dialog/MediaOutputDialogDelegate.kt | the header icon converted before (MediaSwitchingController, AppIcons)
-4 packages/SystemUI/src/com/android/systemui/media/dialog/MediaSwitchingController.kt | two launcher icons (left open, clean icon cache), two icons converted before (VmIcons and AppIcons)
-4 packages/SystemUI/src/com/android/systemui/media/remedia/data/repository/MediaRepository.kt | one launcher icon (left open, clean icon cache), the others: its images were converted before (VM pixels or gated resources), see the media pipeline and MediaIconSafety
-1 packages/SystemUI/src/com/android/systemui/media/taptotransfer/common/MediaTttUtils.kt | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)
-1 packages/SystemUI/src/com/android/systemui/mediaprojection/appselector/data/BadgedAppIconLoader.kt | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)
-1 packages/SystemUI/src/com/android/systemui/mediaprojection/appselector/data/BasicAppIconLoader.kt | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)
+4 packages/SystemUI/src/com/android/systemui/media/dialog/MediaSwitchingController.kt | two launcher icons (from clean copies made in the VM: the process gate), two icons converted before (VmIcons and AppIcons)
+4 packages/SystemUI/src/com/android/systemui/media/remedia/data/repository/MediaRepository.kt | one launcher icon (from clean copies made in the VM: the process gate), the others: its images were converted before (VM pixels or gated resources), see the media pipeline and MediaIconSafety
+1 packages/SystemUI/src/com/android/systemui/media/taptotransfer/common/MediaTttUtils.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+1 packages/SystemUI/src/com/android/systemui/mediaprojection/appselector/data/BadgedAppIconLoader.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+1 packages/SystemUI/src/com/android/systemui/mediaprojection/appselector/data/BasicAppIconLoader.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
 2 packages/SystemUI/src/com/android/systemui/mediaprojection/appselector/data/RecentTaskThumbnailLoader.kt | task snapshots the system made (no app image file)
-2 packages/SystemUI/src/com/android/systemui/mediaprojection/appselector/view/RecentTaskViewHolder.kt | launcher icons (left open, clean icon cache) and task snapshots the system made
+2 packages/SystemUI/src/com/android/systemui/mediaprojection/appselector/view/RecentTaskViewHolder.kt | launcher icons (from clean copies made in the VM: the process gate) and task snapshots the system made
 1 packages/SystemUI/src/com/android/systemui/navigationbar/NavigationModeController.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
 1 packages/SystemUI/src/com/android/systemui/navigationbar/gestural/EdgeBackGestureHandler.java | resources of the navigation bar overlay (system), a dimension, no image
 1 packages/SystemUI/src/com/android/systemui/navigationbar/views/buttons/KeyButtonView.java | SystemUI's own resources or files, nothing an app hands over (navigation bar buttons)
 1 packages/SystemUI/src/com/android/systemui/people/PeopleTileViewHelper.java | an icon put in the people widget's views, drawn by the widget host (the launcher, or the hub through its gated host view)
 1 packages/SystemUI/src/com/android/systemui/personalcontext/attribution/AttributionDialogComposable.kt | images of a system-only source (privileged system service or SystemUI itself), not an app (personal context attribution)
 3 packages/SystemUI/src/com/android/systemui/privacy/PrivacyDialogDelegateV2.kt | permission group icons of the permission controller (system module)
-1 packages/SystemUI/src/com/android/systemui/qs/FgsManagerController.kt | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)
-1 packages/SystemUI/src/com/android/systemui/qs/panels/data/repository/AppIconRepository.kt | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)
-2 packages/SystemUI/src/com/android/systemui/qs/panels/data/repository/IconAndNameCustomRepository.kt | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note), tile service icons
-1 packages/SystemUI/src/com/android/systemui/qs/panels/domain/interactor/TextFeedbackInteractor.kt | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)
-1 packages/SystemUI/src/com/android/systemui/screencapture/common/data/repository/ScreenCaptureIconRepository.kt | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)
+1 packages/SystemUI/src/com/android/systemui/qs/FgsManagerController.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+1 packages/SystemUI/src/com/android/systemui/qs/panels/data/repository/AppIconRepository.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+2 packages/SystemUI/src/com/android/systemui/qs/panels/data/repository/IconAndNameCustomRepository.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate), tile service icons
+1 packages/SystemUI/src/com/android/systemui/qs/panels/domain/interactor/TextFeedbackInteractor.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+1 packages/SystemUI/src/com/android/systemui/screencapture/common/data/repository/ScreenCaptureIconRepository.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
 2 packages/SystemUI/src/com/android/systemui/screencapture/common/data/repository/ScreenCaptureThumbnailRepository.kt | task snapshots the system made (no app image file)
-1 packages/SystemUI/src/com/android/systemui/screencapture/common/domain/interactor/ScreenCaptureIconInteractor.kt | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)
+1 packages/SystemUI/src/com/android/systemui/screencapture/common/domain/interactor/ScreenCaptureIconInteractor.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
 3 packages/SystemUI/src/com/android/systemui/screencapture/common/domain/interactor/ScreenCaptureThumbnailInteractor.kt | task and display snapshots the system made (no app image file)
 1 packages/SystemUI/src/com/android/systemui/screencapture/common/ui/compose/LoadDrawable.kt | SystemUI's own resources or files, nothing an app hands over
 1 packages/SystemUI/src/com/android/systemui/screencapture/common/ui/compose/LoadIcon.kt | SystemUI's own resources or files, nothing an app hands over
-1 packages/SystemUI/src/com/android/systemui/screencapture/common/ui/viewmodel/AppContentViewModel.kt | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note), only when the app gave no content icon
+1 packages/SystemUI/src/com/android/systemui/screencapture/common/ui/viewmodel/AppContentViewModel.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate), only when the app gave no content icon
 1 packages/SystemUI/src/com/android/systemui/screencapture/common/ui/viewmodel/DisplayViewModel.kt | display snapshots the system made (no app image file)
-2 packages/SystemUI/src/com/android/systemui/screencapture/common/ui/viewmodel/RecentTaskViewModel.kt | launcher icons (left open, clean icon cache) and task snapshots the system made
-1 packages/SystemUI/src/com/android/systemui/screenshot/WorkProfileMessageController.kt | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)
-1 packages/SystemUI/src/com/android/systemui/screenshot/appclips/InternalBacklinksData.kt | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)
-1 packages/SystemUI/src/com/android/systemui/screenshot/message/PackageLabelIconProvider.kt | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)
+2 packages/SystemUI/src/com/android/systemui/screencapture/common/ui/viewmodel/RecentTaskViewModel.kt | launcher icons (from clean copies made in the VM: the process gate) and task snapshots the system made
+1 packages/SystemUI/src/com/android/systemui/screenshot/WorkProfileMessageController.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+1 packages/SystemUI/src/com/android/systemui/screenshot/appclips/InternalBacklinksData.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+1 packages/SystemUI/src/com/android/systemui/screenshot/message/PackageLabelIconProvider.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
 2 packages/SystemUI/src/com/android/systemui/screenshot/scroll/ImageLoader.java | SystemUI's own resources or files, nothing an app hands over (scroll capture tiles)
 1 packages/SystemUI/src/com/android/systemui/statusbar/StatusBarIconView.java | icons from AppIcons.forView (gated copies or VM pixels) or system icons
-1 packages/SystemUI/src/com/android/systemui/statusbar/notification/row/ExpandableNotificationRowDragController.java | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)
-1 packages/SystemUI/src/com/android/systemui/statusbar/notification/row/PartialConversationInfo.java | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)
+1 packages/SystemUI/src/com/android/systemui/statusbar/notification/row/ExpandableNotificationRowDragController.java | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
+1 packages/SystemUI/src/com/android/systemui/statusbar/notification/row/PartialConversationInfo.java | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
 1 packages/SystemUI/src/com/android/systemui/statusbar/notification/row/RowImageInflater.kt | our code: a log text only (the load is VmIcons.loadDrawableNoWait)
 3 packages/SystemUI/src/com/android/systemui/statusbar/notification/row/SingleLineViewInflater.kt | our code: VmIcons.loadDrawable decodes in the VM
-1 packages/SystemUI/src/com/android/systemui/statusbar/notification/row/icon/AppIconHelper.kt | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)
+1 packages/SystemUI/src/com/android/systemui/statusbar/notification/row/icon/AppIconHelper.kt | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
 1 packages/SystemUI/src/com/android/systemui/statusbar/policy/RemoteInputView.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image (the attachment preview goes through RemoteInputImages)
-2 packages/SystemUI/src/com/android/systemui/statusbar/policy/SecurityControllerImpl.java | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note), and a context of its own package for another user
+2 packages/SystemUI/src/com/android/systemui/statusbar/policy/SecurityControllerImpl.java | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate), and a context of its own package for another user
 2 packages/SystemUI/src/com/android/systemui/statusbar/policy/SmartReplyStateInflater.kt | our code: only icons that need no VM load here, the others go to VmIcons.decode (and a log text)
 1 packages/SystemUI/src/com/android/systemui/statusbar/policy/UserInfoControllerImpl.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
 1 packages/SystemUI/src/com/android/systemui/statusbar/quickactions/media/ui/viewmodel/MediaControlChipViewModel.kt | its images were converted before (VM pixels or gated resources), see the media pipeline and MediaIconSafety
 1 packages/SystemUI/src/com/android/systemui/statusbar/systemstatusicons/ui/compose/SystemStatusIcons.kt | icons set through StatusBarManager.setIcon (a system permission)
-1 packages/SystemUI/src/com/android/systemui/toast/SystemUIToast.java | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)
+1 packages/SystemUI/src/com/android/systemui/toast/SystemUIToast.java | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
 1 packages/SystemUI/src/com/android/systemui/tuner/ShortcutParser.java | reads an app's static shortcuts XML (labels, intents), its icons go through the gate (tuner)
 4 packages/SystemUI/src/com/android/systemui/volume/domain/interactor/AudioOutputInteractor.kt | SystemUI's own resources or files, nothing an app hands over (device icons)
 1 services/autofill/java/com/android/server/autofill/FieldClassificationStrategy.java | reads the package's metadata, labels or resource ids, no image is drawn
@@ -107,14 +108,15 @@
 1 services/core/java/com/android/server/locales/LocaleManagerBackupHelper.java | reads the package's metadata, labels or resource ids, no image is drawn
 1 services/core/java/com/android/server/locales/LocaleManagerService.java | reads the package's metadata, labels or resource ids, no image is drawn
 1 services/core/java/com/android/server/locales/LocaleManagerShellCommand.java | reads the package's metadata, labels or resource ids, no image is drawn (adb only)
+2 services/core/java/com/android/server/notification/GroupHelper.java | the app's launcher icon, for the monochrome summary icon (from clean copies made in the VM: the process gate)
 1 services/core/java/com/android/server/notification/EventConditionProvider.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
 1 services/core/java/com/android/server/notification/ValidateNotificationPeople.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image (contact lookups)
 2 services/core/java/com/android/server/notification/ZenModeHelper.java | resource names and ids of mode icons, no image (SystemUI loads them through ZenModeAppIcons)
 1 services/core/java/com/android/server/om/OverlayManagerShellCommand.java | reads the package's metadata, labels or resource ids, no image is drawn (adb only)
-2 services/core/java/com/android/server/pm/InstantAppRegistry.java | icon files the system wrote for instant apps, and their launcher icons (left open, clean icon cache)
+2 services/core/java/com/android/server/pm/InstantAppRegistry.java | icon files the system wrote for instant apps, and their launcher icons (from clean copies made in the VM: the process gate)
 1 services/core/java/com/android/server/pm/ModuleInfoProvider.java | reads the package's metadata, labels or resource ids, no image is drawn
-3 services/core/java/com/android/server/pm/PackageArchiver.java | icons the system stored at archiving from launcher icons (left open, clean icon cache), and an installer label
-1 services/core/java/com/android/server/pm/PackageInstallerService.java | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note), the installer's notice
+3 services/core/java/com/android/server/pm/PackageArchiver.java | icons the system stored at archiving from launcher icons (from clean copies made in the VM: the process gate), and an installer label
+1 services/core/java/com/android/server/pm/PackageInstallerService.java | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate), the installer's notice
 1 services/core/java/com/android/server/pm/PackageInstallerSession.java | the session icon file the system wrote from pixels the installer handed over
 1 services/core/java/com/android/server/pm/PackageManagerShellCommand.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image (adb only)
 1 services/core/java/com/android/server/pm/ShortcutService.java | resource names and ids of shortcut icons, no image
@@ -122,7 +124,7 @@
 1 services/core/java/com/android/server/policy/PermissionPolicyService.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
 1 services/core/java/com/android/server/rollback/Rollback.java | the caller's package context for a permission check, no image
 1 services/core/java/com/android/server/rollback/RollbackManagerServiceImpl.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image
-1 services/core/java/com/android/server/textclassifier/IconsContentProvider.java | text classifier action icons, app launcher icons through Icon (left open, clean icon cache)
+1 services/core/java/com/android/server/textclassifier/IconsContentProvider.java | text classifier action icons, app launcher icons through Icon (from clean copies made in the VM: the process gate)
 2 services/core/java/com/android/server/trust/TrustManagerService.java | reads the package's metadata, labels or resource ids, no image is drawn
 1 services/core/java/com/android/server/tv/TvInputManagerService.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image (TV only)
 1 services/core/java/com/android/server/tv/TvInputManagerShellCommand.java | a context of the process's own (or the system's) package, for another user: strings and settings, no app image (TV only, adb)
@@ -133,5 +135,5 @@
 1 services/core/java/com/android/server/wm/ActivityTaskManagerService.java | the app's context for its label in the heavy-weight notice, no image
 1 services/core/java/com/android/server/wm/AppCompatRecreateOnConfigChangePolicy.java | the app's context for configuration flags, no image
 1 services/core/java/com/android/server/wm/AppSnapshotLoader.java | task snapshot files the system wrote
-2 services/core/java/com/android/server/wm/LaunchWarningWindow.java | launcher or manifest icon through the package manager (left open, the clean icon cache topic of the design note)
+2 services/core/java/com/android/server/wm/LaunchWarningWindow.java | launcher or manifest icon through the package manager (from clean copies made in the VM: the process gate, CleanCopyGate)
 1 services/core/java/com/android/server/wm/TaskPersister.java | task description files the system wrote
