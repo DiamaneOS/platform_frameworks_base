@@ -52,23 +52,27 @@ public class GateStraightDeviceTest {
                 .getResources().openRawResource(de.diamaneos.decode.client.tests.R.raw.vm_avif_alpha_10bit)) {
             avif = in.readAllBytes();
         }
-        factoryWide(png(true), avif, 64, 32);
+        factoryWide(png(true), avif, 64, 32, null);
     }
 
-    @Test public void bitmapFactoryNeutralAvifStraightSamplingMatchesStock() throws Exception {
+    @Test public void bitmapFactoryNeutralAvifStraightSamplingPreservesAlphaEffect() throws Exception {
         try (java.io.InputStream in = InstrumentationRegistry.getInstrumentation().getTargetContext()
-                .getResources().openRawResource(de.diamaneos.decode.client.tests.R.raw.vm_avif_neutral_alpha_10bit)) {
-            factoryWide(null, in.readAllBytes(), 512, 32);
+                .getResources().openRawResource(de.diamaneos.decode.client.tests.R.raw.vm_avif_neutral_alpha_10bit);
+                java.io.InputStream opaque = InstrumentationRegistry.getInstrumentation().getTargetContext()
+                .getResources().openRawResource(de.diamaneos.decode.client.tests.R.raw.vm_avif_neutral_opaque_10bit)) {
+            factoryWide(null, in.readAllBytes(), 512, 32, opaque.readAllBytes());
         }
     }
 
-    private static void factoryWide(byte[] png, byte[] avif, int sourceWidth, int sourceHeight) throws Exception {
+    private static void factoryWide(byte[] png, byte[] avif, int sourceWidth, int sourceHeight, byte[] opaque)
+            throws Exception {
         for (int kind = png == null ? 1 : 0; kind < 2; kind++) {
             final byte[] input = kind == 0 ? png : avif;
             final Bitmap.Config storage = kind == 0 ? Bitmap.Config.RGBA_F16 : Bitmap.Config.RGBA_1010102;
             for (int mode = 0; mode < 5; mode++) for (int[] scale : new int[][] {
                     {1, 0, 0}, {2, 0, 0}, {2, 160, 240}, {1, 480, 160}}) {
                 Bitmap stock = null, gated = null, stockRead = null, gatedRead = null;
+                Bitmap stockOpaque = null, gatedOpaque = null, stockOpaqueRead = null, gatedOpaqueRead = null;
                 final BitmapFactory.Options before = straightOptions(mode, scale, storage, sourceWidth, sourceHeight);
                 final BitmapFactory.Options after = straightOptions(mode, scale, storage, sourceWidth, sourceHeight);
                 final int stockGeneration = before.inBitmap != null ? before.inBitmap.getGenerationId() : 0;
@@ -76,9 +80,11 @@ public class GateStraightDeviceTest {
                 try {
                     DecodeGate.setForcedForTest(false);
                     stock = BitmapFactory.decodeByteArray(input, 0, input.length, before);
+                    if (opaque != null) stockOpaque = opaqueReference(opaque, mode, scale);
                     DecodeGate.setForcedForTest(true);
                     DecodeGate.resetForTest();
                     gated = BitmapFactory.decodeByteArray(input, 0, input.length, after);
+                    if (opaque != null) gatedOpaque = opaqueReference(opaque, mode, scale);
                     if (stock == null) {
                         assertEquals("only the hardware outcome may be unsupported", 3, mode);
                         assertNull(gated);
@@ -105,6 +111,22 @@ public class GateStraightDeviceTest {
                     assertNotNull(stockRead);
                     assertNotNull(gatedRead);
                     final ByteBuffer expected = pixels(stockRead), actual = pixels(gatedRead);
+                    ByteBuffer opaqueExpected = null, opaqueActual = null;
+                    if (opaque != null) {
+                        assertNotNull(stockOpaque);
+                        assertNotNull(gatedOpaque);
+                        stockOpaqueRead = mode == 3 ? stockOpaque.copy(storage, false) : stockOpaque;
+                        gatedOpaqueRead = mode == 3 ? gatedOpaque.copy(storage, false) : gatedOpaque;
+                        assertNotNull(stockOpaqueRead);
+                        assertNotNull(gatedOpaqueRead);
+                        assertEquals(stockRead.getWidth(), stockOpaqueRead.getWidth());
+                        assertEquals(stockRead.getHeight(), stockOpaqueRead.getHeight());
+                        assertEquals(gatedRead.getWidth(), gatedOpaqueRead.getWidth());
+                        assertEquals(gatedRead.getHeight(), gatedOpaqueRead.getHeight());
+                        opaqueExpected = pixels(stockOpaqueRead);
+                        opaqueActual = pixels(gatedOpaqueRead);
+                    }
+                    int absoluteDifference = 0;
                     final HashSet<Integer> levels = new HashSet<>();
                     boolean hidden = false;
                     for (int y = 0; y < stockRead.getHeight(); y++) for (int x = 0; x < stockRead.getWidth(); x++) {
@@ -119,9 +141,20 @@ public class GateStraightDeviceTest {
                                     : (expected.getInt(a) >>> (channel * 10)) & (channel == 3 ? 3 : 1023);
                             final int value = kind == 0 ? actual.getShort(b + channel * 2) & 65535
                                     : (actual.getInt(b) >>> (channel * 10)) & (channel == 3 ? 3 : 1023);
-                            assertTrue("straight factory raw kind=" + kind + " mode=" + mode + " at " + x + "," + y
-                                    + "/" + channel + " expected=" + wanted + " actual=" + value,
-                                    Math.abs(wanted - value) <= 1);
+                            absoluteDifference = Math.max(absoluteDifference, Math.abs(wanted - value));
+                            if (opaque != null && channel < 3) {
+                                final int stockBase = (opaqueExpected.getInt(y * stockOpaqueRead.getRowBytes() + x * 4)
+                                        >>> (channel * 10)) & 1023;
+                                final int gateBase = (opaqueActual.getInt(y * gatedOpaqueRead.getRowBytes() + x * 4)
+                                        >>> (channel * 10)) & 1023;
+                                assertTrue("straight factory alpha effect mode=" + mode + " at " + x + "," + y
+                                        + "/" + channel + " stock=" + (wanted - stockBase) + " gate=" + (value - gateBase),
+                                        Math.abs((wanted - stockBase) - (value - gateBase)) <= 1);
+                            } else {
+                                assertTrue("straight factory raw kind=" + kind + " mode=" + mode + " at " + x + "," + y
+                                        + "/" + channel + " expected=" + wanted + " actual=" + value,
+                                        Math.abs(wanted - value) <= 1);
+                            }
                         }
                     }
                     if (mode == 0 && scale[0] == 1 && scale[1] == 0) {
@@ -130,8 +163,13 @@ public class GateStraightDeviceTest {
                         assertTrue("stock deep precision control", levels.size() > (kind == 0 ? 1024 : 256));
                     }
                     Log.i("StraightFactoryProof", "kind=" + kind + " mode=" + mode
-                            + " sample/density=" + java.util.Arrays.toString(scale));
+                            + " sample/density=" + java.util.Arrays.toString(scale)
+                            + " opaqueReference=" + (opaque != null) + " absoluteMax=" + absoluteDifference);
                 } finally {
+                    if (stockOpaqueRead != null && stockOpaqueRead != stockOpaque) stockOpaqueRead.recycle();
+                    if (gatedOpaqueRead != null && gatedOpaqueRead != gatedOpaque) gatedOpaqueRead.recycle();
+                    if (stockOpaque != null) stockOpaque.recycle();
+                    if (gatedOpaque != null) gatedOpaque.recycle();
                     if (stockRead != null && stockRead != stock) stockRead.recycle();
                     if (gatedRead != null && gatedRead != gated) gatedRead.recycle();
                     if (stock != null) stock.recycle();
@@ -141,6 +179,16 @@ public class GateStraightDeviceTest {
                 }
             }
         }
+    }
+
+    private static Bitmap opaqueReference(byte[] input, int mode, int[] scale) {
+        final BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inPremultiplied = false;
+        options.inSampleSize = scale[0];
+        options.inDensity = scale[1];
+        options.inTargetDensity = scale[2];
+        if (mode == 3) options.inPreferredConfig = Bitmap.Config.HARDWARE;
+        return BitmapFactory.decodeByteArray(input, 0, input.length, options);
     }
 
     private static BitmapFactory.Options straightOptions(int mode, int[] scale, Bitmap.Config storage,
