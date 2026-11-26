@@ -42,7 +42,13 @@ public final class OwnerPixels {
      * layout cap of one notification ({@link ImageBudget#MAX_PIXELS}).
      */
     public static final long MAX_PIXELS = MAX_NOTIFICATIONS * ImageBudget.MAX_PIXELS;
-    /** Pixels all apps together may hold at once (1.6 GB in ARGB), a hard limit. */
+    /**
+     * Pixels all apps together may hold at once (1.6 GB in ARGB), a hard limit. Stock has none: it bounds each image
+     * (Notification.reduceImageSizes, core/java/android/app/Notification.java:8768-8834 at 5e3d869371b5) and the
+     * notifications of one app (NotificationManagerService.MAX_PACKAGE_NOTIFICATIONS = 50,
+     * services/core/java/com/android/server/notification/NotificationManagerService.java:493), never their sum. Two
+     * apps at the per-app limit fit, so the total binds only past that.
+     */
     public static final long MAX_TOTAL_PIXELS = 2 * MAX_PIXELS;
     private static final int MAX_OWNERS = 256;
 
