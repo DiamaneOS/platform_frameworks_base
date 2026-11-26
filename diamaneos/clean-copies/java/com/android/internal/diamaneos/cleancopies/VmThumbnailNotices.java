@@ -20,16 +20,20 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.net.Uri;
 import android.os.Handler;
+import android.provider.DocumentsContract;
 import android.util.Log;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.function.Predicate;
 
 /**
  * Thumbnails ({@link VmThumbnails}) that failed because the decode service did not answer: once it answers again
  * ({@link CleanCopyGate}, the system server's decode-answers notice), each of their URIs gets one change notice, so a
- * caller that observes the item loads it again. In memory only: at most {@link #MAX_URIS} URIs, each once, all of
- * them dropped when the notices are sent, so a long outage never ends in more than {@link #MAX_URIS} notices.
+ * caller that observes the item loads it again. A document's provider also gets one notice on its roots URI, which is
+ * what Files (DocumentsUI) observes: it registers on content://AUTHORITY/root, not on listings or items. No grant and
+ * nothing stored: in memory only, at most {@link #MAX_URIS} URIs, each once, all of them dropped when the notices are
+ * sent, so a long outage never ends in more than twice {@link #MAX_URIS} notices.
  *
  * @hide
  */
@@ -78,12 +82,22 @@ public final class VmThumbnailNotices {
         } catch (java.io.IOException e) {
             return;
         }
-        final Runnable send = () -> send(app.getContentResolver(), due);
+        final Runnable send = () -> send(app.getContentResolver(),
+                notices(due, uri -> DocumentsContract.isDocumentUri(app, uri)));
         if (handler != null) {
             handler.post(send);
         } else {
             new Thread(send, "VmThumbnailNotices").start();
         }
+    }
+
+    /** The notices for {@code due}: each URI, then the roots URI of each documents provider among them, once. */
+    static ArrayList<Uri> notices(ArrayList<Uri> due, Predicate<Uri> document) {
+        final LinkedHashSet<Uri> all = new LinkedHashSet<>(due);
+        for (Uri uri : due) {
+            if (document.test(uri)) all.add(DocumentsContract.buildRootsUri(uri.getAuthority()));
+        }
+        return new ArrayList<>(all);
     }
 
     static void send(ContentResolver resolver, ArrayList<Uri> due) {
