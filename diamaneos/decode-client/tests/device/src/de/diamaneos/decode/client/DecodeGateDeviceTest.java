@@ -209,6 +209,10 @@ public class DecodeGateDeviceTest {
         }
         assertRedBlue(decode.run(), W, H);
         final int[] got = since(before);
+        final int hits = hitsSince(before);
+        Log.i(TAG, source + ": decodes, probes, failures=" + Arrays.toString(got) + ", cache hits=" + hits
+                + ", calls=" + DecodeGate.callsForTest());
+        assertEquals(source + ": unexpected cached answer", 0, hits);
         assertArrayEquals(source + ": decodes, probes, failures " + Arrays.toString(got),
                 new int[] {1, 1, 0}, got);
     }

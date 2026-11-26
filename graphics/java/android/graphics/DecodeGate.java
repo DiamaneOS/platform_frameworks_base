@@ -1687,22 +1687,26 @@ public final class DecodeGate {
         try {
             final java.util.List<GateRefill> refills;
             synchronized (sCalls) {
-                if (sCalls.get(call.key) == call) sCalls.remove(call.key);
-                refills = call.answer(shared);
-            }
-            if (refills == null) return;
-            if ((a.getString(EXTRA_ERROR) == null || a.getBoolean(EXTRA_REFUSED))
-                    && entryBytes(a) <= CACHE_BYTES / 2) {
-                synchronized (sAnswers) {
-                    shared.retain();
-                    try {
-                        sAnswers.put(call.key, shared);
-                    } catch (RuntimeException | Error e) {
-                        if (sAnswers.get(call.key) != shared) shared.release();
-                        throw e;
+                synchronized (call) {
+                    if (call.mSettled) return;
+                    // Publish the cache before waking readers: a following reset cannot be undone by this answer.
+                    if ((a.getString(EXTRA_ERROR) == null || a.getBoolean(EXTRA_REFUSED))
+                            && entryBytes(a) <= CACHE_BYTES / 2) {
+                        synchronized (sAnswers) {
+                            shared.retain();
+                            try {
+                                sAnswers.put(call.key, shared);
+                            } catch (RuntimeException | Error e) {
+                                if (sAnswers.get(call.key) != shared) shared.release();
+                                throw e;
+                            }
+                        }
                     }
+                    if (sCalls.get(call.key) == call) sCalls.remove(call.key);
+                    refills = call.answer(shared);
                 }
             }
+            if (refills == null) return;
             for (GateRefill refill : refills) refill.answered(call.key, shared);
         } finally { shared.release(); }
     }
