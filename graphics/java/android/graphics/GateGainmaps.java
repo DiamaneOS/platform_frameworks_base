@@ -34,7 +34,7 @@ final class GateGainmaps {
             return;
         }
         fill(op, bytes, target, params, stored ? 0 : preview.rotation, !stored && preview.mirrored,
-                storedWidth, storedHeight);
+                storedWidth, storedHeight, stored);
     }
 
     /**
@@ -49,7 +49,7 @@ final class GateGainmaps {
         final Gainmap params = parameters(map);
         target.setGainmap(null);
         DecodeMemory.recycle(embedded, null);
-        fill(op, bytes, target, params, rotation, mirrored, storedWidth, storedHeight);
+        fill(op, bytes, target, params, rotation, mirrored, storedWidth, storedHeight, false);
     }
 
     // The parameters of {@code map} on a one-pixel placeholder, so its pixels can go before the gain stage.
@@ -58,7 +58,7 @@ final class GateGainmaps {
     }
 
     private static void fill(DecodeGate.Op op, DecodeGate.Bytes bytes, Bitmap target, Gainmap params, int rotation,
-            boolean mirrored, int storedWidth, int storedHeight) throws DecodeGate.Failure {
+            boolean mirrored, int storedWidth, int storedHeight, boolean bitmapFactory) throws DecodeGate.Failure {
         final Bitmap placeholder = params.getGainmapContents();
         Bitmap contents = null;
         boolean complete = false;
@@ -67,7 +67,7 @@ final class GateGainmaps {
             final int baseWidth = turned ? target.getHeight() : target.getWidth();
             final int baseHeight = turned ? target.getWidth() : target.getHeight();
             contents = pixels(op, bytes, DecodeMemory.bitmapBytes(target), baseWidth, baseHeight,
-                    storedWidth, storedHeight, rotation, mirrored);
+                    storedWidth, storedHeight, rotation, mirrored, bitmapFactory);
             target.setGainmap(new Gainmap(params, contents));
             complete = true;
         } finally {
@@ -78,10 +78,10 @@ final class GateGainmaps {
 
     // The gain image at the scale of a base of baseWidth x baseHeight (stored orientation), turned as asked.
     private static Bitmap pixels(DecodeGate.Op op, DecodeGate.Bytes bytes, long targetBytes, int baseWidth,
-            int baseHeight, int storedWidth, int storedHeight, int rotation, boolean mirrored)
+            int baseHeight, int storedWidth, int storedHeight, int rotation, boolean mirrored, boolean bitmapFactory)
             throws DecodeGate.Failure {
         final boolean turned = rotation == 90 || rotation == 270;
-        if ((long) baseWidth * baseHeight <= DecodeGate.MAX_VM_PIXELS) {
+        if (bitmapFactory && (long) baseWidth * baseHeight <= DecodeGate.MAX_VM_PIXELS) {
             // The VM keeps the gain image within the stored base, so at this scale it fits one reply.
             final long most = (long) baseWidth * baseHeight * 4;
             op.checkFit(bytes.reserved() + targetBytes + (rotation != 0 || mirrored ? 2 : 1) * most);
@@ -103,9 +103,14 @@ final class GateGainmaps {
         if (gainWidth > storedWidth || gainHeight > storedHeight) {
             throw DecodeGate.failed(false, "gain image larger than its base");
         }
-        // As the VM's whole gain reply: the gain image scaled as the base is, rounded.
-        final int width = Math.max(1, (int) ((double) gainWidth * baseWidth / storedWidth + 0.5));
-        final int height = Math.max(1, (int) ((double) gainHeight * baseHeight / storedHeight + 0.5));
+        // DiamaneOS: ImageDecoder truncates its float scale, BitmapFactory rounds its fine scale.
+        // ImageDecoder uses checked regions at every size, so the whole gain reply's rounding cannot add a pixel.
+        final int width = Math.max(1, bitmapFactory
+                ? (int) ((double) gainWidth * baseWidth / storedWidth + 0.5)
+                : (int) (gainWidth * ((float) baseWidth / storedWidth)));
+        final int height = Math.max(1, bitmapFactory
+                ? (int) ((double) gainHeight * baseHeight / storedHeight + 0.5)
+                : (int) (gainHeight * ((float) baseHeight / storedHeight)));
         final int sample = Math.max(1, Math.min(DecodeGate.MAX_REGION_SAMPLE,
                 Math.min(gainWidth / width, gainHeight / height)));
         op.checkFit(bytes.reserved() + targetBytes + (long) width * height * 4

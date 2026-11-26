@@ -63,6 +63,31 @@ public class GateGainmapStockDeviceTest {
         compareAll(hdr(4096, 3072, 4096, 3072, true), 4096, 3072);
     }
 
+    @Test public void fractionalImageDecoderGainSizeMatchesStock() throws Exception {
+        for (int[] size : new int[][] {{640, 480, 319, 239}, {4096, 3072, 4095, 3071}}) {
+            final byte[] bytes = hdr(size[0], size[1], size[0] / 2, size[1] / 2, false);
+            for (int allocator : new int[] {ImageDecoder.ALLOCATOR_SOFTWARE, ImageDecoder.ALLOCATOR_DEFAULT,
+                    ImageDecoder.ALLOCATOR_HARDWARE}) {
+                assertEquals("fractional gain " + size[0] + " allocator=" + allocator,
+                        describe(decoder(bytes, false, allocator, size[2], size[3], false, false)),
+                        describe(decoder(bytes, true, allocator, size[2], size[3], false, false)));
+            }
+        }
+    }
+
+    @Test public void fractionalBitmapFactoryGainSizeStillMatchesStock() throws Exception {
+        final byte[] bytes = hdr(640, 480, 320, 240, false);
+        final String[] result = new String[2];
+        for (int i = 0; i < result.length; i++) {
+            DecodeGate.setForcedForTest(i == 1);
+            final BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inDensity = 640;
+            options.inTargetDensity = 319;
+            result[i] = describe(BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options));
+        }
+        assertEquals(result[0], result[1]);
+    }
+
     private static void compareAll(byte[] bytes, int width, int height) throws Exception {
         assertEquals("BitmapFactory", describe(factory(bytes, false)), describe(factory(bytes, true)));
         final int[] allocators = {ImageDecoder.ALLOCATOR_SOFTWARE, ImageDecoder.ALLOCATOR_DEFAULT,
