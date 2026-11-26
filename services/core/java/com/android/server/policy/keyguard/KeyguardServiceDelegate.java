@@ -214,6 +214,7 @@ public class KeyguardServiceDelegate {
         mLockPatternUtils = new LockPatternUtils(context);
         mActivityManagerInternal = LocalServices.getService(ActivityManagerInternal.class);
         initializeKeyguardState();
+        SdCardHold.onKeyguardStateUnknown(); // DiamaneOS
     }
 
     private final Context mContext;
@@ -232,6 +233,7 @@ public class KeyguardServiceDelegate {
         } finally {
             Binder.restoreCallingIdentity(token);
         }
+        SdCardHold.onKeyguardShowingStateChanged(showing); // DiamaneOS
 
         if (showing) {
             System.gc();
@@ -304,6 +306,7 @@ public class KeyguardServiceDelegate {
             if (DEBUG) Log.v(TAG, "*** Keyguard disconnected (boo!)");
             mKeyguardService = null;
             mKeyguardReportedState.reset();
+            SdCardHold.onKeyguardStateUnknown(); // DiamaneOS
             try {
                 ActivityTaskManager.getService().setLockScreenShown(true /* showingKeyguard */,
                         false /* showingAod */);
