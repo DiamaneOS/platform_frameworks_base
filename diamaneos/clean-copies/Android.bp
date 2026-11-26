@@ -35,6 +35,7 @@ java_test_host {
         "tests/src/**/*.java",
         "java/com/android/internal/diamaneos/cleancopies/CleanCopyKey.java",
         "java/com/android/internal/diamaneos/cleancopies/CleanImageFile.java",
+        "java/com/android/internal/diamaneos/cleancopies/CopyMiss.java",
         "java/com/android/internal/diamaneos/cleancopies/CopyAudience.java",
         "java/com/android/internal/diamaneos/cleancopies/GateLocks.java",
         "java/com/android/internal/diamaneos/cleancopies/GateOwner.java",

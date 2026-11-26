@@ -86,7 +86,6 @@ public final class CleanCopyGate implements ImageFileGate {
         "de.diamaneos.sanitizer",
         "com.android.shell",
     };
-    private static final String LAUNCHER = "com.android.launcher3";
 
     /** Every other app's image file comes from its copy. */
     public static final int MODE_ALL = 0;
@@ -572,6 +571,7 @@ public final class CleanCopyGate implements ImageFileGate {
     private final Source mSource;
     private final Set<String> mOwnApks = new HashSet<>();
     private final boolean mWaits;
+    private String mProcess; // the process whose images these are, for what a file without a copy does (CopyMiss)
     private volatile long mNoWaitUntil;
     private boolean mKnownBoxOnly;
     private final LruCache<String, Made> mCache = new LruCache<String, Made>(CACHE_BYTES) {
@@ -619,11 +619,11 @@ public final class CleanCopyGate implements ImageFileGate {
         if (!gatedApp(ai, name)) {
             return;
         }
-        final int mode = LAUNCHER.equals(name) ? MODE_LAUNCHER : MODE_ALL;
+        final int mode = CopyMiss.waits(name) ? MODE_LAUNCHER : MODE_ALL;
         sApp = appContext;
         try {
             final Context app = appContext;
-            ImageFileGates.setProcessDefault(new CleanCopyGate(appContext, new Source() {
+            final CleanCopyGate gate = new CleanCopyGate(appContext, new Source() {
                 @Override
                 public CleanImageFile read(String key) {
                     return CleanCopyClient.read(app, key);
@@ -642,7 +642,9 @@ public final class CleanCopyGate implements ImageFileGate {
                     CleanCopyClient.request(app, key, apkPath, file, density, maxWidth, maxHeight, resourceName,
                             userId);
                 }
-            }, mode == MODE_LAUNCHER));
+            }, mode == MODE_LAUNCHER);
+            gate.mProcess = name;
+            ImageFileGates.setProcessDefault(gate);
             sMode = mode;
             Log.i(TAG, "apps' images in " + name + " come from clean copies"
                     + (mode == MODE_LAUNCHER ? " (launcher)" : ""));
@@ -659,8 +661,14 @@ public final class CleanCopyGate implements ImageFileGate {
      * process gate decodes its own APK's files as before). {@code waits}: icon loads wait for a missing copy.
      */
     public static ImageFileGate forTest(Context context, Source source, boolean waits) {
+        return forTest(context, source, waits, null);
+    }
+
+    /** {@link #forTest(Context, Source, boolean)}, gating images as the process {@code processName} does. */
+    public static ImageFileGate forTest(Context context, Source source, boolean waits, String processName) {
         final CleanCopyGate gate = new CleanCopyGate(context, source, waits);
         gate.mOwnApks.clear();
+        gate.mProcess = processName;
         return gate;
     }
 
@@ -959,6 +967,13 @@ public final class CleanCopyGate implements ImageFileGate {
         if (made != null) {
             return made;
         }
+        if (CopyMiss.decodesNow(mProcess, file)) {
+            made = direct(apkPath, file, density);
+            if (made != null) {
+                mCache.put(key, made);
+                return made;
+            }
+        }
         // The resource's name only lets the system server find the stand-in among the copies of the app it finds
         // the APK installed for: it never decides whose copy this is.
         String resourceName = null;
@@ -996,6 +1011,35 @@ public final class CleanCopyGate implements ImageFileGate {
         }
         mNoWaitUntil = SystemClock.elapsedRealtime() + NO_WAIT_MS;
         return null;
+    }
+
+    // The file's bytes from the APK, decoded in the VM through the decode gate (the process's own lane), or null when
+    // that failed: a copy is then asked for as before.
+    private Made direct(String apkPath, String file, int density) {
+        if (apkPath == null) {
+            return null;
+        }
+        final byte[] bytes;
+        try (java.util.zip.ZipFile apk = new java.util.zip.ZipFile(apkPath)) {
+            final java.util.zip.ZipEntry entry = apk.getEntry(file);
+            if (entry == null || entry.getSize() < 0 || entry.getSize() > android.graphics.DecodeGate.MAX_BYTES) {
+                return null;
+            }
+            try (InputStream in = apk.getInputStream(entry)) {
+                bytes = in.readNBytes((int) entry.getSize());
+            }
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+        // Unscaled, with the file's density, as a copy is: the drawable scales it to the display.
+        final android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
+        options.inScaled = false;
+        final Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+        if (bitmap == null) {
+            return null;
+        }
+        bitmap.setDensity(density);
+        return new Made(bitmap, null, null, null, null);
     }
 
     private Made read(String key) {
