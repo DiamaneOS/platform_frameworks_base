@@ -120,6 +120,7 @@ import android.os.storage.OnObbStateChangeListener;
 import android.os.storage.StorageManager;
 import android.os.storage.StorageManager.StorageFlags;
 import android.os.storage.StorageVolume;
+import android.os.storage.VolumeActions;
 import android.os.storage.VolumeInfo;
 import android.os.storage.VolumeRecord;
 import android.provider.DeviceConfig;
@@ -1542,6 +1543,28 @@ class StorageManagerService extends IStorageManager.Stub
         }
 
         @Override
+        public void onDiskFormatOffer(String diskId, boolean offer) {
+            // DiamaneOS: vold's decision for the scan that follows (DiskInfo.isFormatOffered).
+            synchronized (mLock) {
+                final DiskInfo disk = mDisks.get(diskId);
+                if (disk != null) {
+                    disk.formatOffered = offer;
+                }
+            }
+        }
+
+        @Override
+        public void onVolumeCheckPending(String volId, boolean pending) {
+            // DiamaneOS: read-only while its filesystem VM checks it (VolumeInfo.checkPending).
+            synchronized (mLock) {
+                final WatchedVolumeInfo vol = mVolumes.get(volId);
+                if (vol != null) {
+                    vol.setCheckPending(pending);
+                }
+            }
+        }
+
+        @Override
         public void onDiskDestroyed(String diskId) {
             synchronized (mLock) {
                 final DiskInfo disk = mDisks.remove(diskId);
@@ -2608,12 +2631,20 @@ class StorageManagerService extends IStorageManager.Stub
         }
     }
 
+    /** DiamaneOS: no new adoptable storage while config_newAdoptableStorage is off (VolumeActions). */
+    private static void enforceNewAdoptableStorage() {
+        if (!VolumeActions.newAdoptableStorage()) {
+            throw new UnsupportedOperationException("New adoptable storage is off");
+        }
+    }
+
     @android.annotation.EnforcePermission(android.Manifest.permission.MOUNT_FORMAT_FILESYSTEMS)
     @Override
     public void partitionPrivate(String diskId) {
         super.partitionPrivate_enforcePermission();
 
         enforceAdminUserOrSystemUser();
+        enforceNewAdoptableStorage();  // DiamaneOS: off unless config_newAdoptableStorage
 
         final CountDownLatch latch = findOrCreateDiskScanLatch(diskId);
 
@@ -2632,6 +2663,7 @@ class StorageManagerService extends IStorageManager.Stub
         super.partitionMixed_enforcePermission();
 
         enforceAdminUserOrSystemUser();
+        enforceNewAdoptableStorage();  // DiamaneOS: off unless config_newAdoptableStorage
 
         final CountDownLatch latch = findOrCreateDiskScanLatch(diskId);
 

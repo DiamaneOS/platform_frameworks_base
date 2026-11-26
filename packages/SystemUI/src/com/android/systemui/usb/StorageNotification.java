@@ -34,6 +34,7 @@ import android.os.UserHandle;
 import android.os.storage.DiskInfo;
 import android.os.storage.StorageEventListener;
 import android.os.storage.StorageManager;
+import android.os.storage.VolumeActions;
 import android.os.storage.VolumeInfo;
 import android.os.storage.VolumeRecord;
 import android.provider.Settings;
@@ -266,7 +267,7 @@ public class StorageNotification implements CoreStartable {
     }
 
     private void onDiskScannedInternal(DiskInfo disk, int volumeCount) {
-        if (volumeCount == 0 && disk.size > 0) {
+        if (disk.isFormatOffered() && disk.size > 0) {  // DiamaneOS: vold's decision, not the volume count
             // No supported volumes found, give user option to format
             final CharSequence title = mContext.getString(
                     R.string.ext_media_unsupported_notification_title, disk.getDescription());
@@ -367,6 +368,10 @@ public class StorageNotification implements CoreStartable {
             case VolumeInfo.STATE_NOT_WRITTEN_BACK:
                 notif = onVolumeNotWrittenBack(vol);
                 break;
+            case VolumeInfo.STATE_FORMATTED_UNVERIFIED:
+            case VolumeInfo.STATE_FORMAT_RESULT_UNVERIFIED:
+                notif = onVolumeFormatUnverified(vol); // DiamaneOS
+                break;
             case VolumeInfo.STATE_REMOVED:
                 notif = onVolumeRemoved(vol);
                 break;
@@ -418,7 +423,8 @@ public class StorageNotification implements CoreStartable {
             return null;
         }
         if (disk.isAdoptable() && !rec.isInited() && rec.getType() != VolumeInfo.TYPE_PUBLIC
-            && rec.getType() != VolumeInfo.TYPE_PRIVATE) {
+            && rec.getType() != VolumeInfo.TYPE_PRIVATE
+            && VolumeActions.newAdoptableStorage()) {  // DiamaneOS: no "set up" without adoption
             final CharSequence title = disk.getDescription();
             final CharSequence text = mContext.getString(
                     R.string.ext_media_new_notification_message, disk.getDescription());
@@ -569,24 +575,57 @@ public class StorageNotification implements CoreStartable {
     }
 
     /**
-     * DiamaneOS: the card is mounted read-only because its check did not finish in time or its filesystem has an
-     * error. It stays readable. Tapping opens its storage page.
+     * DiamaneOS: a format or erase finished, but its result is not verified yet or could not be verified. A notice
+     * with the card's state that opens its storage page, where the verification is retried or the erase confirmed
+     * again. No action of its own.
      */
-    private Notification onVolumeMountedReadOnly(VolumeInfo vol) {
+    private Notification onVolumeFormatUnverified(VolumeInfo vol) {
         final DiskInfo disk = vol.getDisk();
-        final int title;
-        if (disk != null && disk.isSd()) {
-            title = R.string.ext_media_read_only_notification_title_sd;
-        } else if (disk != null && disk.isUsb()) {
-            title = R.string.ext_media_read_only_notification_title_usb;
-        } else {
-            title = R.string.ext_media_read_only_notification_title;
-        }
-        return buildNotificationBuilder(vol, mContext.getString(title),
-                mContext.getString(R.string.ext_media_read_only_notification_message))
+        return buildNotificationBuilder(vol, disk != null ? disk.getDescription() : vol.getDescription(),
+                mContext.getString(vol.getStateDescription()))
                 .setContentIntent(buildVolumeSettingsPendingIntent(vol))
                 .setCategory(Notification.CATEGORY_STATUS)
                 .build();
+    }
+
+    /**
+     * DiamaneOS: the card is mounted read-only. While its filesystem VM checks it, which can make it writable again,
+     * the notice says it is being checked (stock's text). Otherwise its check did not pass or its filesystem has an
+     * error, and it needs one on a computer. It stays readable either way, with the actions of its state
+     * (VolumeActions: Explore and Eject, never Format). Tapping opens its storage page.
+     */
+    private Notification onVolumeMountedReadOnly(VolumeInfo vol) {
+        final DiskInfo disk = vol.getDisk();
+        final CharSequence title;
+        final CharSequence text;
+        if (vol.checkPending) {
+            title = mContext.getString(R.string.ext_media_checking_notification_title,
+                    disk.getDescription());
+            text = mContext.getString(R.string.ext_media_checking_notification_message);
+        } else {
+            final int titleRes;
+            if (disk != null && disk.isSd()) {
+                titleRes = R.string.ext_media_read_only_notification_title_sd;
+            } else if (disk != null && disk.isUsb()) {
+                titleRes = R.string.ext_media_read_only_notification_title_usb;
+            } else {
+                titleRes = R.string.ext_media_read_only_notification_title;
+            }
+            title = mContext.getString(titleRes);
+            text = mContext.getString(R.string.ext_media_read_only_notification_message);
+        }
+        final Notification.Builder builder = buildNotificationBuilder(vol, title, text)
+                .setContentIntent(buildVolumeSettingsPendingIntent(vol))
+                .setCategory(Notification.CATEGORY_STATUS);
+        if (VolumeActions.allows(vol, VolumeActions.BROWSE)) {
+            builder.addAction(new Action(R.drawable.ic_folder_24dp,
+                    mContext.getString(R.string.ext_media_browse_action), buildBrowsePendingIntent(vol)));
+        }
+        if (VolumeActions.allows(vol, VolumeActions.EJECT)) {
+            builder.addAction(new Action(R.drawable.ic_eject_24dp,
+                    mContext.getString(R.string.ext_media_unmount_action), buildUnmountPendingIntent(vol)));
+        }
+        return builder.build();
     }
 
     private Notification onVolumeRemoved(VolumeInfo vol) {

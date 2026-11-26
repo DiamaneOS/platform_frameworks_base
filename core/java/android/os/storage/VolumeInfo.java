@@ -189,6 +189,8 @@ public class VolumeInfo implements Parcelable {
     public String path;
     @UnsupportedAppUsage
     public String internalPath;
+    /** DiamaneOS: mounted read-only while its filesystem VM checks it: writing can come back after the check. */
+    public boolean checkPending;
 
     public VolumeInfo(String id, int type, DiskInfo disk, String partGuid) {
         this.id = Preconditions.checkNotNull(id);
@@ -215,6 +217,7 @@ public class VolumeInfo implements Parcelable {
         fsLabel = parcel.readString8();
         path = parcel.readString8();
         internalPath = parcel.readString8();
+        checkPending = parcel.readBoolean();  // DiamaneOS
     }
 
     public VolumeInfo(VolumeInfo volumeInfo) {
@@ -230,6 +233,7 @@ public class VolumeInfo implements Parcelable {
         this.fsLabel = volumeInfo.fsLabel;
         this.path = volumeInfo.path;
         this.internalPath = volumeInfo.internalPath;
+        this.checkPending = volumeInfo.checkPending;  // DiamaneOS
     }
 
     @UnsupportedAppUsage
@@ -555,6 +559,7 @@ public class VolumeInfo implements Parcelable {
         pw.println();
         pw.printPair("path", path);
         pw.printPair("internalPath", internalPath);
+        pw.printPair("checkPending", checkPending);  // DiamaneOS
         pw.decreaseIndent();
         pw.println();
     }
@@ -622,5 +627,6 @@ public class VolumeInfo implements Parcelable {
         parcel.writeString8(fsLabel);
         parcel.writeString8(path);
         parcel.writeString8(internalPath);
+        parcel.writeBoolean(checkPending);  // DiamaneOS
     }
 }

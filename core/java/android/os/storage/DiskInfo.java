@@ -65,6 +65,8 @@ public class DiskInfo implements Parcelable {
     /** Hacky; don't rely on this count */
     public int volumeCount;
     public String sysPath;
+    /** DiamaneOS: vold's decision, sent with each scan, whether a format may be offered for the disk. */
+    public boolean formatOffered;
 
     public DiskInfo(String id, int flags) {
         this.id = Preconditions.checkNotNull(id);
@@ -79,6 +81,7 @@ public class DiskInfo implements Parcelable {
         label = parcel.readString();
         volumeCount = parcel.readInt();
         sysPath = parcel.readString();
+        formatOffered = parcel.readBoolean();  // DiamaneOS
     }
 
     @UnsupportedAppUsage
@@ -156,6 +159,14 @@ public class DiskInfo implements Parcelable {
         return (flags & FLAG_USB) != 0;
     }
 
+    /**
+     * DiamaneOS: whether a format may be offered for the disk: vold decided it from what it read (a blank disk), never
+     * from how many volumes the disk has. An adopted card whose key is missing is never offered one.
+     */
+    public boolean isFormatOffered() {
+        return formatOffered;
+    }
+
     public boolean isStubVisible() {
         return (flags & FLAG_STUB_VISIBLE) != 0;
     }
@@ -175,6 +186,7 @@ public class DiskInfo implements Parcelable {
         pw.printPair("label", label);
         pw.println();
         pw.printPair("sysPath", sysPath);
+        pw.printPair("formatOffered", formatOffered);  // DiamaneOS
         pw.decreaseIndent();
         pw.println();
     }
@@ -231,5 +243,6 @@ public class DiskInfo implements Parcelable {
         parcel.writeString(label);
         parcel.writeInt(volumeCount);
         parcel.writeString(sysPath);
+        parcel.writeBoolean(formatOffered);  // DiamaneOS
     }
 }
