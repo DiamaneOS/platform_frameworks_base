@@ -112,9 +112,9 @@ public class CardDecisionsDeviceTest {
             assertTrue(VolumeActions.isRecoverable(state));
             assertTrue(VolumeActions.showsPage(state));
         }
-        // Waiting for a VM place: mounts by itself, the page stays open and offers nothing.
+        // Waiting for a VM place: the user can also request Mount.
         vol.state = VolumeInfo.STATE_WAITING_FOR_PLACE;
-        assertEquals(0, VolumeActions.forPublic(vol));
+        assertEquals(VolumeActions.RETRY, VolumeActions.forPublic(vol));
         assertTrue(VolumeActions.showsPage(vol.state));
         // A retry goes through checking: the page stays open.
         assertTrue(VolumeActions.showsPage(VolumeInfo.STATE_CHECKING));

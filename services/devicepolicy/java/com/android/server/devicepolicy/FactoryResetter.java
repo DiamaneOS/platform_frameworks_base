@@ -26,11 +26,11 @@ import android.os.Bundle;
 import android.os.RecoverySystem;
 import android.os.RemoteException;
 import android.os.UserManager;
-import android.os.storage.StorageManager;
 import android.service.persistentdata.PersistentDataBlockManager;
 
 import com.android.internal.os.IResultReceiver;
 import com.android.internal.util.Preconditions;
+import com.android.server.storage.ResetExternalStorage;
 import com.android.server.utils.Slogf;
 
 import java.io.IOException;
@@ -141,8 +141,8 @@ public final class FactoryResetter {
 
         if (mWipeAdoptableStorage) {
             Slogf.w(TAG, "Wiping adoptable storage");
-            StorageManager sm = mContext.getSystemService(StorageManager.class);
-            sm.wipeAdoptableDisks();
+            // DiamaneOS: a slow or refused card erase cannot prevent the authorized reset.
+            ResetExternalStorage.wipe(mContext);
         }
 
         RecoverySystem.rebootWipeUserData(mContext, mShutdown, mReason, mForce, mWipeEuicc);

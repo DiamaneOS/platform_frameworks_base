@@ -170,4 +170,10 @@ interface IStorageManager {
      * is returned.
      */
     int getInternalStorageRemainingLifetime() = 99;
+    // DiamaneOS: erasure stays bound to the confirmation's medium, including conversion key cleanup.
+    @EnforcePermission("MOUNT_FORMAT_FILESYSTEMS")
+    void partitionPublicConfirmed(in String diskId, in String generation, long sizeBytes,
+            in String forgetUuid) = 100;
+    @EnforcePermission("MOUNT_FORMAT_FILESYSTEMS")
+    void partitionPublicRetryConfirmed(in String diskId, in String generation, long sizeBytes) = 101;
 }

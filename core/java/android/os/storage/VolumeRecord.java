@@ -49,6 +49,8 @@ public class VolumeRecord implements Parcelable {
     public final int type;
     public final String fsUuid;
     public String partGuid;
+    // DiamaneOS: the disk identity saved alongside the partition GUID.
+    public String diskSysPath;
     public String nickname;
     public int userFlags;
     public long createdMillis;
@@ -72,6 +74,7 @@ public class VolumeRecord implements Parcelable {
         lastSeenMillis = parcel.readLong();
         lastTrimMillis = parcel.readLong();
         lastBenchMillis = parcel.readLong();
+        diskSysPath = parcel.readString();
     }
 
     public int getType() {
@@ -127,6 +130,7 @@ public class VolumeRecord implements Parcelable {
         pw.printPair("type", DebugUtils.valueToString(VolumeInfo.class, "TYPE_", type));
         pw.printPair("fsUuid", fsUuid);
         pw.printPair("partGuid", partGuid);
+        pw.printPair("diskSysPath", diskSysPath);
         pw.println();
         pw.printPair("nickname", nickname);
         pw.printPair("userFlags",
@@ -195,5 +199,6 @@ public class VolumeRecord implements Parcelable {
         parcel.writeLong(lastSeenMillis);
         parcel.writeLong(lastTrimMillis);
         parcel.writeLong(lastBenchMillis);
+        parcel.writeString(diskSysPath);
     }
 }

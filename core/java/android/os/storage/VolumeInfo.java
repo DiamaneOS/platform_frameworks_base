@@ -105,7 +105,12 @@ public class VolumeInfo implements Parcelable {
     public static final int STATE_NOT_WRITTEN_BACK = IVold.VOLUME_STATE_NOT_WRITTEN_BACK;
     /** DiamaneOS: no protected VM place is free for the volume yet. It is mounted as soon as one is. */
     public static final int STATE_WAITING_FOR_PLACE = IVold.VOLUME_STATE_WAITING_FOR_PLACE;
+    /** DiamaneOS: mkfs completed and readback is pending. */
+    public static final int STATE_FORMATTED_UNVERIFIED = IVold.VOLUME_STATE_FORMATTED_UNVERIFIED;
+    public static final int STATE_FORMAT_RESULT_UNVERIFIED = IVold.VOLUME_STATE_FORMAT_RESULT_UNVERIFIED;
 
+    /** @hide DiamaneOS: explicitly read-only across placement and mount retries. */
+    public static final int MOUNT_FLAG_READ_ONLY = IVold.MOUNT_FLAG_READ_ONLY;
     public static final int MOUNT_FLAG_PRIMARY = IVold.MOUNT_FLAG_PRIMARY;
     public static final int MOUNT_FLAG_VISIBLE_FOR_READ = IVold.MOUNT_FLAG_VISIBLE_FOR_READ;
     public static final int MOUNT_FLAG_VISIBLE_FOR_WRITE = IVold.MOUNT_FLAG_VISIBLE_FOR_WRITE;
@@ -145,6 +150,8 @@ public class VolumeInfo implements Parcelable {
         sStateToEnvironment.put(VolumeInfo.STATE_NOT_WRITTEN_BACK, Environment.MEDIA_UNMOUNTED);
         // Apps see a volume that waits for a place as being checked: it mounts by itself.
         sStateToEnvironment.put(VolumeInfo.STATE_WAITING_FOR_PLACE, Environment.MEDIA_CHECKING);
+        sStateToEnvironment.put(STATE_FORMATTED_UNVERIFIED, Environment.MEDIA_CHECKING);
+        sStateToEnvironment.put(STATE_FORMAT_RESULT_UNVERIFIED, Environment.MEDIA_CHECKING);
 
         sEnvironmentToBroadcast.put(Environment.MEDIA_UNMOUNTED, Intent.ACTION_MEDIA_UNMOUNTED);
         sEnvironmentToBroadcast.put(Environment.MEDIA_CHECKING, Intent.ACTION_MEDIA_CHECKING);
@@ -167,6 +174,8 @@ public class VolumeInfo implements Parcelable {
         sStateToDescrip.put(VolumeInfo.STATE_UNOPENABLE, R.string.ext_media_status_unopenable);
         sStateToDescrip.put(VolumeInfo.STATE_NOT_WRITTEN_BACK, R.string.ext_media_status_not_written_back);
         sStateToDescrip.put(VolumeInfo.STATE_WAITING_FOR_PLACE, R.string.ext_media_status_checking);
+        sStateToDescrip.put(STATE_FORMATTED_UNVERIFIED, R.string.ext_media_status_formatted_unverified);
+        sStateToDescrip.put(STATE_FORMAT_RESULT_UNVERIFIED, R.string.ext_media_status_format_result_unverified);
     }
 
     /** vold state */

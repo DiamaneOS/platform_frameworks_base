@@ -23,6 +23,7 @@ import static com.google.common.truth.Truth.assertWithMessage;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.same;
@@ -36,9 +37,11 @@ import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.Intent;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.os.RecoverySystem;
 import android.os.UserHandle;
 import android.os.UserManager;
+import android.os.storage.DiskInfo;
 import android.os.storage.StorageManager;
 import android.platform.test.annotations.Presubmit;
 import android.util.Log;
@@ -46,6 +49,7 @@ import android.util.Log;
 import androidx.test.InstrumentationRegistry;
 
 import com.android.modules.utils.testing.ExtendedMockitoRule;
+import com.android.server.storage.ResetExternalStorage;
 
 import org.junit.Before;
 import org.junit.Rule;
@@ -53,6 +57,7 @@ import org.junit.Test;
 import org.mockito.Mock;
 import org.mockito.quality.Strictness;
 
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -63,11 +68,17 @@ import java.util.concurrent.TimeUnit;
 public final class MasterClearReceiverTest {
 
     private static final String TAG = MasterClearReceiverTest.class.getSimpleName();
+    private static final String FIRST_CARD = "disk:179,0";
+    private static final String SECOND_CARD = "disk:8,0";
+    private final DiskInfo mFirstDisk = new DiskInfo(FIRST_CARD, DiskInfo.FLAG_ADOPTABLE);
+    private final DiskInfo mSecondDisk = new DiskInfo(SECOND_CARD, DiskInfo.FLAG_ADOPTABLE);
 
     @Rule
     public final ExtendedMockitoRule mExtendedMockitoRule = new ExtendedMockitoRule.Builder(this)
             .spyStatic(ActivityManager.class)
+            .spyStatic(LocalServices.class)
             .mockStatic(RecoverySystem.class)
+            .spyStatic(ResetExternalStorage.class)
             .spyStatic(UserManager.class)
             .setStrictness(Strictness.LENIENT)
             .build();
@@ -83,6 +94,9 @@ public final class MasterClearReceiverTest {
             if (name.equals(Context.STORAGE_SERVICE)) {
                 return mSm;
             }
+            if (name.equals(Context.POWER_SERVICE)) {
+                return mPowerManager;
+            }
             if (name.equals(Context.USER_SERVICE)) {
                 return mUserManager;
             }
@@ -92,8 +106,8 @@ public final class MasterClearReceiverTest {
 
     private final MasterClearReceiver mReceiver = new MasterClearReceiver();
 
-    // Used to make sure that wipeAdoptableDisks() is called before rebootWipeUserData()
-    private boolean mWipeExternalDataCalled;
+    // Used to make sure that eraseAdoptableDiskForReset() is called before rebootWipeUserData()
+    private volatile boolean mWipeExternalDataCalled;
 
     // Uset to block test until rebootWipeUserData() is called, as it might be asynchronous called
     // in a different thread
@@ -103,11 +117,23 @@ public final class MasterClearReceiverTest {
     private StorageManager mSm;
 
     @Mock
+    private StorageManagerInternal mStorageInternal;
+    @Mock
+    private PowerManager mPowerManager;
+    @Mock
+    private PowerManager.WakeLock mWakeLock;
+
+    @Mock
     private UserManager mUserManager;
 
     @Before
     public void startSession() {
         setPendingResultForUser(UserHandle.myUserId());
+        com.android.dx.mockito.inline.extended.ExtendedMockito.doReturn(mStorageInternal)
+                .when(() -> LocalServices.getService(StorageManagerInternal.class));
+        when(mPowerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ResetExternalStorage"))
+                .thenReturn(mWakeLock);
+        when(mWakeLock.isHeld()).thenReturn(true);
     }
 
     @Test
@@ -133,6 +159,58 @@ public final class MasterClearReceiverTest {
 
         verifyRebootWipeUserData();
         verifyWipeExternalData();
+    }
+
+    @Test
+    public void settingsResetContinuesWhenCardEraseIsRefused() throws Exception {
+        expectWipeExternalData();
+        org.mockito.Mockito.doAnswer(inv -> {
+            mWipeExternalDataCalled = true;
+            throw new IllegalStateException("Card erase refused");
+        }).when(mStorageInternal).eraseAdoptableDiskForReset(eq(mFirstDisk), anyLong());
+        expectRebootWipeUserData();
+        mReceiver.onReceive(mContext, externalEraseIntent());
+        verifyRebootWipeUserData();
+    }
+
+    @Test
+    public void settingsResetReachesRecoveryWhileCardCallIsStillOpen() throws Exception {
+        var cardRelease = new CountDownLatch(1);
+        var cardReturned = new CountDownLatch(1);
+        when(mSm.getDisks()).thenReturn(List.of(mFirstDisk, mSecondDisk));
+        org.mockito.Mockito.doAnswer(inv -> {
+            mWipeExternalDataCalled = true;
+            try {
+                cardRelease.await(8, TimeUnit.SECONDS);
+            } finally {
+                cardReturned.countDown();
+            }
+            return null;
+        }).when(mStorageInternal).eraseAdoptableDiskForReset(eq(mFirstDisk), anyLong());
+        doAnswer(inv -> {
+            ResetExternalStorage.wipe(mContext, 1000);
+            return null;
+        }).when(() -> ResetExternalStorage.wipe(mContext));
+        expectRebootWipeUserData();
+        try {
+            mReceiver.onReceive(mContext, externalEraseIntent());
+            verifyRebootWipeUserData();
+            assertWithMessage("First card must still be held open")
+                    .that(cardReturned.getCount()).isEqualTo(1);
+        } finally {
+            cardRelease.countDown();
+        }
+        assertWithMessage("First card finished").that(cardReturned.await(5, TimeUnit.SECONDS))
+                .isTrue();
+        verify(mStorageInternal, never()).eraseAdoptableDiskForReset(eq(mSecondDisk), anyLong());
+        verify(mWakeLock).acquire(2000);
+        verify(mWakeLock).release();
+    }
+
+    private static Intent externalEraseIntent() {
+        return new Intent(Intent.ACTION_FACTORY_RESET)
+                .putExtra(Intent.EXTRA_WIPE_EXTERNAL_STORAGE, true)
+                .putExtra(Intent.EXTRA_SHOW_WIPE_PROGRESS, false);
     }
 
     @Test
@@ -184,7 +262,7 @@ public final class MasterClearReceiverTest {
     }
 
     private void expectNoWipeExternalData() {
-        // This is a trick to simplify how the order of methods are called: as wipeAdoptableDisks()
+        // This is a trick to simplify how the order of methods are called: as eraseAdoptableDiskForReset()
         // should be called before rebootWipeUserData(), expectRebootWipeUserData() throws an
         // exception if it's not called, so this method "emulates" a call when it's not neeeded.
         //
@@ -199,7 +277,7 @@ public final class MasterClearReceiverTest {
         doAnswer((inv) -> {
             Log.i(TAG, inv.toString());
             if (!mWipeExternalDataCalled) {
-                String error = "rebootWipeUserData() called before wipeAdoptableDisks()";
+                String error = "rebootWipeUserData() called before eraseAdoptableDiskForReset()";
                 Log.e(TAG, error);
                 throw new IllegalStateException(error);
             }
@@ -212,11 +290,12 @@ public final class MasterClearReceiverTest {
     private void expectWipeExternalData() {
         Looper.prepare(); // needed by Dialog
 
-        doAnswer((inv) -> {
+        when(mSm.getDisks()).thenReturn(List.of(mFirstDisk));
+        org.mockito.Mockito.doAnswer((inv) -> {
             Log.i(TAG, inv.toString());
             mWipeExternalDataCalled = true;
             return null;
-        }).when(mSm).wipeAdoptableDisks();
+        }).when(mStorageInternal).eraseAdoptableDiskForReset(eq(mFirstDisk), anyLong());
     }
 
     private void expectWipeNonSystemUser() {
@@ -263,11 +342,11 @@ public final class MasterClearReceiverTest {
     }
 
     private void verifyWipeExternalData() {
-        verify(mSm).wipeAdoptableDisks();
+        verify(mStorageInternal).eraseAdoptableDiskForReset(eq(mFirstDisk), anyLong());
     }
 
     private void verifyNoWipeExternalData() {
-        verify(mSm, never()).wipeAdoptableDisks();
+        verify(mSm, never()).getDisks();
     }
 
     private void verifyWipeNonSystemUser() {

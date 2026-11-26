@@ -57,7 +57,13 @@ public final class VolumeActions {
      */
     public static boolean isRecoverable(int state) {
         return state == VolumeInfo.STATE_UNOPENABLE || state == VolumeInfo.STATE_NOT_WRITTEN_BACK
-                || state == VolumeInfo.STATE_WAITING_FOR_PLACE;
+                || state == VolumeInfo.STATE_WAITING_FOR_PLACE
+                || isFormatAwaitingVerification(state);
+    }
+
+    public static boolean isFormatAwaitingVerification(int state) {
+        return state == VolumeInfo.STATE_FORMATTED_UNVERIFIED
+                || state == VolumeInfo.STATE_FORMAT_RESULT_UNVERIFIED;
     }
 
     /**
@@ -77,6 +83,9 @@ public final class VolumeActions {
             case VolumeInfo.STATE_MOUNTED_READ_ONLY:
                 // Being checked, or in need of a check on a computer: its files stay reachable, never erased here.
                 return BROWSE | EJECT;
+            case VolumeInfo.STATE_FORMATTED_UNVERIFIED:
+            case VolumeInfo.STATE_FORMAT_RESULT_UNVERIFIED:
+            case VolumeInfo.STATE_WAITING_FOR_PLACE:
             case VolumeInfo.STATE_UNOPENABLE:
             case VolumeInfo.STATE_NOT_WRITTEN_BACK:
                 return RETRY;
@@ -90,6 +99,33 @@ public final class VolumeActions {
                 // nothing.
                 return 0;
         }
+    }
+
+    /** Rechecked when a wizard opens and when the user confirms erasure. */
+    public static boolean canFormatDisk(DiskInfo disk, java.util.List<VolumeInfo> volumes) {
+        return canFormatDisk(disk, volumes, false);
+    }
+
+    /** A fresh confirmation is also available for the same disk awaiting verification. */
+    public static boolean canFormatDisk(DiskInfo disk, java.util.List<VolumeInfo> volumes,
+            boolean freshConfirmation) {
+        if (disk == null || disk.mediumGeneration == null || disk.mediumGeneration.isEmpty()
+                || disk.mediumBytes <= 0 || disk.mediumBytes != disk.size) return false;
+        boolean found = false;
+        for (VolumeInfo vol : volumes) {
+            if (!disk.id.equals(vol.getDiskId())) continue;
+            found = true;
+            if (vol.getType() == VolumeInfo.TYPE_PUBLIC) {
+                if (!allows(vol, FORMAT) && !(freshConfirmation
+                        && isFormatAwaitingVerification(vol.getState()))) return false;
+            } else if (vol.getType() == VolumeInfo.TYPE_PRIVATE) {
+                if (vol.getState() != VolumeInfo.STATE_MOUNTED
+                        && vol.getState() != VolumeInfo.STATE_UNMOUNTED) return false;
+            } else {
+                return false;
+            }
+        }
+        return found || disk.isFormatOffered();
     }
 
     /** Whether the public volume offers this action now. */
