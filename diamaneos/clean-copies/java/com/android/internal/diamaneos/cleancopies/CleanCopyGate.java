@@ -357,6 +357,44 @@ public final class CleanCopyGate implements ImageFileGate {
     private static final Object sAnswersLock = new Object();
     private static int sAnswers;
 
+    // Waits before what waits for an app's images loads again after a decode at once gave nothing (SystemUI).
+    private static final long[] RETRY_MS = {1_000, 3_000, 8_000};
+    private static final Set<String> sRetries = new HashSet<>(); // package/user with retries posted, guarded by itself
+
+    // What waits for the images of the resource's app (filling icons) loads again in a while, a few times.
+    private static void retryLater(Resources res, TypedValue value, int user) {
+        final String packageName;
+        try {
+            packageName = value.resourceId != 0 ? res.getResourcePackageName(value.resourceId) : null;
+        } catch (Resources.NotFoundException e) {
+            return;
+        }
+        final android.os.Handler handler;
+        synchronized (CleanCopyGate.class) {
+            handler = sMadeHandler;
+        }
+        final String token = packageName + "/" + user;
+        if (packageName == null || handler == null) {
+            return;
+        }
+        synchronized (sRetries) {
+            if (!sRetries.add(token)) {
+                return;
+            }
+        }
+        for (int i = 0; i < RETRY_MS.length; i++) {
+            final boolean last = i == RETRY_MS.length - 1;
+            handler.postDelayed(() -> {
+                if (last) {
+                    synchronized (sRetries) {
+                        sRetries.remove(token);
+                    }
+                }
+                made(packageName, user);
+            }, RETRY_MS[i]);
+        }
+    }
+
     private static void decodeAnswers() {
         CleanCopyClient.decodeAnswers();
         synchronized (sAnswersLock) {
@@ -967,24 +1005,37 @@ public final class CleanCopyGate implements ImageFileGate {
         if (made != null) {
             return made;
         }
-        if (CopyMiss.decodesNow(mProcess, file)) {
-            made = direct(apkPath, file, density);
-            if (made != null) {
-                mCache.put(key, made);
-                return made;
-            }
-        }
         // The resource's name only lets the system server find the stand-in among the copies of the app it finds
         // the APK installed for: it never decides whose copy this is.
-        String resourceName = null;
+        String name = null;
         try {
             if (value.resourceId != 0) {
-                resourceName = res.getResourceName(value.resourceId);
+                name = res.getResourceName(value.resourceId);
             }
         } catch (Resources.NotFoundException e) {
             // No name: no stand-in.
         }
-        mSource.request(key, apkPath, file, density, box[0], box[1], resourceName, user);
+        final String resourceName = name;
+        made = CopyMiss.miss(mProcess, apkPath, file, CleanCopyGate::apkBytes, new DirectDecoder(density),
+                CACHE_BYTES / 4, new CopyMiss.Miss<Made>() {
+                    @Override
+                    public void keep(Made decoded) {
+                        mCache.put(key, decoded);
+                    }
+
+                    @Override
+                    public void askCopy() {
+                        mSource.request(key, apkPath, file, density, box[0], box[1], resourceName, user);
+                    }
+
+                    @Override
+                    public void retryLater() {
+                        CleanCopyGate.retryLater(res, value, user);
+                    }
+                });
+        if (made != null) {
+            return made;
+        }
         // Meanwhile the newest copy of the same resource, made in the VM too (an older version of the app's file).
         final CleanImageFile older = resourceName != null
                 ? mSource.fallback(apkPath, file, density, box[0], box[1], resourceName, user) : null;
@@ -1013,33 +1064,48 @@ public final class CleanCopyGate implements ImageFileGate {
         return null;
     }
 
-    // The file's bytes from the APK, decoded in the VM through the decode gate (the process's own lane), or null when
-    // that failed: a copy is then asked for as before.
-    private Made direct(String apkPath, String file, int density) {
-        if (apkPath == null) {
-            return null;
-        }
-        final byte[] bytes;
+    // A file of an APK, or null when it is larger than max.
+    private static byte[] apkBytes(String apkPath, String file, int max) throws IOException {
         try (java.util.zip.ZipFile apk = new java.util.zip.ZipFile(apkPath)) {
             final java.util.zip.ZipEntry entry = apk.getEntry(file);
-            if (entry == null || entry.getSize() < 0 || entry.getSize() > android.graphics.DecodeGate.MAX_BYTES) {
+            if (entry == null) {
+                throw new IOException("no " + file);
+            }
+            if (entry.getSize() < 0 || entry.getSize() > max) {
                 return null;
             }
             try (InputStream in = apk.getInputStream(entry)) {
-                bytes = in.readNBytes((int) entry.getSize());
+                final byte[] bytes = in.readNBytes(max + 1);
+                return bytes.length > max ? null : bytes;
             }
-        } catch (IOException | RuntimeException e) {
-            return null;
         }
-        // Unscaled, with the file's density, as a copy is: the drawable scales it to the display.
-        final android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
-        options.inScaled = false;
-        final Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
-        if (bitmap == null) {
-            return null;
+    }
+
+    // The decode at once: through the decode gate (the VM, the process's own lane), unscaled, with the file's
+    // density, as a copy is: the drawable scales it to the display.
+    private static final class DirectDecoder implements CopyMiss.Decoder<Made> {
+        private final int mDensity;
+
+        DirectDecoder(int density) {
+            mDensity = density;
         }
-        bitmap.setDensity(density);
-        return new Made(bitmap, null, null, null, null);
+
+        @Override
+        public Made decode(byte[] bytes) {
+            final android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
+            options.inScaled = false;
+            final Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+            if (bitmap == null) {
+                return null;
+            }
+            bitmap.setDensity(mDensity);
+            return new Made(bitmap, null, null, null, null);
+        }
+
+        @Override
+        public long bytes(Made made) {
+            return made.bitmap.getAllocationByteCount();
+        }
     }
 
     private Made read(String key) {
