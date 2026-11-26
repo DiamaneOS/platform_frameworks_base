@@ -136,6 +136,9 @@ cc_defaults {
         android: {
             shared_libs: [
                 "android.hardware.graphics.common@1.2",
+                "android.hardware.graphics.mapper@4.0",
+                "libgralloctypes",
+                "libhidlbase",
                 "liblog",
                 "libcutils",
                 "libutils",
@@ -898,4 +901,23 @@ cc_benchmark {
         "tests/microbench/PathParserBench.cpp",
         "tests/microbench/RenderNodeBench.cpp",
     ],
+}
+
+// DiamaneOS: query the actual allocator before admitting a hardware pixel copy.
+cc_test {
+    name: "diamaneos_decode_alloc_probe",
+    gtest: false,
+    srcs: ["diamaneos/GateAllocationProbe.cpp"],
+    shared_libs: [
+        "android.hardware.graphics.mapper@4.0",
+        "android.hardware.graphics.common@1.2",
+        "libgralloctypes",
+        "libhidlbase",
+        "libnativewindow",
+        "libui",
+        "libutils",
+        "liblog",
+    ],
+    cflags: ["-Wall", "-Werror"],
+    test_suites: ["device-tests"],
 }

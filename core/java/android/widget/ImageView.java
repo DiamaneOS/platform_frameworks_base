@@ -1001,6 +1001,11 @@ public class ImageView extends View {
 
     private Drawable getDrawableFromUri(Uri uri) {
         final String scheme = uri.getScheme();
+        if (!ContentResolver.SCHEME_ANDROID_RESOURCE.equals(scheme)
+                && com.android.internal.diamaneos.cleancopies.VmIconLoads.applies()) {
+            // DiamaneOS: links and files are decoded in the protected VM in system apps (VmIconLoads).
+            return com.android.internal.diamaneos.cleancopies.VmIconLoads.loadUri(uri, mContext);
+        }
         if (ContentResolver.SCHEME_ANDROID_RESOURCE.equals(scheme)) {
             try {
                 // Load drawable through Resources, to get the source density information

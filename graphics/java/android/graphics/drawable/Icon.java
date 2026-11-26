@@ -530,6 +530,10 @@ public final class Icon implements Parcelable {
      * Do the heavy lifting of loading the drawable, but stop short of applying any tint.
      */
     private Drawable loadDrawableInner(Context context) {
+        if (com.android.internal.diamaneos.cleancopies.VmIconLoads.handles(mType)) {
+            // DiamaneOS: compressed bytes are decoded in the protected VM in system apps (VmIconLoads).
+            return com.android.internal.diamaneos.cleancopies.VmIconLoads.load(this, context);
+        }
         switch (mType) {
             case TYPE_BITMAP:
                 return new BitmapDrawable(context.getResources(), fixMaxBitmapSize(getBitmap()));

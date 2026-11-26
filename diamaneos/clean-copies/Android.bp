@@ -26,13 +26,14 @@ filegroup {
     visibility: ["//frameworks/base"],
 }
 
-// The file format and the key are plain Java, tested on the host.
+// The file format, the key and the mount rule of verified system files are plain Java, tested on the host.
 java_test_host {
     name: "diamaneos-clean-copies-tests",
     srcs: [
         "tests/src/**/*.java",
         "java/com/android/internal/diamaneos/cleancopies/CleanCopyKey.java",
         "java/com/android/internal/diamaneos/cleancopies/CleanImageFile.java",
+        "java/com/android/internal/diamaneos/cleancopies/VerifiedMounts.java",
     ],
     static_libs: ["junit"],
     test_options: {

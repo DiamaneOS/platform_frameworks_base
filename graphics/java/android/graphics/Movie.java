@@ -62,9 +62,13 @@ public class Movie {
         if (is == null) {
             return null;
         }
-        if (is instanceof AssetManager.AssetInputStream) {
+        if (is instanceof AssetManager.AssetInputStream && !DecodeGate.gatesStream(is)) {
             final long asset = ((AssetManager.AssetInputStream) is).getNativeAsset();
             return nativeDecodeAsset(asset);
+        }
+        if (DecodeGate.gatesStream(is)) {
+            // DiamaneOS: the protected VM makes no movies, nothing is decoded here (DecodeGate).
+            return null;
         }
 
         return nativeDecodeStream(is);
@@ -72,8 +76,15 @@ public class Movie {
 
     private static native Movie nativeDecodeAsset(long asset);
     private static native Movie nativeDecodeStream(InputStream is);
-    public static native Movie decodeByteArray(byte[] data, int offset,
-                                               int length);
+    public static Movie decodeByteArray(byte[] data, int offset, int length) {
+        if (DecodeGate.gates()) {
+            // DiamaneOS: the protected VM makes no movies, nothing is decoded here (DecodeGate).
+            return null;
+        }
+        return nativeDecodeByteArray(data, offset, length);
+    }
+
+    private static native Movie nativeDecodeByteArray(byte[] data, int offset, int length);
 
     private static native void nativeDestructor(long nativeMovie);
 
@@ -84,6 +95,14 @@ public class Movie {
         }
         catch (java.io.FileNotFoundException e) {
             return null;
+        }
+        try {
+            if (DecodeGate.gates() && DecodeGate.exempt(((FileInputStream) is).getFD())) {
+                // DiamaneOS: a verified system file (DecodeGate).
+                return decodeTempStream(is, true);
+            }
+        } catch (java.io.IOException e) {
+            // Not exempt: through the gate below.
         }
         return decodeTempStream(is);
     }
@@ -99,9 +118,13 @@ public class Movie {
     }
 
     private static Movie decodeTempStream(InputStream is) {
+        return decodeTempStream(is, false);
+    }
+
+    private static Movie decodeTempStream(InputStream is, boolean exempt) {
         Movie moov = null;
         try {
-            moov = decodeStream(is);
+            moov = exempt ? nativeDecodeStream(is) : decodeStream(is);
             is.close();
         }
         catch (java.io.IOException e) {

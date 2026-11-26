@@ -81,6 +81,10 @@ public final class BitmapRegionDecoder {
         if ((offset | length) < 0 || data.length < offset + length) {
             throw new ArrayIndexOutOfBoundsException();
         }
+        if (DecodeGate.gates()) {
+            // DiamaneOS: DecodeGate
+            return new BitmapRegionDecoder(GatedDecodes.region(data, offset, length));
+        }
         return nativeNewInstance(data, offset, length);
     }
 
@@ -100,6 +104,9 @@ public final class BitmapRegionDecoder {
     @NonNull
     public static BitmapRegionDecoder newInstance(
             @NonNull FileDescriptor fd, boolean isShareable) throws IOException {
+        if (DecodeGate.gates() && !DecodeGate.exempt(fd)) {
+            return new BitmapRegionDecoder(GatedDecodes.region(fd)); // DiamaneOS: DecodeGate
+        }
         return nativeNewInstance(fd);
     }
 
@@ -115,6 +122,10 @@ public final class BitmapRegionDecoder {
     @NonNull
     public static BitmapRegionDecoder newInstance(
             @NonNull ParcelFileDescriptor pfd) throws IOException {
+        if (DecodeGate.gates() && !DecodeGate.exempt(pfd.getFileDescriptor())) {
+            // DiamaneOS: DecodeGate
+            return new BitmapRegionDecoder(GatedDecodes.region(pfd.getFileDescriptor()));
+        }
         return nativeNewInstance(pfd.getFileDescriptor());
     }
 
@@ -156,9 +167,11 @@ public final class BitmapRegionDecoder {
      */
     @Nullable
     public static BitmapRegionDecoder newInstance(@NonNull InputStream is) throws IOException {
-        if (is instanceof AssetManager.AssetInputStream) {
+        if (is instanceof AssetManager.AssetInputStream && !DecodeGate.gatesStream(is)) {
             return nativeNewInstance(
                     ((AssetManager.AssetInputStream) is).getNativeAsset());
+        } else if (DecodeGate.gatesStream(is)) {
+            return new BitmapRegionDecoder(GatedDecodes.region(is)); // DiamaneOS: DecodeGate
         } else {
             // pass some temp storage down to the native code. 1024 is made up,
             // but should be large enough to avoid too many small calls back
@@ -222,6 +235,14 @@ public final class BitmapRegionDecoder {
         mRecycled = false;
     }
 
+    // DiamaneOS: a region decoder of the protected VM (DecodeGate).
+    private GatedDecodes.Region mGated;
+
+    private BitmapRegionDecoder(GatedDecodes.Region gated) {
+        mGated = gated;
+        mRecycled = false;
+    }
+
     /**
      * Decodes a rectangle region in the image specified by rect.
      *
@@ -243,6 +264,9 @@ public final class BitmapRegionDecoder {
             if (rect.right <= 0 || rect.bottom <= 0 || rect.left >= getWidth()
                     || rect.top >= getHeight())
                 throw new IllegalArgumentException("rectangle is outside the image");
+            if (mGated != null) {
+                return mGated.decodeRegion(rect, options);
+            }
             return nativeDecodeRegion(mNativeBitmapRegionDecoder, rect.left, rect.top,
                     rect.right - rect.left, rect.bottom - rect.top, options,
                     BitmapFactory.Options.nativeInBitmap(options),
@@ -254,7 +278,7 @@ public final class BitmapRegionDecoder {
     public int getWidth() {
         synchronized (mNativeLock) {
             checkRecycled("getWidth called on recycled region decoder");
-            return nativeGetWidth(mNativeBitmapRegionDecoder);
+            return mGated != null ? mGated.width : nativeGetWidth(mNativeBitmapRegionDecoder);
         }
     }
 
@@ -262,7 +286,7 @@ public final class BitmapRegionDecoder {
     public int getHeight() {
         synchronized (mNativeLock) {
             checkRecycled("getHeight called on recycled region decoder");
-            return nativeGetHeight(mNativeBitmapRegionDecoder);
+            return mGated != null ? mGated.height : nativeGetHeight(mNativeBitmapRegionDecoder);
         }
     }
 
@@ -278,7 +302,10 @@ public final class BitmapRegionDecoder {
      */
     public void recycle() {
         synchronized (mNativeLock) {
-            if (!mRecycled) {
+            if (!mRecycled && mGated != null) {
+                mGated.recycle();
+                mRecycled = true;
+            } else if (!mRecycled) {
                 nativeClean(mNativeBitmapRegionDecoder);
                 mRecycled = true;
             }

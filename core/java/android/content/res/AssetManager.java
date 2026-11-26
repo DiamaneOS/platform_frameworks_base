@@ -1036,6 +1036,7 @@ public final class AssetManager implements AutoCloseable {
                 throw new FileNotFoundException("Asset file: " + fileName);
             }
             final AssetInputStream assetInputStream = new AssetInputStream(asset);
+            assetInputStream.mSourceApks = mApkAssets; // DiamaneOS: DecodeGate
             incRefsLocked(assetInputStream.hashCode());
             return assetInputStream;
         }
@@ -1153,6 +1154,8 @@ public final class AssetManager implements AutoCloseable {
                 throw new FileNotFoundException("Asset absolute file: " + fileName);
             }
             final AssetInputStream assetInputStream = new AssetInputStream(asset);
+            assetInputStream.mSourceApks = mApkAssets; // DiamaneOS: DecodeGate
+            assetInputStream.mSourceCookie = cookie;
             incRefsLocked(assetInputStream.hashCode());
             return assetInputStream;
         }
@@ -1440,6 +1443,30 @@ public final class AssetManager implements AutoCloseable {
         @UnsupportedAppUsage
         public final long getNativeAsset() {
             return mAssetNativePtr;
+        }
+
+        // DiamaneOS: the APKs of the manager when this asset was opened, and the cookie of the one it was opened
+        // from (0: any of them), for the decode gate (android.graphics.DecodeGate).
+        private ApkAssets[] mSourceApks;
+        private int mSourceCookie;
+
+        /**
+         * DiamaneOS: the paths of the APKs this asset can come from: the one it was opened from, else every APK of
+         * the manager but overlays (which never give assets or other files). An APK without a path gives "".
+         * @hide
+         */
+        public @NonNull String[] getSourceApkPaths() {
+            final ApkAssets[] apks = mSourceApks != null ? mSourceApks : new ApkAssets[0];
+            if (mSourceCookie > 0) {
+                return new String[] {mSourceCookie <= apks.length ? apks[mSourceCookie - 1].getAssetPath() : ""};
+            }
+            final java.util.ArrayList<String> paths = new java.util.ArrayList<>(apks.length);
+            for (ApkAssets apk : apks) {
+                if (!apk.isOverlay()) {
+                    paths.add(apk.getAssetPath());
+                }
+            }
+            return paths.toArray(new String[0]);
         }
 
         private AssetInputStream(long assetNativePtr) {

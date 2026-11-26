@@ -19,6 +19,8 @@
 #include "CreateJavaOutputStreamAdaptor.h"
 #include "Gainmap.h"
 #include "GraphicsJNI.h"
+// DiamaneOS: protected copies reserve the driver storage before allocation.
+#include "diamaneos/GateHardware.h"
 #include "HardwareBufferHelpers.h"
 #include "ScopedParcel.h"
 #include "SkBitmap.h"
@@ -433,6 +435,12 @@ static bool bitmapCopyTo(SkBitmap* dst, SkColorType dstCT, const SkBitmap& src,
     }
 
     return srcPM.readPixels(dstPM);
+}
+
+// DiamaneOS: the query and bitmap lifetime rules stay in the protected image helper.
+static jlong Bitmap_hardwareAllocationBytes(JNIEnv*, jclass, jlong srcHandle) {
+    LocalScopedBitmap source(srcHandle);
+    return source.valid() ? static_cast<jlong>(diamaneos::hardwareBytes(source->bitmap())) : 0;
 }
 
 static jobject Bitmap_copy(JNIEnv* env, jobject, jlong srcHandle, jint dstConfigHandle,
@@ -1446,6 +1454,7 @@ static const JNINativeMethod gBitmapMethods[] = {
         {"nativeSameAs", "(JJ)Z", (void*)Bitmap_sameAs},
         {"nativePrepareToDraw", "(J)V", (void*)Bitmap_prepareToDraw},
         {"nativeGetAllocationByteCount", "(J)I", (void*)Bitmap_getAllocationByteCount},
+        {"nativeHardwareAllocationBytes", "(J)J", (void*)Bitmap_hardwareAllocationBytes},
         {"nativeCopyPreserveInternalConfig", "(J)Landroid/graphics/Bitmap;",
          (void*)Bitmap_copyPreserveInternalConfig},
         {"nativeWrapHardwareBufferBitmap",

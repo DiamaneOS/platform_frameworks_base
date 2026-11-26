@@ -11381,6 +11381,15 @@
             android:exported="true">
         </provider>
 
+        <!-- DiamaneOS: the decode gate, images of gated processes probed and decoded in the protected VM. -->
+        <provider
+            android:name="com.android.server.cleanimages.VmDecodeProvider"
+            android:authorities="de.diamaneos.vmdecode"
+            android:singleUser="true"
+            android:enabled="true"
+            android:exported="true">
+        </provider>
+
         <provider
             android:name="com.android.server.bitmapoffload.BitmapOffloadProvider"
             android:authorities="com.android.bitmapoffload"

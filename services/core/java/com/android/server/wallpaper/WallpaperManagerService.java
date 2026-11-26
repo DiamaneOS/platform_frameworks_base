@@ -417,9 +417,33 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
             // DiamaneOS: an image an app wrote is made clean in the protected VM first (WallpaperVmController).
             if (path != null && mVmController.onEvent(event, path, mWallpaperDir, mWallpaperFile,
                     mWallpaperLockFile, this::dataForEvent, () -> updateWallpapers(event, path))) {
+                completeSoon(event, path);
                 return;
             }
             if (path != null) updateWallpapers(event, path);
+        }
+
+        // DiamaneOS: the app that wrote the image waits for its set to complete (WallpaperManager.setStream), which
+        // the service's update path reports once the clean copy from the VM is shown. The app is not kept waiting
+        // for the VM: at most VM_COMPLETE_MS after the image was written its set completes, the copy is shown when
+        // the VM has made it.
+        private void completeSoon(int event, String path) {
+            final File changed = new File(mWallpaperDir, path);
+            final boolean lock = mWallpaperLockFile.equals(changed);
+            if ((event != CLOSE_WRITE && event != MOVED_TO) || !(lock || mWallpaperFile.equals(changed))) {
+                return;
+            }
+            final IWallpaperManagerCallback complete = dataForEvent(lock).setComplete;
+            if (complete == null) {
+                return;
+            }
+            FgThread.getHandler().postDelayed(() -> {
+                try {
+                    complete.onWallpaperChanged();
+                } catch (RemoteException e) {
+                    // The app is gone: nothing waits.
+                }
+            }, VM_COMPLETE_MS);
         }
     }
 
@@ -618,15 +642,26 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
     final WallpaperCropper mWallpaperCropper;
     // DiamaneOS: app images decoded in the protected VM before anything here decodes them.
     private final WallpaperVmController mVmController;
+    // DiamaneOS: the longest an app setting a wallpaper waits for the VM (WallpaperObserver.completeSoon).
+    private static final long VM_COMPLETE_MS = 1_000;
 
     // DiamaneOS: the source of wallpaper became a clean copy from the VM after the default was shown for it: crop it,
     // store the crop hints that now refer to the clean file, bind the image wallpaper again and tell the callbacks.
+    // Only for the home or lock wallpaper shown now: one replaced or cleared meanwhile is left alone. Its own image
+    // engine goes before the new one is bound, as for a package update: the first bind (the default shown) left it on
+    // this wallpaper, and the bind only detaches the last wallpapers, which keep a home-only image set over a shared
+    // one (mSystemWasBoth) and would leave that engine's window above the new one.
     private void showCleanWallpaperLocked(WallpaperData wallpaper) {
+        if (wallpaper != mWallpaperMap.get(wallpaper.userId)
+                && wallpaper != mLockWallpaperMap.get(wallpaper.userId)) {
+            return;
+        }
         mWallpaperCropper.generateCrop(wallpaper);
         saveSettingsLocked(wallpaper.userId);
         final boolean isImage = WallpaperData.NO_COMPONENT.equals(wallpaper.getComponent())
                 || mImageWallpaper.equals(wallpaper.getComponent());
         if (wallpaper.cropExists() && isImage) {
+            detachWallpaperLocked(wallpaper);
             wallpaper.mBindSource = BindSource.SET_STATIC;
             bindWallpaperDescriptionLocked(new WallpaperDescription.Builder()
                     .setComponent(mImageWallpaper).build(), /* force= */ true,

@@ -679,7 +679,9 @@ public class BitmapFactory {
 
         Trace.traceBegin(Trace.TRACE_TAG_GRAPHICS, "decodeBitmap");
         try {
-            bm = nativeDecodeByteArray(data, offset, length, opts,
+            // DiamaneOS: in a gated process the bytes are decoded in the protected VM (DecodeGate).
+            bm = DecodeGate.gates() ? GatedDecodes.bitmapFactory(data, offset, length, opts)
+                    : nativeDecodeByteArray(data, offset, length, opts,
                     Options.nativeInBitmap(opts),
                     Options.nativeColorSpace(opts));
 
@@ -774,7 +776,8 @@ public class BitmapFactory {
 
         Trace.traceBegin(Trace.TRACE_TAG_GRAPHICS, "decodeBitmap");
         try {
-            if (is instanceof AssetManager.AssetInputStream) {
+            // DiamaneOS: an asset of another app's APK goes through the gate below (DecodeGate).
+            if (is instanceof AssetManager.AssetInputStream && !DecodeGate.gatesStream(is)) {
                 final long asset = ((AssetManager.AssetInputStream) is).getNativeAsset();
                 bm = nativeDecodeAsset(asset, outPadding, opts, Options.nativeInBitmap(opts),
                     Options.nativeColorSpace(opts));
@@ -801,6 +804,10 @@ public class BitmapFactory {
     private static Bitmap decodeStreamInternal(@NonNull InputStream is,
             @Nullable Rect outPadding, @Nullable Options opts) {
         // ASSERT(is != null);
+        if (DecodeGate.gatesStream(is)) {
+            // DiamaneOS: decoded in the VM (DecodeGate)
+            return GatedDecodes.bitmapFactory(is, outPadding, opts);
+        }
         byte [] tempStorage = null;
         if (opts != null) tempStorage = opts.inTempStorage;
         if (tempStorage == null) tempStorage = new byte[DECODE_BUFFER_SIZE];
@@ -848,7 +855,10 @@ public class BitmapFactory {
 
         Trace.traceBegin(Trace.TRACE_TAG_GRAPHICS, "decodeFileDescriptor");
         try {
-            if (nativeIsSeekable(fd)) {
+            if (DecodeGate.gates() && !DecodeGate.exempt(fd)) {
+                // DiamaneOS: decoded in the VM (DecodeGate)
+                bm = GatedDecodes.bitmapFactory(fd, outPadding, opts);
+            } else if (nativeIsSeekable(fd)) {
                 bm = nativeDecodeFileDescriptor(fd, outPadding, opts,
                         Options.nativeInBitmap(opts),
                         Options.nativeColorSpace(opts));

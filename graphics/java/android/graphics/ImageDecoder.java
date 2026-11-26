@@ -230,6 +230,10 @@ public final class ImageDecoder implements AutoCloseable {
 
         @Override
         public ImageDecoder createImageDecoder(boolean preferAnimation) throws IOException {
+            if (DecodeGate.gates()) {
+                // DiamaneOS: DecodeGate
+                return gated(GatedDecodes.header(mData, mOffset, mLength, this));
+            }
             return nCreate(mData, mOffset, mLength, preferAnimation, this);
         }
 
@@ -250,6 +254,9 @@ public final class ImageDecoder implements AutoCloseable {
 
         @Override
         public ImageDecoder createImageDecoder(boolean preferAnimation) throws IOException {
+            if (DecodeGate.gates()) {
+                return gated(GatedDecodes.header(mBuffer, this)); // DiamaneOS: DecodeGate
+            }
             if (!mBuffer.isDirect() && mBuffer.hasArray()) {
                 int offset = mBuffer.arrayOffset() + mBuffer.position();
                 int length = mBuffer.limit() - mBuffer.position();
@@ -324,6 +331,14 @@ public final class ImageDecoder implements AutoCloseable {
             boolean preferAnimation, @NonNull Source source) throws IOException {
         FileInputStream stream = new FileInputStream(file);
         FileDescriptor fd = stream.getFD();
+        if (DecodeGate.gates() && !DecodeGate.exempt(fd)) {
+            // DiamaneOS: in a gated process the bytes are decoded in the protected VM (DecodeGate).
+            try {
+                return gated(GatedDecodes.header(fd, 0, -1, source));
+            } finally {
+                IoUtils.closeQuietly(stream);
+            }
+        }
         try {
             Os.lseek(fd, 0, SEEK_CUR);
         } catch (ErrnoException e) {
@@ -347,6 +362,16 @@ public final class ImageDecoder implements AutoCloseable {
     @NonNull
     private static ImageDecoder createFromStream(@NonNull InputStream is,
             boolean closeInputStream, boolean preferAnimation, Source source) throws IOException {
+        if (DecodeGate.gatesStream(is)) {
+            // DiamaneOS: in a gated process the bytes are decoded in the protected VM (DecodeGate).
+            try {
+                return gated(GatedDecodes.header(is, source));
+            } finally {
+                if (closeInputStream) {
+                    IoUtils.closeQuietly(is);
+                }
+            }
+        }
         // Arbitrary size matches BitmapFactory.
         byte[] storage = new byte[16 * 1024];
         ImageDecoder decoder = null;
@@ -375,6 +400,14 @@ public final class ImageDecoder implements AutoCloseable {
         }
         final FileDescriptor fd = assetFd.getFileDescriptor();
         final long offset = assetFd.getStartOffset();
+        if (DecodeGate.gates() && !DecodeGate.exempt(fd)) {
+            // DiamaneOS: in a gated process the bytes are decoded in the protected VM (DecodeGate).
+            try {
+                return gated(GatedDecodes.header(fd, offset, assetFd.getDeclaredLength(), source));
+            } finally {
+                IoUtils.closeQuietly(assetFd);
+            }
+        }
 
         ImageDecoder decoder = null;
         try {
@@ -549,6 +582,10 @@ public final class ImageDecoder implements AutoCloseable {
      */
     private static ImageDecoder createFromAsset(AssetInputStream ais,
             boolean preferAnimation, Source source) throws IOException {
+        if (DecodeGate.gatesStream(ais)) {
+            // DiamaneOS: an asset of another app's APK, decoded in the protected VM (DecodeGate).
+            return createFromStream(ais, true, preferAnimation, source);
+        }
         ImageDecoder decoder = null;
         try {
             long asset = ais.getNativeAsset();
@@ -867,6 +904,16 @@ public final class ImageDecoder implements AutoCloseable {
     private PostProcessor          mPostProcessor;
     private OnPartialImageListener mOnPartialImageListener;
 
+    // DiamaneOS: the bytes and header of a decoder of the protected VM (DecodeGate), else null.
+    private GatedDecodes.Header mGated;
+
+    private static ImageDecoder gated(GatedDecodes.Header header) {
+        final ImageDecoder decoder = new ImageDecoder(0, header.width, header.height, header.animated,
+                false);
+        decoder.mGated = header;
+        return decoder;
+    }
+
     // Objects for interacting with the input.
     private InputStream         mInputStream;
     private boolean             mOwnsInputStream;
@@ -1168,6 +1215,13 @@ public final class ImageDecoder implements AutoCloseable {
         if (sampleSize <= 0) {
             throw new IllegalArgumentException("sampleSize must be positive! "
                     + "provided " + sampleSize);
+        }
+        if (mGated != null) {
+            // DiamaneOS: DecodeGate. A closed decoder (its header callback is over) cannot be used, as before.
+            if (mClosed.get()) {
+                throw new IllegalStateException("ImageDecoder is closed!");
+            }
+            return GatedDecodes.sampledSize(mGated, sampleSize);
         }
         if (mNativePtr == 0) {
             throw new IllegalStateException("ImageDecoder is closed!");
@@ -1652,7 +1706,11 @@ public final class ImageDecoder implements AutoCloseable {
         if (!mClosed.compareAndSet(false, true)) {
             return;
         }
-        nClose(mNativePtr);
+        if (mGated != null) {
+            mGated.close(); // DiamaneOS: DecodeGate
+        } else {
+            nClose(mNativePtr);
+        }
         mNativePtr = 0;
 
         if (mOwnsInputStream) {
@@ -1666,7 +1724,7 @@ public final class ImageDecoder implements AutoCloseable {
     }
 
     private void checkState(boolean animated) {
-        if (mNativePtr == 0) {
+        if (mNativePtr == 0 && (mGated == null || mClosed.get())) {
             throw new IllegalStateException("Cannot use closed ImageDecoder!");
         }
 
@@ -1720,6 +1778,12 @@ public final class ImageDecoder implements AutoCloseable {
     @NonNull
     private Bitmap decodeBitmapInternal() throws IOException {
         checkState(false);
+        if (mGated != null) {
+            // DiamaneOS: decoded in the protected VM (DecodeGate).
+            return GatedDecodes.decode(mGated, mDesiredWidth, mDesiredHeight, mCropRect, mMutable,
+                    mAllocator, mUnpremultipliedRequired, mDecodeAsAlphaMask, mPostProcessor,
+                    mSource);
+        }
         return nDecodeBitmap(mNativePtr, this, mPostProcessor != null,
                 mDesiredWidth, mDesiredHeight, mCropRect,
                 mMutable, mAllocator, mUnpremultipliedRequired,
@@ -1899,6 +1963,12 @@ public final class ImageDecoder implements AutoCloseable {
                 // this call potentially manipulates the decoder so it must be performed prior to
                 // decoding the bitmap and after decode set the density on the resulting bitmap
                 final int srcDensity = decoder.computeDensity(src);
+                if (decoder.mAnimated && decoder.mGated != null) {
+                    // DiamaneOS: animated from the protected VM's frames (DecodeGate).
+                    decoder.checkState(true);
+                    return GatedDecodes.animated(decoder.mGated, decoder.mDesiredWidth,
+                            decoder.mDesiredHeight, decoder.mCropRect, decoder.mPostProcessor, src);
+                }
                 if (decoder.mAnimated) {
                     // AnimatedImageDrawable calls postProcessAndRelease only if
                     // mPostProcessor exists.
@@ -2088,11 +2158,17 @@ public final class ImageDecoder implements AutoCloseable {
 
     @NonNull
     private String getMimeType() {
+        if (mGated != null) {
+            return mGated.mimeType; // DiamaneOS: DecodeGate
+        }
         return nGetMimeType(mNativePtr);
     }
 
     @Nullable
     private ColorSpace getColorSpace() {
+        if (mGated != null) {
+            return ColorSpace.get(ColorSpace.Named.SRGB); // DiamaneOS: DecodeGate
+        }
         return nGetColorSpace(mNativePtr);
     }
 

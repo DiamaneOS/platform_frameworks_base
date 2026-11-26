@@ -60,4 +60,11 @@ parcelable Thumbnail {
      * values, or empty without a gain map.
      */
     float[] gainmapParams;
+
+    /**
+     * True when the file's orientation mirrors the image (EXIF 2, 4, 5 and 7, HEIF imir): the pixels are mirrored
+     * left to right already, and only the rotation is left to the caller. Last, so a caller built before it reads
+     * false.
+     */
+    boolean mirrored;
 }

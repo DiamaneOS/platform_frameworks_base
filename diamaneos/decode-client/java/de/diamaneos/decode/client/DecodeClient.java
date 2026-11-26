@@ -101,7 +101,11 @@ final class DecodeClient {
                 if (generation != mGeneration) {
                     return;
                 }
-                mService = IDecodeService.Stub.asInterface(binder);
+                // The system server warns about every blocking call out of it (Binder.setWarnOnBlocking). Its calls
+                // to the decode service block only this client's own threads (CallPool), each with a deadline, never
+                // a binder thread, the main thread or a thread holding a lock, and the service is a privileged app of
+                // the system image, not one an app store can replace: blocking calls are allowed on it here.
+                mService = IDecodeService.Stub.asInterface(SYSTEM_PROCESS ? Binder.allowBlocking(binder) : binder);
                 mDownUntil = 0;
                 mLock.notifyAll();
             }

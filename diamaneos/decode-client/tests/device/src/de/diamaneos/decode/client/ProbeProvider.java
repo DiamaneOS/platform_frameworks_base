@@ -21,16 +21,26 @@ import android.database.Cursor;
 import android.net.Uri;
 import android.os.ParcelFileDescriptor;
 
+import android.os.SystemClock;
+
+import java.io.File;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * A provider of this test APK (not exported) that counts every open: a test sees whether a URI was opened at all.
- * It has no data, an open gets nothing to read.
+ * It has no data, an open gets nothing to read, except for the icons a test puts in {@link #ICONS}: {@code icon/NAME}
+ * opens their bytes, {@code icon-slow/NAME} opens them after {@link #SLOW_MS}.
  */
 public class ProbeProvider extends ContentProvider {
     public static final String AUTHORITY = "de.diamaneos.decode.client.tests.probe";
     public static final AtomicInteger OPENS = new AtomicInteger();
+    public static final Map<String, byte[]> ICONS = new ConcurrentHashMap<>();
+    public static final long SLOW_MS = 1_000;
 
     @Override
     public boolean onCreate() {
@@ -40,6 +50,24 @@ public class ProbeProvider extends ContentProvider {
     @Override
     public ParcelFileDescriptor openFile(Uri uri, String mode) throws FileNotFoundException {
         OPENS.incrementAndGet();
+        final java.util.List<String> path = uri.getPathSegments();
+        final byte[] icon = path.size() == 2 ? ICONS.get(path.get(1)) : null;
+        if (icon != null && (path.get(0).equals("icon") || path.get(0).equals("icon-slow"))) {
+            if (path.get(0).equals("icon-slow")) {
+                SystemClock.sleep(SLOW_MS);
+            }
+            try {
+                final File file = File.createTempFile("probe-icon", ".bin", getContext().getCacheDir());
+                try (FileOutputStream out = new FileOutputStream(file)) {
+                    out.write(icon);
+                }
+                final ParcelFileDescriptor fd = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY);
+                file.delete();
+                return fd;
+            } catch (IOException e) {
+                throw new FileNotFoundException("probe icon: " + e);
+            }
+        }
         throw new FileNotFoundException("probe: " + uri);
     }
 

@@ -79,6 +79,9 @@ interface IDecodeService {
     const int MAX_FRAME_MILLIS = 65535;
     const int MAX_FRAMES_BYTES = 33554432;
 
+    /** decodeRegion: the largest sample size. */
+    const int MAX_REGION_SAMPLE = 64;
+
     /** Thumbnail.gainmapParams: this many values. */
     const int GAINMAP_PARAMS = 17;
 
@@ -123,4 +126,13 @@ interface IDecodeService {
      * their transaction numbers.
      */
     AppImageFiles listAppImageFiles(in AppImagesRequest request);
+
+    /**
+     * A region of the stored image, never turned or mirrored (as Android's region decoder reads it): left, top,
+     * width and height in its pixels, decoded at full detail and scaled down by sampleSize (1 to MAX_REGION_SAMPLE) to
+     * at most ceil(width / sampleSize) x ceil(height / sampleSize), which must be at most MAX_PIXELS. A Thumbnail
+     * with rotation 0 and no gain map. STATUS_INVALID for a region outside the image. Last, so callers built before it
+     * keep their transaction numbers.
+     */
+    Thumbnail decodeRegion(in DecodeRequest request, int left, int top, int width, int height, int sampleSize);
 }
