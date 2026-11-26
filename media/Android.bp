@@ -82,3 +82,13 @@ java_library_static {
 //     package_name: "com.android.media.audio.metrics",
 //     class_name: "AudioAtomsLog",
 // }
+
+// DiamaneOS: the metadata parser budget and its tests run together on the host.
+java_test_host {
+    name: "diamaneos-exif-metadata-tests",
+    srcs: [
+        "java/android/media/ExifMetadataBudget.java",
+        "tests/diamaneos/ExifMetadataBudgetTest.java",
+    ],
+    static_libs: ["junit"],
+}
