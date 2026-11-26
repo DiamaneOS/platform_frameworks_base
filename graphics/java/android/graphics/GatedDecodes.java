@@ -1012,8 +1012,8 @@ final class GatedDecodes {
         Bitmap drawn = null;
         boolean complete = false;
         try {
-            final Bitmap.Config config = bitmap.getConfig() == Bitmap.Config.RGBA_F16
-                    ? Bitmap.Config.RGBA_F16 : Bitmap.Config.ARGB_8888;
+            // DiamaneOS: the post-processor draws in the decoded colour type, as stock nDecodeBitmap does.
+            final Bitmap.Config config = bitmap.getConfig();
             drawn = bitmap.isMutable() && bitmap.getConfig() == config ? bitmap
                     : GatePixels.copy(bitmap, config, true);
             DecodeMemory.recycle(bitmap, drawn);

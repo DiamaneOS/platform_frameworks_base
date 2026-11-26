@@ -49,11 +49,9 @@ public class GateLowRamDeviceTest {
         compareAll(encoded(Bitmap.CompressFormat.WEBP_LOSSLESS, true));
     }
 
-    // A 10-bit AVIF (CTS avif_yuv_420_10bit): stock gives N32 under low RAM, RGBA_1010102 otherwise. Without a
-    // post-processor: the gate's post-processing draws into ARGB_8888 where stock keeps RGBA_1010102 (a finding of its
-    // own, in the triage backlog).
+    // A 10-bit AVIF (CTS avif_yuv_420_10bit): stock gives N32 under low RAM, RGBA_1010102 otherwise.
     @Test public void tenBitAvifMatchesStock() throws Exception {
-        compareAll(raw(de.diamaneos.decode.client.tests.R.raw.vm_avif_10bit), false);
+        compareAll(raw(de.diamaneos.decode.client.tests.R.raw.vm_avif_10bit));
     }
 
     private static byte[] raw(int resource) throws Exception {
