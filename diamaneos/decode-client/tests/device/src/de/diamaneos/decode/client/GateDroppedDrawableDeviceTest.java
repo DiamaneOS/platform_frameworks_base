@@ -48,6 +48,9 @@ public class GateDroppedDrawableDeviceTest {
         assertTrue("no room to fill", filler > 0);
         try (DecodeMemory.Reservation taken = DecodeMemory.reserve(filler)) {
             for (int i = 0; i < 4; i++) {
+                // A refused reservation starts at most one collection per 200 ms (DecodeMemory.RECLAIM_WAIT_MS), so
+                // each decode comes after the window of the last one.
+                android.os.SystemClock.sleep(250);
                 assertNotNull("decode " + i + " was refused while dropped animations held the budget",
                         decode(bytes));
             }
