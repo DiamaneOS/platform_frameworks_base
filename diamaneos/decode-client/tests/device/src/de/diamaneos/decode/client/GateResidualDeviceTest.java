@@ -44,47 +44,29 @@ public class GateResidualDeviceTest {
         fileEntry(true);
     }
     private void fileEntry(boolean zeroWait) throws Exception {
-        DecodeGate.setForcedForTest(true);
-        if (zeroWait) DecodeGate.setWaitForTest(0L);
-        File fifo = File.createTempFile("gate-deadline-", ".fifo", context.getCacheDir());
-        assertTrue(fifo.delete());
-        assertTrue(fifo.getPath().matches("[A-Za-z0-9_./-]+"));
-        // The test shell creates the FIFO because the app domain cannot create special files (mkfifo from the app
-        // fails with EACCES), then gives it the app's UID and data label. Through a shell (DeviceShell): the plain
-        // test shell command runs without one, so the quotes and && would reach mkfifo as arguments.
-        String made = DeviceShell.run("su 0 sh -c 'mkfifo -m 600 " + fifo.getPath()
-                + " && chown " + android.os.Process.myUid() + ":" + android.os.Process.myUid()
-                + " " + fifo.getPath() + " && restorecon " + fifo.getPath() + " && echo GATE-FIFO-READY'");
-        assertTrue("FIFO fixture was not made", made.contains("GATE-FIFO-READY"));
-        byte[] bytes = png();
-        Thread writer = new Thread(() -> {
-            SystemClock.sleep(1500);
-            try (OutputStream out = new FileOutputStream(fifo)) { out.write(bytes); }
-            catch (IOException ignored) { }
-        }, "gate-file-writer");
-        writer.setDaemon(true);
-        writer.start();
-        AtomicLong elapsed = new AtomicLong();
-        try {
-            InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> {
-                long start = SystemClock.uptimeMillis();
-                try { assertNull(BitmapFactory.decodeFile(fifo.getPath())); }
-                finally { elapsed.set(SystemClock.uptimeMillis() - start); }
-            });
-        } finally {
-            // A cancelled queued opener need never open the FIFO. Cleanup starts only after measurement.
-            final FileDescriptor cleanup = Os.open(fifo.getPath(),
-                    android.system.OsConstants.O_RDONLY | android.system.OsConstants.O_NONBLOCK, 0);
-            try { writer.join(5000); }
-            finally {
-                Os.close(cleanup);
-                OwnerDeviceTest.shell("su 0 rm -f " + fifo.getPath());
-                assertFalse("FIFO fixture remains", fifo.exists());
-            }
+        final android.app.Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
+        final String uid;
+        try (InputStream in = new ParcelFileDescriptor.AutoCloseInputStream(
+                instrumentation.getUiAutomation().executeShellCommand("id -u"))) {
+            uid = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8).trim();
         }
-        assertFalse("writer left blocked", writer.isAlive());
-        Log.i("GateResidual", "public file entry-return ms=" + elapsed.get() + " zeroWait=" + zeroWait);
-        assertTrue(elapsed.get() <= (zeroWait ? 0 : DecodeGate.MAIN_MS) + 150);
+        assertEquals("the controlled public-file carrier must be root", "0", uid);
+        final String source = context.getApplicationInfo().sourceDir;
+        final String pkg = context.getPackageName();
+        assertTrue(source.matches("[A-Za-z0-9_./=+!~:-]+"));
+        assertTrue(pkg.matches("[A-Za-z0-9._]+"));
+        assertNotNull(PublicFileEntryProbe.class.getMethod("main", String[].class));
+        final String command = "/system/bin/env CLASSPATH=" + source
+                + " /system/bin/app_process /system/bin " + PublicFileEntryProbe.class.getName()
+                + " " + pkg + " " + zeroWait;
+        Log.i("GateResidual", "public-file command=" + command);
+        final String output;
+        try (InputStream in = new ParcelFileDescriptor.AutoCloseInputStream(
+                instrumentation.getUiAutomation().executeShellCommand(command))) {
+            output = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        }
+        Log.i("GateResidual", output);
+        assertTrue(output, output.contains("PUBLIC-FILE-PROBE PASS"));
     }
     @Test public void aServerUriIconUsesTheEntryDeadline() throws Exception {
         final String key = "server-slow-" + SystemClock.elapsedRealtimeNanos();
