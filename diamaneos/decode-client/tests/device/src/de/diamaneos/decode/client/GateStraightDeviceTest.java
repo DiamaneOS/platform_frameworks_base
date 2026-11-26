@@ -52,14 +52,25 @@ public class GateStraightDeviceTest {
                 .getResources().openRawResource(de.diamaneos.decode.client.tests.R.raw.vm_avif_alpha_10bit)) {
             avif = in.readAllBytes();
         }
-        for (int kind = 0; kind < 2; kind++) {
-            final byte[] input = kind == 0 ? png(true) : avif;
+        factoryWide(png(true), avif, 64, 32);
+    }
+
+    @Test public void bitmapFactoryNeutralAvifStraightSamplingMatchesStock() throws Exception {
+        try (java.io.InputStream in = InstrumentationRegistry.getInstrumentation().getTargetContext()
+                .getResources().openRawResource(de.diamaneos.decode.client.tests.R.raw.vm_avif_neutral_alpha_10bit)) {
+            factoryWide(null, in.readAllBytes(), 512, 32);
+        }
+    }
+
+    private static void factoryWide(byte[] png, byte[] avif, int sourceWidth, int sourceHeight) throws Exception {
+        for (int kind = png == null ? 1 : 0; kind < 2; kind++) {
+            final byte[] input = kind == 0 ? png : avif;
             final Bitmap.Config storage = kind == 0 ? Bitmap.Config.RGBA_F16 : Bitmap.Config.RGBA_1010102;
             for (int mode = 0; mode < 5; mode++) for (int[] scale : new int[][] {
                     {1, 0, 0}, {2, 0, 0}, {2, 160, 240}, {1, 480, 160}}) {
                 Bitmap stock = null, gated = null, stockRead = null, gatedRead = null;
-                final BitmapFactory.Options before = straightOptions(mode, scale, storage);
-                final BitmapFactory.Options after = straightOptions(mode, scale, storage);
+                final BitmapFactory.Options before = straightOptions(mode, scale, storage, sourceWidth, sourceHeight);
+                final BitmapFactory.Options after = straightOptions(mode, scale, storage, sourceWidth, sourceHeight);
                 final int stockGeneration = before.inBitmap != null ? before.inBitmap.getGenerationId() : 0;
                 final int gateGeneration = after.inBitmap != null ? after.inBitmap.getGenerationId() : 0;
                 try {
@@ -132,19 +143,20 @@ public class GateStraightDeviceTest {
         }
     }
 
-    private static BitmapFactory.Options straightOptions(int mode, int[] scale, Bitmap.Config storage) {
+    private static BitmapFactory.Options straightOptions(int mode, int[] scale, Bitmap.Config storage,
+            int sourceWidth, int sourceHeight) {
         final BitmapFactory.Options options = new BitmapFactory.Options();
         options.inPremultiplied = false;
         options.inSampleSize = scale[0];
         options.inDensity = scale[1];
         options.inTargetDensity = scale[2];
         options.inMutable = mode == 1 || mode == 2 || mode == 4;
-        if (mode == 2) options.inBitmap = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888, true,
+        if (mode == 2) options.inBitmap = Bitmap.createBitmap(Math.max(128, sourceWidth), Math.max(128, sourceHeight), Bitmap.Config.ARGB_8888, true,
                 ColorSpace.get(ColorSpace.Named.DISPLAY_P3));
         if (mode == 4) {
             final float ratio = scale[1] == 0 ? 1f : (float) scale[2] / scale[1];
-            options.inBitmap = Bitmap.createBitmap(Math.max(1, (int) (64 / scale[0] * ratio + 0.5f)),
-                    Math.max(1, (int) (32 / scale[0] * ratio + 0.5f)), storage);
+            options.inBitmap = Bitmap.createBitmap(Math.max(1, (int) (sourceWidth / scale[0] * ratio + 0.5f)),
+                    Math.max(1, (int) (sourceHeight / scale[0] * ratio + 0.5f)), storage);
         }
         if (options.inBitmap != null) options.inBitmap.eraseColor(android.graphics.Color.MAGENTA);
         if (mode == 3) options.inPreferredConfig = Bitmap.Config.HARDWARE;
