@@ -206,26 +206,30 @@ public class GateAnimationDeviceTest {
     }
 
     @Test public void aThrowingPostprocessorReleasesAllUnpublishedFrames() throws Exception {
-        final Set<Bitmap> before = chargedBitmaps();
-        final IllegalStateException failure = new IllegalStateException("animation postprocessor failed");
-        final AtomicInteger calls = new AtomicInteger();
-        try {
-            ImageDecoder.decodeDrawable(ImageDecoder.createSource(
-                    ByteBuffer.wrap(fixture(R.raw.vm_animation_compat_gif))), (decoder, info, source) ->
-                    decoder.setPostProcessor(canvas -> {
-                        if (calls.incrementAndGet() == 2) throw failure;
-                        return android.graphics.PixelFormat.OPAQUE;
-                    }));
-            fail("postprocessor failure was swallowed");
-        } catch (IllegalStateException expected) {
-            assertSame(failure, expected);
-        } finally {
+        for (boolean gated : new boolean[] {false, true}) {
+            DecodeGate.setForcedForTest(gated);
             DecodeGate.resetForTest();
+            final Set<Bitmap> before = chargedBitmaps();
+            final IllegalStateException failure = new IllegalStateException("animation postprocessor failed");
+            final AtomicInteger calls = new AtomicInteger();
+            try {
+                ImageDecoder.decodeDrawable(ImageDecoder.createSource(
+                        ByteBuffer.wrap(fixture(R.raw.vm_animation_compat_gif))), (decoder, info, source) ->
+                        decoder.setPostProcessor(canvas -> {
+                            calls.incrementAndGet();
+                            throw failure;
+                        }));
+                fail("postprocessor failure was swallowed");
+            } catch (IllegalStateException expected) {
+                assertSame(failure, expected);
+            } finally {
+                DecodeGate.resetForTest();
+            }
+            assertEquals("callback count, gated=" + gated, 1, calls.get());
+            final Set<Bitmap> remaining = chargedBitmaps();
+            remaining.removeAll(before);
+            assertTrue("unpublished working bitmaps remain charged: " + remaining.size(), remaining.isEmpty());
         }
-        assertEquals(2, calls.get());
-        final Set<Bitmap> remaining = chargedBitmaps();
-        remaining.removeAll(before);
-        assertTrue("unpublished working bitmaps remain charged: " + remaining.size(), remaining.isEmpty());
     }
 
     @Test public void staticDecodeRejectsInvalidTargetColorSpaces() throws Exception {
