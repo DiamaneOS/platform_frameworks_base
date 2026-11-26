@@ -71,6 +71,12 @@
         <activity
             android:name="de.diamaneos.decode.client.TaskIconActivity"
             android:exported="false" />
+        <!-- A task in a process of its own, ended by the test so its snapshot is loaded from disk
+             (SnapshotFilesDeviceTest). -->
+        <activity
+            android:name="de.diamaneos.decode.client.SnapshotTaskActivity"
+            android:process=":snapshot"
+            android:exported="false" />
         <!-- The phone checks of the UI fixes (PhoneProofsDeviceTest): an autofill service, a form for it and a
              host of SystemUI's conversation widget. -->
         <service

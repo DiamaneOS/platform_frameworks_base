@@ -25,8 +25,9 @@ import org.junit.runner.RunWith;
  * com.android.server.wm.SnapshotImageFiles makes before it decodes a snapshot without the VM). A task of this app is
  * started and sent to the background so its snapshot is written. Reads the files as root (debuggable builds).
  *
- * <p>The low-resolution snapshot is then asked for while the cache holds the full-size one, so the window manager loads
- * the reduced file from disk: as written it is decoded in the system server, with one byte changed it goes to the VM.
+ * <p>The task runs in a process of its own, which the test then ends, so the window manager drops the task's snapshot
+ * from its cache and loads the reduced file from disk when asked: as written it is decoded in the system server, with
+ * one byte changed it goes to the VM.
  * The route comes from SnapshotImageFiles' debug line (log.tag.SnapshotImageFiles DEBUG for the test). The window
  * manager takes no snapshot of a task that is not shown, so the test wakes the screen first.
  */
@@ -37,7 +38,7 @@ public class SnapshotFilesDeviceTest {
         final Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
         DeviceShell.run("input keyevent KEYCODE_WAKEUP; wm dismiss-keyguard");
         final int color = Color.rgb(90, (int) (SystemClock.uptimeMillis() % 250), 30);
-        context.startActivity(new Intent(context, TaskIconActivity.class)
+        context.startActivity(new Intent(context, SnapshotTaskActivity.class)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK)
                 .putExtra(TaskIconActivity.EXTRA_COLOR, color));
         int taskId = -1;
@@ -47,7 +48,7 @@ public class SnapshotFilesDeviceTest {
             for (ActivityManager.RecentTaskInfo task : ActivityTaskManager.getService()
                     .getRecentTasks(20, 0, 0).getList()) {
                 if (task.baseActivity != null
-                        && TaskIconActivity.class.getName().equals(task.baseActivity.getClassName())) {
+                        && SnapshotTaskActivity.class.getName().equals(task.baseActivity.getClassName())) {
                     taskId = task.taskId;
                     break;
                 }
@@ -91,6 +92,7 @@ public class SnapshotFilesDeviceTest {
         DeviceShell.run("su 0 setprop log.tag.SnapshotImageFiles DEBUG");
         try {
             final String name = taskId + "_reduced.jpg";
+            endTaskProcess(context);
             final int routes = routeLines(name);
             assertNotNull("the recorded snapshot did not load", loadLow(taskId));
             assertEquals("route of the recorded file", List.of(name + " decoded here, the recorded bytes"),
@@ -111,8 +113,30 @@ public class SnapshotFilesDeviceTest {
         }
     }
 
-    // The reduced snapshot from disk: the cache holds the full-size one, and no capture time is passed, so the window
-    // manager loads the file again on each call.
+    // The task's process ends, so the window manager drops its cached snapshot (SnapshotCache.onAppDied).
+    private static void endTaskProcess(Context context) throws Exception {
+        final ActivityManager am = context.getSystemService(ActivityManager.class);
+        int pid = -1;
+        for (ActivityManager.RunningAppProcessInfo info : am.getRunningAppProcesses()) {
+            if (info.processName.equals(context.getPackageName() + ":snapshot")) pid = info.pid;
+        }
+        assertTrue("the task's process was not found", pid > 0);
+        android.os.Process.killProcess(pid);
+        final long end = SystemClock.uptimeMillis() + 5_000;
+        boolean gone = false;
+        while (!gone && SystemClock.uptimeMillis() < end) {
+            SystemClock.sleep(100);
+            gone = true;
+            for (ActivityManager.RunningAppProcessInfo info : am.getRunningAppProcesses()) {
+                if (info.pid == pid) gone = false;
+            }
+        }
+        assertTrue("the task's process did not end", gone);
+        SystemClock.sleep(500);
+    }
+
+    // The reduced snapshot, asked for with no capture time: with the task's cached snapshot dropped, the window
+    // manager loads it from disk on each call (the low-resolution load is not cached).
     private static TaskSnapshot loadLow(int taskId) throws Exception {
         final android.app.UiAutomation automation = InstrumentationRegistry.getInstrumentation().getUiAutomation();
         automation.adoptShellPermissionIdentity();
