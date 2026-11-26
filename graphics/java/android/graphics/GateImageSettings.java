@@ -21,11 +21,16 @@ final class GateImageSettings {
         if (conserveMemory) {
             // As stock, low RAM never keeps F16. RGB_565 is chosen by GatedDecodes.lowRam565.
             if (bitmap.getConfig() == Bitmap.Config.RGBA_F16) return Bitmap.Config.ARGB_8888;
-        } else if (target != null && (target.equals(ColorSpace.get(ColorSpace.Named.EXTENDED_SRGB))
-                        || target.equals(ColorSpace.get(ColorSpace.Named.LINEAR_EXTENDED_SRGB)))) {
+        } else if (extended(target)) {
             return Bitmap.Config.RGBA_F16;
         }
         return bitmap.getConfig();
+    }
+
+    /** As stock ImageDecoder.checkForExtended: an extended range target is decoded in RGBA_F16. */
+    static boolean extended(ColorSpace target) {
+        return target != null && (target.equals(ColorSpace.get(ColorSpace.Named.EXTENDED_SRGB))
+                || target.equals(ColorSpace.get(ColorSpace.Named.LINEAR_EXTENDED_SRGB)));
     }
 
     /** Consumes working pixels while converting their checked raw colours, before allocator finalization. */

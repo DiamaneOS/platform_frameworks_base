@@ -899,7 +899,9 @@ final class GatedDecodes {
             }
             }
             GatePartialImages.imageDecoder(header.op.sourceError, partialListener, source);
-            if (header.bitDepth == 10 && "image/avif".equals(header.mimeType)) {
+            // As stock nDecodeBitmap (jni/ImageDecoder.cpp:298-317), low RAM and an extended target pick first.
+            if (!conserveMemory && !GateImageSettings.extended(colorSpace)
+                    && header.bitDepth == 10 && "image/avif".equals(header.mimeType)) {
                 bitmap = GateImageSettings.convert(bitmap, colorSpace, Bitmap.Config.RGBA_1010102);
             }
             markOpaque(bitmap, header.mimeType, header.hasAlpha);
