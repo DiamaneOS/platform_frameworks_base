@@ -138,6 +138,54 @@ public class GateLargeInputDeviceTest {
         }
     }
 
+    /** Diagnostic only: the ordinary pair above retains the production worker deadline. */
+    @Test public void diagnoseLargeJpegExistingRequestTimings() throws Exception {
+        final android.content.Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        final String path = InstrumentationRegistry.getArguments().getString("timingJpeg");
+        assumeTrue("owned timing fixture supplied", path != null);
+        final File file = new File(path);
+        final File directory = context.getExternalFilesDir(null);
+        assertNotNull(directory);
+        assertTrue(file.getCanonicalPath().startsWith(directory.getCanonicalPath() + File.separator));
+        assertTrue(file.length() > 32L * 1024 * 1024 && file.length() <= DecodeGate.MAX_BYTES);
+        final java.util.concurrent.atomic.AtomicInteger sequence = new java.util.concurrent.atomic.AtomicInteger();
+        DecodeGate.setForcedForTest(true);
+        DecodeGate.setWaitForTest(60_000L);
+        DecodeGate.resetForTest();
+        DecodeGate.setLocal((method, extras) -> {
+            final int id = sequence.incrementAndGet();
+            final long start = android.os.SystemClock.uptimeMillis();
+            final int width = extras.getInt(DecodeGate.EXTRA_WIDTH), height = extras.getInt(DecodeGate.EXTRA_HEIGHT);
+            final android.os.IRemoteCallback original = android.os.IRemoteCallback.Stub.asInterface(
+                    extras.getBinder(DecodeGate.EXTRA_CALLBACK));
+            assertNotNull(original);
+            extras.putBinder(DecodeGate.EXTRA_CALLBACK, new android.os.IRemoteCallback.Stub() {
+                @Override public void sendResult(android.os.Bundle result) throws android.os.RemoteException {
+                    Log.i("LargeInputTiming", "callback id=" + id + " operation=" + method + " geometry="
+                            + width + "x" + height + " elapsedMs=" + (android.os.SystemClock.uptimeMillis() - start));
+                    original.sendResult(result);
+                }
+            }.asBinder());
+            // Local adds a delegate field that the normal app Binder request does not carry.
+            extras.remove(DecodeGate.EXTRA_FOR_UID);
+            final android.os.Bundle accepted = context.getContentResolver().call(DecodeGate.URI, method, null, extras);
+            Log.i("LargeInputTiming", "accepted id=" + id + " operation=" + method + " geometry="
+                    + width + "x" + height + " elapsedMs=" + (android.os.SystemClock.uptimeMillis() - start));
+            return accepted;
+        });
+        Bitmap result = null;
+        final long start = android.os.SystemClock.uptimeMillis();
+        try {
+            Log.i("LargeInputTiming", "diagnostic waitMs=60000");
+            result = BitmapFactory.decodeFile(file.getPath());
+            Log.i("LargeInputTiming", "complete elapsedMs=" + (android.os.SystemClock.uptimeMillis() - start));
+            assertNotNull("diagnostic image", result);
+        } finally {
+            DecodeGate.setLocal(null);
+            if (result != null) result.recycle();
+        }
+    }
+
     @Test public void fiftyMegapixelJpegAbove32MiBMatchesStock() throws Exception {
         final File file = jpeg(false);
         try {
