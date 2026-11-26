@@ -38,6 +38,8 @@ import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.DrawableWrapper;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.util.TypedValue;
 import android.widget.ImageView;
@@ -243,6 +245,23 @@ public class CleanCopyGateDeviceTest {
     }
 
     /**
+     * A host view as the launcher's are, attached to a window: what it posts runs on the main thread. A view that is
+     * not attached keeps what it posts until it is, and no window is opened here.
+     */
+    private static final class AttachedHostView extends AppWidgetHostView {
+        private final Handler mMain = new Handler(Looper.getMainLooper());
+
+        AttachedHostView(Context context) {
+            super(context);
+        }
+
+        @Override
+        public boolean post(Runnable action) {
+            return mMain.post(action);
+        }
+    }
+
+    /**
      * A hosted widget's images come from copies: blank the first time, and once copies of the provider's app were
      * made (the system says so) the widget is applied again and shows the copy.
      */
@@ -255,7 +274,7 @@ public class CleanCopyGateDeviceTest {
         final RemoteViews views = new RemoteViews(mContext.getPackageName(), R.layout.vm_test_probe);
         views.setImageViewResource(R.id.vm_image, R.drawable.vm_test_red);
         InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> {
-            host[0] = new AppWidgetHostView(mContext);
+            host[0] = new AttachedHostView(mContext);
             host[0].setAppWidget(1, provider());
             host[0].updateAppWidget(views);
         });

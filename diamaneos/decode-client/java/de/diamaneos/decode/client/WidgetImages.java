@@ -16,14 +16,20 @@
 
 package de.diamaneos.decode.client;
 
+import android.content.ContentProvider;
+import android.content.ContentResolver;
 import android.content.Context;
 import android.content.ContextWrapper;
+import android.content.Intent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.UserHandle;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.widget.RemoteViews;
+
+import com.android.internal.diamaneos.cleancopies.CleanCopyGate;
 
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -46,6 +52,10 @@ import java.util.function.Consumer;
  *
  * <p>Only the latest update of a widget waits for an image thread: a newer one, {@link #setApp} and {@link #cancel}
  * drop the older one before it runs and stop it if it does, and it never delivers.
+ *
+ * <p>The launcher uses {@link #forLauncher}: its process gate ({@link CleanCopyGate}) already serves the app's resource
+ * images from clean copies, so the host view keeps its own context and nothing is made ahead for it. Icons, links and
+ * list items in the update are re-made in the VM as above.
  */
 public final class WidgetImages {
     private static final String TAG = "VmDecode";
@@ -62,23 +72,45 @@ public final class WidgetImages {
 
     private final Context mHost;
     private final GatedPackages mContext;
+    // App resources load through the process's own gate (the launcher's clean copies), not through mContext.
+    private final boolean mProcessGate;
+    // URIs are checked with checkContentUriPermissionFull (a host without INTERACT_ACROSS_USERS_FULL).
+    private final boolean mLauncher;
     private final Object mLock = new Object();
     private AppResourceImages mGate; // guarded by mLock
     private String mOwner = ""; // guarded by mLock
     private int mUserId; // guarded by mLock
+    private ApplicationInfo mAppInfo; // the widget app's, when the host was given it, guarded by mLock
     private AtomicBoolean mCancelled = new AtomicBoolean(); // the latest update's, guarded by mLock
     private ImageThreads.Task mTask; // the latest update's, guarded by mLock
 
     /** For a host view made with {@code themed} (the view's own context, its theme kept). */
     public WidgetImages(Context themed) {
+        this(themed, false, false);
+    }
+
+    private WidgetImages(Context themed, boolean processGate, boolean launcher) {
         mHost = themed;
         mContext = new GatedPackages(themed);
         mUserId = themed.getUserId();
+        mProcessGate = processGate;
+        mLauncher = launcher;
+    }
+
+    /**
+     * For a host view of the launcher made with {@code themed}. While the process has its gate (see
+     * {@link CleanCopyGate#isActive}), {@link #context} is {@code themed} itself and the app's resource images come from
+     * that gate. Without it, they go through the VM as with {@link #WidgetImages(Context)}. Either way URIs are opened
+     * only when the widget's app may read them itself, which the launcher checks with
+     * {@link Context#checkContentUriPermissionFull}.
+     */
+    public static WidgetImages forLauncher(Context themed) {
+        return new WidgetImages(themed, CleanCopyGate.isActive(), true);
     }
 
     /** The context to make the host view with. */
     public Context context() {
-        return mContext;
+        return mProcessGate ? mHost : mContext;
     }
 
     /**
@@ -87,9 +119,26 @@ public final class WidgetImages {
      * view showed before.
      */
     public void setApp(String ownerPackage, int userId) {
+        setApp(ownerPackage, userId, null);
+    }
+
+    /**
+     * {@link #setApp(String, int)} for the app {@code appInfo} (the system's provider info of the widget): the checks
+     * use it when the package manager does not give the app to this host (a work profile app seen from the launcher).
+     */
+    public void setApp(ApplicationInfo appInfo) {
+        if (appInfo == null) {
+            setApp(null, mHost.getUserId(), null);
+        } else {
+            setApp(appInfo.packageName, UserHandle.getUserId(appInfo.uid), appInfo);
+        }
+    }
+
+    private void setApp(String ownerPackage, int userId, ApplicationInfo appInfo) {
         synchronized (mLock) {
             cancelLocked();
             final String owner = ownerPackage == null ? "" : ownerPackage;
+            mAppInfo = appInfo;
             if (mGate != null && owner.equals(mOwner) && userId == mUserId) {
                 return;
             }
@@ -126,6 +175,7 @@ public final class WidgetImages {
         final String owner;
         final int userId;
         final AppResourceImages gate;
+        final ApplicationInfo appInfo;
         final AtomicBoolean cancelled = new AtomicBoolean();
         synchronized (mLock) {
             cancelLocked();
@@ -133,6 +183,7 @@ public final class WidgetImages {
             owner = mOwner;
             userId = mUserId;
             gate = mGate;
+            appInfo = mAppInfo;
         }
         if (views == null || gate == null) {
             executor.execute(() -> done.accept(null));
@@ -147,7 +198,7 @@ public final class WidgetImages {
             try {
                 checked = check(NotificationImageGate.forNotification(mHost, owner, userId,
                         Math.max(1, (int) (ICON_DP * metrics.density)), pictureWidth(metrics),
-                        pictureHeight(metrics), gate), views, owner, userId, cancelled);
+                        pictureHeight(metrics), gate), views, owner, userId, appInfo, cancelled);
             } catch (RuntimeException | Error e) {
                 Log.w(TAG, "widget views not checked, not shown: " + e);
             }
@@ -188,17 +239,22 @@ public final class WidgetImages {
 
     // On an image thread: the checked copy of views made with imageGate (then finished), or null.
     private RemoteViews check(NotificationImageGate imageGate, RemoteViews views, String owner, int userId,
-            AtomicBoolean cancelled) {
+            ApplicationInfo appInfo, AtomicBoolean cancelled) {
         try {
             imageGate.setCancelled(cancelled);
-            final ApplicationInfo ai = mHost.getPackageManager().getApplicationInfoAsUser(owner, 0, userId);
+            final ApplicationInfo ai = appInfo(owner, userId, appInfo);
             // URIs in the update, list items included, are opened only when the widget's app may read them itself,
-            // as its user. SystemUI's own access is never lent to them.
-            imageGate.checkUrisAs(ai.uid, owner, userId);
+            // as its user. The host's own access is never lent to them.
+            if (mLauncher) {
+                final int uid = ai.uid;
+                imageGate.setUriCheck(uri -> appMayRead(mHost, uri, uid, userId));
+            } else {
+                imageGate.checkUrisAs(ai.uid, owner, userId);
+            }
             final Context gated = imageGate.packageContext(
                     mHost.createApplicationContext(ai, Context.CONTEXT_RESTRICTED));
             final RemoteViews checked = imageGate.layoutCopy(views);
-            if (checked != null) {
+            if (checked != null && !mProcessGate) {
                 imageGate.prewarmViews(checked, gated);
             }
             return checked;
@@ -208,6 +264,32 @@ public final class WidgetImages {
         } finally {
             imageGate.finish(false);
         }
+    }
+
+    // The app as the package manager has it now, else {@code given} (a host that may not look up apps of another
+    // user).
+    private ApplicationInfo appInfo(String owner, int userId, ApplicationInfo given)
+            throws PackageManager.NameNotFoundException {
+        try {
+            return mHost.getPackageManager().getApplicationInfoAsUser(owner, 0, userId);
+        } catch (PackageManager.NameNotFoundException | SecurityException e) {
+            if (given == null) {
+                throw e;
+            }
+            return given;
+        }
+    }
+
+    // True when the app {@code uid} may read the content URI {@code uri} itself, as {@code userId}: the provider's
+    // permissions and the app's grants, the check the widget service makes on updates. Other schemes and URIs of
+    // another user are refused.
+    private static boolean appMayRead(Context host, Uri uri, int uid, int userId) {
+        if (uri == null || !ContentResolver.SCHEME_CONTENT.equals(uri.getScheme())
+                || ContentProvider.getUserIdFromUri(uri, userId) != userId) {
+            return false;
+        }
+        return host.checkContentUriPermissionFull(ContentProvider.maybeAddUserId(uri, userId), -1, uid,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION) == PackageManager.PERMISSION_GRANTED;
     }
 
     private static int pictureWidth(DisplayMetrics metrics) {
