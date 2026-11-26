@@ -34,6 +34,8 @@ import android.content.res.ImageFileGates;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.DecodeGate;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
@@ -42,6 +44,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.util.TypedValue;
+import android.util.Log;
 import android.widget.ImageView;
 import android.widget.RemoteViews;
 
@@ -82,6 +85,8 @@ public class CleanCopyGateDeviceTest {
     public void noProcessGate() {
         ImageFileGates.setProcessDefault(null);
         CleanCopyGate.setModeForTest(-1);
+        DecodeGate.setForcedForTest(null);
+        DecodeGate.resetForTest();
     }
 
     /** A source of copies made here: what it holds, and what it was asked for. */
@@ -212,6 +217,48 @@ public class CleanCopyGateDeviceTest {
         });
         assertTrue("any load: from copies", out[0] instanceof ColorDrawable);
         assertTrue("an icon load: from copies", out[1] instanceof ColorDrawable);
+    }
+
+    private static Bitmap rendered(Drawable drawable) {
+        final Bitmap bitmap = Bitmap.createBitmap(83, 61, Bitmap.Config.ARGB_8888);
+        drawable.setBounds(0, 0, 83, 61);
+        drawable.draw(new Canvas(bitmap));
+        return bitmap;
+    }
+
+    @Test
+    public void launcherFirstLoad_hasVmPixelsWithoutACopy() throws Exception {
+        final TypedValue value = new TypedValue();
+        mContext.getResources().getValue(R.drawable.vm_test_large, value, true);
+        try (java.util.zip.ZipFile apk = new java.util.zip.ZipFile(mContext.getApplicationInfo().sourceDir)) {
+            assertTrue("positive icon above 1 MiB", apk.getEntry(value.string.toString()).getSize() > 1024 * 1024);
+        }
+        for (int id : new int[] {R.drawable.vm_test_red, R.drawable.vm_test_adaptive,
+                R.drawable.vm_test_large, R.drawable.vm_test_patch}) {
+            DecodeGate.setForcedForTest(false);
+            final Bitmap stock = rendered(onThread(() -> mContext.getResources().getDrawable(id, null)));
+            final FakeSource source = new FakeSource();
+            final Resources res = gated(CleanCopyGate.forTest(mContext, source, true, "com.android.launcher3"));
+            DecodeGate.setForcedForTest(true);
+            DecodeGate.resetForTest();
+            final int[] before = DecodeGate.countsForTest();
+            final long start = SystemClock.elapsedRealtime();
+            final Drawable first = onThread(() -> CleanCopyGate.iconLoad(() -> res.getDrawable(id, null)));
+            Log.i("CleanCopyGateTest", "first icon " + id + " ms=" + (SystemClock.elapsedRealtime() - start));
+            assertTrue("checked first-load geometry and pixels " + id, stock.sameAs(rendered(first)));
+            assertTrue("VM answered " + id, DecodeGate.countsForTest()[0] > before[0]);
+            assertTrue("no copy requested for " + id, source.requests.isEmpty());
+        }
+    }
+
+    @Test
+    public void launcherInactiveGate_doesNotDecodeFirstLoad() throws Exception {
+        DecodeGate.setForcedForTest(false);
+        final FakeSource source = new FakeSource();
+        final Resources res = gated(CleanCopyGate.forTest(mContext, source, true, "com.android.launcher3"));
+        final Drawable first = onThread(() -> CleanCopyGate.iconLoad(() -> res.getDrawable(R.drawable.vm_test_red, null)));
+        assertTrue("inactive gate remains empty", first instanceof ColorDrawable);
+        assertTrue("VM refusal uses refill", source.requests.isEmpty());
     }
 
     // A widget provider of this test APK, as the system gives it (the package comes from here, not from views).

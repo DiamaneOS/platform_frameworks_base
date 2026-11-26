@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copyright (C) 2026 DiamaneOS -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@drawable/vm_test_red" />
+    <foreground android:drawable="@drawable/vm_test_green" />
+</adaptive-icon>

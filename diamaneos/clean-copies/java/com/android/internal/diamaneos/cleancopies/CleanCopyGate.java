@@ -24,6 +24,8 @@ import android.content.res.ImageFileGates;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.DecodeGate;
+import android.graphics.DecodeMemory;
 import android.graphics.NinePatch;
 import android.graphics.Rect;
 import android.graphics.drawable.AdaptiveIconDrawable;
@@ -39,6 +41,8 @@ import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.LruCache;
 import android.util.TypedValue;
+
+import de.diamaneos.decode.client.NinePatchChunk;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
@@ -1022,7 +1026,10 @@ public final class CleanCopyGate implements ImageFileGate {
             // No name: no stand-in.
         }
         final String resourceName = name;
-        made = CopyMiss.miss(mProcess, apkPath, file, CleanCopyGate::apkBytes, new DirectDecoder(density),
+        final boolean launcherIcon = mWaits && sThread.get()[1] != 0
+                && SystemClock.elapsedRealtime() >= mNoWaitUntil && Looper.myLooper() != Looper.getMainLooper();
+        made = CopyMiss.miss(mProcess, launcherIcon, apkPath, file, CleanCopyGate::apkBytes,
+                new DirectDecoder(density, user),
                 CACHE_BYTES / 4, new CopyMiss.Miss<Made>() {
                     @Override
                     public void keep(Made decoded) {
@@ -1071,19 +1078,43 @@ public final class CleanCopyGate implements ImageFileGate {
     }
 
     // A file of an APK, or null when it is larger than max.
-    private static byte[] apkBytes(String apkPath, String file, int max) throws IOException {
-        try (java.util.zip.ZipFile apk = new java.util.zip.ZipFile(apkPath)) {
-            final java.util.zip.ZipEntry entry = apk.getEntry(file);
-            if (entry == null) {
-                throw new IOException("no " + file);
+    private static CopyMiss.Input apkBytes(String apkPath, String file, int max) throws IOException {
+        DecodeMemory.Reservation memory = null;
+        try {
+            final byte[] bytes;
+            try (java.util.zip.ZipFile apk = new java.util.zip.ZipFile(apkPath)) {
+                final java.util.zip.ZipEntry entry = apk.getEntry(file);
+                if (entry == null) throw new IOException("no " + file);
+                final long size = entry.getSize();
+                if (size < 0 || size > max) return null;
+                try {
+                    memory = DecodeMemory.reserve(size);
+                } catch (DecodeMemory.NoRoomException e) {
+                    throw new IOException("no room for APK image", e);
+                }
+                bytes = new byte[(int) size];
+                try (InputStream in = apk.getInputStream(entry)) {
+                    int at = 0;
+                    while (at < bytes.length) {
+                        final int n = in.read(bytes, at, bytes.length - at);
+                        if (n < 0) throw new IOException("short APK image");
+                        if (n == 0) {
+                            final int next = in.read();
+                            if (next < 0) throw new IOException("short APK image");
+                            bytes[at++] = (byte) next;
+                        } else {
+                            at += n;
+                        }
+                    }
+                    if (in.read() != -1) throw new IOException("long APK image");
+                }
             }
-            if (entry.getSize() < 0 || entry.getSize() > max) {
-                return null;
-            }
-            try (InputStream in = apk.getInputStream(entry)) {
-                final byte[] bytes = in.readNBytes(max + 1);
-                return bytes.length > max ? null : bytes;
-            }
+            final DecodeMemory.Reservation held = memory;
+            final CopyMiss.Input input = new CopyMiss.Input(bytes, held::close);
+            memory = null;
+            return input;
+        } finally {
+            if (memory != null) memory.close();
         }
     }
 
@@ -1091,21 +1122,33 @@ public final class CleanCopyGate implements ImageFileGate {
     // density, as a copy is: the drawable scales it to the display.
     private static final class DirectDecoder implements CopyMiss.Decoder<Made> {
         private final int mDensity;
+        private final int mUser;
 
-        DirectDecoder(int density) {
+        DirectDecoder(int density, int user) {
             mDensity = density;
+            mUser = user;
         }
 
         @Override
         public Made decode(byte[] bytes) {
-            final android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
-            options.inScaled = false;
-            final Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
-            if (bitmap == null) {
-                return null;
+            if (!DecodeGate.gates()) return null;
+            final Bitmap bitmap;
+            try (DecodeGate.OwnerScope owner = DecodeGate.ownerScope(mUser)) {
+                final android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
+                options.inScaled = false;
+                bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
             }
+            if (bitmap == null) return null;
             bitmap.setDensity(mDensity);
-            return new Made(bitmap, null, null, null, null);
+            final NinePatchChunk checked = NinePatchChunk.fromPng(bytes, bytes.length);
+            if (checked == null || !checked.fits(bitmap.getWidth(), bitmap.getHeight())) {
+                return new Made(bitmap, null, null, null, null);
+            }
+            final int[] bounds = checked.opticalInsets();
+            final Rect insets = bounds != null ? new Rect(bounds[0], bounds[1], bounds[2], bounds[3]) : null;
+            return new Made(bitmap, checked.toDeviceFormat(ByteOrder.nativeOrder()),
+                    new Rect(checked.paddingLeft, checked.paddingTop, checked.paddingRight, checked.paddingBottom),
+                    insets, checked.insetsFileFormat());
         }
 
         @Override

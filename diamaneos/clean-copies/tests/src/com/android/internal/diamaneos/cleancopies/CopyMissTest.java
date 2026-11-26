@@ -64,11 +64,11 @@ public final class CopyMissTest {
     };
 
     private static CopyMiss.Apk apk(byte[] bytes) {
-        return (apkPath, file, max) -> bytes == null || bytes.length > max ? null : bytes;
+        return (apkPath, file, max) -> bytes == null || bytes.length > max ? null : new CopyMiss.Input(bytes, () -> {});
     }
 
     private static String miss(String process, CopyMiss.Apk apk, Seen seen) {
-        return CopyMiss.miss(process, "/data/app/a/base.apk", "res/drawable/x.png", apk, DECODER, 5, seen);
+        return CopyMiss.miss(process, false, "/data/app/a/base.apk", "res/drawable/x.png", apk, DECODER, 5, seen);
     }
 
     @Test
@@ -124,7 +124,7 @@ public final class CopyMissTest {
     public void aPlainPngNamedLikeANinePatchIsDecodedAtOnce() {
         final Seen seen = new Seen();
         final byte[] plain = png("IHDR", "IDAT", "IEND");
-        assertEquals("image", CopyMiss.miss(SYSTEMUI, "/data/app/a/base.apk", "res/drawable/frame.9.png", apk(plain),
+        assertEquals("image", CopyMiss.miss(SYSTEMUI, false, "/data/app/a/base.apk", "res/drawable/frame.9.png", apk(plain),
                 DECODER, 5, seen));
         assertEquals(List.of("keep image"), seen.did);
     }
@@ -138,8 +138,8 @@ public final class CopyMissTest {
         }
         assertTrue(CopyMiss.waits("com.android.launcher3"));
         assertFalse(CopyMiss.waits(SYSTEMUI));
-        assertTrue(CopyMiss.decodesNow(SYSTEMUI));
-        assertFalse(CopyMiss.decodesNow("com.android.launcher3"));
+        assertTrue(CopyMiss.decodesNow(SYSTEMUI, false));
+        assertFalse(CopyMiss.decodesNow("com.android.launcher3", false));
     }
 
     @Test
@@ -149,4 +149,50 @@ public final class CopyMissTest {
         assertArrayEquals(java.util.Arrays.copyOf(full, 8), java.util.Arrays.copyOf(cut, 8));
         assertFalse(CopyMiss.isNinePatch(java.util.Arrays.copyOf(full, 8 + 12 + 4)));
     }
+    @Test
+    public void launcherIconLoadsDecodeAtOnceOnlyWhenEligible() {
+        final Seen seen = new Seen();
+        assertEquals("image", CopyMiss.miss("com.android.launcher3", true, "/data/app/a/base.apk", "icon.png",
+                apk("png".getBytes()), DECODER, 5, seen));
+        assertEquals(List.of("keep image"), seen.did);
+        final Seen patch = new Seen();
+        assertEquals("image", CopyMiss.miss("com.android.launcher3", true, "apk", "icon.png",
+                apk(png("IHDR", "npTc", "IDAT")), DECODER, 5, patch));
+        assertFalse(CopyMiss.decodesNow("com.android.settings", true));
+        assertFalse(CopyMiss.decodesNow("com.android.launcher3", false));
+    }
+
+    @Test
+    public void ordinaryLargeInputAndItsChargeStayOwnedThroughTheDecode() {
+        final boolean[] held = {true};
+        final byte[] raster = new byte[1024 * 1024 + 1];
+        final CopyMiss.Apk owned = (a, f, max) -> new CopyMiss.Input(raster, () -> held[0] = false);
+        final CopyMiss.Decoder<String> decoder = new CopyMiss.Decoder<String>() {
+            @Override public String decode(byte[] bytes) {
+                assertTrue(held[0]);
+                assertTrue(bytes == raster);
+                return "image";
+            }
+            @Override public long bytes(String decoded) { return 1; }
+        };
+        assertEquals("image", CopyMiss.direct("apk", "icon", owned, decoder, 5, true).decoded);
+        assertFalse(held[0]);
+        held[0] = true;
+        assertNull(CopyMiss.direct("apk", "icon", owned, new CopyMiss.Decoder<String>() {
+            @Override public String decode(byte[] bytes) { assertTrue(held[0]); return null; }
+            @Override public long bytes(String decoded) { return 1; }
+        }, 5, true).decoded);
+        assertFalse(held[0]);
+        held[0] = true;
+        try {
+            CopyMiss.direct("apk", "icon", owned, new CopyMiss.Decoder<String>() {
+                @Override public String decode(byte[] bytes) { throw new IllegalStateException("listener"); }
+                @Override public long bytes(String decoded) { return 1; }
+            }, 5, true);
+            org.junit.Assert.fail("expected decoder exception");
+        } catch (IllegalStateException expected) {
+            assertFalse(held[0]);
+        }
+    }
+
 }
