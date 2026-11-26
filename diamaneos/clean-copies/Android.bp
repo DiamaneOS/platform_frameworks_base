@@ -22,7 +22,7 @@ package {
 
 filegroup {
     name: "diamaneos-clean-copies-sources",
-    srcs: ["java/**/*.java"],
+    srcs: ["java/**/*.java", ":diamaneos-ninepatch-source"],
     visibility: ["//frameworks/base"],
 }
 

@@ -26,6 +26,7 @@ import java.util.zip.CRC32;
  * plain Java from an app's file and checked, so a nine-patch decoded in the VM keeps its stretching and its optical
  * bounds. Only checked numbers leave this class: the bytes Android's nine-patch code gets are written here, never the
  * app's. Plain Java, tested on the host.
+ * @hide
  */
 public final class NinePatchChunk {
     private static final byte[] PNG_SIGNATURE = {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10};

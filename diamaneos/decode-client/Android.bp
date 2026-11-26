@@ -51,6 +51,13 @@ filegroup {
     visibility: ["//packages/apps/DiamaneOSSanitizer"],
 }
 
+// The checked serializer is shared with the framework's immediate clean-icon path.
+filegroup {
+    name: "diamaneos-ninepatch-source",
+    srcs: ["java/de/diamaneos/decode/client/NinePatchChunk.java"],
+    visibility: ["//frameworks/base/diamaneos/clean-copies"],
+}
+
 java_library {
     name: "diamaneos-decode-client",
     srcs: [
@@ -58,6 +65,7 @@ java_library {
         "aidl/**/*.aidl",
         ":diamaneos-remote-adapter-conversion-check",
     ],
+    exclude_srcs: ["java/de/diamaneos/decode/client/NinePatchChunk.java"],
     aidl: {
         local_include_dirs: ["aidl"],
     },
