@@ -157,9 +157,10 @@ final class WallpaperVmSanitizer {
      * {@code displayHeight} in either orientation, never larger than the original (the service scales by any factor,
      * down to its pixel limit). The crop Android makes from it under its lock is then cheap. The original stays beside
      * it as the app gave it, never decoded on Android. Call on a worker thread: it waits for the VM. Never deletes
-     * {@code source}: on any failure it stays as it is and is simply not decoded.
+     * {@code source}: on any failure it stays as it is and is simply not decoded. {@code userId}: the user whose
+     * wallpaper it is, the owner user of the image in the VM (VmDecode OWNER_USER).
      */
-    Outcome sanitize(File source, int displayWidth, int displayHeight, java.util.List<int[]> crops) {
+    Outcome sanitize(File source, int userId, int displayWidth, int displayHeight, java.util.List<int[]> crops) {
         if (!source.isFile()) {
             return new Outcome(Result.REJECTED);
         }
@@ -169,11 +170,11 @@ final class WallpaperVmSanitizer {
         final Size original;
         final VmDecode.Decoded decoded;
         try {
-            original = VmDecode.probeFile(mContext, source, "", VmDecode.PRIORITY_USER_WAITING,
+            original = VmDecode.probeFile(mContext, source, "", userId, VmDecode.PRIORITY_USER_WAITING,
                     VmDecode.NO_DEADLINE);
             final int side = WallpaperBox.side(original.getWidth(), original.getHeight(), displayWidth,
                     displayHeight, crops, VmDecode.MAX_BOX);
-            decoded = VmDecode.decodeFile(mContext, source, "", VmDecode.PRIORITY_USER_WAITING, side, side,
+            decoded = VmDecode.decodeFile(mContext, source, "", userId, VmDecode.PRIORITY_USER_WAITING, side, side,
                     VmDecode.NO_DEADLINE);
         } catch (VmDecode.UnavailableException e) {
             Slog.w(TAG, "VM not available for " + source.getName() + ": " + e.getMessage());

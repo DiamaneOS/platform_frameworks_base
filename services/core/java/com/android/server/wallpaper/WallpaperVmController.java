@@ -156,6 +156,22 @@ final class WallpaperVmController {
         });
     }
 
+    /**
+     * The user whose wallpaper {@code source} is: the wallpaper's, else the user folder it is in
+     * (/data/system/users/USER). -1 when neither says: the VM then refuses it.
+     */
+    static int userOf(File source, WallpaperData wallpaper) {
+        if (wallpaper != null) {
+            return wallpaper.userId;
+        }
+        final File dir = source.getParentFile();
+        try {
+            return dir == null ? -1 : Integer.parseInt(dir.getName());
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
     /** True when {@code wallpaper}'s source is there and not a clean copy from the VM yet. */
     static boolean needsVm(WallpaperData wallpaper) {
         return wallpaper.sourceExists() && !WallpaperVmSanitizer.isClean(wallpaper.getWallpaperFile());
@@ -186,7 +202,8 @@ final class WallpaperVmController {
             synchronized (mLock) {
                 crops = wallpaper == null ? null : WallpaperVmSanitizer.cropHints(wallpaper);
             }
-            final WallpaperVmSanitizer.Outcome outcome = mSanitizer.sanitize(source, display.x, display.y, crops);
+            final WallpaperVmSanitizer.Outcome outcome = mSanitizer.sanitize(source, userOf(source, wallpaper),
+                    display.x, display.y, crops);
             switch (outcome.result) {
                 case CLEAN:
                     if (outcome.remade && wallpaper != null) {

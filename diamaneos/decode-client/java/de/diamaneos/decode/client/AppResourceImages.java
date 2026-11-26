@@ -589,7 +589,7 @@ public final class AppResourceImages implements ImageFileGate {
         final Made made;
         try {
             budget.countVmCall();
-            made = decodePlanned(mContext, bytes, plan, density, mOwner, VmDecode.PRIORITY_USER_WAITING,
+            made = decodePlanned(mContext, bytes, plan, density, mOwner, mUserId, VmDecode.PRIORITY_USER_WAITING,
                     VmDecode.deadlineIn(left));
         } catch (VmDecode.RejectedException e) {
             // Refused by the VM: not asked for again, and its icon is not tried again.
@@ -606,11 +606,13 @@ public final class AppResourceImages implements ImageFileGate {
         return made;
     }
 
-    // The file's bytes decoded in the VM as planned, with the density and nine-patch data it keeps.
+    // The file's bytes decoded in the VM as planned, with the density and nine-patch data it keeps. ownerUser: the
+    // user of the app whose file it is (VmDecode OWNER_USER).
     private static Made decodePlanned(Context context, byte[] bytes, ImagePlan plan, int density, String owner,
-            int priority, long deadline) throws VmDecode.RejectedException, VmDecode.UnavailableException {
-        Bitmap bitmap = VmDecode.decodeBytes(context, bytes, 0, bytes.length, owner, priority, plan.boxWidth,
-                plan.boxHeight, deadline);
+            int ownerUser, int priority, long deadline)
+            throws VmDecode.RejectedException, VmDecode.UnavailableException {
+        Bitmap bitmap = VmDecode.decodeBytes(context, bytes, 0, bytes.length, owner, ownerUser, priority,
+                plan.boxWidth, plan.boxHeight, deadline);
         bitmap = VmIcons.immutable(bitmap);
         // Scaled down to fit the box: its density goes down with it, so it keeps the size the app designed.
         if (density != Bitmap.DENSITY_NONE && plan.storedWidth > bitmap.getWidth()) {
@@ -623,21 +625,23 @@ public final class AppResourceImages implements ImageFileGate {
 
     /**
      * The clean copy of one image file, made in the VM the way a gate makes it ({@code bytes} the file's bytes, read
-     * as an opaque blob, {@code density} and the box as in its key), charged to {@code owner} at background priority.
-     * For the system server's store of clean copies.
+     * as an opaque blob, {@code density} and the box as in its key), charged to {@code owner} of {@code ownerUser} at
+     * background priority. For the system server's store of clean copies.
      */
     public static CleanCopies.Entry makeCopy(Context context, byte[] bytes, int density, int maxWidth, int maxHeight,
-            String owner, long timeoutMs) throws VmDecode.RejectedException, VmDecode.UnavailableException {
-        return makeCopy(context, bytes, density, maxWidth, maxHeight, owner, timeoutMs, VmDecode.PRIORITY_BACKGROUND);
+            String owner, int ownerUser, long timeoutMs)
+            throws VmDecode.RejectedException, VmDecode.UnavailableException {
+        return makeCopy(context, bytes, density, maxWidth, maxHeight, owner, ownerUser, timeoutMs,
+                VmDecode.PRIORITY_BACKGROUND);
     }
 
     /** {@link #makeCopy} at {@code priority} (a copy a system process waits for). */
     public static CleanCopies.Entry makeCopy(Context context, byte[] bytes, int density, int maxWidth, int maxHeight,
-            String owner, long timeoutMs, int priority)
+            String owner, int ownerUser, long timeoutMs, int priority)
             throws VmDecode.RejectedException, VmDecode.UnavailableException {
         final int[] box = VmIcons.cacheableBox(maxWidth, maxHeight);
         final ImagePlan plan = ImagePlan.of(bytes, bytes.length, box[0], box[1]);
-        final Made made = decodePlanned(context, bytes, plan, density, owner, priority,
+        final Made made = decodePlanned(context, bytes, plan, density, owner, ownerUser, priority,
                 VmDecode.deadlineIn(timeoutMs));
         return new CleanCopies.Entry(made.bitmap, made.chunk);
     }

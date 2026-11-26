@@ -3480,7 +3480,7 @@ public class ActivityTaskManagerService extends IActivityTaskManager.Stub {
             throw new IllegalArgumentException("Bad file path: " + filePath
                     + " passed for userId " + userId);
         }
-        return mRecentTasks.getTaskDescriptionIcon(filePath);
+        return mRecentTasks.getTaskDescriptionIcon(filePath, userId); // DiamaneOS: TaskIcons
     }
 
     @Override

@@ -2978,6 +2978,12 @@ final class Session
         mHandler.sendMessage(obtainMessage(Session::removeFromService, this));
     }
 
+    // DiamaneOS: the service's images are made for this session's user (AutoFillUI).
+    @Override
+    public int getImagesUserId() {
+        return userId;
+    }
+
     // AutofillUiCallback
     @Override
     public void onShown(int uiType, int numDatasetsShown) {

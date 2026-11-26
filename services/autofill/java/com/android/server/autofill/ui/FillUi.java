@@ -65,6 +65,7 @@ import com.android.internal.R;
 import com.android.server.UiThread;
 import com.android.server.autofill.AutofillManagerService;
 import com.android.server.autofill.Helper;
+import com.android.server.autofill.AutofillPresentationUsers;
 import com.android.server.utils.Slogf;
 
 import java.io.PrintWriter;
@@ -109,6 +110,7 @@ final class FillUi {
 
     private final @NonNull Context mContext;
     private final @NonNull Context mUserContext;
+    private final int mImagesUserId; // DiamaneOS
 
     private final @NonNull AnchoredWindow mWindow;
 
@@ -153,7 +155,7 @@ final class FillUi {
             @NonNull AutofillId focusedViewId, @Nullable String filterText,
             @NonNull CharSequence serviceLabel, @NonNull Drawable serviceIcon,
             boolean nightMode, int maxInputLengthForAutofill,
-            @NonNull Callback callback) {
+            int imagesUserId, @NonNull Callback callback) {
         if (sVerbose) {
             Slogf.v(TAG, "nightMode: %b displayId: %d", nightMode, context.getDisplayId());
         }
@@ -161,7 +163,9 @@ final class FillUi {
         mCallback = callback;
         mFullScreen = isFullScreen(context);
         mContext = new ContextThemeWrapper(context, mThemeId);
-        mUserContext = Helper.getUserContext(mContext);
+        // DiamaneOS: views and URI filters retain the autofill session user.
+        mImagesUserId = imagesUserId;
+        mUserContext = AutofillPresentationUsers.context(mContext, imagesUserId);
         mMaxInputLengthForAutofill = maxInputLengthForAutofill;
         mIsCredmanAutofillSession = (Flags.autofillCredmanIntegration()
             && ((response.getFlags() & FLAG_CREDENTIAL_MANAGER_RESPONSE) != 0));
@@ -169,8 +173,8 @@ final class FillUi {
 
         final LayoutInflater inflater = LayoutInflater.from(mContext);
 
-        final RemoteViews headerPresentation = Helper.sanitizeRemoteView(response.getHeader());
-        final RemoteViews footerPresentation = Helper.sanitizeRemoteView(response.getFooter());
+        final RemoteViews headerPresentation = AutofillPresentationUsers.sanitizeRemoteView(response.getHeader(), mImagesUserId);
+        final RemoteViews footerPresentation = AutofillPresentationUsers.sanitizeRemoteView(response.getFooter(), mImagesUserId);
 
         final ViewGroup decor;
         if (mFullScreen) {
@@ -250,7 +254,7 @@ final class FillUi {
             ViewGroup container = decor.findViewById(R.id.autofill_dataset_picker);
             final View content;
             try {
-                if (Helper.sanitizeRemoteView(response.getPresentation()) == null) {
+                if (AutofillPresentationUsers.sanitizeRemoteView(response.getPresentation(), mImagesUserId) == null) {
                     throw new RuntimeException("Permission error accessing RemoteView");
                 }
                 content = response.getPresentation().applyWithTheme(
@@ -332,8 +336,8 @@ final class FillUi {
                 final Dataset dataset = response.getDatasets().get(i);
                 final int index = dataset.getFieldIds().indexOf(focusedViewId);
                 if (index >= 0) {
-                    final RemoteViews presentation = Helper.sanitizeRemoteView(
-                            dataset.getFieldPresentation(index));
+                    final RemoteViews presentation = AutofillPresentationUsers.sanitizeRemoteView(
+                            dataset.getFieldPresentation(index), mImagesUserId);
                     if (presentation == null) {
                         Slog.w(TAG, "not displaying UI on field " + focusedViewId + " because "
                                 + "service didn't provide a presentation for it on " + dataset);

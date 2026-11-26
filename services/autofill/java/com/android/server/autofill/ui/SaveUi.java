@@ -25,7 +25,6 @@ import android.annotation.NonNull;
 import android.annotation.Nullable;
 import android.annotation.StringRes;
 import android.annotation.StyleRes;
-import android.app.ActivityManager;
 import android.app.ActivityOptions;
 import android.app.Dialog;
 import android.app.PendingIntent;
@@ -82,6 +81,7 @@ import com.android.internal.logging.nano.MetricsProto.MetricsEvent;
 import com.android.internal.util.ArrayUtils;
 import com.android.server.UiThread;
 import com.android.server.autofill.Helper;
+import com.android.server.autofill.AutofillPresentationUsers;
 import com.android.server.utils.Slogf;
 
 import java.io.PrintWriter;
@@ -89,6 +89,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Predicate;
 
+import de.diamaneos.decode.client.AutofillViews;
 import de.diamaneos.decode.client.LateImages;
 
 /**
@@ -182,6 +183,8 @@ final class SaveUi {
     private final CharSequence mSubTitle;
     private final PendingUi mPendingUi;
     private final String mServicePackageName;
+    // DiamaneOS: the user of the session, whose service images are made (AutofillViews).
+    private final int mImagesUserId;
     private final ComponentName mComponentName;
     private final boolean mCompatMode;
     private final int mThemeId;
@@ -198,7 +201,7 @@ final class SaveUi {
             @Nullable String servicePackageName, @NonNull ComponentName componentName,
             @NonNull SaveInfo info, @NonNull ValueFinder valueFinder,
             @NonNull OnSaveListener listener, boolean nightMode, boolean isUpdate,
-            boolean compatMode, boolean showServiceIcon) {
+            boolean compatMode, boolean showServiceIcon, int imagesUserId) {
         if (sVerbose) {
             Slogf.v(TAG, "nightMode: %b displayId: %d", nightMode, context.getDisplayId());
         }
@@ -206,12 +209,13 @@ final class SaveUi {
         mPendingUi = pendingUi;
         mListener = new OneActionThenDestroyListener(listener);
         mServicePackageName = servicePackageName;
+        mImagesUserId = imagesUserId; // DiamaneOS
         mComponentName = componentName;
         mCompatMode = compatMode;
 
         final UserHandle userHandle = context.getUser();
         context = new ContextThemeWrapper(
-                sSupportMultiUserMultiDisplay ? context : Helper.getUserContext(context),
+                AutofillPresentationUsers.context(context, imagesUserId) /* DiamaneOS */,
                 mThemeId) {
             @Override
             public void startActivity(Intent intent) {
@@ -429,12 +433,12 @@ final class SaveUi {
         writeLog(MetricsEvent.AUTOFILL_SAVE_CUSTOM_DESCRIPTION);
         // DiamaneOS: the service's views show at once and its images fill in once an image thread has made them
         // in the VM. Nothing of them is decoded here: its bitmap files and its URI and data images wait.
-        final LateImages images = new LateImages(context, mServicePackageName,
-                ActivityManager.getCurrentUser(), mHandler);
+        final LateImages images = AutofillViews.imagesFor(context, mServicePackageName, mImagesUserId,
+                mHandler);
         final Context viewContext = images.context(context);
         // DiamaneOS: a copy whose URI and data images wait for the image thread (null when it cannot be checked).
-        final RemoteViews template = images.preparedCopy(
-                Helper.sanitizeRemoteView(customDescription.getPresentation()));
+        final RemoteViews template = AutofillViews.preparedCopy(images,
+                AutofillPresentationUsers.sanitizeRemoteView(customDescription.getPresentation(), mImagesUserId), mImagesUserId);
         if (template == null) {
             Slog.w(TAG, "No remote view on custom description");
             return false;
@@ -497,8 +501,8 @@ final class SaveUi {
                     }
                     final BatchUpdates batchUpdates = pair.second;
                     // First apply the updates...
-                    final RemoteViews templateUpdates = images.preparedCopy(
-                            Helper.sanitizeRemoteView(batchUpdates.getUpdates()));
+                    final RemoteViews templateUpdates = AutofillViews.preparedCopy(images,
+                            AutofillPresentationUsers.sanitizeRemoteView(batchUpdates.getUpdates(), mImagesUserId), mImagesUserId);
                     if (templateUpdates != null) {
                         if (sDebug) Slog.d(TAG, "Applying template updates for batch update #" + i);
                         templateUpdates.reapply(viewContext, customSubtitleView);

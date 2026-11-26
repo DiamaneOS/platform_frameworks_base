@@ -236,13 +236,13 @@ public class TaskPersister implements PersisterQueue.Listener {
         }
     }
 
-    Bitmap getTaskDescriptionIcon(String filePath) {
+    Bitmap getTaskDescriptionIcon(String filePath, int userId) {
         // See if it is in the write queue
         final Bitmap icon = getImageFromWriteQueue(filePath);
         if (icon != null) {
             return icon;
         }
-        return restoreImage(filePath);
+        return TaskIcons.restore(filePath, userId); // DiamaneOS: decoded as the task's user's image
     }
 
     private Bitmap getImageFromWriteQueue(String filePath) {

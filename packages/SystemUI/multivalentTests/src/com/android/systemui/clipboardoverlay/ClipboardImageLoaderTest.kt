@@ -78,6 +78,7 @@ class ClipboardImageLoaderTest : SysuiTestCase() {
             resolver: ContentResolver,
             uri: Uri,
             owner: String,
+            ownerUser: Int,
             priority: Int,
             maxWidth: Int,
             maxHeight: Int,

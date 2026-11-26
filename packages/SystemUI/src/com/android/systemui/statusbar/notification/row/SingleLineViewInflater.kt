@@ -23,6 +23,7 @@ import android.app.Notification.MessagingStyle
 import android.app.Person
 import android.content.Context
 import android.graphics.Typeface
+import android.os.UserHandle
 import android.graphics.drawable.Icon
 import android.text.Spannable
 import android.text.SpannableString
@@ -340,10 +341,13 @@ object SingleLineViewInflater {
         systemUiContext: Context,
     ): ConversationAvatar {
         val userKey = user.getKeyOrName()
-        // DiamaneOS: avatars are charged to the posting app.
+        // DiamaneOS: avatars are charged to the posting app. They are images of its user (VmDecode OWNER_USER),
+        // decoded with a context of that user. Without the app's uid they are not decoded.
+        val posterInfo = StoredIcons.appInfoOf(notification)
         val poster =
-            StoredIcons.appInfoOf(notification)?.packageName
-                ?: de.diamaneos.decode.client.VmDecode.unknownOwner("conversation")
+            posterInfo?.packageName ?: de.diamaneos.decode.client.VmDecode.unknownOwner("conversation")
+        val avatarContext =
+            posterInfo?.let { VmIcons.userContext(systemUiContext, UserHandle.getUserId(it.uid)) }
         var conversationIcon: Icon? = shortcutIcon
         var conversationText: CharSequence? = conversationTitle
 
@@ -381,7 +385,9 @@ object SingleLineViewInflater {
 
         // If is one-to-one or the conversation has an icon, return a single icon
         if (!isGroupConversation || conversationIcon != null) {
-            return SingleIcon(VmIcons.loadDrawable(conversationIcon, systemUiContext, poster, VM_PERSON_MAX_PX))
+            return SingleIcon(
+                avatarContext?.let { VmIcons.loadDrawable(conversationIcon, it, poster, VM_PERSON_MAX_PX) }
+            )
         }
 
         // Otherwise, let's find the two last conversations to build a face pile:
@@ -426,8 +432,10 @@ object SingleLineViewInflater {
         }
 
         return FacePile(
-            topIconDrawable = VmIcons.loadDrawable(secondLastIcon, systemUiContext, poster, VM_PERSON_MAX_PX),
-            bottomIconDrawable = VmIcons.loadDrawable(lastIcon, systemUiContext, poster, VM_PERSON_MAX_PX),
+            topIconDrawable =
+                avatarContext?.let { VmIcons.loadDrawable(secondLastIcon, it, poster, VM_PERSON_MAX_PX) },
+            bottomIconDrawable =
+                avatarContext?.let { VmIcons.loadDrawable(lastIcon, it, poster, VM_PERSON_MAX_PX) },
             bottomBackgroundColor = builder.getBackgroundColor(/* isHeader= */ false),
         )
     }

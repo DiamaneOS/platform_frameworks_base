@@ -258,8 +258,8 @@ public class ThumbnailsDeviceTest {
         while (SystemClock.uptimeMillis() < end) {
             try {
                 return VmDecode.loadThumbnail(mContext, mResolver, uri, VmDecode.unknownOwner("clipboard"),
-                        VmDecode.PRIORITY_USER_WAITING, CLIPBOARD.getWidth(), CLIPBOARD.getHeight(),
-                        VmDecode.deadlineIn(20_000));
+                        mContext.getUserId(), VmDecode.PRIORITY_USER_WAITING, CLIPBOARD.getWidth(),
+                        CLIPBOARD.getHeight(), VmDecode.deadlineIn(20_000));
             } catch (VmDecode.UnavailableException | VmDecode.RejectedException e) {
                 last = e;
                 SystemClock.sleep(1_000);

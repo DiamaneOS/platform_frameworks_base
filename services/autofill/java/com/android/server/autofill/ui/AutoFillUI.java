@@ -107,12 +107,16 @@ public final class AutoFillUI {
         void requestShowSoftInput(AutofillId id);
         void requestFallbackFromFillDialog();
         void onShown(int uiType, int datasetSize);
+        // DiamaneOS: the user the session fills for, whose service images are made (AutofillViews).
+        default int getImagesUserId() {
+            return android.os.UserHandle.USER_NULL;
+        }
     }
 
     public AutoFillUI(@NonNull Context context) {
         mContext = context;
         mUiModeMgr = LocalServices.getService(UiModeManagerInternal.class);
-        mServiceViews = new AutofillViews(context, mHandler, v -> Helper.sanitizeRemoteView(v) != null);
+        mServiceViews = new AutofillViews(context, mHandler);
     }
 
     public Context getContext() {
@@ -240,10 +244,10 @@ public final class AutoFillUI {
                 return;
             }
             hideAllUiThread(callback);
-            mFillUi = new FillUi(mServiceViews.contextFor(response, servicePackageName, context), response,
-                    focusedId, filterText,
+            mFillUi = new FillUi(mServiceViews.contextFor(response, servicePackageName,
+                    callback.getImagesUserId(), context), response, focusedId, filterText,
                     serviceLabel, serviceIcon, mUiModeMgr.isNightMode(context.getDisplayId()),
-                    maxInputLengthForAutofill,
+                    maxInputLengthForAutofill, callback.getImagesUserId(), // DiamaneOS
                     new FillUi.Callback() {
                 @Override
                 public void onResponsePicked(FillResponse response) {
@@ -462,7 +466,7 @@ public final class AutoFillUI {
                             callback.startIntentSender(intentSender, intent);
                         }
                     }, mUiModeMgr.isNightMode(saveContext.getDisplayId()), isUpdate, compatMode,
-                    showServiceIcon);
+                    showServiceIcon, callback.getImagesUserId());
 
             mSaveEventLogger.maybeSetLatencySaveUiDisplayMillis();
         }, () -> {
@@ -499,10 +503,11 @@ public final class AutoFillUI {
                 return;
             }
             hideAllUiThread(callback);
-            mFillDialog = new DialogFillUi(mServiceViews.contextFor(response, servicePackageName, mContext),
-                    response, focusedId, filterText,
+            mFillDialog = new DialogFillUi(mServiceViews.contextFor(response, servicePackageName,
+                    callback.getImagesUserId(), mContext), response, focusedId, filterText,
                     serviceIcon, servicePackageName, componentName,
-                    mUiModeMgr.isNightMode(mContext.getDisplayId()), new DialogFillUi.UiCallback() {
+                    mUiModeMgr.isNightMode(mContext.getDisplayId()), callback.getImagesUserId(), // DiamaneOS
+                    new DialogFillUi.UiCallback() {
                         @Override
                         public void onResponsePicked(FillResponse response) {
                             log(MetricsEvent.TYPE_DETAIL);

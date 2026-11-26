@@ -88,6 +88,9 @@ interface IDecodeService {
     /** AppImageFiles: at most this many files for one app. */
     const int MAX_APP_IMAGE_FILES = 256;
 
+    /** DecodeRequest.ownerUser when the caller names no user (UserHandle.USER_NULL). */
+    const int NO_USER = -10000;
+
     /** Header only: format, size, animation, from at most MAX_PROBE_BYTES. No pixels are decoded. */
     ImageInfo probe(in DecodeRequest request);
 
@@ -135,4 +138,12 @@ interface IDecodeService {
      * keep their transaction numbers.
      */
     Thumbnail decodeRegion(in DecodeRequest request, int left, int top, int width, int height, int sampleSize);
+
+    /**
+     * A hint: per-user content of the caller's user follows soon (Files or the photo picker opened a view of images).
+     * The service may start the VM for that user now, before the first thumbnail. The user is decided as for a
+     * decode (DecodeRequest.ownerUser), the request carries no file. Nothing is decoded or answered. Last, so callers
+     * built before it keep their transaction numbers.
+     */
+    oneway void prepare(in DecodeRequest request);
 }

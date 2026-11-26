@@ -65,6 +65,8 @@ android_test {
         "service-jobscheduler",
         "service-permission.impl",
         "service-sdksandbox.impl",
+        // DiamaneOS: exercise the session-user presentation filters with their service implementation.
+        "services.autofill",
         "services.backup",
         "services.companion",
         "services.contentrestriction",

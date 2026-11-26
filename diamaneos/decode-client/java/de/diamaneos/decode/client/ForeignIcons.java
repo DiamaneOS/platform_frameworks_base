@@ -352,8 +352,8 @@ public final class ForeignIcons {
                 return null;
             }
             // Written by the system from pixels the app gave, decoded in the VM all the same.
-            Bitmap bitmap = VmDecode.decode(context, fd, owner, VmDecode.PRIORITY_USER_WAITING, maxPx, maxPx,
-                    VmDecode.deadlineIn(budget.remainingMs())).bitmap;
+            Bitmap bitmap = VmDecode.decode(context, fd, owner, shortcut.getUserId(), VmDecode.PRIORITY_USER_WAITING,
+                    maxPx, maxPx, VmDecode.deadlineIn(budget.remainingMs())).bitmap;
             bitmap = VmIcons.immutable(bitmap);
             VmIcons.cachePut(key, bitmap);
             return bitmap;

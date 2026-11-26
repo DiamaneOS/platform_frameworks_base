@@ -97,9 +97,14 @@ final class VmThumbnailDecoder {
                 reply.putString(VmThumbnails.EXTRA_ERROR, "bad request");
                 return reply;
             }
-            final String owner = owner(extras.getString(VmThumbnails.EXTRA_AUTHORITY),
-                    UserHandle.getUserId(callingUid));
-            final Bitmap bitmap = decode(fd, owner, Math.min(width, MAX_SIDE), Math.min(height, MAX_SIDE), reply);
+            final String authority = extras.getString(VmThumbnails.EXTRA_AUTHORITY);
+            final String owner = owner(authority, UserHandle.getUserId(callingUid));
+            // The thumbnail is an image of the user of the provider it came from (VmDecode OWNER_USER): the user the
+            // authority names, else the calling process's.
+            final int ownerUser = authority == null ? UserHandle.getUserId(callingUid)
+                    : ContentProvider.getUserIdFromAuthority(authority, UserHandle.getUserId(callingUid));
+            final Bitmap bitmap = decode(fd, owner, ownerUser, callingUid, Math.min(width, MAX_SIDE),
+                    Math.min(height, MAX_SIDE), reply);
             if (bitmap != null) {
                 reply.putParcelable(CleanCopyClient.EXTRA_BITMAP, bitmap);
                 if (Log.isLoggable(TAG, Log.DEBUG)) {
@@ -139,7 +144,10 @@ final class VmThumbnailDecoder {
     }
 
     // Decodes on a thread of the pool within THUMBNAIL_MS. Null with the reason in the reply when it cannot.
-    private Bitmap decode(ParcelFileDescriptor fd, String owner, int width, int height, Bundle reply) {
+    // forUid: the process the thumbnail is for (VmDecode.forApp): the decode service decides from it whether it is
+    // per-user content or shared.
+    private Bitmap decode(ParcelFileDescriptor fd, String owner, int ownerUser, int forUid, int width, int height,
+            Bundle reply) {
         final ParcelFileDescriptor own;
         try {
             own = fd.dup();
@@ -156,13 +164,13 @@ final class VmThumbnailDecoder {
                 if (!taken.compareAndSet(false, true)) {
                     return null;
                 }
-                try (ParcelFileDescriptor bytes = own) {
+                try (ParcelFileDescriptor bytes = own; VmDecode.ForApp app = VmDecode.forApp(forUid)) {
                     final long left = end - SystemClock.uptimeMillis();
                     if (left <= 0) {
                         return null;
                     }
-                    final Bitmap made = VmDecode.decode(mContext, bytes, owner, VmDecode.PRIORITY_USER_WAITING,
-                            width, height, VmDecode.deadlineIn(left)).bitmap;
+                    final Bitmap made = VmDecode.decode(mContext, bytes, owner, ownerUser,
+                            VmDecode.PRIORITY_USER_WAITING, width, height, VmDecode.deadlineIn(left)).bitmap;
                     // Immutable in shared memory: the reply hands it over without another copy.
                     final Bitmap shared = made.asShared();
                     if (shared != made) {
