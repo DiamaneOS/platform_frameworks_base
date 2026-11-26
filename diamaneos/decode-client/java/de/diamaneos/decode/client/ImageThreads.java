@@ -99,6 +99,7 @@ public final class ImageThreads {
                     // A stack overflow or out of memory in one task: the thread goes on with the next one.
                     Log.e(TAG, "notification image task failed for " + task.mOwner, e);
                 } finally {
+                    VmDecode.imageTaskDone(); // what it left out for want of room is asked for again shortly
                     mLane.done(task);
                 }
             }

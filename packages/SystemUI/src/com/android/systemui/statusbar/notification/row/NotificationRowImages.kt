@@ -19,6 +19,8 @@ package com.android.systemui.statusbar.notification.row
 import android.app.Notification
 import android.content.Context
 import android.content.pm.LauncherApps
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import com.android.systemui.statusbar.notification.collection.NotificationEntry
 import de.diamaneos.decode.client.AppResourceImages
@@ -26,6 +28,7 @@ import de.diamaneos.decode.client.ForeignIcons
 import de.diamaneos.decode.client.ImageBudget
 import de.diamaneos.decode.client.ImageThreads
 import de.diamaneos.decode.client.NotificationImageGate
+import de.diamaneos.decode.client.VmDecode
 import java.util.Collections
 import java.util.WeakHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -37,6 +40,8 @@ import java.util.concurrent.atomic.AtomicBoolean
  * their images are made ahead of the inflation. URIs inside the app's layouts are opened only when the app may read
  * them itself. Nothing waits for the VM on the inflation thread every notification shares: the inflation starts once
  * the images are made ([start]). If converting fails, every app image is removed and the notification still shows.
+ * A row whose images were left out because the decode service did not answer is inflated again once it answers
+ * ([VmDecode.addRecoveryListener]), so its images fill in with no user action.
  * The inflation reads the checked copy through [sourceOf], so no upstream signature changes for it.
  */
 class NotificationRowImages(
@@ -112,6 +117,7 @@ class NotificationRowImages(
         val sbn = entry.sbn
         val packageContext = sbn.getPackageContext(context)
         var imageGate: NotificationImageGate? = null
+        val unavailable = VmDecode.unavailableCount()
         try {
             val metrics = context.resources.displayMetrics
             val gate =
@@ -159,6 +165,11 @@ class NotificationRowImages(
             imageGate?.finish(urgentImages)
         }
         checkedNotification?.let { sources[sbn.notification] = it }
+        if (VmDecode.unavailableCount() != unavailable && !imagesCancelled.get()) {
+            leftOut(row)
+        } else if (!imagesCancelled.get()) {
+            leftOutRows.remove(row)
+        }
     }
 
     private fun strip(e: Throwable, packageContext: Context) {
@@ -208,6 +219,42 @@ class NotificationRowImages(
         // The checked copy of each notification (by identity: Notification has no equals of its own) whose images
         // were made, for the inflation code to read. Gone with the notification.
         private val sources: MutableMap<Notification, Notification> = Collections.synchronizedMap(WeakHashMap())
+
+        // Rows with images left out for the decode service, and how often each was inflated again for it (a row is
+        // inflated again at most MAX_RECOVERY_REBINDS times, so an image the VM can never make in time is not asked
+        // for again and again).
+        private val leftOutRows: MutableMap<ExpandableNotificationRow, Int> =
+            Collections.synchronizedMap(WeakHashMap())
+        private const val MAX_RECOVERY_REBINDS = 3
+        private val main = Handler(Looper.getMainLooper())
+        private val recoveryListening = AtomicBoolean()
+
+        private fun leftOut(row: ExpandableNotificationRow) {
+            synchronized(leftOutRows) {
+                val rebinds = leftOutRows[row] ?: 0
+                if (rebinds >= MAX_RECOVERY_REBINDS) {
+                    return
+                }
+                leftOutRows[row] = rebinds
+            }
+            if (recoveryListening.compareAndSet(false, true)) {
+                VmDecode.addRecoveryListener { main.post { rebindLeftOut() } }
+            }
+        }
+
+        // The decode service answers again: every row with images left out is inflated again (on the main thread).
+        private fun rebindLeftOut() {
+            val rows =
+                synchronized(leftOutRows) {
+                    leftOutRows.entries
+                        .filter { it.value < MAX_RECOVERY_REBINDS }
+                        .map { it.key to it.value }
+                }
+            for ((row, rebinds) in rows) {
+                synchronized(leftOutRows) { leftOutRows[row] = rebinds + 1 }
+                row.rebindForMissingImages()
+            }
+        }
 
         /**
          * What views of [notification] (an app's, as posted) are made from: the checked copy its image work made,

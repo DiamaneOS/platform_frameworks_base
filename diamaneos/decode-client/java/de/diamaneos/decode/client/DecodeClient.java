@@ -109,6 +109,7 @@ final class DecodeClient {
                 mDownUntil = 0;
                 mLock.notifyAll();
             }
+            recoveryEvent(); // a service (re)started: the recovery watch asks it now
         }
 
         @Override
@@ -143,8 +144,24 @@ final class DecodeClient {
     }
 
     DecodeClient(Context context) {
-        final Context app = context.getApplicationContext();
-        mContext = app != null ? app : context;
+        mContext = ownContext(context);
+    }
+
+    // The context the service is looked up and bound with: the process's own, for its own user. Never a context a
+    // caller passed for one image: in SystemUI the first may be a notification's package context of a work profile,
+    // whose application context is null, and once that profile is removed every new bind would find no service.
+    static Context ownContext(Context context) {
+        Context own = context.getApplicationContext();
+        if (own == null) {
+            own = android.app.ActivityThread.currentApplication();
+        }
+        if (own == null) {
+            own = context;
+        }
+        if (own.getUserId() != android.os.UserHandle.myUserId()) {
+            own = own.createContextAsUser(android.os.Process.myUserHandle(), 0);
+        }
+        return own;
     }
 
     /**
@@ -152,6 +169,24 @@ final class DecodeClient {
      * {@code deadline} (uptime milliseconds) when that is earlier. 0 means no deadline of the caller's own.
      */
     <T> T call(int priority, long deadline, String owner, Call<T> call)
+            throws VmDecode.UnavailableException, VmDecode.RejectedException {
+        try {
+            final T result = callOnce(priority, deadline, owner, call);
+            answered();
+            return result;
+        } catch (VmDecode.UnavailableException e) {
+            // Whoever showed a placeholder for it can ask again once the service answers (VmDecode.unavailable).
+            VmDecode.countUnavailable();
+            if (e.isNoRoom()) {
+                // The service answered: no room for this image now. It is asked for again shortly.
+                answered();
+                VmDecode.noRoom();
+            }
+            throw e;
+        }
+    }
+
+    private <T> T callOnce(int priority, long deadline, String owner, Call<T> call)
             throws VmDecode.UnavailableException, VmDecode.RejectedException {
         final String lane = owner == null ? "" : owner;
         final boolean waiting = priority == IDecodeService.PRIORITY_USER_WAITING;
@@ -184,6 +219,9 @@ final class DecodeClient {
         } catch (VmDecode.UnavailableException | RuntimeException e) {
             claimed.set(true);
             releaseSlot(lane);
+            if (e instanceof VmDecode.UnavailableException) {
+                suspect(); // no service to call: down, gone or not connecting
+            }
             throw e;
         }
         long callTimeout = defaultCallTimeout;
@@ -200,12 +238,19 @@ final class DecodeClient {
                     return null; // given up before it started
                 }
                 started.set(true);
+                boolean answered = false;
                 try {
-                    return call.run(bound.service);
+                    final T result = call.run(bound.service);
+                    answered = true;
+                    return result;
                 } finally {
                     releaseSlot(lane);
                     if (state.getAndSet(1) == 2) {
                         stuckEnded(bound.generation, lane);
+                        if (answered) {
+                            // Answered after its caller gave up: what was left out for it may be asked for again.
+                            VmDecode.lateAnswer();
+                        }
                     }
                 }
             });
@@ -233,14 +278,14 @@ final class DecodeClient {
             mPool.cancel(future); // its place in the fair queue goes too
             // A missed deadline alone says nothing about the service: a hostile image may simply be slow. The binding
             // is dropped when the service cannot serve: most of the call threads are stuck in calls of this binding
-            // past their deadlines, or the VM itself does not answer a probe of a tiny image of our own (checkHealth,
-            // in the background, one at a time per binding). The probe is asked after a call that missed its full
-            // deadline, or after calls of two different apps that were in flight together and both missed a deadline
-            // of at least WEDGE_MIN_DEADLINE_MS within WEDGE_WINDOW_MS. A dropped binding is not asked again for
-            // WEDGED_RETRY_MS. Calls without an app (SystemUI's own image loader, the wallpaper) never count as an app
-            // of their own, and the two-app rule waits until the service of a binding has answered once (a VM still
-            // starting is slow, not wedged). Only the binding the call was made on is ever dropped. A call that only
-            // waited in the queue ends that call.
+            // past their deadlines, or the VM itself does not answer a probe of a tiny image this client made
+            // (checkHealth, in the background, one at a time per binding). The probe is asked after a call that
+            // missed its full deadline, or after calls of two different apps that were in flight together and both
+            // missed a deadline of at least WEDGE_MIN_DEADLINE_MS within WEDGE_WINDOW_MS. A dropped binding is not
+            // asked again for WEDGED_RETRY_MS. Calls without an app (SystemUI's own image loader, the wallpaper)
+            // never count as an app of their own, and the two-app rule waits until the service of a binding has
+            // answered once (a VM still starting is slow, not wedged). Only the binding the call was made on is ever
+            // dropped. A call that only waited in the queue ends that call.
             if (started.get()) {
                 final int stuck = state.compareAndSet(0, 2) ? stuckStarted(bound.generation, lane) : 0;
                 boolean suspect = false;
@@ -268,6 +313,7 @@ final class DecodeClient {
                 } else if (suspect) {
                     checkHealth(bound);
                 }
+                suspect(); // the call ran in the service and got no answer in time
             }
             throw new VmDecode.UnavailableException("decode service missed the deadline", e);
         } catch (InterruptedException e) {
@@ -276,6 +322,11 @@ final class DecodeClient {
             }
             future.cancel(true);
             mPool.cancel(future); // its place in the fair queue goes too
+            if (started.get()) {
+                // The caller gave up while the call ran in the service: that it got no answer up to then is worth
+                // checking (a caller's own timeout often ends the wait first).
+                suspect();
+            }
             Thread.currentThread().interrupt();
             throw new VmDecode.UnavailableException("interrupted", e);
         } catch (ExecutionException e) {
@@ -283,6 +334,12 @@ final class DecodeClient {
             if (cause instanceof VmDecode.RejectedException) {
                 throw (VmDecode.RejectedException) cause;
             }
+            if (cause instanceof VmDecode.UnavailableException
+                    && ((VmDecode.UnavailableException) cause).isNoRoom()) {
+                throw (VmDecode.UnavailableException) cause; // an answer of a working service, nothing to check
+            }
+            // The service said it cannot decode now (its VM is down), or the binder call failed (the service died).
+            suspect();
             if (cause instanceof VmDecode.UnavailableException) {
                 throw (VmDecode.UnavailableException) cause;
             }
@@ -401,6 +458,8 @@ final class DecodeClient {
     private boolean vmAnswers(Bound bound) {
         final java.util.concurrent.CompletableFuture<Boolean> answered =
                 new java.util.concurrent.CompletableFuture<>();
+        // Set when the wait for the answer gave up: only then is the probe's end news for the recovery watch.
+        final AtomicBoolean gaveUp = new AtomicBoolean();
         try {
             final Thread probe = new Thread(() -> {
                 android.os.ParcelFileDescriptor read = null;
@@ -431,11 +490,31 @@ final class DecodeClient {
                             // Nothing to do.
                         }
                     }
+                    // A probe stuck in a stopped service ends when the service answers or dies: the recovery watch
+                    // looks again then.
+                    mProbesRunning.decrementAndGet();
+                    if (gaveUp.get()) {
+                        recoveryEvent();
+                    }
                 }
             }, "VmDecodeProbe");
             probe.setDaemon(true);
-            probe.start();
-            return answered.get(PROBE_MS, TimeUnit.MILLISECONDS);
+            mProbesRunning.incrementAndGet();
+            try {
+                probe.start();
+            } catch (Throwable e) {
+                mProbesRunning.decrementAndGet();
+                throw e;
+            }
+            try {
+                return answered.get(PROBE_MS, TimeUnit.MILLISECONDS);
+            } catch (TimeoutException e) {
+                gaveUp.set(true);
+                if (answered.isDone() && mProbesRunning.get() == 0) {
+                    recoveryEvent(); // it ended just now
+                }
+                return false;
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return true;
@@ -491,6 +570,173 @@ final class DecodeClient {
     private static final long BACK_OFF_MS = 30_000;
     // The owners of the calls stuck in the current binding, guarded by mLock.
     private final Map<String, Integer> mStuckOwners = new HashMap<>();
+
+    // The recovery watch. A call that failed for the service (no connection, no answer in time, the service's own
+    // "unavailable", a dead binder) makes it suspect, and a watcher thread asks the VM for the health image. A "no
+    // room now" answer does not: the service works (VmDecode.noRoom). When the VM does not answer, the service is
+    // down until it answers again: then VmDecode tells everyone who showed a placeholder meanwhile
+    // (VmDecode.addRecoveryListener), so what is blank is asked for again with no user action. A probe that answers
+    // at once (a slow image, not the service) ends the suspicion and tells the state listeners only. The watcher
+    // waits for events between probes: a connection made, a probe stuck in a stopped service that ended (it ends when
+    // the service answers or dies). A wait that grows up to RECOVERY_MAX_MS is the last resort,
+    // and after RECOVERY_TRIES probes the watch ends: the next call that the service answers ends the trouble then.
+    private final Object mRecovery = new Object();
+    private boolean mDown; // a probe failed and nothing answered since, guarded by mRecovery
+    private boolean mWatching; // guarded by mRecovery
+    private int mRecoveryEvents; // guarded by mRecovery
+    private final java.util.concurrent.atomic.AtomicInteger mProbesRunning =
+            new java.util.concurrent.atomic.AtomicInteger();
+    private static final long RECOVERY_FIRST_MS = 1_000;
+    private static final long RECOVERY_MAX_MS = 30_000;
+    private static final int RECOVERY_TRIES = 20;
+
+    /** True while the service is known not to answer (a probe failed and nothing answered since). */
+    boolean isDown() {
+        synchronized (mRecovery) {
+            return mDown;
+        }
+    }
+
+    /** True while the service is down or a failed call is being checked. */
+    boolean isSuspect() {
+        synchronized (mRecovery) {
+            return mDown || mWatching;
+        }
+    }
+
+    // A call failed for the service: the watch starts, unless it runs.
+    private void suspect() {
+        synchronized (mRecovery) {
+            if (mWatching) {
+                return; // the watch runs: more failures are no news
+            }
+            mWatching = true;
+        }
+        try {
+            final Thread watch = new Thread(this::watch, "VmDecodeRecovery");
+            watch.setDaemon(true);
+            watch.start();
+        } catch (Throwable e) {
+            synchronized (mRecovery) {
+                mWatching = false;
+            }
+        }
+    }
+
+    private void recoveryEvent() {
+        synchronized (mRecovery) {
+            mRecoveryEvents++;
+            mRecovery.notifyAll();
+        }
+    }
+
+    // The service answered a call: a service that was down is back.
+    private void answered() {
+        final boolean wasDown;
+        synchronized (mRecovery) {
+            wasDown = mDown;
+            mDown = false;
+        }
+        if (wasDown) {
+            try {
+                final Thread back = new Thread(() -> back(true), "VmDecodeBack");
+                back.setDaemon(true);
+                back.start();
+            } catch (Throwable e) {
+                back(true);
+            }
+        }
+    }
+
+    private void watch() {
+        long wait = RECOVERY_FIRST_MS;
+        int tries = 0;
+        long lastProbe = 0;
+        while (true) {
+            // Probes are at least RECOVERY_FIRST_MS apart, whatever the events.
+            final long gap = lastProbe + RECOVERY_FIRST_MS - SystemClock.uptimeMillis();
+            if (lastProbe != 0 && gap > 0) {
+                SystemClock.sleep(gap);
+            }
+            lastProbe = SystemClock.uptimeMillis();
+            final Boolean answers = probeForRecovery();
+            final boolean wasDown;
+            synchronized (mRecovery) {
+                if (answers == null) {
+                    // A probe is still running: its end is the next event.
+                    final int seen = mRecoveryEvents;
+                    final long end = SystemClock.uptimeMillis() + RECOVERY_MAX_MS;
+                    long left;
+                    while (mRecoveryEvents == seen && mProbesRunning.get() > 0
+                            && (left = end - SystemClock.uptimeMillis()) > 0) {
+                        try {
+                            mRecovery.wait(left);
+                        } catch (InterruptedException e) {
+                            mWatching = false;
+                            return;
+                        }
+                    }
+                    continue;
+                }
+                if (answers) {
+                    wasDown = mDown;
+                    mDown = false;
+                    mWatching = false;
+                } else {
+                    mDown = true;
+                    if (++tries >= RECOVERY_TRIES) {
+                        mWatching = false;
+                        return;
+                    }
+                    final int seen = mRecoveryEvents;
+                    final long end = SystemClock.uptimeMillis() + wait;
+                    long left;
+                    while (mRecoveryEvents == seen && (left = end - SystemClock.uptimeMillis()) > 0) {
+                        try {
+                            mRecovery.wait(left);
+                        } catch (InterruptedException e) {
+                            mWatching = false;
+                            return;
+                        }
+                    }
+                    wait = Math.min(wait * 2, RECOVERY_MAX_MS);
+                    continue;
+                }
+            }
+            back(wasDown);
+            return;
+        }
+    }
+
+    // The service answers again. After it was down, owners turned away for stuck calls of the old service may call
+    // again, and VmDecode tells its listeners.
+    private void back(boolean wasDown) {
+        if (wasDown) {
+            synchronized (mBackedOff) {
+                mBackedOff.clear();
+            }
+            synchronized (mLock) {
+                mLastMissOwner = null;
+            }
+            Log.i(TAG, "decode service answers again");
+        }
+        VmDecode.serviceAnswers(wasDown);
+    }
+
+    // One probe of the VM for the watch: whether it answered, or null when an earlier probe (of the watch or of a
+    // health check) still runs, whose end is an event.
+    private Boolean probeForRecovery() {
+        if (mProbesRunning.get() > 0) {
+            return null;
+        }
+        final Bound bound;
+        try {
+            bound = connect(CONNECT_TIMEOUT_BACKGROUND_MS, true);
+        } catch (VmDecode.UnavailableException | RuntimeException e) {
+            return false;
+        }
+        return vmAnswers(bound);
+    }
 
     // The system server's own calls (no owner): served by a thread of their own.
     private static boolean isSystemLane(String lane) {

@@ -128,7 +128,7 @@ public final class CleanCopyKey {
     /**
      * True when {@code path} is an APK of the verified system image (signed partitions, verified at boot, or an APEX
      * verified by apexd), plain absolute paths only. Apps, updated system apps, and overlays and shared libraries
-     * installed under /data are not. The same rule as the decode client's {@code SystemImagePaths}.
+     * installed under /data are not.
      */
     public static boolean isSystemImage(String path) {
         if (path == null || path.isEmpty() || path.charAt(0) != '/' || path.indexOf('\0') >= 0) {

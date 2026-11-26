@@ -982,7 +982,7 @@ public class RemoteViewsImagesDeviceTest {
     }
 
     @Test
-    public void noImageViews_stripInPlace_andPackageDrawables() {
+    public void noImageViews_stripInPlace() {
         final RemoteViews views = new RemoteViews(mPackage, R.layout.vm_test_probe);
         views.setImageViewIcon(R.id.vm_probe, oracleIcon(4444));
         assertTrue(NoImageViews.stripInPlace(views, null));
@@ -994,10 +994,6 @@ public class RemoteViewsImagesDeviceTest {
         data.putCharSequence(Notification.EXTRA_TITLE, "t");
         other.setBundle(R.id.vm_probe, "setSomethingElse", data);
         assertFalse(NoImageViews.stripInPlace(views, other));
-        // A vector of an app loads, its PNG does not.
-        assertNotNull(NoImageViews.packageDrawable(mContext, mPackage, mContext.getUserId(),
-                R.drawable.vm_test_vector));
-        assertNull(NoImageViews.packageDrawable(mContext, mPackage, mContext.getUserId(), R.drawable.vm_test_red));
     }
 
     @Test

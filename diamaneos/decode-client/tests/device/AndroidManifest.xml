@@ -27,6 +27,10 @@
     <!-- VmPathDeviceTest reaches the decode service: the permission is the platform's signature, and the service
          takes this package as a caller on debuggable builds only. -->
     <uses-permission android:name="de.diamaneos.sanitizer.permission.DECODE" />
+    <!-- ClientContextDeviceTest makes a package context of another app. -->
+    <queries>
+        <package android:name="com.android.systemui" />
+    </queries>
     <application>
         <!-- Counts opens, so a test sees whether a URI was opened at all. -->
         <provider

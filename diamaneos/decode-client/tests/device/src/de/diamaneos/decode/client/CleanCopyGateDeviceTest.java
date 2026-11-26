@@ -143,7 +143,7 @@ public class CleanCopyGateDeviceTest {
     @Test
     public void noCopy_empty_askedWithItsResource() throws Exception {
         final FakeSource source = new FakeSource();
-        final Resources res = gated(CleanCopyGate.forTest(mContext, source, false, false));
+        final Resources res = gated(CleanCopyGate.forTest(mContext, source, false));
         final Object[] out = onThread(() -> {
             final int before = CleanCopyGate.misses();
             final Drawable d = res.getDrawable(R.drawable.vm_test_red, null);
@@ -162,7 +162,7 @@ public class CleanCopyGateDeviceTest {
     public void copy_shownWithPixelsAndDensity() throws Exception {
         final FakeSource source = new FakeSource();
         source.copy = solid(9, 5, 0xff123456, 480);
-        final Resources res = gated(CleanCopyGate.forTest(mContext, source, false, false));
+        final Resources res = gated(CleanCopyGate.forTest(mContext, source, false));
         final Object[] out = onThread(() -> {
             final int before = CleanCopyGate.misses();
             final Drawable d = res.getDrawable(R.drawable.vm_test_red, null);
@@ -182,7 +182,7 @@ public class CleanCopyGateDeviceTest {
     public void stream_isAPngOfTheCopy() throws Exception {
         final FakeSource source = new FakeSource();
         source.copy = solid(7, 3, 0xff00ff00, 0);
-        final Resources res = gated(CleanCopyGate.forTest(mContext, source, false, false));
+        final Resources res = gated(CleanCopyGate.forTest(mContext, source, false));
         final Bitmap decoded = onThread(() -> {
             final TypedValue value = new TypedValue();
             try (InputStream in = res.openRawResource(R.drawable.vm_test_green, value)) {
@@ -198,7 +198,7 @@ public class CleanCopyGateDeviceTest {
     @Test
     public void launcher_gatesEverything() throws Exception {
         final FakeSource source = new FakeSource();
-        final Resources res = gated(CleanCopyGate.forTest(mContext, source, true, false));
+        final Resources res = gated(CleanCopyGate.forTest(mContext, source, false));
         final Object[] out = onThread(() -> {
             final Drawable plain = res.getDrawable(R.drawable.vm_test_red, null);
             final Drawable icon = CleanCopyGate.iconLoad(() -> res.getDrawable(R.drawable.vm_test_red, null));
@@ -228,7 +228,7 @@ public class CleanCopyGateDeviceTest {
     @Test
     public void launcher_widgetPreview_fromItsCopy() throws Exception {
         final FakeSource source = new FakeSource();
-        ImageFileGates.setProcessDefault(CleanCopyGate.forTest(mContext, source, true, true));
+        ImageFileGates.setProcessDefault(CleanCopyGate.forTest(mContext, source, true));
         final AppWidgetProviderInfo info = provider();
         final Object[] none = onThread(() -> {
             final int misses = CleanCopyGate.misses();
@@ -268,7 +268,7 @@ public class CleanCopyGateDeviceTest {
     @Test
     public void launcher_hostedWidget_blankThenFilledFromItsCopy() throws Exception {
         final FakeSource source = new FakeSource();
-        ImageFileGates.setProcessDefault(CleanCopyGate.forTest(mContext, source, true, true));
+        ImageFileGates.setProcessDefault(CleanCopyGate.forTest(mContext, source, true));
         CleanCopyGate.setModeForTest(CleanCopyGate.MODE_LAUNCHER);
         final AppWidgetHostView[] host = new AppWidgetHostView[1];
         final RemoteViews views = new RemoteViews(mContext.getPackageName(), R.layout.vm_test_probe);
@@ -306,7 +306,7 @@ public class CleanCopyGateDeviceTest {
     @Test
     public void packageManagerIcon_default_thenFillsIn() throws Exception {
         final FakeSource source = new FakeSource();
-        ImageFileGates.setProcessDefault(CleanCopyGate.forTest(mContext, source, false, false));
+        ImageFileGates.setProcessDefault(CleanCopyGate.forTest(mContext, source, false));
         CleanCopyGate.setModeForTest(CleanCopyGate.MODE_ALL);
         final PackageManager pm = mContext.getPackageManager();
         final PackageItemInfo item = new PackageItemInfo();
@@ -333,7 +333,7 @@ public class CleanCopyGateDeviceTest {
     public void rawImageByItsBytes_gated() throws Exception {
         final FakeSource source = new FakeSource();
         source.copy = solid(7, 3, 0xff00ff00, 0);
-        final Resources res = gated(CleanCopyGate.forTest(mContext, source, false, false));
+        final Resources res = gated(CleanCopyGate.forTest(mContext, source, false));
         final Bitmap decoded = onThread(() -> {
             try (InputStream in = res.openRawResource(R.raw.vm_test_png_bytes)) {
                 return BitmapFactory.decodeStream(in);
@@ -347,7 +347,7 @@ public class CleanCopyGateDeviceTest {
     @Test
     public void missingMipmap_defaultIcon() throws Exception {
         final FakeSource source = new FakeSource();
-        final Resources res = gated(CleanCopyGate.forTest(mContext, source, false, false));
+        final Resources res = gated(CleanCopyGate.forTest(mContext, source, false));
         final Object[] out = onThread(() -> {
             final int before = CleanCopyGate.misses();
             final Drawable d = res.getDrawable(R.mipmap.vm_test_icon, null);
@@ -363,7 +363,7 @@ public class CleanCopyGateDeviceTest {
         final FakeSource source = new FakeSource();
         source.copy = solid(9, 5, 0xffff0000, 0);
         source.copyAfter = SystemClock.elapsedRealtime() + 400;
-        final Resources res = gated(CleanCopyGate.forTest(mContext, source, true, true));
+        final Resources res = gated(CleanCopyGate.forTest(mContext, source, true));
         final Drawable[] main = new Drawable[1];
         InstrumentationRegistry.getInstrumentation().runOnMainSync(() ->
                 main[0] = CleanCopyGate.iconLoad(() -> res.getDrawable(R.drawable.vm_test_red, null)));
@@ -378,7 +378,7 @@ public class CleanCopyGateDeviceTest {
     public void olderCopy_standsIn_provisional() throws Exception {
         final FakeSource source = new FakeSource();
         source.older = solid(9, 5, 0xff445566, 0);
-        final Resources res = gated(CleanCopyGate.forTest(mContext, source, false, false));
+        final Resources res = gated(CleanCopyGate.forTest(mContext, source, false));
         final Object[] out = onThread(() -> {
             final int misses = CleanCopyGate.misses();
             final int provisional = CleanCopyGate.provisional();
@@ -411,7 +411,7 @@ public class CleanCopyGateDeviceTest {
     @Test
     public void rawNonImage_untouched() throws Exception {
         final FakeSource source = new FakeSource();
-        final Resources res = gated(CleanCopyGate.forTest(mContext, source, false, false));
+        final Resources res = gated(CleanCopyGate.forTest(mContext, source, false));
         final String text = onThread(() -> {
             try (InputStream in = res.openRawResource(R.raw.vm_test_text)) {
                 return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
@@ -428,7 +428,7 @@ public class CleanCopyGateDeviceTest {
     @Test
     public void densityOfALoad_keyedAsResourcesRewritesIt() throws Exception {
         final FakeSource source = new FakeSource();
-        final Resources res = gated(CleanCopyGate.forTest(mContext, source, false, false));
+        final Resources res = gated(CleanCopyGate.forTest(mContext, source, false));
         onThread(() -> res.getDrawableForDensity(R.drawable.vm_test_dens, 640, null));
         final int display = mContext.getResources().getDisplayMetrics().densityDpi;
         final int expected = 320 * display / 640;
@@ -442,7 +442,7 @@ public class CleanCopyGateDeviceTest {
     @Test
     public void packageManager_noCopy_null_thenTheCopy() throws Exception {
         final FakeSource source = new FakeSource();
-        ImageFileGates.setProcessDefault(CleanCopyGate.forTest(mContext, source, false, false));
+        ImageFileGates.setProcessDefault(CleanCopyGate.forTest(mContext, source, false));
         final PackageManager pm = mContext.getPackageManager();
         final Drawable none = onThread(() ->
                 pm.getDrawable(mContext.getPackageName(), R.drawable.vm_test_blue, mContext.getApplicationInfo()));

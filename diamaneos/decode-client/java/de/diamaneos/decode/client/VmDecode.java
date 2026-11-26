@@ -78,12 +78,29 @@ public final class VmDecode {
 
     /** The VM could not do the work now. Show a placeholder and ask again later. */
     public static final class UnavailableException extends Exception {
+        private final boolean mNoRoom;
+
         public UnavailableException(String message) {
             super(message);
+            mNoRoom = false;
         }
 
         public UnavailableException(String message, Throwable cause) {
             super(message, cause);
+            mNoRoom = false;
+        }
+
+        private UnavailableException(String message, boolean noRoom) {
+            super(message);
+            mNoRoom = noRoom;
+        }
+
+        /**
+         * True when the service answered that it has no room for this image now (other large images hold its
+         * memory). The service works: what was left out is asked for again shortly ({@link #addRecoveryListener}).
+         */
+        public boolean isNoRoom() {
+            return mNoRoom;
         }
     }
 
@@ -114,10 +131,6 @@ public final class VmDecode {
         /** True when the stored pixels were mirrored left to right before the turn (the file's orientation). */
         public final boolean mirrored;
 
-        Decoded(Bitmap bitmap, int rotation) {
-            this(bitmap, rotation, false);
-        }
-
         Decoded(Bitmap bitmap, int rotation, boolean mirrored) {
             this.bitmap = bitmap;
             this.rotation = rotation;
@@ -144,6 +157,169 @@ public final class VmDecode {
     private VmDecode() {
     }
 
+    /** Told when the decode service answers again after calls failed for it. */
+    public interface StateListener {
+        /**
+         * The service answers. {@code wasDown}: it did not answer a probe before (an outage that ended), so images
+         * shown as placeholders meanwhile can be asked for again. False after a failure that was not the service's
+         * (a slow image): nothing needs asking again. Called on a thread of its own: do no image work here.
+         */
+        void onServiceAnswers(boolean wasDown);
+    }
+
+    private static final java.util.List<StateListener> sStateListeners =
+            new java.util.concurrent.CopyOnWriteArrayList<>();
+    private static final java.util.concurrent.atomic.AtomicInteger sRecoveries =
+            new java.util.concurrent.atomic.AtomicInteger();
+    // Per thread: how many decode calls failed as unavailable (see unavailableCount).
+    private static final ThreadLocal<int[]> sUnavailable = ThreadLocal.withInitial(() -> new int[1]);
+
+    /** Adds a listener for as long as the process lives (components that live as long, never a view). */
+    public static void addStateListener(StateListener listener) {
+        if (listener != null) {
+            sStateListeners.add(listener);
+        }
+    }
+
+    private static final java.util.List<Runnable> sRecoveryListeners =
+            new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    /**
+     * Adds {@code onBack}, run (on a thread of its own) each time the service answers again after it was down, after
+     * it answered calls late, once their callers had given up (a slow service, its answers kept for the next ask),
+     * and shortly after it had no room for an image ({@link UnavailableException#isNoRoom}): what was left as a
+     * placeholder may be asked for again. For components that live as long as the process.
+     */
+    public static void addRecoveryListener(Runnable onBack) {
+        if (onBack != null) {
+            sRecoveryListeners.add(onBack);
+        }
+    }
+
+    private static void runRecoveryListeners() {
+        for (Runnable onBack : sRecoveryListeners) {
+            try {
+                onBack.run();
+            } catch (RuntimeException e) {
+                Log.w(TAG, "decode service recovery listener failed: " + e);
+            }
+        }
+    }
+
+    // Late and "no room now" answers: the recovery listeners run on one thread of their own, after a quiet time and
+    // at most once per gap (LateRuns).
+    private static final LateRuns sLate = new LateRuns();
+    // Per thread: a "no room now" answer on an image thread, told when its task ends (imageTaskDone).
+    private static final ThreadLocal<boolean[]> sNoRoomInTask = ThreadLocal.withInitial(() -> new boolean[1]);
+
+    // From DecodeClient: a call whose caller gave up (past its deadline, the service slow, not down) was answered after
+    // all. The service keeps that answer, so asking again for what was left out is quick.
+    static void lateAnswer() {
+        later(false);
+    }
+
+    // From DecodeClient: the service had no room for an image now. It works, so this is no outage for the recovery
+    // watch: what was left out is asked for again shortly, as after late answers. On an image thread that waits for
+    // the end of its task, which records what it left out first (ImageThreads).
+    static void noRoom() {
+        if (ImageThreads.isImageThread()) {
+            sNoRoomInTask.get()[0] = true;
+        } else {
+            later(true);
+        }
+    }
+
+    // From ImageThreads, when a task ends on this thread.
+    static void imageTaskDone() {
+        final boolean[] noRoom = sNoRoomInTask.get();
+        if (noRoom[0]) {
+            noRoom[0] = false;
+            later(true);
+        }
+    }
+
+    private static void later(boolean noRoom) {
+        if (!sLate.event(SystemClock.uptimeMillis(), noRoom)) {
+            return;
+        }
+        try {
+            final Thread late = new Thread(VmDecode::lateAnswersSettled, "VmDecodeLate");
+            late.setDaemon(true);
+            late.start();
+        } catch (Throwable e) {
+            sLate.notWaiting();
+        }
+    }
+
+    private static void lateAnswersSettled() {
+        long due;
+        while ((due = sLate.due(SystemClock.uptimeMillis())) > 0) {
+            SystemClock.sleep(due);
+        }
+        if (due == LateRuns.RUN_NO_ROOM) {
+            // As after a check of the service that found it answering: a thumbnail that waits for it asks again.
+            tellStateListeners(false);
+        }
+        runRecoveryListeners();
+    }
+
+    /**
+     * A counter of the decode calls on this thread that failed as unavailable (the service down, slow, busy or without
+     * room now, never a refusal of the image). It only grows: a caller compares it before and after its work to know
+     * whether an image was left out for the service, to ask for it again after {@link #addRecoveryListener}.
+     */
+    public static int unavailableCount() {
+        return sUnavailable.get()[0];
+    }
+
+    /** How many outages of the service ended in this process (it answered again after it was down). */
+    public static int recoveries() {
+        return sRecoveries.get();
+    }
+
+    /** True while this process knows the service is down (a probe got no answer, nothing answered since). */
+    public static boolean isDown() {
+        final DecodeClient client;
+        synchronized (sLock) {
+            client = sClient;
+        }
+        return client != null && client.isDown();
+    }
+
+    /** True while the service is down or a call that failed for it is being checked. */
+    public static boolean isSuspect() {
+        final DecodeClient client;
+        synchronized (sLock) {
+            client = sClient;
+        }
+        return client != null && client.isSuspect();
+    }
+
+    static void countUnavailable() {
+        sUnavailable.get()[0]++;
+    }
+
+    // From DecodeClient: the service answers, after an outage when wasDown.
+    static void serviceAnswers(boolean wasDown) {
+        if (wasDown) {
+            sRecoveries.incrementAndGet();
+        }
+        tellStateListeners(wasDown);
+        if (wasDown) {
+            runRecoveryListeners();
+        }
+    }
+
+    private static void tellStateListeners(boolean wasDown) {
+        for (StateListener listener : sStateListeners) {
+            try {
+                listener.onServiceAnswers(wasDown);
+            } catch (RuntimeException e) {
+                Log.w(TAG, "decode service state listener failed: " + e);
+            }
+        }
+    }
+
     private static DecodeClient client(Context context) {
         synchronized (sLock) {
             if (sClient == null) {
@@ -163,15 +339,6 @@ public final class VmDecode {
     /** The deadline {@code timeoutMs} from now, for the calls below. */
     public static long deadlineIn(long timeoutMs) {
         return SystemClock.uptimeMillis() + Math.max(1, timeoutMs);
-    }
-
-    /**
-     * Decodes the bytes behind {@code fd} into a bitmap that fits in {@code maxWidth} x {@code maxHeight} once turned
-     * by the file's orientation. The service reads the descriptor as opaque bytes. The caller keeps and closes it.
-     */
-    public static Bitmap decodeBitmap(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
-            int priority, int maxWidth, int maxHeight) throws UnavailableException, RejectedException {
-        return decode(context, fd, ownerPackage, ownerUser, priority, maxWidth, maxHeight, NO_DEADLINE).bitmap;
     }
 
     /**
@@ -198,7 +365,11 @@ public final class VmDecode {
         return sMadeOn;
     }
 
-    /** {@link #decodeBitmap}, also giving the turn applied, and with an optional deadline ({@link #deadlineIn}). */
+    /**
+     * Decodes the bytes behind {@code fd} into a bitmap that fits in {@code maxWidth} x {@code maxHeight} once turned
+     * by the file's orientation, giving the turn applied, with an optional deadline ({@link #deadlineIn}). The service
+     * reads the descriptor as opaque bytes. The caller keeps and closes it.
+     */
     public static Decoded decode(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
             int priority, int maxWidth, int maxHeight, long deadline) throws UnavailableException, RejectedException {
         checkNotMainThread();
@@ -232,26 +403,8 @@ public final class VmDecode {
     /** The image's stored size (before any turn) from its header, without decoding pixels. */
     public static Size probeSize(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
             int priority, long deadline) throws UnavailableException, RejectedException {
-        checkNotMainThread();
-        final DecodeRequest request = request(fd, ownerPackage, ownerUser, priority);
-        return client(context).call(priority, deadline, request.ownerPackage, service -> {
-            final ImageInfo info = service.probe(request);
-            if (info == null) {
-                throw new RejectedException("no reply");
-            }
-            checkStatus(info.status);
-            // The contract's own checks (DecodeChecks, the service's copy, compared at build time), then ours.
-            final String broken = DecodeChecks.check(info);
-            if (broken != null) {
-                throw new RejectedException("probe reply breaks the contract: " + broken);
-            }
-            try {
-                StripeValidator.checkInfo(info.format, info.width, info.height, info.animated);
-            } catch (StripeValidator.BadReplyException e) {
-                throw new RejectedException(e.getMessage());
-            }
-            return new Size(info.width, info.height);
-        });
+        final Info info = probeInfo(context, fd, ownerPackage, ownerUser, priority, deadline);
+        return new Size(info.width, info.height);
     }
 
     /** Decodes a file the caller may read. */
@@ -716,6 +869,8 @@ public final class VmDecode {
                 return;
             case IDecodeService.STATUS_UNAVAILABLE:
                 throw new UnavailableException("the VM is not available");
+            case IDecodeService.STATUS_NO_ROOM:
+                throw new UnavailableException("no room in the decode service now", true);
             case IDecodeService.STATUS_UNSUPPORTED:
                 throw new RejectedException("unsupported format");
             case IDecodeService.STATUS_INVALID:
@@ -733,7 +888,7 @@ public final class VmDecode {
         if (maxWidth < 1 || maxHeight < 1) {
             throw new RejectedException("bad box " + maxWidth + "x" + maxHeight);
         }
-        // The contract's own checks (DecodeChecks, the service's copy, compared at build time), then ours.
+        // The contract's own checks (DecodeChecks, the service's copy, compared at build time), then StripeValidator's.
         final String broken = DecodeChecks.check(thumbnail, maxWidth, maxHeight);
         if (broken != null) {
             throw new RejectedException("thumbnail breaks the contract: " + broken);

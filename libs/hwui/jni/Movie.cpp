@@ -145,6 +145,7 @@ static const JNINativeMethod gMethods[] = {
     { "nativeDecodeStream", "(Ljava/io/InputStream;)Landroid/graphics/Movie;",
                             (void*)movie_decodeStream },
     { "nativeDestructor","(J)V", (void*)movie_destructor },
+    // DiamaneOS: Movie.java's native method, renamed there (a gated process makes no movie, DecodeGate).
     { "nativeDecodeByteArray", "([BII)Landroid/graphics/Movie;",
                             (void*)movie_decodeByteArray },
 };

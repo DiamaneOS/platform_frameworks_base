@@ -54,6 +54,7 @@ final class VmThumbnailDecoder {
     private static final String TAG = "VmThumbnails";
 
     static final long THUMBNAIL_MS = 5_000;
+    private static final long DECODE_MARGIN_MS = 250;
     static final int MAX_SIDE = 2048;
     private static final int THREADS = 3;
     private static final int WAITING = 6;
@@ -165,7 +166,9 @@ final class VmThumbnailDecoder {
                     return null;
                 }
                 try (ParcelFileDescriptor bytes = own; VmDecode.ForApp app = VmDecode.forApp(forUid)) {
-                    final long left = end - SystemClock.uptimeMillis();
+                    // The decode ends a little before the caller's wait does, so the decode client sees its own
+                    // missed deadline (and checks the service) rather than an interrupt.
+                    final long left = end - DECODE_MARGIN_MS - SystemClock.uptimeMillis();
                     if (left <= 0) {
                         return null;
                     }
@@ -188,14 +191,21 @@ final class VmThumbnailDecoder {
             final Bitmap bitmap = task.get(Math.max(1, end - SystemClock.uptimeMillis()), TimeUnit.MILLISECONDS);
             if (bitmap == null) {
                 reply.putString(VmThumbnails.EXTRA_ERROR, "out of time");
+                reply.putBoolean(VmThumbnails.EXTRA_LATER, true);
             }
             return bitmap;
         } catch (TimeoutException e) {
+            // The service did not answer in time: the decode client checks it, and the caller may wait for its
+            // answer (CleanImageMaker tells the watching processes) and ask once more.
             reply.putString(VmThumbnails.EXTRA_ERROR, "out of time");
+            reply.putBoolean(VmThumbnails.EXTRA_LATER, true);
         } catch (ExecutionException e) {
             final Throwable cause = e.getCause();
             if (cause instanceof VmDecode.UnavailableException) {
                 reply.putString(VmThumbnails.EXTRA_ERROR, "VM unavailable: " + cause.getMessage());
+                // Only an outage the client is checking, or no room now, ends with an answer the caller can wait for.
+                reply.putBoolean(VmThumbnails.EXTRA_LATER, VmDecode.isSuspect()
+                        || ((VmDecode.UnavailableException) cause).isNoRoom());
             } else if (cause instanceof VmDecode.RejectedException) {
                 reply.putString(VmThumbnails.EXTRA_ERROR, "refused by the VM: " + cause.getMessage());
             } else {

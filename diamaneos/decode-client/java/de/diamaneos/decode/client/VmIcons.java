@@ -231,13 +231,7 @@ public final class VmIcons {
         if (bitmap == null) {
             return null;
         }
-        final Icon safe = icon.getType() == Icon.TYPE_URI_ADAPTIVE_BITMAP
-                ? Icon.createWithAdaptiveBitmap(bitmap) : Icon.createWithBitmap(bitmap);
-        if (icon.hasTint()) {
-            safe.setTintList(icon.getTintList());
-            safe.setTintBlendMode(icon.getTintBlendMode());
-        }
-        return safe;
+        return iconLike(icon, bitmap, icon.getType() == Icon.TYPE_URI_ADAPTIVE_BITMAP);
     }
 
     /**

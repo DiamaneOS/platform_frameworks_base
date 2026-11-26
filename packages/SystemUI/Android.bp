@@ -510,7 +510,7 @@ android_library {
         "SystemUISharedLib",
         "SystemUI-shared-utils",
         "SystemUI-statsd",
-        "diamaneos-decode-client",
+        "diamaneos-decode-client", // DiamaneOS: images from apps decoded in the protected VM
         "SettingsLib",
         "com_android_server_accessibility_flags_lib",
         "com_android_systemui_flags_lib",

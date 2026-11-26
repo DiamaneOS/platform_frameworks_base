@@ -26,6 +26,7 @@ import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.LayerDrawable
 import android.os.UserHandle
 import com.android.internal.R
+import com.android.internal.diamaneos.cleancopies.CleanCopyGate
 import com.android.launcher3.icons.BaseIconFactory
 import com.android.launcher3.icons.BaseIconFactory.IconOptions
 import com.android.launcher3.icons.BitmapInfo
@@ -232,33 +233,50 @@ constructor(
         // One look for the whole request: its caches, its factory and how its drawable is drawn.
         val caches = cachesForCurrentLook()
         val style = caches.look.tallyStyle
-        return caches.standard.getOrFetchAppIcon(
-            packageName = packageName,
-            userHandle = userHandle,
-            drawableInstanceKey = instanceKey,
-            createDrawable = { it.createIconDrawable(themed = isStandardIconThemed(style)) },
-            stamp = appIconStamp(sysuiContext, packageName, userHandle), // DiamaneOS
-        ) {
-            fetchAppIconBitmapInfo(
-                standardIconFactoryFor(style, packageName),
-                packageName,
-                userHandle,
-            )
+        val createDrawable: (BitmapInfo) -> Drawable = {
+            it.createIconDrawable(themed = isStandardIconThemed(style))
+        }
+        // DiamaneOS: an icon whose app image has no clean copy yet is not kept (NotMade), it fills in.
+        return try {
+            caches.standard.getOrFetchAppIcon(
+                packageName = packageName,
+                userHandle = userHandle,
+                drawableInstanceKey = instanceKey,
+                createDrawable = createDrawable,
+                stamp = appIconStamp(sysuiContext, packageName, userHandle), // DiamaneOS
+            ) {
+                fetchAppIconBitmapInfo(
+                    standardIconFactoryFor(style, packageName),
+                    packageName,
+                    userHandle,
+                )
+            }
+        } catch (e: NotMade) {
+            FillingAppIcon.of(createDrawable(e.info), packageName, userHandle.identifier) {
+                getOrFetchAppIcon(packageName, userHandle, instanceKey)
+            }
         }
     }
 
     override fun getOrFetchSkeletonAppIcon(packageName: String, userHandle: UserHandle): Drawable {
-        return cachesForCurrentLook().skeleton.getOrFetchAppIcon(
-            packageName = packageName,
-            userHandle = null, // these aren't badged, so they don't need to be sharded by user
-            drawableInstanceKey = "SKELETON",
-            createDrawable = {
-                it.createIconDrawable(themed = true, outlined = Flags.aodNotifIconOutline())
-            },
-            // DiamaneOS: shared by all users, so stamped without the per-user enabled state.
-            stamp = appIconStamp(sysuiContext, packageName, userHandle, perUser = false),
-        ) {
-            fetchAppIconBitmapInfo(skeletonIconFactory, packageName, userHandle)
+        val createDrawable: (BitmapInfo) -> Drawable = {
+            it.createIconDrawable(themed = true, outlined = Flags.aodNotifIconOutline())
+        }
+        return try {
+            cachesForCurrentLook().skeleton.getOrFetchAppIcon(
+                packageName = packageName,
+                userHandle = null, // these aren't badged, so they don't need to be sharded by user
+                drawableInstanceKey = "SKELETON",
+                createDrawable = createDrawable,
+                // DiamaneOS: shared by all users, so stamped without the per-user enabled state.
+                stamp = appIconStamp(sysuiContext, packageName, userHandle, perUser = false),
+            ) {
+                fetchAppIconBitmapInfo(skeletonIconFactory, packageName, userHandle)
+            }
+        } catch (e: NotMade) {
+            FillingAppIcon.of(createDrawable(e.info), packageName, userHandle.identifier) {
+                getOrFetchSkeletonAppIcon(packageName, userHandle)
+            }
         }
     }
 
@@ -268,10 +286,20 @@ constructor(
         packageName: String,
         userHandle: UserHandle,
     ): BitmapInfo {
+        // DiamaneOS: an app image without a clean copy yet (the decode service down or slow) loads as Android's
+        // default icon (CleanCopyGate). Such an icon is drawn but not kept in the caches.
+        val misses = CleanCopyGate.misses()
         val icon = appIconHelper.getUnbadgedIcon(packageName, userHandle)
         val options = iconOptions(appIconHelper.getUserIconInfo(userHandle))
-        return iconFactory.createBadgedIconBitmap(icon, options)
+        val info = iconFactory.createBadgedIconBitmap(icon, options)
+        if (CleanCopyGate.misses() != misses) {
+            throw NotMade(info)
+        }
+        return info
     }
+
+    /** DiamaneOS: the icon of an app image that has no clean copy yet: shown, not kept. */
+    private class NotMade(val info: BitmapInfo) : RuntimeException(null, null, false, false)
 
     private fun BitmapInfo.createIconDrawable(
         themed: Boolean,

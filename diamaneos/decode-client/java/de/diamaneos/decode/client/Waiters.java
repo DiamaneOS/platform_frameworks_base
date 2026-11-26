@@ -205,7 +205,6 @@ final class Waiters {
         return unwanted;
     }
 
-    /** False for a waiter whose tag was cancelled after it was added: its callback is not run. */
     /** Main thread: runs the callbacks of the waiters still wanted, each guarded (see {@link #runSafely}). */
     void tell(List<Waiter> waiters) {
         for (Waiter w : waiters) {
@@ -227,6 +226,7 @@ final class Waiters {
         }
     }
 
+    /** False for a waiter whose tag was cancelled after it was added: its callback is not run. */
     synchronized boolean live(Waiter w) {
         if (w.tag == null) {
             return true;

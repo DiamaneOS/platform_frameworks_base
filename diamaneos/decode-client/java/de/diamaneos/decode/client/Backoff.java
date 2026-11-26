@@ -22,7 +22,7 @@ import java.util.Map;
 /**
  * When to try again something that failed: the first retry after {@link #FIRST_MS}, each further failure doubles the
  * wait up to {@link #MAX_MS}, and a success forgets it. Used for an image that could not be made (the VM was not up
- * yet, the app's quota was spent) and for a decode service that did not connect. Plain Java with the clock passed in,
+ * yet, the app's quota was spent). Plain Java with the clock passed in,
  * tested on the host. Thread-safe.
  */
 public final class Backoff {

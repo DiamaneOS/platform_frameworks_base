@@ -1618,6 +1618,18 @@ public class ExpandableNotificationRow extends ActivatableNotificationView
         }
     }
 
+    /**
+     * DiamaneOS: inflates the row's content again, as a configuration change does, so the images that were left out
+     * while the decode service did not answer are asked for again (NotificationRowImages).
+     */
+    public void rebindForMissingImages() {
+        if (getEntryAdapter() == null || !getEntryAdapter().isViewBacked()) {
+            return;
+        }
+        getEntryAdapter().markForReinflation(mRowContentBindStage);
+        getEntryAdapter().requestRebind(mRowContentBindStage, (e) -> { });
+    }
+
     private void reInflateViews() {
         Trace.beginSection("ExpandableNotificationRow#reInflateViews");
         // Let's update our childrencontainer. This is intentionally not guarded with

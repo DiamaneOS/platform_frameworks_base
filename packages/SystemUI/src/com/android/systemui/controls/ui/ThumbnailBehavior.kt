@@ -88,7 +88,7 @@ class ThumbnailBehavior(currentUserId: Int, private val safeIconLoader: SafeIcon
 
             cvh.bgExecutor.execute {
                 val drawable =
-                    template.thumbnail.takeIf(canUseIconPredicate)?.let { // DiamaneOS
+                    template.thumbnail.takeIf(canUseIconPredicate)?.let { // DiamaneOS: fills in once made
                         safeIconLoader.load(it) { cvh.rebindForImage() }
                     }
                 cvh.uiExecutor.execute {
