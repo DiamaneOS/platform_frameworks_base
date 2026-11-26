@@ -47,7 +47,6 @@ import java.io.File;
 import java.io.FileDescriptor;
 import java.io.FileNotFoundException;
 import java.io.IOException;
-import java.nio.ByteBuffer;
 
 /**
  * Decodes images supplied by other apps inside the protected VM of the decode service. The caller hands over the
@@ -79,6 +78,7 @@ public final class VmDecode {
     /** The VM could not do the work now. Show a placeholder and ask again later. */
     public static final class UnavailableException extends Exception {
         private final boolean mNoRoom;
+        private boolean mCallerLeft;
 
         public UnavailableException(String message) {
             super(message);
@@ -93,6 +93,23 @@ public final class VmDecode {
         private UnavailableException(String message, boolean noRoom) {
             super(message);
             mNoRoom = noRoom;
+        }
+
+        // No room in this process for the image now (DecodeMemory): asked for again shortly, as the service's.
+        static UnavailableException noRoomHere(String message) {
+            return new UnavailableException(message, true);
+        }
+
+        // The service answered, and the caller had left before the reply was read: a late answer, which the service
+        // keeps for the next ask.
+        static UnavailableException callerLeft(String message) {
+            final UnavailableException e = new UnavailableException(message);
+            e.mCallerLeft = true;
+            return e;
+        }
+
+        boolean isCallerLeft() {
+            return mCallerLeft;
         }
 
         /**
@@ -112,6 +129,13 @@ public final class VmDecode {
     public static final class RejectedException extends Exception {
         /** True when the URI could not be opened: not a verdict on the image, it may be tried again later. */
         public final boolean openFailed;
+        public final int sourceError;
+
+        public RejectedException(String message, int sourceError) {
+            super(message);
+            this.openFailed = false;
+            this.sourceError = sourceError == 2 ? 2 : 3;
+        }
 
         public RejectedException(String message) {
             this(message, false);
@@ -120,6 +144,7 @@ public final class VmDecode {
         public RejectedException(String message, boolean openFailed) {
             super(message);
             this.openFailed = openFailed;
+            this.sourceError = 0;
         }
     }
 
@@ -130,8 +155,18 @@ public final class VmDecode {
         public final int rotation;
         /** True when the stored pixels were mirrored left to right before the turn (the file's orientation). */
         public final boolean mirrored;
+        public final int sourceError;
+
+        Decoded(Bitmap bitmap, int rotation) {
+            this(bitmap, rotation, false);
+        }
 
         Decoded(Bitmap bitmap, int rotation, boolean mirrored) {
+            this(bitmap, rotation, mirrored, 0);
+        }
+
+        Decoded(Bitmap bitmap, int rotation, boolean mirrored, int sourceError) {
+            this.sourceError = sourceError;
             this.bitmap = bitmap;
             this.rotation = rotation;
             this.mirrored = mirrored;
@@ -141,18 +176,18 @@ public final class VmDecode {
     private static final Object sLock = new Object();
     private static DecodeClient sClient; // guarded by sLock
 
-    // Each copy into a pipe runs on its own thread with a deadline. Pipes are read with poll(). A file is read with
-    // pread(), which can block for good on a FUSE file served by an app (a StorageManager proxy): such a thread is
-    // left behind and counted against the owner, and an owner with too many of them gets no new copies.
+    // Each open of a URI and each copy into a pipe runs on its own thread with a deadline. Pipes are read with poll().
+    // A file is read with pread(), which can block for good on a FUSE file served by an app (a StorageManager proxy):
+    // such a thread is left behind and counted against the owner as stuck. A slot is taken before such a thread starts
+    // and held until it ends (RunSlots): at most MAX_RUNNING_PER_OWNER living threads of one owner and MAX_RUNNING in
+    // all. An owner with MAX_STUCK_PER_OWNER stuck ones gets no new ones, and past MAX_STUCK stuck in all only owners
+    // without a stuck thread get them, so a few apps with hung providers cannot switch URI images off for everyone.
+    private static final int MAX_RUNNING_PER_OWNER = 4;
+    private static final int MAX_RUNNING = 64;
     private static final int MAX_STUCK_PER_OWNER = 2;
-    // Past MAX_STUCK in all, only owners that already hold a stuck thread are turned away: an owner with none still
-    // gets its opens, so a few apps with hung providers cannot switch URI images off for everyone. MAX_STUCK_THREADS
-    // is the real ceiling on threads left behind.
     private static final int MAX_STUCK = 16;
-    private static final int MAX_STUCK_THREADS = 64;
-    private static final Object sStuckLock = new Object();
-    private static final java.util.Map<String, Integer> sStuck = new java.util.HashMap<>(); // guarded by sStuckLock
-    private static int sStuckTotal; // guarded by sStuckLock
+    private static final RunSlots sSlots =
+            new RunSlots(MAX_RUNNING_PER_OWNER, MAX_RUNNING, MAX_STUCK_PER_OWNER, MAX_STUCK);
 
     private VmDecode() {
     }
@@ -209,33 +244,106 @@ public final class VmDecode {
     // Late and "no room now" answers: the recovery listeners run on one thread of their own, after a quiet time and
     // at most once per gap (LateRuns).
     private static final LateRuns sLate = new LateRuns();
-    // Per thread: a "no room now" answer on an image thread, told when its task ends (imageTaskDone).
-    private static final ThreadLocal<boolean[]> sNoRoomInTask = ThreadLocal.withInitial(() -> new boolean[1]);
+    private static final CapacityLanes sCapacityLanes = new CapacityLanes();
+    private static final ThreadLocal<java.util.ArrayList<CapacityLanes.Lane>> sFailedLanes =
+            ThreadLocal.withInitial(java.util.ArrayList::new);
+    private static final ThreadLocal<boolean[]> sCapacityTask = ThreadLocal.withInitial(() -> new boolean[1]);
+    private static final java.util.concurrent.atomic.AtomicBoolean sCapacityTimer =
+            new java.util.concurrent.atomic.AtomicBoolean();
+    private static final java.util.concurrent.ScheduledExecutorService sCapacityClock =
+            java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+                final Thread thread = new Thread(r, "VmDecodeCapacity");
+                thread.setDaemon(true);
+                return thread;
+            });
+    private static final java.util.concurrent.atomic.AtomicInteger sBindings =
+            new java.util.concurrent.atomic.AtomicInteger();
 
-    // From DecodeClient: a call whose caller gave up (past its deadline, the service slow, not down) was answered after
-    // all. The service keeps that answer, so asking again for what was left out is quick.
+    private static final java.util.concurrent.atomic.AtomicInteger sLateAnswers =
+            new java.util.concurrent.atomic.AtomicInteger();
+
+    // Late answers of this process's calls (StuckCalls), for tests: other events also run the recovery listeners.
+    private static final java.util.concurrent.atomic.AtomicInteger sLateCalls =
+            new java.util.concurrent.atomic.AtomicInteger();
+
     static void lateAnswer() {
+        sLateCalls.incrementAndGet();
         later(false);
     }
 
-    // From DecodeClient: the service had no room for an image now. It works, so this is no outage for the recovery
-    // watch: what was left out is asked for again shortly, as after late answers. On an image thread that waits for
-    // the end of its task, which records what it left out first (ImageThreads).
+    /** Calls answered after their caller left, for tests. */
+    static int lateCallsForTest() {
+        return sLateCalls.get();
+    }
+
     static void noRoom() {
-        if (ImageThreads.isImageThread()) {
-            sNoRoomInTask.get()[0] = true;
-        } else {
-            later(true);
+        noRoom("", 1);
+    }
+
+    static void noRoom(String lane, long bytes) {
+        if (ImageThreads.isImageThread() && !sCapacityTask.get()[0]) {
+            sCapacityTask.get()[0] = true;
+            sCapacityLanes.taskStarted();
+        }
+        final CapacityLanes.Lane failed = sCapacityLanes.refused(lane, Math.max(1, bytes), SystemClock.uptimeMillis());
+        final java.util.ArrayList<CapacityLanes.Lane> failures = sFailedLanes.get();
+        if (!ImageThreads.isImageThread()) failures.clear();
+        if (!failures.contains(failed)) failures.add(failed);
+        capacityTimer();
+    }
+
+    static void served() {
+        served("", Long.MAX_VALUE);
+    }
+
+    static void served(String lane, long bytes) {
+        if (ImageThreads.isImageThread() && sCapacityLanes.interested(lane) && !sCapacityTask.get()[0]) {
+            sCapacityTask.get()[0] = true;
+            sCapacityLanes.taskStarted();
+        }
+        if (sCapacityLanes.completed(lane, bytes)) later(true);
+    }
+
+    /** The failed lanes of the current image task, for that consumer's next recovery selection. */
+    public static java.util.function.IntSupplier capacityWakes() {
+        return CapacityLanes.snapshot(sFailedLanes.get(), sBindings::get);
+    }
+
+    static void bindingChanged() {
+        sBindings.incrementAndGet();
+        android.graphics.GateRefill.recovered();
+        later(false);
+    }
+
+    /** Global evidence is a new binding or a verified outage recovery, never an unrelated successful decode. */
+    public static int wakes() {
+        return sRecoveries.get() + sBindings.get();
+    }
+
+    static void imageTaskDone() {
+        sFailedLanes.get().clear();
+        if (sCapacityTask.get()[0]) {
+            sCapacityTask.get()[0] = false;
+            if (sCapacityLanes.taskEnded()) later(true);
         }
     }
 
-    // From ImageThreads, when a task ends on this thread.
-    static void imageTaskDone() {
-        final boolean[] noRoom = sNoRoomInTask.get();
-        if (noRoom[0]) {
-            noRoom[0] = false;
-            later(true);
+    private static void capacityTimer() {
+        final long delay = sCapacityLanes.delay(SystemClock.uptimeMillis());
+        if (delay < 0 || !sCapacityTimer.compareAndSet(false, true)) return;
+        try {
+            sCapacityClock.schedule(() -> {
+                sCapacityTimer.set(false);
+                if (sCapacityLanes.tick(SystemClock.uptimeMillis())) later(true);
+                capacityTimer();
+            }, delay, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (RuntimeException | Error e) {
+            sCapacityTimer.set(false);
         }
+    }
+
+    private static String capacityLane(DecodeRequest request) {
+        return request.ownerPackage + ":u" + request.ownerUser + ":for" + request.forUid;
     }
 
     private static void later(boolean noRoom) {
@@ -256,11 +364,18 @@ public final class VmDecode {
         while ((due = sLate.due(SystemClock.uptimeMillis())) > 0) {
             SystemClock.sleep(due);
         }
+        if (!sCapacityLanes.mayPublish()) return;
         if (due == LateRuns.RUN_NO_ROOM) {
             // As after a check of the service that found it answering: a thumbnail that waits for it asks again.
             tellStateListeners(false);
         }
+        sLateAnswers.incrementAndGet();
         runRecoveryListeners();
+    }
+
+    /** How often a settled late-answer batch notified the consumers of this process. */
+    public static int lateAnswerRounds() {
+        return sLateAnswers.get();
     }
 
     /**
@@ -303,6 +418,7 @@ public final class VmDecode {
     static void serviceAnswers(boolean wasDown) {
         if (wasDown) {
             sRecoveries.incrementAndGet();
+            android.graphics.GateRefill.recovered();
         }
         tellStateListeners(wasDown);
         if (wasDown) {
@@ -318,6 +434,11 @@ public final class VmDecode {
                 Log.w(TAG, "decode service state listener failed: " + e);
             }
         }
+    }
+
+    /** Tests: the listeners are told as if the service answered again after an outage. */
+    public static void serviceBackForTest() {
+        serviceAnswers(true);
     }
 
     private static DecodeClient client(Context context) {
@@ -339,6 +460,12 @@ public final class VmDecode {
     /** The deadline {@code timeoutMs} from now, for the calls below. */
     public static long deadlineIn(long timeoutMs) {
         return SystemClock.uptimeMillis() + Math.max(1, timeoutMs);
+    }
+
+    /** The bitmap-only entry used by cumulative image consumers. */
+    public static Bitmap decodeBitmap(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
+            int priority, int maxWidth, int maxHeight) throws UnavailableException, RejectedException {
+        return decode(context, fd, ownerPackage, ownerUser, priority, maxWidth, maxHeight, NO_DEADLINE).bitmap;
     }
 
     /**
@@ -372,19 +499,63 @@ public final class VmDecode {
      */
     public static Decoded decode(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
             int priority, int maxWidth, int maxHeight, long deadline) throws UnavailableException, RejectedException {
+        return decode(context, fd, ownerPackage, ownerUser, priority, maxWidth, maxHeight, deadline, false);
+    }
+
+    public static Decoded decode(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
+            int priority, int maxWidth, int maxHeight, long deadline, boolean allowPartial)
+            throws UnavailableException, RejectedException {
+        return decode(context, fd, ownerPackage, ownerUser, priority, maxWidth, maxHeight, deadline, allowPartial, 0);
+    }
+
+    public static Decoded decode(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
+            int priority, int maxWidth, int maxHeight, long deadline, boolean allowPartial, int pixelFormat)
+            throws UnavailableException, RejectedException {
+        return decode(context, fd, ownerPackage, ownerUser, priority, maxWidth, maxHeight,
+                deadline, allowPartial, pixelFormat, false, false);
+    }
+
+    public static Decoded decodeGainmap(Context context, ParcelFileDescriptor fd, String ownerPackage,
+            int ownerUser, int priority, int baseWidth, int baseHeight, long deadline)
+            throws UnavailableException, RejectedException {
+        return decode(context, fd, ownerPackage, ownerUser, priority, baseWidth, baseHeight,
+                deadline, false, 0, true, false);
+    }
+
+    /** The bounded internal JPEG preview that also discovers gain metadata in a large source. */
+    public static Decoded decodeGainPreview(Context context, ParcelFileDescriptor fd, String ownerPackage,
+            int ownerUser, int priority, long deadline) throws UnavailableException, RejectedException {
+        return decode(context, fd, ownerPackage, ownerUser, priority, 64, 64, deadline, false, 0, false, true);
+    }
+
+    private static Decoded decode(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
+            int priority, int maxWidth, int maxHeight, long deadline, boolean allowPartial, int pixelFormat,
+            boolean gainmapOnly, boolean gainmapPreview) throws UnavailableException, RejectedException {
         checkNotMainThread();
-        if (maxWidth < 1 || maxHeight < 1) {
-            throw new RejectedException("bad box " + maxWidth + "x" + maxHeight);
+        if ((pixelFormat != 0 && pixelFormat != 2) || maxWidth < 1 || maxHeight < 1) {
+            throw new RejectedException("bad box or pixel format");
         }
         final DecodeRequest request = request(fd, ownerPackage, ownerUser, priority);
-        return client(context).call(priority, deadline, request.ownerPackage, service -> {
+        request.pixelFormat = pixelFormat;
+        request.gainmapOnly = gainmapOnly;
+        request.gainmapPreview = gainmapPreview;
+        return client(context).call(priority, deadline, request.ownerPackage, capacityLane(request),
+                Math.min((long) maxWidth * maxHeight, IDecodeService.MAX_PIXELS) * 5, service -> {
             final Thumbnail thumbnail = service.decodeThumbnail(request, maxWidth, maxHeight);
             if (thumbnail == null) {
                 throw new RejectedException("no reply");
             }
             checkStatus(thumbnail.status);
             try {
-                final Decoded decoded = toDecoded(service, thumbnail, maxWidth, maxHeight);
+                if (thumbnail.pixelFormat != pixelFormat || thumbnail.gainmapOnly != gainmapOnly) {
+                    throw new RejectedException("reply pixel format or mode");
+                }
+                if (gainmapOnly && (thumbnail.rotation != 0 || thumbnail.mirrored
+                        || thumbnail.gainmapWidth != 0 || thumbnail.gainmapHeight != 0
+                        || thumbnail.colorSpace != IDecodeService.COLOR_SPACE_SRGB)) {
+                    throw new RejectedException("gain map reply shape");
+                }
+                final Decoded decoded = ReplyPixels.thumbnail(service, thumbnail, maxWidth, maxHeight, allowPartial, gainmapOnly);
                 if (madeLogging()) {
                     madeLine("made " + decoded.bitmap.getWidth() + "x" + decoded.bitmap.getHeight()
                             + " in the VM for " + request.ownerPackage);
@@ -473,7 +644,8 @@ public final class VmDecode {
                 throw new RejectedException("no image behind the URI", true);
             }
             final Bundle extras = providerTurn ? afd.getExtras() : null;
-            final int turn = extras != null ? extras.getInt(DocumentsContract.EXTRA_ORIENTATION, 0) : 0;
+            final int turn = ReplyPixels.quarterTurn(
+                    extras != null ? extras.getInt(DocumentsContract.EXTRA_ORIENTATION, 0) : 0);
             final Pumper pumper = pipe(afd, owner, pumpDeadline(deadline));
             try (ParcelFileDescriptor read = pumper.read) {
                 final Bitmap bitmap = decode(context, read, owner, user, priority, maxWidth, maxHeight, deadline)
@@ -481,10 +653,25 @@ public final class VmDecode {
                 if (turn == 0) {
                     return bitmap;
                 }
-                // As ContentResolver.loadThumbnail turns it.
-                final Matrix m = new Matrix();
-                m.setRotate(turn, bitmap.getWidth() / 2, bitmap.getHeight() / 2);
-                return Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), m, false);
+                // The provider's turn holds the input and a complete HDR output at once.
+                Bitmap turned = null;
+                try (android.graphics.DecodeMemory.Reservation memory =
+                        android.graphics.DecodeMemory.reserve(android.graphics.DecodeMemory.bitmapBytes(bitmap))) {
+                    final Matrix m = new Matrix();
+                    m.setRotate(turn, bitmap.getWidth() / 2, bitmap.getHeight() / 2);
+                    turned = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), m, false);
+                    android.graphics.DecodeMemory.keep(turned, memory);
+                    android.graphics.DecodeMemory.recycle(bitmap, turned);
+                    return turned;
+                } catch (android.graphics.DecodeMemory.NoRoomException e) {
+                    android.graphics.DecodeMemory.recycle(bitmap, null);
+                    if (e.later) throw UnavailableException.noRoomHere(e.getMessage());
+                    throw new RejectedException(e.getMessage());
+                } catch (OutOfMemoryError e) {
+                    android.graphics.DecodeMemory.recycle(turned, null);
+                    android.graphics.DecodeMemory.recycle(bitmap, null);
+                    throw UnavailableException.noRoomHere("no memory for the provider turn");
+                }
             } finally {
                 pumper.afterCall();
             }
@@ -620,6 +807,10 @@ public final class VmDecode {
      */
 
     // The app the system server decodes for on this thread (DecodeRequest.forUid), -1 for its own decodes.
+    /** Verified system-server installed assets, isolated by user and package in the service. */
+    public static final int APK_ASSETS = -2;
+    /** Verified system-server item exports, isolated by source, item and recipient in the service. */
+    public static final int SHORTCUT_ITEM = -3;
     private static final ThreadLocal<Integer> FOR_APP = ThreadLocal.withInitial(() -> -1);
 
     /** A scope of {@link #forApp}: closing it ends it. */
@@ -705,7 +896,7 @@ public final class VmDecode {
      * total time when the caller has none). Opening is a call into the provider's app, which can take any time and
      * cannot be interrupted: an open that misses the deadline is left behind and counted against {@code owner} like a
      * read that never returned, its file is closed when it comes back, and an owner with too many of them gets no new
-     * opens until they return.
+     * opens until they return. The thread's slot is taken before it starts and held until it ends (RunSlots).
      */
     private static AssetFileDescriptor openImageWithin(ContentResolver resolver, Uri uri, int maxWidth,
             int maxHeight, String owner, long deadline)
@@ -721,114 +912,119 @@ public final class VmDecode {
             throw new UnavailableException("deadline passed before the open");
         }
         final String lane = owner == null ? "" : owner;
-        synchronized (sStuckLock) {
-            if (tooManyStuckLocked(lane)) {
-                throw new UnavailableException("too many opens or reads that never returned for " + lane);
-            }
+        final RunSlots.Slot slot = sSlots.take(lane);
+        if (slot == null) {
+            throw new UnavailableException("too many opens or reads under way for " + lane);
         }
-        final Opener opener = new Opener(resolver, uri, maxWidth, maxHeight, lane);
-        opener.start();
+        final Opener opener;
+        try {
+            opener = new Opener(resolver, uri, maxWidth, maxHeight, slot);
+            opener.start();
+        } catch (Throwable e) {
+            slot.end();
+            throw new UnavailableException("no thread for the open", e);
+        }
         return opener.await(end);
     }
 
-    /** One open of a URI on its own thread. */
+    /** One open of a URI on its own thread, which holds its slot until it ends. */
     private static final class Opener extends Thread {
         private final ContentResolver mResolver;
         private final Uri mUri;
         private final int mMaxWidth;
         private final int mMaxHeight;
-        private final String mOwner;
-        private AssetFileDescriptor mResult; // guarded by sStuckLock
-        private Throwable mError; // guarded by sStuckLock
-        private boolean mDone; // guarded by sStuckLock
-        private boolean mAbandoned; // guarded by sStuckLock
+        private final RunSlots.Slot mSlot;
+        private AssetFileDescriptor mResult; // guarded by this
+        private Throwable mError; // guarded by this
+        private boolean mDone; // guarded by this
+        private boolean mAbandoned; // guarded by this
         // Cancelled at the deadline: a provider that honours it lets the open (and this thread) go.
         private final android.os.CancellationSignal mCancel = new android.os.CancellationSignal();
 
-        Opener(ContentResolver resolver, Uri uri, int maxWidth, int maxHeight, String owner) {
+        Opener(ContentResolver resolver, Uri uri, int maxWidth, int maxHeight, RunSlots.Slot slot) {
             super("VmDecodeOpen");
             setDaemon(true);
             mResolver = resolver;
             mUri = uri;
             mMaxWidth = maxWidth;
             mMaxHeight = maxHeight;
-            mOwner = owner;
+            mSlot = slot;
         }
 
         @Override
         public void run() {
-            AssetFileDescriptor result = null;
-            Throwable error = null;
             try {
-                result = openImage(mResolver, mUri, mMaxWidth, mMaxHeight, mCancel);
-            } catch (Throwable t) {
-                error = t;
-            }
-            synchronized (sStuckLock) {
-                mDone = true;
-                if (mAbandoned) {
-                    closeQuietly(result);
-                    uncountStuckLocked(mOwner);
-                } else {
-                    mResult = result;
-                    mError = error;
+                AssetFileDescriptor result = null;
+                Throwable error = null;
+                try {
+                    result = openImage(mResolver, mUri, mMaxWidth, mMaxHeight, mCancel);
+                } catch (Throwable t) {
+                    error = t;
                 }
-                sStuckLock.notifyAll();
+                final boolean abandoned;
+                synchronized (this) {
+                    mDone = true;
+                    abandoned = mAbandoned;
+                    if (!abandoned) {
+                        mResult = result;
+                        mError = error;
+                    }
+                    notifyAll();
+                }
+                if (abandoned) {
+                    closeQuietly(result);
+                }
+            } finally {
+                mSlot.end();
             }
         }
 
         AssetFileDescriptor await(long end) throws FileNotFoundException, UnavailableException {
-            synchronized (sStuckLock) {
+            boolean interrupted = false;
+            final boolean gaveUp;
+            final AssetFileDescriptor result;
+            final Throwable error;
+            synchronized (this) {
                 while (!mDone) {
                     final long left = end - SystemClock.uptimeMillis();
                     if (left <= 0) {
                         break;
                     }
                     try {
-                        sStuckLock.wait(left);
+                        wait(left);
                     } catch (InterruptedException e) {
+                        interrupted = true;
                         break;
                     }
                 }
-                if (!mDone) {
+                gaveUp = !mDone;
+                if (gaveUp) {
+                    // Left behind: counted against its owner until the thread ends, its file closed then.
                     mAbandoned = true;
-                    countStuckLocked(mOwner);
-                    mCancel.cancel();
-                    throw new UnavailableException("the provider did not open the image in time");
+                    mSlot.abandon();
                 }
+                result = mResult;
+                error = mError;
             }
-            if (mError instanceof FileNotFoundException) {
-                throw (FileNotFoundException) mError;
+            if (interrupted) {
+                Thread.currentThread().interrupt();
             }
-            if (mError instanceof RuntimeException) {
-                throw (RuntimeException) mError;
+            if (gaveUp) {
+                mCancel.cancel();
+                throw new UnavailableException(interrupted ? "interrupted while the provider opened the image"
+                        : "the provider did not open the image in time");
             }
-            if (mError != null) {
-                throw new UnavailableException("could not open the URI", mError);
+            if (error instanceof FileNotFoundException) {
+                throw (FileNotFoundException) error;
             }
-            return mResult;
+            if (error instanceof RuntimeException) {
+                throw (RuntimeException) error;
+            }
+            if (error != null) {
+                throw new UnavailableException("could not open the URI", error);
+            }
+            return result;
         }
-    }
-
-    private static boolean tooManyStuckLocked(String owner) {
-        final int own = sStuck.getOrDefault(owner, 0);
-        return own >= MAX_STUCK_PER_OWNER || (own > 0 && sStuckTotal >= MAX_STUCK)
-                || sStuckTotal >= MAX_STUCK_THREADS;
-    }
-
-    private static void countStuckLocked(String owner) {
-        sStuck.put(owner, sStuck.getOrDefault(owner, 0) + 1);
-        sStuckTotal++;
-    }
-
-    private static void uncountStuckLocked(String owner) {
-        final int n = sStuck.getOrDefault(owner, 1) - 1;
-        if (n <= 0) {
-            sStuck.remove(owner);
-        } else {
-            sStuck.put(owner, n);
-        }
-        sStuckTotal--;
     }
 
     private static AssetFileDescriptor openImage(ContentResolver resolver, Uri uri, int maxWidth, int maxHeight,
@@ -882,69 +1078,8 @@ public final class VmDecode {
 
     /** Reads every stripe, checks it, and builds the bitmap. Everything the service sent is hostile until here. */
     private static Decoded toDecoded(IDecodeService service, Thumbnail thumbnail, int maxWidth, int maxHeight)
-            throws RemoteException, RejectedException {
-        final int width = thumbnail.width;
-        final int height = thumbnail.height;
-        if (maxWidth < 1 || maxHeight < 1) {
-            throw new RejectedException("bad box " + maxWidth + "x" + maxHeight);
-        }
-        // The contract's own checks (DecodeChecks, the service's copy, compared at build time), then StripeValidator's.
-        final String broken = DecodeChecks.check(thumbnail, maxWidth, maxHeight);
-        if (broken != null) {
-            throw new RejectedException("thumbnail breaks the contract: " + broken);
-        }
-        final int stripes;
-        try {
-            stripes = StripeValidator.checkHeader(width, height, thumbnail.stripeRows, thumbnail.rotation,
-                    maxWidth, maxHeight);
-        } catch (StripeValidator.BadReplyException e) {
-            throw new RejectedException(e.getMessage());
-        }
-        final byte[] frame = new byte[width * height * 4];
-        for (int i = 0; i < stripes; i++) {
-            final byte[] stripe = service.readStripe(thumbnail.handle, i);
-            final String bad = DecodeChecks.check(thumbnail, i, stripe);
-            if (bad != null) {
-                throw new RejectedException("stripe " + i + " breaks the contract: " + bad);
-            }
-            try {
-                StripeValidator.putStripe(frame, width, height, thumbnail.stripeRows, i, stripe);
-            } catch (StripeValidator.BadReplyException e) {
-                throw new RejectedException(e.getMessage());
-            }
-        }
-        // In the file's colour space, as Android's decode gives it: sRGB or Display P3 (Thumbnail.colorSpace).
-        final Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888, true,
-                DecodeChecks.colorSpaceOf(thumbnail));
-        bitmap.copyPixelsFromBuffer(ByteBuffer.wrap(frame));
-        // Ultra HDR: the gain map, every stripe checked, attached as Android's decode attaches it. A rotation below
-        // turns it with the image (Bitmap.createBitmap transforms the gain map too).
-        if (thumbnail.gainmapWidth > 0) {
-            final int gainRowBytes = thumbnail.gainmapWidth * 4;
-            final byte[] gain = new byte[gainRowBytes * thumbnail.gainmapHeight];
-            final int gainStripes = (thumbnail.gainmapHeight + thumbnail.gainmapStripeRows - 1)
-                    / thumbnail.gainmapStripeRows;
-            for (int i = 0; i < gainStripes; i++) {
-                final byte[] stripe = service.readGainmapStripe(thumbnail.handle, i);
-                final String bad = DecodeChecks.checkGainmap(thumbnail, i, stripe);
-                if (bad != null) {
-                    bitmap.recycle();
-                    throw new RejectedException("gain map stripe " + i + " breaks the contract: " + bad);
-                }
-                System.arraycopy(stripe, 0, gain, i * thumbnail.gainmapStripeRows * gainRowBytes, stripe.length);
-            }
-            bitmap.setGainmap(DecodeChecks.gainmapOf(thumbnail, gain));
-        }
-        Bitmap result = bitmap;
-        if (thumbnail.rotation != 0) {
-            final Matrix matrix = new Matrix();
-            matrix.setRotate(thumbnail.rotation);
-            result = Bitmap.createBitmap(bitmap, 0, 0, width, height, matrix, true);
-            if (result != bitmap) {
-                bitmap.recycle();
-            }
-        }
-        return new Decoded(result, thumbnail.rotation, thumbnail.mirrored);
+            throws RemoteException, RejectedException, UnavailableException {
+        return ReplyPixels.thumbnail(service, thumbnail, maxWidth, maxHeight);
     }
 
     private static long pumpDeadline(long callDeadline) {
@@ -952,19 +1087,17 @@ public final class VmDecode {
         return callDeadline > 0 ? Math.min(callDeadline, cap) : cap;
     }
 
-    /** A copy into a pipe on its own thread. */
+    /** A copy into a pipe on its own thread, which holds its slot until it ends. */
     private static final class Pumper extends Thread {
         final ParcelFileDescriptor read;
-        private final String mOwner;
+        private final RunSlots.Slot mSlot;
         private final Runnable mCopy;
-        private boolean mDone; // guarded by sStuckLock
-        private boolean mCounted; // guarded by sStuckLock
 
-        Pumper(ParcelFileDescriptor read, String owner, Runnable copy) {
+        Pumper(ParcelFileDescriptor read, RunSlots.Slot slot, Runnable copy) {
             super("VmDecodePump");
             setDaemon(true);
             this.read = read;
-            mOwner = owner == null ? "" : owner;
+            mSlot = slot;
             mCopy = copy;
         }
 
@@ -973,23 +1106,13 @@ public final class VmDecode {
             try {
                 mCopy.run();
             } finally {
-                synchronized (sStuckLock) {
-                    mDone = true;
-                    if (mCounted) {
-                        uncountStuckLocked(mOwner);
-                    }
-                }
+                mSlot.end();
             }
         }
 
-        /** After the call: a copy still running now (a read that never returns) counts against its owner. */
+        /** After the call: a copy still running now (a read that never returns) counts against its owner as stuck. */
         void afterCall() {
-            synchronized (sStuckLock) {
-                if (!mDone && !mCounted) {
-                    mCounted = true;
-                    countStuckLocked(mOwner);
-                }
-            }
+            mSlot.abandon();
         }
     }
 
@@ -1012,22 +1135,27 @@ public final class VmDecode {
     }
 
     private static Pumper startPump(String owner, ParcelFileDescriptor source, Pump pump) throws IOException {
-        synchronized (sStuckLock) {
-            if (tooManyStuckLocked(owner == null ? "" : owner)) {
-                closeQuietly(source);
-                throw new IOException("too many reads that never returned for " + owner);
-            }
+        final RunSlots.Slot slot = sSlots.take(owner);
+        if (slot == null) {
+            closeQuietly(source);
+            throw new IOException("too many opens or reads under way for " + owner);
         }
-        final ParcelFileDescriptor[] pair = ParcelFileDescriptor.createReliablePipe();
+        ParcelFileDescriptor[] pair = null;
         try {
+            pair = ParcelFileDescriptor.createReliablePipe();
             Os.fcntlInt(pair[1].getFileDescriptor(), OsConstants.F_SETFL, OsConstants.O_NONBLOCK);
-            final Pumper pumper = new Pumper(pair[0], owner, () -> pump.run(pair[1]));
+            final ParcelFileDescriptor write = pair[1];
+            final Pumper pumper = new Pumper(pair[0], slot, () -> pump.run(write));
             pumper.start();
             return pumper;
-        } catch (ErrnoException | RuntimeException e) {
+        } catch (ErrnoException | IOException | RuntimeException | OutOfMemoryError e) {
+            // The thread never started: its slot is free again.
+            slot.end();
             closeQuietly(source);
-            closeQuietly(pair[0]);
-            closeQuietly(pair[1]);
+            if (pair != null) {
+                closeQuietly(pair[0]);
+                closeQuietly(pair[1]);
+            }
             throw new IOException("no pump", e);
         }
     }
@@ -1184,7 +1312,43 @@ public final class VmDecode {
     public static Bitmap decodeRegion(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
             int priority, int left, int top, int width, int height, int sampleSize, long deadline)
             throws UnavailableException, RejectedException {
+        return decodeRegion(context, fd, ownerPackage, ownerUser, priority, left, top, width, height,
+                sampleSize, IDecodeService.PIXEL_FORMAT_RGBA_8888, deadline);
+    }
+
+    public static Bitmap decodeRegion(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
+            int priority, int left, int top, int width, int height, int sampleSize, int pixelFormat, long deadline)
+            throws UnavailableException, RejectedException {
+        return decodeRegionReply(context, fd, ownerPackage, ownerUser, priority, left, top, width, height,
+                sampleSize, pixelFormat, deadline, false).bitmap;
+    }
+
+    public static Decoded decodeRegionReply(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
+            int priority, int left, int top, int width, int height, int sampleSize, int pixelFormat, long deadline,
+            boolean allowPartial) throws UnavailableException, RejectedException {
+        return decodeRegionReply(context, fd, ownerPackage, ownerUser, priority, left, top, width, height,
+                sampleSize, pixelFormat, deadline, allowPartial, false);
+    }
+
+    /**
+     * A region of an Ultra HDR JPEG's gain image in its own stored pixels, clipped to it by the VM: opaque RGBA, or
+     * ALPHA_8 for a greyscale gain image.
+     */
+    public static Decoded decodeGainRegion(Context context, ParcelFileDescriptor fd, String ownerPackage,
+            int ownerUser, int priority, int left, int top, int width, int height, int sampleSize, long deadline)
+            throws UnavailableException, RejectedException {
+        return decodeRegionReply(context, fd, ownerPackage, ownerUser, priority, left, top, width, height,
+                sampleSize, IDecodeService.PIXEL_FORMAT_RGBA_8888, deadline, false, true);
+    }
+
+    private static Decoded decodeRegionReply(Context context, ParcelFileDescriptor fd, String ownerPackage,
+            int ownerUser, int priority, int left, int top, int width, int height, int sampleSize, int pixelFormat,
+            long deadline, boolean allowPartial, boolean gainmapOnly) throws UnavailableException, RejectedException {
         checkNotMainThread();
+        if (gainmapOnly && pixelFormat != IDecodeService.PIXEL_FORMAT_RGBA_8888) {
+            throw new RejectedException("gain pixel format");
+        }
+        if (DecodeChecks.bytesPerPixel(pixelFormat) == 0) throw new RejectedException("pixel format");
         if (left < 0 || top < 0 || width < 1 || height < 1 || sampleSize < 1
                 || sampleSize > IDecodeService.MAX_REGION_SAMPLE) {
             throw new RejectedException("bad region");
@@ -1192,17 +1356,23 @@ public final class VmDecode {
         final int maxWidth = (int) (((long) width + sampleSize - 1) / sampleSize);
         final int maxHeight = (int) (((long) height + sampleSize - 1) / sampleSize);
         final DecodeRequest request = request(fd, ownerPackage, ownerUser, priority);
-        return client(context).call(priority, deadline, request.ownerPackage, service -> {
+        request.pixelFormat = pixelFormat;
+        request.gainmapOnly = gainmapOnly;
+        return client(context).call(priority, deadline, request.ownerPackage, capacityLane(request),
+                Math.min((long) maxWidth * maxHeight, (pixelFormat & 1) != 0
+                        ? IDecodeService.MAX_HIGH_PRECISION_PIXELS : IDecodeService.MAX_PIXELS)
+                        * (DecodeChecks.bytesPerPixel(pixelFormat) + 1), service -> {
             final Thumbnail thumbnail = service.decodeRegion(request, left, top, width, height, sampleSize);
             if (thumbnail == null) {
                 throw new RejectedException("no reply");
             }
             checkStatus(thumbnail.status);
             try {
-                if (thumbnail.rotation != 0 || thumbnail.mirrored) {
-                    throw new RejectedException("a turned region");
+                if (thumbnail.rotation != 0 || thumbnail.mirrored || thumbnail.pixelFormat != pixelFormat
+                        || thumbnail.gainmapOnly != gainmapOnly) {
+                    throw new RejectedException("a turned region or another reply mode");
                 }
-                return toDecoded(service, thumbnail, maxWidth, maxHeight).bitmap;
+                return ReplyPixels.thumbnail(service, thumbnail, maxWidth, maxHeight, allowPartial, gainmapOnly);
             } finally {
                 try {
                     service.release(thumbnail.handle);
@@ -1221,12 +1391,35 @@ public final class VmDecode {
         /** IDecodeService.FORMAT_*. */
         public final int format;
         public final boolean animated;
+        public final int colorSpace;
+        public final float[] colorDescription;
+        public final int bitDepth;
+        public final boolean hasAlpha;
+        public final boolean plainJpegHeader;
 
         Info(int width, int height, int format, boolean animated) {
+            this(width, height, format, animated, IDecodeService.COLOR_SPACE_SRGB);
+        }
+
+        Info(int width, int height, int format, boolean animated, int colorSpace) {
+            this(width, height, format, animated, colorSpace, 8, true);
+        }
+
+        Info(int width, int height, int format, boolean animated, int colorSpace, int bitDepth, boolean hasAlpha) {
+            this(width, height, format, animated, colorSpace, bitDepth, hasAlpha, null, false);
+        }
+
+        Info(int width, int height, int format, boolean animated, int colorSpace, int bitDepth, boolean hasAlpha,
+                float[] description, boolean plainJpegHeader) {
+            this.plainJpegHeader = plainJpegHeader;
+            this.colorDescription = description == null ? null : description.clone();
+            this.bitDepth = bitDepth;
+            this.hasAlpha = hasAlpha;
             this.width = width;
             this.height = height;
             this.format = format;
             this.animated = animated;
+            this.colorSpace = colorSpace;
         }
     }
 
@@ -1235,10 +1428,14 @@ public final class VmDecode {
             int priority, long deadline) throws UnavailableException, RejectedException {
         checkNotMainThread();
         final DecodeRequest request = request(fd, ownerPackage, ownerUser, priority);
-        return client(context).call(priority, deadline, request.ownerPackage, service -> {
+        return client(context).call(priority, deadline, request.ownerPackage, capacityLane(request),
+                0, service -> {
             final ImageInfo info = service.probe(request);
             if (info == null) {
                 throw new RejectedException("no reply");
+            }
+            if (info.status == IDecodeService.STATUS_INVALID && info.sourceError == 2) {
+                throw new RejectedException("incomplete image header", 2);
             }
             checkStatus(info.status);
             final String broken = DecodeChecks.check(info);
@@ -1250,7 +1447,8 @@ public final class VmDecode {
             } catch (StripeValidator.BadReplyException e) {
                 throw new RejectedException(e.getMessage());
             }
-            return new Info(info.width, info.height, info.format, info.animated);
+            if (!DecodeChecks.isColorSpace(info.colorSpace, info.colorDescription)) throw new RejectedException("bad colour space");
+            return new Info(info.width, info.height, info.format, info.animated, info.colorSpace, info.bitDepth, info.hasAlpha, info.colorDescription, info.plainJpegHeader);
         });
     }
 
@@ -1265,14 +1463,26 @@ public final class VmDecode {
         public final int[] durations;
         /** How often it plays, 0: forever. */
         public final int loopCount;
+        /** A window of frames: its first frame and the animation's frame count, both 0 for every frame. */
+        public final int firstFrame;
+        public final int totalFrames;
+        /** A frame band: the whole frame's height, else 0. */
+        public int frameHeight;
 
         Animation(Bitmap frames, int frameCount, int width, int height, int[] durations, int loopCount) {
+            this(frames, frameCount, width, height, durations, loopCount, 0, 0);
+        }
+
+        Animation(Bitmap frames, int frameCount, int width, int height, int[] durations, int loopCount,
+                int firstFrame, int totalFrames) {
             this.frames = frames;
             this.frameCount = frameCount;
             this.width = width;
             this.height = height;
             this.durations = durations;
             this.loopCount = loopCount;
+            this.firstFrame = firstFrame;
+            this.totalFrames = totalFrames;
         }
     }
 
@@ -1283,37 +1493,56 @@ public final class VmDecode {
      */
     public static Animation decodeFrames(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
             int priority, int maxWidth, int maxHeight, long deadline) throws UnavailableException, RejectedException {
+        return decodeFrames(context, fd, ownerPackage, ownerUser, priority, maxWidth, maxHeight, 0, 0, deadline);
+    }
+
+    /**
+     * A window of frames from {@code firstFrame} on, as many as fit one reply up to {@code frameWindow}, each at the
+     * size it has in any window of the animation. {@code frameWindow} 0 asks every frame.
+     */
+    public static Animation decodeFrames(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
+            int priority, int maxWidth, int maxHeight, int firstFrame, int frameWindow, long deadline)
+            throws UnavailableException, RejectedException {
+        return decodeFrames(context, fd, ownerPackage, ownerUser, priority, maxWidth, maxHeight, firstFrame,
+                frameWindow, 0, deadline);
+    }
+
+    /**
+     * As above, or with {@code frameBand} (a band's top row + 1, window 1) the rows of that frame from the top on,
+     * the frame at exactly min(box, canvas) per side ({@link Animation#frameHeight} its height).
+     */
+    public static Animation decodeFrames(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
+            int priority, int maxWidth, int maxHeight, int firstFrame, int frameWindow, int frameBand, long deadline)
+            throws UnavailableException, RejectedException {
         checkNotMainThread();
+        if (frameBand < 0 || frameBand > 65535 || (frameBand != 0 && frameWindow != 1)) {
+            throw new RejectedException("bad frame band");
+        }
         if (maxWidth < 1 || maxHeight < 1) {
             throw new RejectedException("bad box " + maxWidth + "x" + maxHeight);
         }
+        if (frameWindow < 0 || frameWindow > IDecodeService.MAX_FRAMES || firstFrame < 0
+                || firstFrame >= IDecodeService.MAX_TIMELINE_FRAMES || (frameWindow == 0 && firstFrame != 0)) {
+            throw new RejectedException("bad frame window");
+        }
         final DecodeRequest request = request(fd, ownerPackage, ownerUser, priority);
-        return client(context).call(priority, deadline, request.ownerPackage, service -> {
+        request.firstFrame = firstFrame;
+        request.frameWindow = frameWindow;
+        request.frameBand = frameBand;
+        return client(context).call(priority, deadline, request.ownerPackage, capacityLane(request),
+                Math.min((long) maxWidth * maxHeight, IDecodeService.MAX_PIXELS) * 5, service -> {
             final de.diamaneos.sanitizer.decode.Frames f = service.decodeFrames(request, maxWidth, maxHeight);
             if (f == null) {
                 throw new RejectedException("no reply");
             }
             checkStatus(f.status);
             try {
-                final String broken = DecodeChecks.check(f, maxWidth, maxHeight);
+                final String broken = DecodeChecks.check(f, maxWidth, maxHeight, firstFrame, frameWindow,
+                        frameBand);
                 if (broken != null) {
                     throw new RejectedException("frames break the contract: " + broken);
                 }
-                final int rows = f.frameCount * f.height;
-                final int stripes = (rows + f.stripeRows - 1) / f.stripeRows;
-                final byte[] all = new byte[rows * f.width * 4];
-                for (int i = 0; i < stripes; i++) {
-                    final byte[] stripe = service.readStripe(f.handle, i);
-                    final String bad = DecodeChecks.check(f, i, stripe);
-                    if (bad != null) {
-                        throw new RejectedException("frame stripe " + i + " breaks the contract: " + bad);
-                    }
-                    System.arraycopy(stripe, 0, all, i * f.stripeRows * f.width * 4, stripe.length);
-                }
-                final Bitmap frames = Bitmap.createBitmap(f.width, rows, Bitmap.Config.ARGB_8888, true,
-                        DecodeChecks.colorSpaceOf(f));
-                frames.copyPixelsFromBuffer(ByteBuffer.wrap(all));
-                return new Animation(frames, f.frameCount, f.width, f.height, f.durations.clone(), f.loopCount);
+                return ReplyPixels.frames(service, f);
             } finally {
                 if (f.handle != 0) {
                     try {

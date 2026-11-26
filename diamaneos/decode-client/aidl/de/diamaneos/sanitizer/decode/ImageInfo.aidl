@@ -30,4 +30,20 @@ parcelable ImageInfo {
 
     /** True for an image with more than one frame. Only GIF, WebP, PNG (APNG), HEIF and AVIF can be animated. */
     boolean animated;
+
+    /** IDecodeService.COLOR_SPACE_*, the checked source colour space. */
+    int colorSpace;
+
+    /** Source sample depth from the VM header, one of 1, 2, 4, 8, 10, 12 or 16. */
+    int bitDepth = 8;
+
+    /** True when the encoded source has an alpha channel. */
+    boolean hasAlpha = true;
+
+    /** Zero for complete data, 2 for incomplete source data, 3 for malformed source data. */
+    int sourceError = 0;
+    /** Exactly 16 checked XYZ D50 and transfer values for COLOR_SPACE_CUSTOM, empty for named tags. */
+    float[] colorDescription;
+    /** A complete, validated JFIF/ICC-only baseline JPEG header: no gain metadata or EXIF transform. */
+    boolean plainJpegHeader = false;
 }

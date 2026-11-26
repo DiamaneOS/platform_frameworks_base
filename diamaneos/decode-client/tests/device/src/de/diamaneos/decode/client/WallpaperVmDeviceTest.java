@@ -59,9 +59,13 @@ public class WallpaperVmDeviceTest {
     private final Context mContext = InstrumentationRegistry.getInstrumentation().getTargetContext();
 
     // The test pictures are tiny and look broken on a screen. Each test leaves the default
-    // wallpaper behind, on both screens.
+    // wallpaper behind, on both screens (unless the run asks to keep it: -e keepWallpaper 1, for a check after a
+    // restart).
     @After
     public void restoreTheDefaultWallpaper() throws Exception {
+        if (InstrumentationRegistry.getArguments().getString("keepWallpaper") != null) {
+            return;
+        }
         WallpaperManager.getInstance(mContext)
                 .clear(WallpaperManager.FLAG_SYSTEM | WallpaperManager.FLAG_LOCK);
     }
@@ -180,6 +184,42 @@ public class WallpaperVmDeviceTest {
         setWhileDownThenComeBack(WallpaperManager.FLAG_SYSTEM | WallpaperManager.FLAG_LOCK);
     }
 
+    /**
+     * Review 2b M1: one image for both screens, then a home-only image. The service moves the shared image and its
+     * crop over to the lock screen. The lock screen keeps a readable crop of the old image.
+     */
+    @Test
+    public void homeOnlyOverAShared_theLockScreenKeepsItsCrop() throws Exception {
+        assumeTrue("no decode service here", shell("pm path " + SERVICE).contains("package:"));
+        final WallpaperManager wm = mContext.getSystemService(WallpaperManager.class);
+        wm.setStream(new ByteArrayInputStream(huePng(256, 1)), null, true,
+                WallpaperManager.FLAG_SYSTEM | WallpaperManager.FLAG_LOCK);
+        assertEquals("the shared image's crop", 1, waitForHue(wm, WallpaperManager.FLAG_SYSTEM, 1, CROP_WAIT_MS));
+        wm.setStream(new ByteArrayInputStream(huePng(256, 2)), null, true, WallpaperManager.FLAG_SYSTEM);
+        assertEquals("the new home image", 2, waitForHue(wm, WallpaperManager.FLAG_SYSTEM, 2, CROP_WAIT_MS));
+        assertEquals("the lock screen lost its image", 1,
+                waitForHue(wm, WallpaperManager.FLAG_LOCK, 1, CROP_WAIT_MS));
+        SystemClock.sleep(5_000);
+        assertEquals("the lock screen's crop went after the move", 1, cropHue(wm, WallpaperManager.FLAG_LOCK));
+    }
+
+    /**
+     * Review 2b M1, after a restart: run with -e lockHue and -e homeHue (0 red, 1 green, 2 blue) after
+     * {@link #homeOnlyOverAShared_theLockScreenKeepsItsCrop} kept its wallpapers (-e keepWallpaper 1). Both screens
+     * still have a readable crop of their image. Skipped without the arguments.
+     */
+    @Test
+    public void afterARestart_bothScreensKeepTheirCrops() throws Exception {
+        final String lock = InstrumentationRegistry.getArguments().getString("lockHue");
+        final String home = InstrumentationRegistry.getArguments().getString("homeHue");
+        assumeTrue("needs -e lockHue and -e homeHue", lock != null && home != null);
+        final WallpaperManager wm = mContext.getSystemService(WallpaperManager.class);
+        assertEquals("the home screen's crop", Integer.parseInt(home),
+                waitForHue(wm, WallpaperManager.FLAG_SYSTEM, Integer.parseInt(home), CROP_WAIT_MS));
+        assertEquals("the lock screen's crop", Integer.parseInt(lock),
+                waitForHue(wm, WallpaperManager.FLAG_LOCK, Integer.parseInt(lock), CROP_WAIT_MS));
+    }
+
     // The decode service answers every request as unavailable until this time (seconds since the epoch), and keeps
     // its VM stopped. Honoured on debuggable builds only.
     private static final String DOWN_UNTIL = "debug.diamaneos.decoder.down_until";
@@ -245,5 +285,96 @@ public class WallpaperVmDeviceTest {
         final ParcelFileDescriptor made = waitForCrop(wm, which, SystemClock.uptimeMillis() + CROP_WAIT_MS);
         assertNotNull("no crop after the decode service came back", made);
         made.close();
+    }
+
+    // Opaque noise of one hue (red, green or blue strongest by far), new on every call, as a PNG.
+    private static byte[] huePng(int size, int hue) {
+        final int[] pixels = new int[size * size];
+        final SecureRandom random = new SecureRandom();
+        for (int i = 0; i < pixels.length; i++) {
+            final int strong = 192 + random.nextInt(64);
+            final int weak = random.nextInt(48);
+            final int r = hue == 0 ? strong : weak;
+            final int g = hue == 1 ? strong : weak;
+            final int b = hue == 2 ? strong : random.nextInt(48);
+            pixels[i] = 0xff000000 | (r << 16) | (g << 8) | b;
+        }
+        final java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888)
+                .compress(Bitmap.CompressFormat.PNG, 100, out);
+        return out.toByteArray();
+    }
+
+    // The strongest channel (0 red, 1 green, 2 blue) of the middle of which's crop, -1 while there is none.
+    private static int cropHue(WallpaperManager wm, int which) throws IOException {
+        try (ParcelFileDescriptor fd = wm.getWallpaperFile(which)) {
+            if (fd == null) {
+                return -1;
+            }
+            final Bitmap crop = android.graphics.BitmapFactory.decodeFileDescriptor(fd.getFileDescriptor());
+            if (crop == null) {
+                return -1;
+            }
+            long r = 0;
+            long g = 0;
+            long b = 0;
+            for (int y = crop.getHeight() / 2 - 8; y < crop.getHeight() / 2 + 8; y++) {
+                for (int x = crop.getWidth() / 2 - 8; x < crop.getWidth() / 2 + 8; x++) {
+                    final int p = crop.getPixel(Math.max(0, x), Math.max(0, y));
+                    r += (p >> 16) & 0xff;
+                    g += (p >> 8) & 0xff;
+                    b += p & 0xff;
+                }
+            }
+            return r > g && r > b ? 0 : g > b ? 1 : 2;
+        }
+    }
+
+    private static int waitForHue(WallpaperManager wm, int which, int hue, long ms) throws IOException {
+        final long end = SystemClock.uptimeMillis() + ms;
+        int seen = cropHue(wm, which);
+        while (seen != hue && SystemClock.uptimeMillis() < end) {
+            SystemClock.sleep(500);
+            seen = cropHue(wm, which);
+        }
+        return seen;
+    }
+
+    /**
+     * Review 2b H5: an app sets a large image, then another app a small one while the VM still makes the first clean.
+     * The newer image is what stays: the older task's clean copy is never put over it. Rounds with the second write at
+     * different times in the first one's VM step.
+     */
+    @Test
+    public void twoQuickWrites_theNewerImageStays() throws Exception {
+        assumeTrue("no decode service here", shell("pm path " + SERVICE).contains("package:"));
+        final WallpaperManager wm = mContext.getSystemService(WallpaperManager.class);
+        final int which = WallpaperManager.FLAG_SYSTEM;
+        final StringBuilder rounds = new StringBuilder();
+        int lost = 0;
+        for (long delay = 200; delay <= 2_000; delay += 300) {
+            final byte[] older = huePng(1600, 0);
+            final byte[] newer = huePng(64, 2);
+            final Thread first = new Thread(() -> {
+                try {
+                    wm.setStream(new ByteArrayInputStream(older), null, true, which);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            }, "older-set");
+            first.start();
+            SystemClock.sleep(delay);
+            wm.setStream(new ByteArrayInputStream(newer), null, true, which);
+            first.join(60_000);
+            final int hue = waitForHue(wm, which, 2, CROP_WAIT_MS);
+            // The older task may still be on its way: what stays is what counts.
+            SystemClock.sleep(5_000);
+            final int last = cropHue(wm, which);
+            rounds.append(delay).append(" ms: ").append(hue).append('/').append(last).append("; ");
+            if (last != 2) {
+                lost++;
+            }
+        }
+        assertEquals("the older image replaced the newer one (hue 2 is the newer): " + rounds, 0, lost);
     }
 }

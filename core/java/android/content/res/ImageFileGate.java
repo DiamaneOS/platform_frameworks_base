@@ -85,6 +85,11 @@ public interface ImageFileGate {
     @Nullable
     Resources resourcesFor(@NonNull String packageName);
 
+    /** DiamaneOS: the effective user of this load, including a scoped cross-profile icon load. */
+    default long cacheScope() {
+        return -1;
+    }
+
     /**
      * DiamaneOS: a mark of the calling thread's loads, taken before a drawable of a gated APK is loaded. When
      * {@link #cleanSince} then answers true, the drawable may be cached for this gate (in a cache of its own, never

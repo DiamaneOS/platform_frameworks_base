@@ -1047,8 +1047,7 @@ public class PackageArchiver {
      * the most part userId-agnostic, which we need to mimic here in order for existing methods
      * like {@link PackageManager#getApplicationIcon} to continue working.
      *
-     * @return {@link ArchiveState} for {@code userId} if present. If not present, false back to an
-     * arbitrary userId. If no user is archived, returns null.
+     * @return the selected archive state paired with its user, or null if no user is archived.
      */
     @Nullable
     private ArchiveSource<ArchiveState> getAnyArchiveState(PackageStateInternal ps, int userId) {

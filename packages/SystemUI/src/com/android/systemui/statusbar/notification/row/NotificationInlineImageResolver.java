@@ -67,6 +67,13 @@ public class NotificationInlineImageResolver implements ImageResolver {
     protected int mMaxImageHeight;
     // DiamaneOS: the posting app, which the row's images are charged to (unknown until the row has its entry).
     private volatile String mOwner = VmDecode.unknownOwner("inline");
+    // DiamaneOS: how the row's loads ended, so one that can pass is tried again.
+    private final InlineImageOutcomes mOutcomes = new InlineImageOutcomes();
+
+    /** DiamaneOS: how the row's image loads ended. */
+    InlineImageOutcomes outcomes() {
+        return mOutcomes;
+    }
 
     /** DiamaneOS: the posting app of the row: its images are charged to it, in its lane. */
     public void setOwner(String ownerPackage) {
@@ -145,6 +152,10 @@ public class NotificationInlineImageResolver implements ImageResolver {
      * @return Drawable of the image, or null if unable to load.
      */
     Drawable resolveImage(Uri uri) {
+        return resolveImage(uri, () -> mOutcomes.refused(uri));
+    }
+
+    Drawable resolveImage(Uri uri, Runnable onRefused) {
         // Images from apps are decoded in the protected VM, never in SystemUI. A failure leaves the message without
         // its image.
         if (!ImageThreads.isImageThread()) {
@@ -160,6 +171,9 @@ public class NotificationInlineImageResolver implements ImageResolver {
             return new BitmapDrawable(mContext.getResources(), bitmap);
         } catch (VmDecode.UnavailableException | VmDecode.RejectedException ex) {
             Log.d(TAG, "resolveImage: not decoded in the VM: " + ex.getMessage());
+            if (ex instanceof VmDecode.RejectedException && !((VmDecode.RejectedException) ex).openFailed) {
+                onRefused.run();
+            }
         } catch (Exception ex) {
             // Catch general Exception because ContentResolver can re-throw arbitrary Exception
             // from remote process as a RuntimeException. See: Parcel#readException

@@ -18,6 +18,7 @@ package de.diamaneos.decode.client;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -28,6 +29,8 @@ import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.CancellationSignal;
+import android.os.OperationCanceledException;
 import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
 import android.util.Size;
@@ -35,6 +38,8 @@ import android.util.Size;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 
+import com.android.internal.diamaneos.cleancopies.CleanCopyGate;
+import com.android.internal.diamaneos.cleancopies.VmThumbnailNotices;
 import com.android.internal.diamaneos.cleancopies.VmThumbnails;
 
 import org.junit.After;
@@ -49,9 +54,10 @@ import java.nio.charset.StandardCharsets;
  * ContentResolver.loadThumbnail in a system process (forced here with {@link VmThumbnails#setForcedForTest}, as this
  * test APK is no system app): the provider's reply is decoded in the VM by the system server, whole files, parts of
  * files and pipes alike, the provider's orientation extra and the file's EXIF orientation come out as Android's own
- * decode gives them, and with the VM unavailable or the decode service stopped the load fails with an IOException and
- * nothing is decoded here. In any other process the load decodes as before, VM or not. SystemUI's clipboard preview
- * (VmDecode.loadThumbnail) turns its thumbnails as stock does, EXIF orientations 1 to 8 and the provider's extra.
+ * decode gives them, and with the VM unavailable or the decode service stopped the load gives no thumbnail (it waits
+ * for the service until the caller cancels it) and nothing is decoded here. In any other process the load decodes as
+ * before, VM or not. SystemUI's clipboard preview (VmDecode.loadThumbnail) turns its thumbnails as stock does, EXIF
+ * orientations 1 to 8 and the provider's extra.
  * Needs a debuggable build with the decode service: the system server and the service take this package as a caller
  * on debuggable builds only, and the VM is held down with a debug property.
  */
@@ -65,6 +71,8 @@ public class ThumbnailsDeviceTest {
     private static final Size CLIPBOARD = new Size(96, 384);
     // The system server gives a thumbnail 5 s (VmThumbnailDecoder.THUMBNAIL_MS), a stopped service included.
     private static final long FAIL_WITHIN_MS = 12_000;
+    // A caller that leaves: the load waits for the decode service to answer again only until it is cancelled.
+    private static final long CANCEL_AFTER_MS = 3_000;
 
     private final Context mContext = InstrumentationRegistry.getInstrumentation().getTargetContext();
     private final ContentResolver mResolver = mContext.getContentResolver();
@@ -118,15 +126,22 @@ public class ThumbnailsDeviceTest {
 
     private void assertFailsClosed(Uri uri) {
         final int made = VmThumbnails.madeForTest();
+        final CancellationSignal signal = new CancellationSignal();
+        final Thread leave = new Thread(() -> {
+            SystemClock.sleep(CANCEL_AFTER_MS);
+            signal.cancel();
+        }, "thumbnail-caller-leaves");
+        leave.setDaemon(true);
         final long start = SystemClock.uptimeMillis();
+        leave.start();
         try {
-            final Bitmap bitmap = load(uri);
+            final Bitmap bitmap = mResolver.loadThumbnail(uri, BOX, signal);
             fail("a thumbnail without the VM: " + bitmap.getWidth() + "x" + bitmap.getHeight());
-        } catch (IOException expected) {
+        } catch (IOException | OperationCanceledException expected) {
             // The generic icon shows.
         }
         final long took = SystemClock.uptimeMillis() - start;
-        assertTrue("the failure took " + took + " ms", took < FAIL_WITHIN_MS);
+        assertTrue("the failure took " + took + " ms", took < CANCEL_AFTER_MS + FAIL_WITHIN_MS);
         assertEquals("counted as made", made, VmThumbnails.madeForTest());
     }
 
@@ -175,10 +190,62 @@ public class ThumbnailsDeviceTest {
         assertSolid("pipe", loadFromVm(ThumbnailTestProvider.uri("pipe", "0000ff")), 0xff0000ff);
         // New images of each kind while the VM is held down: no thumbnail, so nothing is decoded here. (The images
         // above would come back from the decode service's cache of what the VM made.)
-        holdVmDown(30);
+        holdVmDown(60);
         assertFailsClosed(ThumbnailTestProvider.uri("png", newColour()));
         assertFailsClosed(ThumbnailTestProvider.uri("part", newColour()));
         assertFailsClosed(ThumbnailTestProvider.uri("pipe", newColour()));
+    }
+
+    // A thumbnail that failed while the VM was held down gets one change notice once the decode service answers
+    // again (the system server's notice, played here as the gate's test hook does), and only one however often it
+    // failed. A refused one gets none.
+    @Test
+    public void gatedCaller_outageFailure_isNotifiedOnceWhenTheServiceAnswers() throws Exception {
+        assumeDecodeService();
+        VmThumbnails.setForcedForTest(true);
+        loadFromVm(ThumbnailTestProvider.uri("png", "123456"));
+        final Uri failed = ThumbnailTestProvider.uri("png", newColour());
+        final Uri refused = ThumbnailTestProvider.uri("junk", null);
+        final java.util.concurrent.atomic.AtomicInteger notices = new java.util.concurrent.atomic.AtomicInteger();
+        final java.util.concurrent.atomic.AtomicInteger refusedNotices =
+                new java.util.concurrent.atomic.AtomicInteger();
+        final android.os.HandlerThread thread = new android.os.HandlerThread("thumbnail-notices");
+        thread.start();
+        final android.os.Handler handler = new android.os.Handler(thread.getLooper());
+        final android.database.ContentObserver observer = new android.database.ContentObserver(handler) {
+            @Override public void onChange(boolean self, Uri uri) {
+                if (failed.equals(uri)) notices.incrementAndGet();
+                if (refused.equals(uri)) refusedNotices.incrementAndGet();
+            }
+        };
+        mResolver.registerContentObserver(failed, false, observer);
+        mResolver.registerContentObserver(refused, false, observer);
+        try {
+            assertFailsClosed(refused);
+            holdVmDown(30);
+            assertFailsClosed(failed);
+            assertFailsClosed(failed);
+            assertTrue("the failed thumbnail is not remembered",
+                    VmThumbnailNotices.pendingForTest().contains(failed));
+            assertFalse("a refused thumbnail is remembered", VmThumbnailNotices.pendingForTest().contains(refused));
+            shell("setprop " + DOWN_UNTIL + " 0");
+            CleanCopyGate.decodeAnswersForTest();
+            for (long end = SystemClock.uptimeMillis() + 5_000; notices.get() == 0
+                    && SystemClock.uptimeMillis() < end; ) {
+                SystemClock.sleep(50);
+            }
+            SystemClock.sleep(1_000);
+            assertEquals("change notices for the failed thumbnail", 1, notices.get());
+            assertEquals("change notices for the refused thumbnail", 0, refusedNotices.get());
+            assertTrue("remembered after the notice", VmThumbnailNotices.pendingForTest().isEmpty());
+            // Another answer notice sends nothing more.
+            CleanCopyGate.decodeAnswersForTest();
+            SystemClock.sleep(1_000);
+            assertEquals("a second notice", 1, notices.get());
+        } finally {
+            mResolver.unregisterContentObserver(observer);
+            thread.quitSafely();
+        }
     }
 
     @Test

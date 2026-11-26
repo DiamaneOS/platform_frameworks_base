@@ -24,6 +24,8 @@ import android.content.res.ImageFileGates;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.Color;
+import android.graphics.DecodeGate;
+import android.graphics.DecodeMemory;
 import android.graphics.NinePatch;
 import android.graphics.Rect;
 import android.graphics.drawable.AdaptiveIconDrawable;
@@ -39,6 +41,8 @@ import android.util.DisplayMetrics;
 import android.util.Log;
 import android.util.LruCache;
 import android.util.TypedValue;
+
+import de.diamaneos.decode.client.NinePatchChunk;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
@@ -86,7 +90,6 @@ public final class CleanCopyGate implements ImageFileGate {
         "de.diamaneos.sanitizer",
         "com.android.shell",
     };
-    private static final String LAUNCHER = "com.android.launcher3";
 
     /** Every other app's image file comes from its copy. */
     public static final int MODE_ALL = 0;
@@ -119,6 +122,8 @@ public final class CleanCopyGate implements ImageFileGate {
     // Per thread: app images that loads could not take, icon loads running, and images taken from an older copy of
     // the same resource (the counters only grow).
     private static final ThreadLocal<int[]> sThread = ThreadLocal.withInitial(() -> new int[3]);
+    // Per thread: the user whose app an icon load loads ({@link #iconLoad(int, Supplier)}), -1 for this process's.
+    private static final ThreadLocal<int[]> sLoadUser = ThreadLocal.withInitial(() -> new int[] {-1});
     // Whether this process has a gate (then its other app image paths take clean copies too, see LauncherApps).
     private static volatile boolean sActive;
     // The mode of this process's gate, -1 without one, and its context for the watch (see watching).
@@ -126,7 +131,6 @@ public final class CleanCopyGate implements ImageFileGate {
     private static volatile Context sApp;
     // What redraws once copies of a package were made: hosted widgets and filling icons, held weakly.
     private static final java.util.List<Waiter> sWaiters = new java.util.ArrayList<>(); // guarded by itself
-    private static final int MAX_WAITERS = 512;
     private static android.os.Handler sMadeHandler; // guarded by CleanCopyGate.class
     private static boolean sWatching; // guarded by CleanCopyGate.class
 
@@ -140,14 +144,7 @@ public final class CleanCopyGate implements ImageFileGate {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             return null;
         }
-        final ParcelFileDescriptor fd;
-        try {
-            fd = open.get();
-        } catch (RuntimeException e) {
-            return null;
-        }
-        final Bitmap bitmap = CleanCopyClient.shortcutIcon(context, fd, shortcut.getPackage(),
-                shortcut.getUserId());
+        final Bitmap bitmap = CleanCopyClient.shortcutIcon(context, shortcut);
         if (bitmap == null) {
             return null;
         }
@@ -160,23 +157,48 @@ public final class CleanCopyGate implements ImageFileGate {
         return sActive;
     }
 
-    // A view or drawable that redraws once copies of {@code packageName} for {@code user} were made.
+    // A view or drawable that redraws once copies of {@code packageName} for {@code user} (or {@code alsoUser}) were
+    // made.
     private static final class Waiter {
         final java.lang.ref.WeakReference<Object> target;
         final String packageName;
         final int user;
+        final int alsoUser;
+        final long serial;
+        final long alsoSerial;
 
         Waiter(Object target, String packageName, int user) {
+            this(target, packageName, user, user);
+        }
+
+        Waiter(Object target, String packageName, int user, int alsoUser) {
             this.target = new java.lang.ref.WeakReference<>(target);
             this.packageName = packageName;
             this.user = user;
+            this.alsoUser = alsoUser;
+            serial = waiterSerial(user);
+            alsoSerial = waiterSerial(alsoUser);
         }
+
+        boolean current() {
+            return serial == waiterSerial(user) && alsoSerial == waiterSerial(alsoUser);
+        }
+
+        boolean waitsFor(String made, int madeUser) {
+            return packageName.equals(made) && (madeUser < 0 || madeUser == user || madeUser == alsoUser);
+        }
+    }
+
+    private static long waiterSerial(int user) {
+        final Context app = sApp != null ? sApp : android.app.AppGlobals.getInitialApplication();
+        return app == null ? -1 : CleanCopyClient.userSerial(app, user);
     }
 
     /**
      * The launcher hosts {@code view}, a widget of the app {@code provider} names (the system's provider info, never
      * what the widget's views say): it is applied again once copies of that app's images were made, so an image that
-     * showed blank fills in from its copy.
+     * showed blank fills in from its copy. Its views load the app's files as this process's user (a load names no
+     * other user), so copies made for either user apply it again.
      */
     public static void hostedWidget(android.appwidget.AppWidgetHostView view,
             android.appwidget.AppWidgetProviderInfo provider) {
@@ -184,7 +206,7 @@ public final class CleanCopyGate implements ImageFileGate {
             return;
         }
         addWaiter(new Waiter(view, provider.providerInfo.packageName,
-                UserHandle.getUserId(provider.providerInfo.applicationInfo.uid)));
+                UserHandle.getUserId(provider.providerInfo.applicationInfo.uid), UserHandle.myUserId()));
     }
 
     /**
@@ -194,13 +216,58 @@ public final class CleanCopyGate implements ImageFileGate {
      * process without a gate: the caller shows the default icon.
      */
     public static Drawable fillingIcon(String packageName, int userId, Supplier<Drawable> reload) {
+        return fillingIcon(packageName, userId, null, reload);
+    }
+
+    /**
+     * {@link #fillingIcon}, showing {@code shown} (an icon from an older copy of the same resource) instead of the
+     * default icon until the exact copy is made: then {@code reload} (null until then) replaces it. {@code userId} is
+     * the user the load asked for ({@link #iconLoad(int, Supplier)}), whose copies it waits for. Registered before it
+     * looks once more, so a copy made between the miss and now is not missed.
+     */
+    public static Drawable fillingIcon(String packageName, int userId, Drawable shown, Supplier<Drawable> reload) {
         if (sMode != MODE_ALL || packageName == null) {
             return null;
         }
-        final FillingIcon icon = new FillingIcon(
-                Resources.getSystem().getDrawable(com.android.internal.R.drawable.sym_def_app_icon, null), reload);
+        final long serial = waiterSerial(userId);
+        final FillingIcon icon = new FillingIcon(shown != null ? shown
+                : Resources.getSystem().getDrawable(com.android.internal.R.drawable.sym_def_app_icon, null),
+                () -> serial == waiterSerial(userId) ? reload.get() : null);
         addWaiter(new Waiter(icon, packageName, userId));
+        refill(icon, new android.os.Handler(Looper.getMainLooper()));
         return icon;
+    }
+
+    /**
+     * The package manager's load of a drawable of {@code packageName} for {@code userId} ({@code load}, an icon when
+     * {@code icon}): its files from the copies made for that user. One without a copy yet is neither kept nor shown
+     * with holes: an icon shows Android's default icon and fills itself in once the copy is made (null in the
+     * launcher, which reloads its own), anything else is null. One shown from an older copy of the same resource
+     * (after an update) is not kept, and an icon shown so is replaced by the exact copy once it is made. Only an exact
+     * copy goes to {@code keep}, whose package manager cache key includes the requested user.
+     */
+    public static Drawable appImage(String packageName, int userId, boolean icon, Supplier<Drawable> load,
+            java.util.function.Consumer<Drawable> keep) {
+        final int misses = misses();
+        final int provisional = provisional();
+        final Supplier<Drawable> exact = () -> {
+            final int missed = misses();
+            final int older = provisional();
+            final Drawable again = iconLoad(userId, load);
+            return misses() != missed || provisional() != older ? null : again;
+        };
+        final Drawable drawable = iconLoad(userId, load);
+        if (misses() != misses) {
+            return icon ? fillingIcon(packageName, userId, exact) : null;
+        }
+        if (drawable != null && provisional() != provisional) {
+            final Drawable filling = icon ? fillingIcon(packageName, userId, drawable, exact) : null;
+            return filling != null ? filling : drawable;
+        }
+        if (drawable != null) {
+            keep.accept(drawable);
+        }
+        return drawable;
     }
 
     /** Tests: copies of {@code packageName} for {@code userId} were made. */
@@ -208,17 +275,40 @@ public final class CleanCopyGate implements ImageFileGate {
         made(packageName, userId);
     }
 
+    /** Tests: the system server said its decode service answers again after an outage. */
+    public static void decodeAnswersForTest() {
+        decodeAnswers();
+    }
+
     /** Tests: this process's gate mode (MODE_ALL or MODE_LAUNCHER), -1 for none. */
     public static void setModeForTest(int mode) {
         sMode = mode;
     }
 
+    // Loads {@code icon} again off the main thread and shows what it got.
+    private static void refill(FillingIcon icon, android.os.Handler main) {
+        final Runnable refill = () -> {
+            final Drawable loaded = icon.load();
+            if (loaded != null) {
+                main.post(() -> icon.fill(loaded));
+            }
+        };
+        final android.os.Handler handler;
+        synchronized (CleanCopyGate.class) {
+            handler = sMadeHandler;
+        }
+        if (handler != null) {
+            handler.post(refill);
+        } else {
+            new Thread(refill, "CleanCopiesFill").start();
+        }
+    }
+
     private static void addWaiter(Waiter waiter) {
         synchronized (sWaiters) {
-            sWaiters.removeIf(w -> w.target.get() == null);
-            if (sWaiters.size() >= MAX_WAITERS) {
-                sWaiters.remove(0);
-            }
+            final Object target = waiter.target.get();
+            // Live views retain their subscriptions. Dead and duplicate entries never accumulate.
+            sWaiters.removeIf(w -> w.target.get() == null || !w.current() || w.target.get() == target);
             sWaiters.add(waiter);
         }
         watching();
@@ -238,26 +328,30 @@ public final class CleanCopyGate implements ImageFileGate {
         sMadeHandler = new android.os.Handler(thread.getLooper());
         sMadeHandler.post(new Runnable() {
             private int mTries;
+            private final android.os.IRemoteCallback mCallback = new android.os.IRemoteCallback.Stub() {
+                @Override
+                public void sendResult(android.os.Bundle data) {
+                    if (data == null) {
+                        return;
+                    }
+                    if (data.getBoolean(CleanCopyClient.EXTRA_DECODE_ANSWERS)) {
+                        decodeAnswers();
+                        return;
+                    }
+                    made(data.getString(CleanCopyClient.EXTRA_PACKAGE),
+                            data.getInt(CleanCopyClient.EXTRA_USER, -1));
+                }
+            };
 
             @Override
             public void run() {
-                final boolean watched = CleanCopyClient.watch(app, new android.os.IRemoteCallback.Stub() {
-                    @Override
-                    public void sendResult(android.os.Bundle data) {
-                        if (data == null) {
-                            return;
-                        }
-                        if (data.getBoolean(CleanCopyClient.EXTRA_DECODE_ANSWERS)) {
-                            decodeAnswers();
-                            return;
-                        }
-                        made(data.getString(CleanCopyClient.EXTRA_PACKAGE),
-                                data.getInt(CleanCopyClient.EXTRA_USER, -1));
-                    }
-                });
-                if (!watched && ++mTries < 20) {
-                    sMadeHandler.postDelayed(this, 30_000);
+                final boolean watched = CleanCopyClient.watch(app, mCallback);
+                if (watched) {
+                    // A successful watch may disappear after a provider restart. Renew the same binder and recheck
+                    // live demand so a completion lost during that gap cannot leave a mounted icon blank.
+                    made(null, -1);
                 }
+                sMadeHandler.postDelayed(this, watched || ++mTries >= 20 ? 300_000 : 30_000);
             }
         });
     }
@@ -267,12 +361,59 @@ public final class CleanCopyGate implements ImageFileGate {
     private static final Object sAnswersLock = new Object();
     private static int sAnswers;
 
+    // Waits before what waits for an app's images loads again after a decode at once gave nothing (SystemUI).
+    private static final long[] RETRY_MS = {1_000, 3_000, 8_000};
+    private static final Set<String> sRetries = new HashSet<>(); // package/user with retries posted, guarded by itself
+
+    // What waits for the images of the resource's app (filling icons) loads again in a while, a few times.
+    private static void retryLater(Resources res, TypedValue value, int user) {
+        final String packageName;
+        try {
+            packageName = value.resourceId != 0 ? res.getResourcePackageName(value.resourceId) : null;
+        } catch (Resources.NotFoundException e) {
+            return;
+        }
+        final android.os.Handler handler;
+        synchronized (CleanCopyGate.class) {
+            handler = sMadeHandler;
+        }
+        final String token = packageName + "/" + user;
+        if (packageName == null || handler == null) {
+            return;
+        }
+        synchronized (sRetries) {
+            if (!sRetries.add(token)) {
+                return;
+            }
+        }
+        for (int i = 0; i < RETRY_MS.length; i++) {
+            final boolean last = i == RETRY_MS.length - 1;
+            handler.postDelayed(() -> {
+                if (last) {
+                    synchronized (sRetries) {
+                        sRetries.remove(token);
+                    }
+                }
+                made(packageName, user);
+            }, RETRY_MS[i]);
+        }
+    }
+
     private static void decodeAnswers() {
         CleanCopyClient.decodeAnswers();
         synchronized (sAnswersLock) {
             sAnswers++;
             sAnswersLock.notifyAll();
         }
+        // Thumbnails that failed meanwhile: one change notice each, on the watch's thread.
+        final android.os.Handler handler;
+        synchronized (CleanCopyGate.class) {
+            handler = sMadeHandler;
+        }
+        VmThumbnailNotices.answers(sApp, handler);
+        // The system server dropped what it had given up on during the outage but makes nothing by itself: what
+        // still waits loads again, which asks for its copies anew.
+        made(null, -1);
     }
 
     /**
@@ -332,15 +473,14 @@ public final class CleanCopyGate implements ImageFileGate {
 
     // Copies of {@code packageName} for {@code user} were made: its hosted widgets are applied again, its filling
     // icons load again (off the main thread) and show what they got.
+    // A null {@code packageName}: every waiter (the decode service answers again after an outage).
     private static void made(String packageName, int user) {
-        if (packageName == null) {
-            return;
-        }
         final java.util.List<Object> targets = new java.util.ArrayList<>();
         synchronized (sWaiters) {
+            sWaiters.removeIf(w -> w.target.get() == null || !w.current());
             for (Waiter w : sWaiters) {
                 final Object target = w.target.get();
-                if (target != null && packageName.equals(w.packageName) && (user < 0 || user == w.user)) {
+                if (target != null && (packageName == null || w.waitsFor(packageName, user))) {
                     targets.add(target);
                 }
             }
@@ -356,31 +496,30 @@ public final class CleanCopyGate implements ImageFileGate {
                 synchronized (CleanCopyGate.class) {
                     handler = sMadeHandler;
                 }
-                final Runnable tell = () -> listener.onMade(packageName, user);
+                final String madePackage = packageName != null ? packageName : waiterPackage(listener);
+                final Runnable tell = () -> listener.onMade(madePackage, user);
                 if (handler != null) {
                     handler.post(tell);
                 } else {
                     new Thread(tell, "CleanCopiesMade").start();
                 }
             } else if (target instanceof FillingIcon) {
-                final FillingIcon icon = (FillingIcon) target;
-                final Runnable refill = () -> {
-                    final Drawable loaded = icon.load();
-                    if (loaded != null) {
-                        main.post(() -> icon.fill(loaded));
-                    }
-                };
-                final android.os.Handler handler;
-                synchronized (CleanCopyGate.class) {
-                    handler = sMadeHandler;
-                }
-                if (handler != null) {
-                    handler.post(refill);
-                } else {
-                    new Thread(refill, "CleanCopiesFill").start();
+                refill((FillingIcon) target, main);
+            }
+        }
+    }
+
+    // The package a waiter waits for.
+    private static String waiterPackage(Object target) {
+        synchronized (sWaiters) {
+            sWaiters.removeIf(w -> w.target.get() == null || !w.current());
+            for (Waiter w : sWaiters) {
+                if (w.target.get() == target) {
+                    return w.packageName;
                 }
             }
         }
+        return null;
     }
 
     /** Android's default icon until the app's own icon could be loaded from its copy, then that icon. */
@@ -430,15 +569,44 @@ public final class CleanCopyGate implements ImageFileGate {
      * of this process's own app (as {@link #decodesHere} decides for resources).
      */
     public static boolean apkDecodesHere(String apkPath) {
+        final Context app = sApp != null ? sApp : android.app.ActivityThread.currentApplication();
+        return apkDecodesHere(app != null ? app.getApplicationInfo() : null, apkPath);
+    }
+
+    /** {@link #apkDecodesHere} for the app {@code own}. */
+    public static boolean apkDecodesHere(ApplicationInfo own, String apkPath) {
         if (CleanCopyKey.isSystemImage(apkPath)) {
             return true;
         }
         if (apkPath == null || apkPath.isEmpty()) {
             return false;
         }
-        final Context app = sApp != null ? sApp : android.app.ActivityThread.currentApplication();
-        final ApplicationInfo own = app != null ? app.getApplicationInfo() : null;
-        return own != null && Arrays.asList(own.getAllApkPaths()).contains(apkPath);
+        return own != null && ownApks(own).contains(apkPath);
+    }
+
+    /**
+     * The APKs of the app {@code own} as the package manager installed and checked them: its base and its splits.
+     * Shared libraries, resource directories and overlays it loads are not its own (they decode here only from the
+     * system image).
+     */
+    static Set<String> ownApks(ApplicationInfo own) {
+        final Set<String> apks = new HashSet<>();
+        addPath(apks, own.sourceDir);
+        addPath(apks, own.publicSourceDir);
+        for (String[] splits : new String[][] {own.splitSourceDirs, own.splitPublicSourceDirs}) {
+            if (splits != null) {
+                for (String split : splits) {
+                    addPath(apks, split);
+                }
+            }
+        }
+        return apks;
+    }
+
+    private static void addPath(Set<String> apks, String path) {
+        if (path != null && !path.isEmpty()) {
+            apks.add(path);
+        }
     }
 
     /** True when the process of the system app {@code packageName} takes other apps' images from clean copies. */
@@ -451,6 +619,7 @@ public final class CleanCopyGate implements ImageFileGate {
     private final Source mSource;
     private final Set<String> mOwnApks = new HashSet<>();
     private final boolean mWaits;
+    private String mProcess; // the process whose images these are, for what a file without a copy does (CopyMiss)
     private volatile long mNoWaitUntil;
     private boolean mKnownBoxOnly;
     private final LruCache<String, Made> mCache = new LruCache<String, Made>(CACHE_BYTES) {
@@ -477,12 +646,17 @@ public final class CleanCopyGate implements ImageFileGate {
     }
 
     private CleanCopyGate(Context context, Source source, boolean waits) {
+        synchronized (CleanCopyGate.class) {
+            if (sApp == null) {
+                sApp = context;
+            }
+        }
         mContext = context;
         mSource = source;
         mWaits = waits;
         final ApplicationInfo own = context.getApplicationInfo();
         if (own != null) {
-            mOwnApks.addAll(Arrays.asList(own.getAllApkPaths()));
+            mOwnApks.addAll(ownApks(own));
         }
     }
 
@@ -493,11 +667,11 @@ public final class CleanCopyGate implements ImageFileGate {
         if (!gatedApp(ai, name)) {
             return;
         }
-        final int mode = LAUNCHER.equals(name) ? MODE_LAUNCHER : MODE_ALL;
+        final int mode = CopyMiss.waits(name) ? MODE_LAUNCHER : MODE_ALL;
         sApp = appContext;
         try {
             final Context app = appContext;
-            ImageFileGates.setProcessDefault(new CleanCopyGate(appContext, new Source() {
+            final CleanCopyGate gate = new CleanCopyGate(appContext, new Source() {
                 @Override
                 public CleanImageFile read(String key) {
                     return CleanCopyClient.read(app, key);
@@ -516,7 +690,9 @@ public final class CleanCopyGate implements ImageFileGate {
                     CleanCopyClient.request(app, key, apkPath, file, density, maxWidth, maxHeight, resourceName,
                             userId);
                 }
-            }, mode == MODE_LAUNCHER));
+            }, mode == MODE_LAUNCHER);
+            gate.mProcess = name;
+            ImageFileGates.setProcessDefault(gate);
             sMode = mode;
             Log.i(TAG, "apps' images in " + name + " come from clean copies"
                     + (mode == MODE_LAUNCHER ? " (launcher)" : ""));
@@ -533,8 +709,14 @@ public final class CleanCopyGate implements ImageFileGate {
      * process gate decodes its own APK's files as before). {@code waits}: icon loads wait for a missing copy.
      */
     public static ImageFileGate forTest(Context context, Source source, boolean waits) {
+        return forTest(context, source, waits, null);
+    }
+
+    /** {@link #forTest(Context, Source, boolean)}, gating images as the process {@code processName} does. */
+    public static ImageFileGate forTest(Context context, Source source, boolean waits, String processName) {
         final CleanCopyGate gate = new CleanCopyGate(context, source, waits);
         gate.mOwnApks.clear();
+        gate.mProcess = processName;
         return gate;
     }
 
@@ -564,6 +746,28 @@ public final class CleanCopyGate implements ImageFileGate {
      */
     public static int provisional() {
         return sThread.get()[2];
+    }
+
+    /**
+     * {@link #iconLoad(Supplier)} of an app of {@code userId} (the package manager knows it: a work profile's app in
+     * the user's launcher): its copies are made for and asked for as that user, as the VM labels its images. Loads
+     * that name no user ask as this process's user.
+     */
+    public static <T> T iconLoad(int userId, Supplier<T> load) {
+        final int[] user = sLoadUser.get();
+        final int previous = user[0];
+        user[0] = userId;
+        try {
+            return iconLoad(load);
+        } finally {
+            user[0] = previous;
+        }
+    }
+
+    // The user the loads on this thread ask copies for.
+    private static int loadUser() {
+        final int user = sLoadUser.get()[0];
+        return user >= 0 ? user : UserHandle.myUserId();
     }
 
     /** Runs {@code load} as an icon load: in the launcher it may wait for a new copy. */
@@ -601,6 +805,12 @@ public final class CleanCopyGate implements ImageFileGate {
      * A mark of this thread's loads, taken before a drawable is loaded: when {@link #cleanSince} then answers true,
      * every image the load took was an exact copy and the drawable may be cached for this gate.
      */
+    @Override
+    public long cacheScope() {
+        final int user = loadUser();
+        return (CleanCopyClient.userSerial(mContext, user) << 32) ^ (user & 0xffffffffL);
+    }
+
     @Override
     public long loadMark() {
         final int[] state = sThread.get();
@@ -791,7 +1001,9 @@ public final class CleanCopyGate implements ImageFileGate {
         if (box == null || box[0] < 16) {
             return null; // The display is not known yet: no key to look for.
         }
-        final String key = CleanCopyKey.of(apkPath, file, density, box[0], box[1]);
+        // A copy is of one user: one made for another user (the same APK in a work profile) is never taken.
+        final int user = loadUser();
+        final String key = CleanCopyClient.key(mContext, apkPath, file, density, box[0], box[1], user);
         if (key == null) {
             return null;
         }
@@ -805,16 +1017,38 @@ public final class CleanCopyGate implements ImageFileGate {
         }
         // The resource's name only lets the system server find the stand-in among the copies of the app it finds
         // the APK installed for: it never decides whose copy this is.
-        String resourceName = null;
+        String name = null;
         try {
             if (value.resourceId != 0) {
-                resourceName = res.getResourceName(value.resourceId);
+                name = res.getResourceName(value.resourceId);
             }
         } catch (Resources.NotFoundException e) {
             // No name: no stand-in.
         }
-        final int user = UserHandle.myUserId();
-        mSource.request(key, apkPath, file, density, box[0], box[1], resourceName, user);
+        final String resourceName = name;
+        final boolean launcherIcon = mWaits && sThread.get()[1] != 0
+                && SystemClock.elapsedRealtime() >= mNoWaitUntil && Looper.myLooper() != Looper.getMainLooper();
+        made = CopyMiss.miss(mProcess, launcherIcon, apkPath, file, CleanCopyGate::apkBytes,
+                new DirectDecoder(density, user),
+                CACHE_BYTES / 4, new CopyMiss.Miss<Made>() {
+                    @Override
+                    public void keep(Made decoded) {
+                        mCache.put(key, decoded);
+                    }
+
+                    @Override
+                    public void askCopy() {
+                        mSource.request(key, apkPath, file, density, box[0], box[1], resourceName, user);
+                    }
+
+                    @Override
+                    public void retryLater() {
+                        CleanCopyGate.retryLater(res, value, user);
+                    }
+                });
+        if (made != null) {
+            return made;
+        }
         // Meanwhile the newest copy of the same resource, made in the VM too (an older version of the app's file).
         final CleanImageFile older = resourceName != null
                 ? mSource.fallback(apkPath, file, density, box[0], box[1], resourceName, user) : null;
@@ -843,6 +1077,90 @@ public final class CleanCopyGate implements ImageFileGate {
         return null;
     }
 
+    // A file of an APK, or null when it is larger than max.
+    private static CopyMiss.Input apkBytes(String apkPath, String file, int max) throws IOException {
+        DecodeMemory.Reservation memory = null;
+        try {
+            final byte[] bytes;
+            try (java.util.zip.ZipFile apk = new java.util.zip.ZipFile(apkPath)) {
+                final java.util.zip.ZipEntry entry = apk.getEntry(file);
+                if (entry == null) throw new IOException("no " + file);
+                final long size = entry.getSize();
+                if (size < 0 || size > max) return null;
+                try {
+                    memory = DecodeMemory.reserve(size);
+                } catch (DecodeMemory.NoRoomException e) {
+                    throw new IOException("no room for APK image", e);
+                }
+                try {
+                    bytes = new byte[(int) size];
+                } catch (OutOfMemoryError e) {
+                    return null;
+                }
+                try (InputStream in = apk.getInputStream(entry)) {
+                    int at = 0;
+                    while (at < bytes.length) {
+                        final int n = in.read(bytes, at, bytes.length - at);
+                        if (n < 0) throw new IOException("short APK image");
+                        if (n == 0) {
+                            final int next = in.read();
+                            if (next < 0) throw new IOException("short APK image");
+                            bytes[at++] = (byte) next;
+                        } else {
+                            at += n;
+                        }
+                    }
+                    if (in.read() != -1) throw new IOException("long APK image");
+                }
+            }
+            final DecodeMemory.Reservation held = memory;
+            final CopyMiss.Input input = new CopyMiss.Input(bytes, held::close);
+            memory = null;
+            return input;
+        } finally {
+            if (memory != null) memory.close();
+        }
+    }
+
+    // The decode at once: through the decode gate (the VM, the process's own lane), unscaled, with the file's
+    // density, as a copy is: the drawable scales it to the display.
+    private static final class DirectDecoder implements CopyMiss.Decoder<Made> {
+        private final int mDensity;
+        private final int mUser;
+
+        DirectDecoder(int density, int user) {
+            mDensity = density;
+            mUser = user;
+        }
+
+        @Override
+        public Made decode(byte[] bytes) {
+            if (!DecodeGate.gates()) return null;
+            final Bitmap bitmap;
+            try (DecodeGate.OwnerScope owner = DecodeGate.ownerScope(mUser)) {
+                final android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
+                options.inScaled = false;
+                bitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+            }
+            if (bitmap == null) return null;
+            bitmap.setDensity(mDensity);
+            final NinePatchChunk checked = NinePatchChunk.fromPng(bytes, bytes.length);
+            if (checked == null || !checked.fits(bitmap.getWidth(), bitmap.getHeight())) {
+                return new Made(bitmap, null, null, null, null);
+            }
+            final int[] bounds = checked.opticalInsets();
+            final Rect insets = bounds != null ? new Rect(bounds[0], bounds[1], bounds[2], bounds[3]) : null;
+            return new Made(bitmap, checked.toDeviceFormat(ByteOrder.nativeOrder()),
+                    new Rect(checked.paddingLeft, checked.paddingTop, checked.paddingRight, checked.paddingBottom),
+                    insets, checked.insetsFileFormat());
+        }
+
+        @Override
+        public long bytes(Made made) {
+            return made.bitmap.getAllocationByteCount();
+        }
+    }
+
     private Made read(String key) {
         final Made made = made(mSource.read(key));
         if (made != null && made.bitmap.getAllocationByteCount() <= CACHE_BYTES / 4) {
@@ -861,7 +1179,7 @@ public final class CleanCopyGate implements ImageFileGate {
         DenyAll(ApplicationInfo own) {
             try {
                 if (own != null) {
-                    mOwn.addAll(Arrays.asList(own.getAllApkPaths()));
+                    mOwn.addAll(ownApks(own));
                 }
             } catch (RuntimeException ignored) {
                 // Only the system image then.

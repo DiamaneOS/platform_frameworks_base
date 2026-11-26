@@ -99,6 +99,15 @@ public final class Backoff {
         return failed[1] - nowMs;
     }
 
+    /** How long {@code key} still waits at {@code nowMs} after its last failure: 0 when it may be tried or runs. */
+    public synchronized long waitLeft(String key, long nowMs) {
+        if (mRunning.containsKey(key)) {
+            return 0;
+        }
+        final long[] failed = mFailed.get(key);
+        return failed == null ? 0 : Math.max(0, failed[1] - nowMs);
+    }
+
     /** How often {@code key} failed in a row so far. */
     public synchronized int failures(String key) {
         final long[] failed = mFailed.get(key);

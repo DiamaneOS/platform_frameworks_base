@@ -21,6 +21,8 @@
 #include "GraphicsJNI.h"
 // DiamaneOS: protected copies reserve the driver storage before allocation.
 #include "diamaneos/GateHardware.h"
+// DiamaneOS: checked raw stripes can fill reserved hardware storage directly.
+#include "diamaneos/GateWritable.h"
 #include "HardwareBufferHelpers.h"
 #include "ScopedParcel.h"
 #include "SkBitmap.h"
@@ -441,6 +443,45 @@ static bool bitmapCopyTo(SkBitmap* dst, SkColorType dstCT, const SkBitmap& src,
 static jlong Bitmap_hardwareAllocationBytes(JNIEnv*, jclass, jlong srcHandle) {
     LocalScopedBitmap source(srcHandle);
     return source.valid() ? static_cast<jlong>(diamaneos::hardwareBytes(source->bitmap())) : 0;
+}
+
+// DiamaneOS: buffer validation and raw copies stay in the protected image helper.
+static jlong Bitmap_writableAllocationBytes(JNIEnv* env, jclass, jobject buffer, jint width, jint height) {
+#ifdef __ANDROID__
+    return buffer == nullptr ? static_cast<jlong>(diamaneos::writableAllocationBytes(width, height))
+            : static_cast<jlong>(diamaneos::writableBufferBytes(
+                    uirenderer::HardwareBufferHelpers::AHardwareBuffer_fromHardwareBuffer(env, buffer)));
+#else
+    (void)env;
+    (void)buffer;
+    (void)width;
+    (void)height;
+    return 0;
+#endif
+}
+
+// DiamaneOS: only checked pixel bitmaps enter this transform.
+static jboolean Bitmap_writeStraightPixels(JNIEnv*, jclass, jlong source, jlong destination) {
+    LocalScopedBitmap input(source), output(destination);
+    return input.valid() && output.valid() && diamaneos::writeStraightPixels(input->bitmap(), output->bitmap());
+}
+
+static jboolean Bitmap_writeHardwarePixels(JNIEnv* env, jclass, jlong source, jobject buffer,
+                                          jint left, jint top, jlong reserved) {
+#ifdef __ANDROID__
+    LocalScopedBitmap bitmap(source);
+    return buffer != nullptr && bitmap.valid() && reserved > 0 && diamaneos::writeBufferPixels(
+            uirenderer::HardwareBufferHelpers::AHardwareBuffer_fromHardwareBuffer(env, buffer),
+            bitmap->bitmap(), left, top, static_cast<uint64_t>(reserved));
+#else
+    (void)env;
+    (void)source;
+    (void)buffer;
+    (void)left;
+    (void)top;
+    (void)reserved;
+    return false;
+#endif
 }
 
 static jobject Bitmap_copy(JNIEnv* env, jobject, jlong srcHandle, jint dstConfigHandle,
@@ -1455,6 +1496,11 @@ static const JNINativeMethod gBitmapMethods[] = {
         {"nativePrepareToDraw", "(J)V", (void*)Bitmap_prepareToDraw},
         {"nativeGetAllocationByteCount", "(J)I", (void*)Bitmap_getAllocationByteCount},
         {"nativeHardwareAllocationBytes", "(J)J", (void*)Bitmap_hardwareAllocationBytes},
+        {"nativeWritableAllocationBytes", "(Landroid/hardware/HardwareBuffer;II)J",
+         (void*)Bitmap_writableAllocationBytes},
+        {"nativeWriteStraightPixels", "(JJ)Z", (void*)Bitmap_writeStraightPixels}, // DiamaneOS
+        {"nativeWriteHardwarePixels", "(JLandroid/hardware/HardwareBuffer;IIJ)Z",
+         (void*)Bitmap_writeHardwarePixels},
         {"nativeCopyPreserveInternalConfig", "(J)Landroid/graphics/Bitmap;",
          (void*)Bitmap_copyPreserveInternalConfig},
         {"nativeWrapHardwareBufferBitmap",

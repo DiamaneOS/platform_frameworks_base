@@ -38,7 +38,8 @@ import java.util.function.Predicate;
 
 /**
  * Clean copies of apps' image files, kept on disk across restarts: the pixels the VM made for a file, under the same
- * key {@link AppResourceImages} caches it by in memory (APK path, time and size, file in the APK, density and box).
+ * key {@link AppResourceImages} caches it by in memory (APK path, time and size, file in the APK, density, box and the
+ * Android user it was made for: a copy of one user is never another user's, see {@link #userOfFile}).
  * An app update, another theme, density or night mode, or an overlay makes Android pick another file or another APK,
  * so it is another key: a stale copy is never taken for the exact file. The system server keeps the store (in
  * /data/system, which no app can reach) and hands its files to other system processes ({@link CleanImages}). The format
@@ -55,8 +56,8 @@ public final class CleanImageStore implements CleanCopies {
     private static final String TAG = "VmDecode";
     /** The store's size on disk. */
     static final long MAX_BYTES = 64L * 1024 * 1024;
-    /** One APK's copies at most, so one app's images cannot push out every other app's. */
-    static final long MAX_APK_BYTES = 4L * 1024 * 1024;
+    /** One APK's copies for one user at most, so one app's images cannot push out every other app's. */
+    static final long MAX_APK_BYTES = CleanImageFile.MAX_STORED_BYTES;
     // A copy read again is marked used on disk (its file time) at most this often. In memory every read counts.
     private static final long TOUCH_MS = 60 * 60 * 1000;
 
@@ -64,15 +65,18 @@ public final class CleanImageStore implements CleanCopies {
     public static final int SAVED = 0;
     /** {@link #saveCopy}: not kept, the APK's copies are at their cap and the copy may not make room. */
     public static final int OVER_CAP = 1;
-    /** {@link #saveCopy}: not kept, too large or not written (tried again later). */
+    /** {@link #saveCopy}: not kept, not written (tried again later). */
     public static final int NOT_WRITTEN = 2;
+    /** {@link #saveCopy}: never kept, larger than an APK's copies may be (making it again gives the same). */
+    public static final int TOO_LARGE = 3;
 
     private final File mDir;
     private final Object mLock = new Object();
     // By file name: changed under mLock, read without it (touch).
     private final Map<String, Info> mFiles = new java.util.concurrent.ConcurrentHashMap<>();
-    private final Map<String, Long> mApkBytes = new HashMap<>(); // by APK path, guarded by mLock
+    private final Map<String, Long> mApkBytes = new HashMap<>(); // by APK path and user (capOf), guarded by mLock
     private long mBytes; // guarded by mLock
+    private final CopyGenerations mUsers = new CopyGenerations();
     private boolean mIndexed; // guarded by mLock
 
     // What the store knows of one file, from its header.
@@ -81,6 +85,7 @@ public final class CleanImageStore implements CleanCopies {
         final String key;
         final String identity;
         final String apk;
+        final int user;
         final int density;
         final long length;
         volatile long used; // the last read, in memory
@@ -91,6 +96,7 @@ public final class CleanImageStore implements CleanCopies {
             this.key = key;
             this.identity = identity;
             this.apk = CleanCopyKey.apkOf(key);
+            this.user = CleanCopyKey.userOf(key);
             this.density = density;
             this.length = length;
             this.used = used;
@@ -106,6 +112,39 @@ public final class CleanImageStore implements CleanCopies {
     /** The file a copy under {@code key} is kept in (it may not exist). */
     public File fileFor(String key) {
         return new File(mDir, CleanImageFile.fileName(key));
+    }
+
+    /**
+     * The user the copy in the file {@code name} was made for, -1 when the store has no such copy: only a process
+     * that may see that user's images gets it (the provider checks).
+     */
+    public int userOfFile(String name) {
+        Info info = name == null ? null : mFiles.get(name); // without the lock: a read never waits for a save
+        if (info == null && name != null) {
+            synchronized (mLock) {
+                indexLocked();
+                info = mFiles.get(name);
+            }
+        }
+        return info == null ? -1 : info.user;
+    }
+
+    /** The immutable indexed key and package attribution used to authorize a provider read. */
+    public String keyOfFile(String name) {
+        userOfFile(name);
+        final Info info = mFiles.get(name);
+        return info == null ? null : info.key;
+    }
+
+    public String packageOfFile(String name) {
+        userOfFile(name);
+        final Info info = mFiles.get(name);
+        return info == null ? null : CleanCopyKey.ownerOf(info.identity);
+    }
+
+    // What an APK's cap counts by: its path and the user its copies are made for.
+    private static String capOf(String apk, int user) {
+        return apk + '\0' + user;
     }
 
     /** The file named {@code name} (as {@link CleanImageFile#fileName} makes them), or null for any other name. */
@@ -214,10 +253,42 @@ public final class CleanImageStore implements CleanCopies {
 
     /** Removes every copy of an app: it is gone for every user. */
     public void forgetOwner(String ownerPackage) {
+        forgetOwner(ownerPackage, -1);
+    }
+
+    /** Removes every copy of an app made for {@code user} (-1: for every user). */
+    public void forgetOwner(String ownerPackage, int user) {
         synchronized (mLock) {
             indexLocked();
             for (Info info : new ArrayList<>(mFiles.values())) {
-                if (ownerPackage.equals(CleanCopyKey.ownerOf(info.identity))) {
+                if (ownerPackage.equals(CleanCopyKey.ownerOf(info.identity)) && (user < 0 || info.user == user)) {
+                    removeLocked(info.name);
+                }
+            }
+        }
+    }
+
+    /** Captures the user incarnation before queued work begins. */
+    public CopyGenerations.Token beginUser(int user, long serial) {
+        synchronized (mLock) {
+            return mUsers.begin(user, serial);
+        }
+    }
+
+    /** Whether this make still belongs to a live incarnation. */
+    public boolean current(CopyGenerations.Token token) {
+        synchronized (mLock) {
+            return mUsers.current(token);
+        }
+    }
+
+    /** Removes every copy made for {@code user}: the user was removed. */
+    public void forgetUser(int user) {
+        synchronized (mLock) {
+            mUsers.remove(user);
+            indexLocked();
+            for (Info info : new ArrayList<>(mFiles.values())) {
+                if (info.user == user) {
                     removeLocked(info.name);
                 }
             }
@@ -275,6 +346,12 @@ public final class CleanImageStore implements CleanCopies {
      */
     public int saveCopy(String key, String identity, Bitmap bitmap, NinePatchChunk chunk, long used,
             boolean mayEvict) {
+        return saveCopy(key, identity, bitmap, chunk, used, mayEvict, null, () -> true);
+    }
+
+    /** Publishes only while the captured user incarnation is current, under the same lock as removal. */
+    public int saveCopy(String key, String identity, Bitmap bitmap, NinePatchChunk chunk, long used,
+            boolean mayEvict, CopyGenerations.Token token, java.util.function.BooleanSupplier live) {
         if (key == null || bitmap == null) {
             return NOT_WRITTEN;
         }
@@ -290,7 +367,7 @@ public final class CleanImageStore implements CleanCopies {
         }
         if (bytes.length > MAX_APK_BYTES) {
             Log.w(TAG, "clean copy not kept: larger than an APK's copies may be");
-            return OVER_CAP;
+            return TOO_LARGE;
         }
         // The store is indexed before the temporary file is written: the first index removes every temporary file
         // it finds (left by a write that never ended).
@@ -312,13 +389,18 @@ public final class CleanImageStore implements CleanCopies {
             return NOT_WRITTEN;
         }
         synchronized (mLock) {
+            if ((token != null && !mUsers.current(token)) || !live.getAsBoolean()) {
+                temp.delete();
+                return NOT_WRITTEN;
+            }
             indexLocked();
             final String apk = CleanCopyKey.apkOf(key);
+            final int user = CleanCopyKey.userOf(key);
             if (apk != null) {
-                // Over the APK's cap: its least recently read copies make room (never another APK's), when this copy
-                // may evict.
+                // Over the APK's cap for the user: its least recently read copies make room (never another APK's or
+                // another user's), when this copy may evict.
                 final Info same = mFiles.get(file.getName());
-                long apkBytes = mApkBytes.getOrDefault(apk, 0L) - (same != null ? same.length : 0);
+                long apkBytes = mApkBytes.getOrDefault(capOf(apk, user), 0L) - (same != null ? same.length : 0);
                 if (apkBytes + bytes.length > MAX_APK_BYTES && !mayEvict) {
                     temp.delete();
                     return OVER_CAP;
@@ -326,7 +408,7 @@ public final class CleanImageStore implements CleanCopies {
                 if (apkBytes + bytes.length > MAX_APK_BYTES) {
                     final List<Info> own = new ArrayList<>();
                     for (Info info : mFiles.values()) {
-                        if (apk.equals(info.apk) && !info.name.equals(file.getName())) {
+                        if (apk.equals(info.apk) && info.user == user && !info.name.equals(file.getName())) {
                             own.add(info);
                         }
                     }
@@ -405,14 +487,18 @@ public final class CleanImageStore implements CleanCopies {
     }
 
     /**
-     * Indexes the store and removes copies of APKs that are gone: kept only while their app is installed
-     * ({@code installed}, by package) and they are the newest copy of their resource at their density, to stand in
-     * until the new one is made. Once per start, on a background thread.
+     * Indexes the store and removes copies of users that are gone ({@code aliveUser}) and copies of APKs that are gone:
+     * kept only while their app is installed ({@code installed}, by package) and they are the newest copy of their
+     * resource at their density, to stand in until the new one is made. Once per start, on a background thread.
      */
-    public void prepare(Predicate<String> installed) {
+    public void prepare(Predicate<String> installed, java.util.function.IntPredicate aliveUser) {
         synchronized (mLock) {
             indexLocked();
             for (Info info : new ArrayList<>(mFiles.values())) {
+                if (info.user < 0 || (aliveUser != null && !aliveUser.test(info.user))) {
+                    removeLocked(info.name);
+                    continue;
+                }
                 if (info.apk != null && new File(info.apk).exists()) {
                     continue;
                 }
@@ -475,7 +561,7 @@ public final class CleanImageStore implements CleanCopies {
         mFiles.put(info.name, info);
         mBytes += info.length;
         if (info.apk != null) {
-            mApkBytes.merge(info.apk, info.length, Long::sum);
+            mApkBytes.merge(capOf(info.apk, info.user), info.length, Long::sum);
         }
     }
 
@@ -487,11 +573,12 @@ public final class CleanImageStore implements CleanCopies {
         }
         mBytes -= info.length;
         if (info.apk != null) {
-            final long left = mApkBytes.getOrDefault(info.apk, 0L) - info.length;
+            final String cap = capOf(info.apk, info.user);
+            final long left = mApkBytes.getOrDefault(cap, 0L) - info.length;
             if (left > 0) {
-                mApkBytes.put(info.apk, left);
+                mApkBytes.put(cap, left);
             } else {
-                mApkBytes.remove(info.apk);
+                mApkBytes.remove(cap);
             }
         }
     }

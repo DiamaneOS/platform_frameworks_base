@@ -22,11 +22,12 @@ package {
 
 filegroup {
     name: "diamaneos-clean-copies-sources",
-    srcs: ["java/**/*.java"],
+    srcs: ["java/**/*.java", ":diamaneos-ninepatch-source"],
     visibility: ["//frameworks/base"],
 }
 
-// The file format, the key and the mount rule of verified system files are plain Java, tested on the host.
+// The file format, the key, who may see a user's copies, the mount rule of verified system files, and the decode
+// gate's image owners and global locks are plain Java, tested on the host.
 java_test_host {
     name: "diamaneos-clean-copies-tests",
     srcs: [
@@ -34,7 +35,14 @@ java_test_host {
         "tests/src/**/*.java",
         "java/com/android/internal/diamaneos/cleancopies/CleanCopyKey.java",
         "java/com/android/internal/diamaneos/cleancopies/CleanImageFile.java",
+        "java/com/android/internal/diamaneos/cleancopies/CopyMiss.java",
+        "java/com/android/internal/diamaneos/cleancopies/CopyAudience.java",
+        "java/com/android/internal/diamaneos/cleancopies/GateLocks.java",
+        "java/com/android/internal/diamaneos/cleancopies/GateOwner.java",
+        "java/com/android/internal/diamaneos/cleancopies/IconUsers.java",
+        "java/com/android/internal/diamaneos/cleancopies/ImageAttempts.java",
         "java/com/android/internal/diamaneos/cleancopies/VerifiedMounts.java",
+        "java/com/android/internal/diamaneos/cleancopies/ThumbnailAdmission.java",
     ],
     static_libs: ["junit"],
     test_options: {

@@ -52,6 +52,20 @@ public class BackoffTest {
     }
 
     @Test
+    public void waitLeftCountsDownTheWait() {
+        final Backoff backoff = new Backoff(2_000, 60_000);
+        assertEquals(0, backoff.waitLeft("a", 0));
+        assertTrue(backoff.start("a", 0));
+        assertEquals("running, no wait to count", 0, backoff.waitLeft("a", 0));
+        backoff.failed("a", 1_000);
+        assertEquals(2_000, backoff.waitLeft("a", 1_000));
+        assertEquals(500, backoff.waitLeft("a", 2_500));
+        assertEquals(0, backoff.waitLeft("a", 3_000));
+        backoff.succeeded("a");
+        assertEquals(0, backoff.waitLeft("a", 1_000));
+    }
+
+    @Test
     public void successAndResetForget() {
         final Backoff backoff = new Backoff(2_000, 60_000);
         backoff.failed("a", 0);

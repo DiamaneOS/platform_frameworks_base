@@ -443,6 +443,8 @@ public final class Bitmap implements Parcelable {
             nativeRecycle(mNativePtr);
             mNinePatchChunk = null;
             mRecycled = true;
+            // DiamaneOS: release this bitmap's protected-decode storage charge.
+            DecodeMemory.recycled(this);
             mHardwareBuffer = null;
             if (mRecycler != null) {
                 mRecycler.run();
@@ -1179,10 +1181,14 @@ public final class Bitmap implements Parcelable {
             bitmap.setPremultiplied(source.mRequestPremultiplied);
 
             Canvas canvas = new Canvas(bitmap);
-            canvas.translate(-deviceR.left, -deviceR.top);
-            canvas.concat(m);
-            canvas.drawBitmap(source, srcR, dstR, paint);
-            canvas.setBitmap(null);
+            // DiamaneOS: release the temporary canvas before another frame is allocated.
+            try {
+                canvas.translate(-deviceR.left, -deviceR.top);
+                canvas.concat(m);
+                canvas.drawBitmap(source, srcR, dstR, paint);
+            } finally {
+                GatePixels.releaseCanvas(canvas);
+            }
 
             // If the source has a gainmap, apply the same set of transformations to the gainmap
             // and set it on the output
@@ -1271,12 +1277,16 @@ public final class Bitmap implements Parcelable {
         }
         newMapContents.eraseColor(0);
         canvas = new Canvas(newMapContents);
-        // Scale the translate & matrix to be in gainmap-relative dimensions
-        canvas.scale(scaleX, scaleY);
-        canvas.translate(-deviceR.left, -deviceR.top);
-        canvas.concat(m);
-        canvas.drawBitmap(sourceGainmap, gSrcR, dstR, paint);
-        canvas.setBitmap(null);
+        // DiamaneOS: release the temporary gainmap canvas on every draw outcome.
+        try {
+            // Scale the translate & matrix to be in gainmap-relative dimensions
+            canvas.scale(scaleX, scaleY);
+            canvas.translate(-deviceR.left, -deviceR.top);
+            canvas.concat(m);
+            canvas.drawBitmap(sourceGainmap, gSrcR, dstR, paint);
+        } finally {
+            GatePixels.releaseCanvas(canvas);
+        }
         // Create a new gainmap using a copy of the metadata information from the source but
         // with the transformed bitmap created above
         return newMapContents;
@@ -1929,6 +1939,12 @@ public final class Bitmap implements Parcelable {
         if (isMutable()) {
             nativeSetImmutable(mNativePtr);
         }
+    }
+
+    // DiamaneOS: finalize private gate working storage without a second pixel allocation.
+    void freezeForDecodeGate() {
+        checkRecycled("Cannot freeze a recycled bitmap");
+        setImmutable();
     }
 
     /**
@@ -2779,13 +2795,40 @@ public final class Bitmap implements Parcelable {
                                             boolean isMutable);
     private static native Bitmap nativeCreateEmptyAshmemBitmap(int width, int height,
             int nativeConfig, long nativeColorSpace);
-    // DiamaneOS: the allocator describes hardware storage before the gate creates its copy.
+    // DiamaneOS: hardware storage is described before allocation and verified afterward.
     static long hardwareAllocationBytes(Bitmap bitmap) {
         bitmap.checkRecycled("Cannot copy a recycled bitmap");
         return nativeHardwareAllocationBytes(bitmap.mNativePtr);
     }
 
     private static native long nativeHardwareAllocationBytes(long bitmapPtr);
+    // DiamaneOS: fill exclusively held hardware storage with checked raw bitmap stripes.
+    static long writableAllocationBytes(int width, int height) {
+        return nativeWritableAllocationBytes(null, width, height);
+    }
+
+    static long writableAllocationBytes(HardwareBuffer buffer) {
+        return nativeWritableAllocationBytes(buffer, 0, 0);
+    }
+
+    static boolean writeHardwarePixels(HardwareBuffer buffer, Bitmap source, int left, int top, long reserved) {
+        source.checkRecycled("Cannot upload recycled pixels");
+        return nativeWriteHardwarePixels(source.mNativePtr, buffer, left, top, reserved);
+    }
+
+    // DiamaneOS: transform already validated straight pixels into exclusively held reserved software storage.
+    static boolean writeStraightPixels(Bitmap source, Bitmap destination) {
+        source.checkRecycled("Cannot transform recycled pixels");
+        destination.checkRecycled("Cannot fill recycled pixels");
+        final boolean written = nativeWriteStraightPixels(source.mNativePtr, destination.mNativePtr);
+        destination.mColorSpace = null;
+        return written;
+    }
+
+    private static native boolean nativeWriteStraightPixels(long source, long destination);
+    private static native long nativeWritableAllocationBytes(HardwareBuffer buffer, int width, int height);
+    private static native boolean nativeWriteHardwarePixels(long bitmapPtr, HardwareBuffer buffer,
+            int left, int top, long reserved);
     private static native Bitmap nativeCopyAshmem(long nativeSrcBitmap);
     private static native Bitmap nativeCopyAshmemConfig(long nativeSrcBitmap, int nativeConfig);
     private static native int nativeGetAshmemFD(long nativeBitmap);

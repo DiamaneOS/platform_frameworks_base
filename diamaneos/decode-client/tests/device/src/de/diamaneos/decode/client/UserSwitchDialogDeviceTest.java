@@ -54,13 +54,8 @@ public class UserSwitchDialogDeviceTest {
         try {
             final Bitmap icon = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888);
             icon.eraseColor(Color.rgb(40, 120, (int) (SystemClock.uptimeMillis() % 200)));
-            InstrumentationRegistry.getInstrumentation().getUiAutomation().adoptShellPermissionIdentity();
-            try {
-                InstrumentationRegistry.getInstrumentation().getTargetContext().getSystemService(UserManager.class)
-                        .setUserIcon(user, icon);
-            } finally {
-                InstrumentationRegistry.getInstrumentation().getUiAutomation().dropShellPermissionIdentity();
-            }
+            InstrumentationRegistry.getInstrumentation().getTargetContext().getSystemService(UserManager.class)
+                    .setUserIcon(user, icon);
             Log.i(TAG, "switch to " + user + ": " + OwnerDeviceTest.shell("am switch-user -w " + user).trim());
             SystemClock.sleep(4_000);
             Log.i(TAG, "switch back: " + OwnerDeviceTest.shell("am switch-user -w 0").trim());
@@ -72,7 +67,7 @@ public class UserSwitchDialogDeviceTest {
         final String log = OwnerDeviceTest.shell(String.format(java.util.Locale.ROOT,
                 "logcat -d -v epoch -T %.3f -s DecoderUsers:I DecodeGate:W VmDecodeGate:W", since));
         final Pattern dialog = Pattern.compile("request of user " + user
-                + " shared (in VM start \\d+|not sent), .*, lane " + user + "/\\?gate:android@1000/");
+                + " shared (in VM start \\d+|not sent), .*, lane " + "\\?gate:uid1000");
         assertTrue("the dialog's icon reached the service as user " + user + "'s image: " + log,
                 dialog.matcher(log).find());
     }

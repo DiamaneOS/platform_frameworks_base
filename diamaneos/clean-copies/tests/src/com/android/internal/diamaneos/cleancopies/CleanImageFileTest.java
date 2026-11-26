@@ -49,6 +49,34 @@ public class CleanImageFileTest {
         return new CleanImageFile(KEY, ID, w, h, 640, CleanImageFile.COLOR_SRGB, npTc, npLb, pixels);
     }
 
+    // A copy as large as the system server makes them in {@code box}, of pixels no compression shrinks, with the
+    // longest key and identity and both nine-patch blocks at their largest.
+    private static CleanImageFile worstCopy(int[] box) {
+        final int w = box[0];
+        final int h = box[1];
+        final byte[] pixels = new byte[4 * w * h];
+        new java.util.Random(42).nextBytes(pixels);
+        final char[] key = new char[4096];
+        Arrays.fill(key, '\u20ac'); // three bytes each in the file
+        final char[] identity = new char[2048];
+        Arrays.fill(identity, '\u20ac');
+        return new CleanImageFile(new String(key), new String(identity), w, h, 640, CleanImageFile.COLOR_SRGB,
+                new byte[64 * 1024], new byte[64 * 1024], pixels);
+    }
+
+    @Test
+    public void everyCopyOfTheStorableBox_fitsTheStore() throws IOException {
+        for (int[] display : new int[][] {{1080, 2400}, {2400, 1080}, {1024, 1024}, {4096, 4096}, {8192, 16}}) {
+            final int[] box = CleanImageFile.storableBox(display[0], display[1]);
+            assertTrue((long) box[0] * box[1] <= CleanImageFile.MAX_STORED_PIXELS);
+            final byte[] file = worstCopy(box).write();
+            assertTrue(Arrays.toString(display) + " gives " + file.length + " bytes",
+                    file.length <= CleanImageFile.MAX_STORED_BYTES);
+            assertNotNull(CleanImageFile.read(file, file.length, worstCopy(box).key));
+        }
+        assertArrayEquals("a small box stays", new int[] {100, 50}, CleanImageFile.storableBox(100, 50));
+    }
+
     @Test
     public void roundTrip_keepsEveryField() throws IOException {
         final byte[] npTc = new byte[36];

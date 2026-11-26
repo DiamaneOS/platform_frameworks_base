@@ -16,6 +16,7 @@
 
 package de.diamaneos.decode.client;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -108,9 +109,12 @@ public class DecodeGateDeviceTest {
         ProbeProvider.ICONS.clear();
     }
 
+    // An RGB PNG (no alpha channel), as an opaque image is encoded.
     private static byte[] png() {
         final ByteArrayOutputStream out = new ByteArrayOutputStream();
-        assertTrue(redBlue().compress(Bitmap.CompressFormat.PNG, 100, out));
+        final Bitmap opaque = redBlue();
+        opaque.setHasAlpha(false);
+        assertTrue(opaque.compress(Bitmap.CompressFormat.PNG, 100, out));
         return out.toByteArray();
     }
 
@@ -171,25 +175,46 @@ public class DecodeGateDeviceTest {
     @Test
     public void bitmapFactoryByteArrayStreamFileAndDescriptor() throws Exception {
         final byte[] png = png();
-        int[] before = DecodeGate.countsForTest();
-        assertRedBlue(BitmapFactory.decodeByteArray(png, 0, png.length), W, H);
-        DecodeGate.resetForTest();
-        assertRedBlue(BitmapFactory.decodeStream(new ByteArrayInputStream(png)), W, H);
-        DecodeGate.resetForTest();
+        onePass("byte array", () -> BitmapFactory.decodeByteArray(png, 0, png.length));
+        onePass("stream", () -> BitmapFactory.decodeStream(new ByteArrayInputStream(png)));
         final File file = file(png);
         try {
-            assertRedBlue(BitmapFactory.decodeFile(file.getPath()), W, H);
-            DecodeGate.resetForTest();
+            onePass("file", () -> BitmapFactory.decodeFile(file.getPath()));
             try (FileInputStream in = new FileInputStream(file)) {
                 Os.lseek(in.getFD(), 0, OsConstants.SEEK_SET);
-                assertRedBlue(BitmapFactory.decodeFileDescriptor(in.getFD()), W, H);
+                onePass("descriptor", () -> BitmapFactory.decodeFileDescriptor(in.getFD()));
                 assertEquals("the descriptor's position is kept", 0,
                         Os.lseek(in.getFD(), 0, OsConstants.SEEK_CUR));
             }
         } finally {
             file.delete();
         }
-        assertTrue(Arrays.equals(new int[] {4, 4, 0}, since(before)));
+    }
+
+    private interface Decode {
+        Bitmap run() throws Exception;
+    }
+
+    // One decode of the red and blue PNG, with nothing cached: exactly one probe and one decode in the VM and no
+    // failure. The counters are the process's, so the measurement starts once no other request of the process has
+    // changed them for 500 ms (an earlier test's answer finishing in the background), and the counts are reported.
+    private static void onePass(String source, Decode decode) throws Exception {
+        DecodeGate.resetForTest();
+        int[] before = DecodeGate.countsForTest();
+        for (long end = SystemClock.uptimeMillis() + 10_000; SystemClock.uptimeMillis() < end; ) {
+            SystemClock.sleep(500);
+            final int[] now = DecodeGate.countsForTest();
+            if (Arrays.equals(now, before)) break;
+            before = now;
+        }
+        assertRedBlue(decode.run(), W, H);
+        final int[] got = since(before);
+        final int hits = hitsSince(before);
+        Log.i(TAG, source + ": decodes, probes, failures=" + Arrays.toString(got) + ", cache hits=" + hits
+                + ", calls=" + DecodeGate.callsForTest());
+        assertEquals(source + ": unexpected cached answer", 0, hits);
+        assertArrayEquals(source + ": decodes, probes, failures " + Arrays.toString(got),
+                new int[] {1, 1, 0}, got);
     }
 
     @Test
@@ -455,11 +480,22 @@ public class DecodeGateDeviceTest {
     }
 
     @Test
-    public void moviesAreNotMadeInAGatedProcess() {
-        assertNull(Movie.decodeByteArray(GIF, 0, GIF.length));
-        assertNull(Movie.decodeStream(new ByteArrayInputStream(GIF)));
+    public void moviesKeepThePublicShapeWithVmFrames() throws Exception {
+        final Movie array = Movie.decodeByteArray(GIF, 0, GIF.length);
+        final Movie stream = Movie.decodeStream(new ByteArrayInputStream(GIF));
+        assertNotNull(array);
+        assertNotNull(stream);
+        final java.lang.reflect.Field nativeMovie = Movie.class.getDeclaredField("mNativeMovie");
+        nativeMovie.setAccessible(true);
+        assertEquals("gated Movie retained a native decoder", 0L, nativeMovie.getLong(array));
+        assertEquals("gated stream retained a native decoder", 0L, nativeMovie.getLong(stream));
         DecodeGate.setForcedForTest(false);
-        assertNotNull("as before without the gate", Movie.decodeByteArray(GIF, 0, GIF.length));
+        final Movie stock = Movie.decodeByteArray(GIF, 0, GIF.length);
+        assertNotNull(stock);
+        assertEquals(stock.width(), array.width());
+        assertEquals(stock.height(), array.height());
+        assertEquals(stock.width(), stream.width());
+        assertEquals(stock.height(), stream.height());
     }
 
     // Exemption
@@ -805,7 +841,8 @@ public class DecodeGateDeviceTest {
                 got.set(BitmapFactory.decodeByteArray(png, 0, png.length));
                 times[index] = SystemClock.uptimeMillis() - start;
             });
-            assertTrue("main thread took " + times[i] + " ms", times[i] <= 2 * DecodeGate.MAIN_MS + MARGIN_MS);
+            // The whole call, its probe and its pixels, within the main thread's time.
+            assertTrue("main thread took " + times[i] + " ms", times[i] <= DecodeGate.MAIN_MS + MARGIN_MS);
             assertRedBlue(got.get(), W, H);
         }
         Log.i(TAG, "main thread, BitmapFactory, VM up: " + Arrays.toString(times) + " ms");
@@ -969,6 +1006,18 @@ public class DecodeGateDeviceTest {
             assertRedBlue(b, W, H);
             assertFalse(BitmapFactory.decodeByteArray(opaque, 0, opaque.length).hasAlpha());
         }
+        // An alpha channel whose pixels are all opaque keeps its alpha and ARGB_8888, as stock decides from the
+        // encoded alpha.
+        final byte[] rgba = encoded(redBlue(), Bitmap.CompressFormat.PNG);
+        final BitmapFactory.Options o = new BitmapFactory.Options();
+        o.inPreferredConfig = Bitmap.Config.RGB_565;
+        final Bitmap kept = BitmapFactory.decodeByteArray(rgba, 0, rgba.length, o);
+        assertEquals(Bitmap.Config.ARGB_8888, kept.getConfig());
+        assertTrue(kept.hasAlpha());
+        DecodeGate.setForcedForTest(false);
+        final Bitmap stock = BitmapFactory.decodeByteArray(rgba, 0, rgba.length, o);
+        assertEquals(stock.getConfig(), kept.getConfig());
+        assertEquals(stock.hasAlpha(), kept.hasAlpha());
     }
 
     private static Paint paint(int color) {
@@ -1076,8 +1125,9 @@ public class DecodeGateDeviceTest {
     // The answer's name (with "!" when it carries no pixels) goes to {@code answers}.
     private boolean call(ParcelFileDescriptor bytes, String origin, String name, int box,
             java.util.List<String> answers) {
+        try (DecodeGate.Input input = DecodeGate.snapshot(new android.content.res.AssetFileDescriptor(bytes, 0, -1))) {
         final android.os.Bundle extras = new android.os.Bundle();
-        extras.putParcelable(DecodeGate.EXTRA_FD, bytes);
+        extras.putParcelable(DecodeGate.EXTRA_FD, input.fd());
         extras.putInt(DecodeGate.EXTRA_WIDTH, box);
         extras.putInt(DecodeGate.EXTRA_HEIGHT, box);
         extras.putLong(DecodeGate.EXTRA_TIME, DecodeGate.SERVER_MS);
@@ -1092,6 +1142,9 @@ public class DecodeGateDeviceTest {
         final android.os.Bundle taken = mContext.getContentResolver().call(DecodeGate.URI, DecodeGate.METHOD_DECODE,
                 null, extras);
         return taken != null && taken.getBoolean(DecodeGate.EXTRA_TAKEN);
+        } catch (java.io.IOException e) {
+            throw new AssertionError("test input staging", e);
+        }
     }
 
     @Test

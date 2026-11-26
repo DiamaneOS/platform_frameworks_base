@@ -44,6 +44,30 @@ public final class CleanImageFile {
     public static final int MAX_SIDE = 8192;
     /** The largest file taken: the pixels uncompressed plus room for the header, enough for any honest copy. */
     public static final int MAX_FILE_BYTES = 4 * MAX_PIXELS + 256 * 1024;
+    /** The most one APK's copies for one user may take in the system server's store, a single copy included. */
+    public static final int MAX_STORED_BYTES = 4 * 1024 * 1024;
+    // What a file holds besides its compressed pixels at most: the header with the longest key and identity, both
+    // nine-patch blocks and the hash.
+    private static final int MAX_FRAME_BYTES = 4 + 2 + 3 * 4096 + 2 + 3 * 2048 + 13 + 2 * (4 + 64 * 1024) + 4 + 32;
+    /**
+     * The most pixels a copy the system server keeps may hold: its file fits {@link #MAX_STORED_BYTES} whatever the
+     * pixels (zlib grows data it cannot compress by well under 0.1 %), so no copy is made only to be refused.
+     */
+    public static final int MAX_STORED_PIXELS = (MAX_STORED_BYTES - MAX_FRAME_BYTES) / 4 * 1000 / 1001;
+
+    /**
+     * {@code {maxWidth, maxHeight}} made smaller, keeping its shape, so that an image decoded into it has at most
+     * {@link #MAX_STORED_PIXELS}: the box the system server makes its copies in.
+     */
+    public static int[] storableBox(int maxWidth, int maxHeight) {
+        final long pixels = (long) maxWidth * maxHeight;
+        if (pixels <= MAX_STORED_PIXELS) {
+            return new int[] {maxWidth, maxHeight};
+        }
+        final double scale = Math.sqrt((double) MAX_STORED_PIXELS / pixels);
+        return new int[] {Math.max(1, (int) Math.floor(maxWidth * scale)),
+                Math.max(1, (int) Math.floor(maxHeight * scale))};
+    }
     private static final int MAX_KEY_CHARS = 4096;
     private static final int MAX_IDENTITY_CHARS = 2048;
     private static final int MAX_CHUNK_BYTES = 64 * 1024;

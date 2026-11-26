@@ -206,6 +206,8 @@ public final class BitmapRegionDecoder {
      */
     @NonNull
     public static BitmapRegionDecoder newInstance(@NonNull String pathName) throws IOException {
+        // DiamaneOS: acquisition starts with this public operation's budget.
+        if (DecodeGate.gates()) return new BitmapRegionDecoder(GatedDecodes.region(pathName));
         BitmapRegionDecoder decoder = null;
         InputStream stream = null;
 

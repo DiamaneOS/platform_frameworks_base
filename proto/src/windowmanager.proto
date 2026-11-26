@@ -47,6 +47,9 @@ message TaskSnapshotProto {
   int32 letterbox_inset_bottom = 20;
   int32 ui_mode = 21;
   int32 density_dpi = 22;
+  // DiamaneOS: the SHA-256 (lowercase hex) of the image bytes the system server wrote, empty when unknown.
+  string diamaneos_high_res_sha256 = 1000;
+  string diamaneos_low_res_sha256 = 1001;
 }
 
 // Persistent letterboxing configurations

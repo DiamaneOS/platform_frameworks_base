@@ -414,6 +414,8 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
 
         @Override
         public void onEvent(int event, String path) {
+            // DiamaneOS: service renames do not start a decode or finish a still-open set.
+            if (event == MOVED_TO && path != null && mVmController.consumeOwnMove(mWallpaperDir, path)) return;
             // DiamaneOS: an image an app wrote is made clean in the protected VM first (WallpaperVmController).
             if (path != null && mVmController.onEvent(event, path, mWallpaperDir, mWallpaperFile,
                     mWallpaperLockFile, this::dataForEvent, () -> updateWallpapers(event, path))) {
@@ -1865,7 +1867,7 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
         boolean cropExists = wallpaper.cropExists();
         if (sourceExists) wallpaper.getWallpaperFile().delete();
         if (cropExists) wallpaper.getCropFile().delete();
-        WallpaperVmController.onCleared(wallpaper); // DiamaneOS
+        mVmController.onCleared(wallpaper); // DiamaneOS
         WallpaperUtils.clearDefaultWallpaperCrops();
 
         return sourceExists || cropExists;
@@ -2441,13 +2443,9 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
                     wallpaper.callbacks.register(cb);
                 }
 
-                File result = getCropped ? wallpaper.getCropFile() : wallpaper.getWallpaperFile();
-
-                if (!result.exists()) {
-                    return null;
-                }
-
-                return ParcelFileDescriptor.open(result, MODE_READ_ONLY);
+                // DiamaneOS: return only checked bytes for the current source in the requested slot.
+                return WallpaperVmSanitizer.openCheckedWallpaper(wallpaper.getWallpaperFile(),
+                        getCropped ? wallpaper.getCropFile() : wallpaper.getWallpaperFile(), outParams);
             } catch (FileNotFoundException e) {
                 /* Shouldn't happen as we check to see if the file exists */
                 Slog.w(TAG, "Error getting wallpaper", e);
@@ -3332,25 +3330,19 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
                             originalSystemWallpaper.getComponent());
             final boolean systemIsBoth = mLockWallpaperMap.get(userId) == null;
 
-            /* If we're setting system but not lock, and lock is currently sharing the system
-             * wallpaper, we need to migrate that image over to being lock-only before
-             * the caller here writes new bitmap data.
-             */
-            if (which == FLAG_SYSTEM && systemIsStatic && systemIsBoth) {
-                Slog.i(TAG, "Migrating current wallpaper to be lock-only before"
-                        + " updating system wallpaper");
-                migrateStaticSystemToLockWallpaperLocked(userId);
-            }
-
             wallpaper = getWallpaperSafeLocked(userId, which);
-            if (mPendingMigrationViaStatic != null) {
-                Slog.w(TAG, "Starting new static wp migration before previous migration finished");
-            }
-            mPendingMigrationViaStatic = new WallpaperDestinationChangeHandler(wallpaper);
+            final WallpaperDestinationChangeHandler migration = new WallpaperDestinationChangeHandler(wallpaper);
+            // DiamaneOS: prepare the replacement before moving the shared source to the lock slot.
+            final Runnable migrate = which == FLAG_SYSTEM && systemIsStatic && systemIsBoth
+                    ? () -> migrateStaticSystemToLockWallpaperLocked(wallpaper.userId) : null;
             final long ident = Binder.clearCallingIdentity();
             try {
-                ParcelFileDescriptor pfd = updateWallpaperBitmapLocked(name, wallpaper, extras);
+                ParcelFileDescriptor pfd = updateWallpaperBitmapLocked(name, wallpaper, extras, migrate);
                 if (pfd != null) {
+                    if (mPendingMigrationViaStatic != null) {
+                        Slog.w(TAG, "Starting new static wp migration before previous migration finished");
+                    }
+                    mPendingMigrationViaStatic = migration;
                     wallpaper.mPendingStaticDescription = description;
                     wallpaper.mSystemWasBoth = systemIsBoth;
                     wallpaper.mWhich = which;
@@ -3450,6 +3442,11 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
 
     ParcelFileDescriptor updateWallpaperBitmapLocked(String name, WallpaperData wallpaper,
             Bundle extras) {
+        return updateWallpaperBitmapLocked(name, wallpaper, extras, null);
+    }
+
+    private ParcelFileDescriptor updateWallpaperBitmapLocked(String name, WallpaperData wallpaper,
+            Bundle extras, Runnable beforeReplace) {
         if (name == null) name = "";
         try {
             File dir = getWallpaperDir(wallpaper.userId);
@@ -3460,15 +3457,8 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
                         FileUtils.S_IRWXU|FileUtils.S_IRWXG|FileUtils.S_IXOTH,
                         -1, -1);
             }
-            ParcelFileDescriptor fd = ParcelFileDescriptor.open(wallpaper.getWallpaperFile(),
-                    MODE_CREATE|MODE_READ_WRITE|MODE_TRUNCATE);
-            // DiamaneOS: the app can write this inode for as long as it keeps the fd: never clean by its bytes.
-            WallpaperVmSanitizer.onOpenedForApp(wallpaper.getWallpaperFile(), fd.getFileDescriptor());
-            if (!SELinux.restorecon(wallpaper.getWallpaperFile())) {
-                Slog.w(TAG, "restorecon failed for wallpaper file: " +
-                        wallpaper.getWallpaperFile().getPath());
-                return null;
-            }
+            // DiamaneOS: a fresh, labelled writer is prepared before the source is replaced.
+            final ParcelFileDescriptor fd = mVmController.openForAppLocked(wallpaper, beforeReplace);
             wallpaper.name = name;
             wallpaper.wallpaperId = makeWallpaperIdLocked();
             if (extras != null) {
@@ -3479,7 +3469,7 @@ public class WallpaperManagerService extends IWallpaperManager.Stub
             Slog.v(TAG, "updateWallpaperBitmapLocked() : id=" + wallpaper.wallpaperId
                     + " name=" + name + " file=" + wallpaper.getWallpaperFile().getName());
             return fd;
-        } catch (FileNotFoundException e) {
+        } catch (IOException e) {
             Slog.w(TAG, "Error setting wallpaper", e);
         }
         return null;

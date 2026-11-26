@@ -45,9 +45,8 @@ import android.view.DisplayInfo;
 import android.view.View;
 
 import com.android.internal.annotations.VisibleForTesting;
+import com.android.internal.diamaneos.cleancopies.CleanFileStream;
 import com.android.server.utils.TimingsTraceAndSlog;
-
-import libcore.io.IoUtils;
 
 import java.io.BufferedOutputStream;
 import java.io.File;
@@ -55,6 +54,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.security.DigestOutputStream;
+import java.security.MessageDigest;
 import java.util.Locale;
 
 /**
@@ -549,9 +550,16 @@ public class WallpaperCropper {
 
     private void generateCropInternal(WallpaperData wallpaper) {
         boolean success = false;
+        String outputHash = null;
+        final File source = wallpaper.getWallpaperFile();
+        final File cropFile = wallpaper.getCropFile();
+        final String sourceGeneration = WallpaperVmSanitizer.generation(source);
+        WallpaperVmSanitizer.invalidateOwnCrop(cropFile);
 
-        // DiamaneOS: only a clean copy made in the protected VM is ever decoded here (WallpaperVmSanitizer).
-        if (!WallpaperVmSanitizer.isClean(wallpaper.getWallpaperFile())) {
+        // DiamaneOS: only a clean copy made in the protected VM is ever decoded here, read once and decoded as it
+        // was read (WallpaperVmSanitizer.openClean). The crop made from it is listed as the system server's own.
+        final CleanFileStream clean = WallpaperVmSanitizer.openClean(source);
+        if (clean == null) {
             Slog.w(TAG, "Wallpaper source is not a clean copy from the VM, no crop made");
             wallpaper.getCropFile().delete();
             return;
@@ -568,7 +576,7 @@ public class WallpaperCropper {
         // Analyse the source; needed in multiple cases
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inJustDecodeBounds = true;
-        BitmapFactory.decodeFile(wallpaper.getWallpaperFile().getAbsolutePath(), options);
+        BitmapFactory.decodeStream(clean.again(), null, options); // DiamaneOS
         if (options.outWidth <= 0 || options.outHeight <= 0) {
             Slog.w(TAG, "Invalid wallpaper data");
         } else {
@@ -700,11 +708,8 @@ public class WallpaperCropper {
                 //  may be we can try to remove this optimized way in the future,
                 //  that means, we will always go into the 'else' block.
 
-                success = FileUtils.copyFile(wallpaper.getWallpaperFile(), wallpaper.getCropFile());
-
-                if (!success) {
-                    wallpaper.getCropFile().delete();
-                }
+                success = FileUtils.copyToFile(clean.again(), cropFile);
+                outputHash = clean.sha256(); // DiamaneOS: the copy must match the checked input.
 
                 if (DEBUG) {
                     long estimateSize = (long) options.outWidth * options.outHeight * 4;
@@ -713,8 +718,6 @@ public class WallpaperCropper {
                 }
             } else {
                 // Fancy case: crop and scale.  First, we decode and scale down if appropriate.
-                FileOutputStream f = null;
-                BufferedOutputStream bos = null;
                 try {
                     // This actually downsamples only by powers of two, but that's okay; we do
                     // a proper scaling a bit later.  This is to minimize transient RAM use.
@@ -765,7 +768,7 @@ public class WallpaperCropper {
                             + ", record name =" + record.getName());
 
                     final ImageDecoder.Source srcData =
-                            ImageDecoder.createSource(wallpaper.getWallpaperFile());
+                            ImageDecoder.createSource(null, clean.again(), Bitmap.DENSITY_NONE); // DiamaneOS
                     final int rescaledBitmapWidth = (int) Math.ceil(bitmapSize.x / sampleSize);
                     final int rescaledBitmapHeight = (int) Math.ceil(bitmapSize.y / sampleSize);
                     Bitmap cropped = ImageDecoder.decodeBitmap(srcData, (decoder, info, src) -> {
@@ -786,19 +789,27 @@ public class WallpaperCropper {
                                 + " h=" + cropped.getHeight());
                     }
 
-                    f = new FileOutputStream(wallpaper.getCropFile());
-                    bos = new BufferedOutputStream(f, 32 * 1024);
-                    cropped.compress(Bitmap.CompressFormat.PNG, 100, bos);
-                    // don't rely on the implicit flush-at-close when noting success
-                    bos.flush();
+                    // DiamaneOS: hash the encoder's bytes through its output stream.
+                    final MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                    try (BufferedOutputStream out = new BufferedOutputStream(
+                            new DigestOutputStream(new FileOutputStream(cropFile), digest), 32 * 1024)) {
+                        if (!cropped.compress(Bitmap.CompressFormat.PNG, 100, out)) {
+                            throw new IOException("PNG encoding failed");
+                        }
+                    }
+                    outputHash = WallpaperVmSanitizer.hex(digest.digest());
                     success = true;
                 } catch (Exception e) {
                     Slog.e(TAG, "Error decoding crop", e);
-                } finally {
-                    IoUtils.closeQuietly(bos);
-                    IoUtils.closeQuietly(f);
                 }
             }
+        }
+
+        // DiamaneOS: only certify the output of a completed copy or encoding.
+        if (success) {
+            success = SELinux.restorecon(cropFile)
+                    && WallpaperVmSanitizer.addOwnCrop(source, sourceGeneration, clean.sha256(),
+                            cropFile, outputHash);
         }
 
         if (!success) {
@@ -807,13 +818,6 @@ public class WallpaperCropper {
             wallpaper.mCropHints.clear();
             wallpaper.cropHint.set(0, 0, 0, 0);
             wallpaper.mSampleSize = 1f;
-        }
-
-        if (wallpaper.getCropFile().exists()) {
-            boolean didRestorecon = SELinux.restorecon(wallpaper.getCropFile().getAbsoluteFile());
-            if (DEBUG) {
-                Slog.v(TAG, "restorecon() of crop file returned " + didRestorecon);
-            }
         }
     }
 
@@ -950,13 +954,14 @@ public class WallpaperCropper {
                 (int) Math.ceil(wallpaperData.cropHint.width() / wallpaperData.mSampleSize),
                 (int) Math.ceil(wallpaperData.cropHint.height() / wallpaperData.mSampleSize));
         if (wallpaperImageSize.equals(0, 0)) {
-            if (!WallpaperVmSanitizer.isClean(wallpaperFile)) {
-                // DiamaneOS: never read the header of an image that has not been through the VM.
+            // DiamaneOS: only the header of a clean copy made in the VM is read here.
+            final CleanFileStream clean = WallpaperVmSanitizer.openClean(wallpaperFile);
+            if (clean == null) {
                 return false;
             }
             BitmapFactory.Options options = new BitmapFactory.Options();
             options.inJustDecodeBounds = true;
-            BitmapFactory.decodeFile(wallpaperFile.getAbsolutePath(), options);
+            BitmapFactory.decodeStream(clean, null, options);
             wallpaperImageSize.set(options.outWidth, options.outHeight);
         }
         boolean isRtl = TextUtils.getLayoutDirectionFromLocale(Locale.getDefault())

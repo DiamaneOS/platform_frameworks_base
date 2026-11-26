@@ -238,12 +238,29 @@ public class BubbleViewInfoTask {
         }
 
         mBubble.setViewInfo(viewInfo);
+        // DiamaneOS: a callback retired after delivery still cannot refill replaced view info.
+        viewInfo.iconMade.listen(() -> {
+            if (mBubble.hasIconInfo(viewInfo.iconMade)) refillIcon();
+        });
         if (mCallback != null) {
             mCallback.onBubbleViewsReady(mBubble);
         }
         if (mBubble.isConvertingToBar() || mBubble.isConvertingToFloating()) {
             mBubble.getCurrentTransition().continueExpand();
         }
+    }
+
+    // DiamaneOS: the bubble's shortcut icon was made after its views were drawn with the app icon. The view info is
+    // loaded again (no views made, no callback), which finds the icon made and draws it.
+    private void refillIcon() {
+        final Context context = mContext.get();
+        if (mCancelled.get() || context == null || mExpandedViewManager.get() == null) {
+            return;
+        }
+        new BubbleViewInfoTask(mBubble, context, mExpandedViewManager.get(), mTaskViewFactory.get(),
+                mStackView.get(), mLayerView.get(), mIconFactory, /* skipInflation= */ true,
+                /* callback= */ null, mPositioner.get(), mAppInfoProvider, mMainExecutor, mBgExecutor,
+                mUserResolver).start();
     }
 
     private boolean verifyState() {
@@ -279,6 +296,8 @@ public class BubbleViewInfoTask {
         Bubble.FlyoutMessage flyoutMessage;
         BubbleIcon bubbleIcon;
         UserType userType;
+        // DiamaneOS: draws the bubble again once its shortcut icon is made (refillIcon).
+        final BubbleIconMade iconMade = new BubbleIconMade();
 
         @Nullable
         public static BubbleViewInfo populateForBubbleBar(Context c,
@@ -413,14 +432,13 @@ public class BubbleViewInfoTask {
             Drawable bubbleDrawable = null;
             try {
                 // Badged bubble image. DiamaneOS: the shortcut's icon (a file, a URI or a resource of the app) is
-                // decoded in the protected VM, never here. The bubble's own icon holds only pixels or framework
-                // icons (see Bubble).
+                // decoded in the protected VM, never here. The bubble's own icon loads through the decode gate.
                 if (info.shortcutInfo != null) {
                     // Made on an image thread, this shared thread does not wait for it: until then the bubble
-                    // shows the app icon.
+                    // shows the app icon, and it is drawn again once the icon is made.
                     bubbleDrawable = ForeignIcons.shortcutDrawableNoWait(c,
                             c.getSystemService(LauncherApps.class), info.shortcutInfo,
-                            ForeignIcons.shortcutPx(c));
+                            ForeignIcons.shortcutPx(c), info.iconMade::made);
                 } else if (b.getIcon() != null) {
                     bubbleDrawable = b.getIcon().loadDrawable(c);
                 }

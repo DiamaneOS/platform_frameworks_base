@@ -5,6 +5,11 @@
 #include "Properties.h"
 #include "Gainmap.h"
 #include "GateAllocation.h"
+#ifdef __ANDROID__
+#include <private/android/AHardwareBufferHelpers.h>
+#include <ui/GraphicBuffer.h>
+#include <ui/GraphicBufferMapper.h>
+#endif
 
 namespace android::diamaneos {
 
@@ -32,9 +37,34 @@ inline uint64_t hardwarePlaneBytes(const SkImageInfo& info) {
 }
 #endif
 
-inline uint64_t hardwareBytes(const Bitmap& source) {
 #ifdef __ANDROID__
-    if (source.isHardware()) return 0;
+inline uint64_t verifiedPlaneBytes(Bitmap& plane) {
+    if (!plane.isHardware()) return 0;
+    const auto* hardware = plane.hardwareBuffer();
+    if (!hardware) return 0;
+    const auto* graphic = AHardwareBuffer_to_GraphicBuffer(hardware);
+    if (!graphic) return 0;
+    uint64_t bytes = 0;
+    const auto status = GraphicBufferMapper::get().getAllocationSize(graphic->handle, &bytes);
+    return status == OK && bytes > 0 && bytes <= static_cast<uint64_t>(std::numeric_limits<int32_t>::max())
+            && bytes == plane.getAllocationByteCount() ? bytes : 0;
+}
+#endif
+
+inline uint64_t hardwareBytes(Bitmap& source) {
+#ifdef __ANDROID__
+    if (source.isHardware()) {
+        uint64_t bytes = verifiedPlaneBytes(source);
+        if (bytes == 0) return 0;
+        if (source.hasGainmap()) {
+            const auto gain = source.gainmap();
+            if (!gain || !gain->bitmap) return 0;
+            const uint64_t map = verifiedPlaneBytes(*gain->bitmap);
+            if (map == 0 || bytes > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) - map) return 0;
+            bytes += map;
+        }
+        return bytes;
+    }
     uint64_t bytes = hardwarePlaneBytes(source.info());
     if (bytes == 0) return 0;
     if (source.hasGainmap()) {

@@ -16,7 +16,6 @@
 
 package de.diamaneos.decode.client;
 
-import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 
@@ -67,19 +66,18 @@ public class StripeValidatorTest {
     }
 
     @Test
-    public void putStripeChecksLengthAndRefusesColourAboveAlpha() throws Exception {
-        final byte[] frame = new byte[2 * 2 * 4];
+    public void checkStripeChecksLengthAndRefusesColourAboveAlpha() throws Exception {
         final byte[] first = {(byte) 100, 10, 20, (byte) 100, 1, 2, 3, (byte) 255};
-        StripeValidator.putStripe(frame, 2, 2, 1, 0, first);
-        assertArrayEquals(first, java.util.Arrays.copyOfRange(frame, 0, 8));
+        assertEquals(8, StripeValidator.checkStripe(2, 2, 1, 0, first));
         // A colour channel above alpha is not a premultiplied pixel: refused, not clamped (DecodeChecks).
         final byte[] bad = {(byte) 200, 10, 20, (byte) 100, 1, 2, 3, (byte) 255};
-        assertThrows(BadReplyException.class, () -> StripeValidator.putStripe(frame, 2, 2, 1, 1, bad));
-        assertThrows(BadReplyException.class, () -> StripeValidator.putStripe(frame, 2, 2, 1, 1, new byte[7]));
-        assertThrows(BadReplyException.class, () -> StripeValidator.putStripe(frame, 2, 2, 1, 1, new byte[9]));
-        assertThrows(BadReplyException.class, () -> StripeValidator.putStripe(frame, 2, 2, 1, 1, null));
-        assertThrows(BadReplyException.class, () -> StripeValidator.putStripe(frame, 2, 2, 1, 2, new byte[8]));
-        assertThrows(BadReplyException.class, () -> StripeValidator.putStripe(new byte[3], 2, 2, 1, 0, first));
+        assertThrows(BadReplyException.class, () -> StripeValidator.checkStripe(2, 2, 1, 1, bad));
+        assertThrows(BadReplyException.class, () -> StripeValidator.checkStripe(2, 2, 1, 1, new byte[7]));
+        assertThrows(BadReplyException.class, () -> StripeValidator.checkStripe(2, 2, 1, 1, new byte[9]));
+        assertThrows(BadReplyException.class, () -> StripeValidator.checkStripe(2, 2, 1, 1, null));
+        assertThrows(BadReplyException.class, () -> StripeValidator.checkStripe(2, 2, 1, 2, new byte[8]));
+        // The last stripe of an odd height is shorter.
+        assertEquals(8, StripeValidator.checkStripe(2, 3, 2, 1, first));
     }
 
     @Test

@@ -29,14 +29,11 @@ import android.graphics.Color;
 import android.graphics.DecodeGate;
 import android.graphics.DecodeMemory;
 import android.graphics.GateRefill;
-import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
-import android.graphics.drawable.DrawableWrapper;
 import android.graphics.drawable.Icon;
 import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
 import android.util.Log;
-import android.widget.ImageView;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
@@ -106,11 +103,7 @@ public class RefillProofDeviceTest {
     }
 
     private static Bitmap shown(Drawable drawable) {
-        Drawable d = drawable;
-        if (d instanceof DrawableWrapper) {
-            d = ((DrawableWrapper) d).getDrawable();
-        }
-        return d instanceof BitmapDrawable ? ((BitmapDrawable) d).getBitmap() : null;
+        return ShownPixels.of(drawable);
     }
 
     @Test
@@ -122,12 +115,9 @@ public class RefillProofDeviceTest {
         holdDown();
         final long start = SystemClock.uptimeMillis();
         final AtomicReference<Drawable> drawable = new AtomicReference<>();
-        final ImageView view = new ImageView(mContext);
-        InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> {
-            drawable.set(VmIconLoads.loadAsUserNoWait(Icon.createWithData(data, 0, data.length), mContext,
-                    mContext.getUserId()));
-            view.setImageDrawable(drawable.get());
-        });
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> drawable.set(
+                VmIconLoads.loadAsUserNoWait(Icon.createWithData(data, 0, data.length), mContext,
+                        mContext.getUserId())));
         SystemClock.sleep(2_000);
         Bitmap b = shown(drawable.get());
         Log.i(TAG, "icon during the outage: " + (b == null ? "none" : b.getWidth() + "x" + b.getHeight()));

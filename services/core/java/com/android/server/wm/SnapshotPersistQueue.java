@@ -405,6 +405,9 @@ class SnapshotPersistQueue {
         private final TaskSnapshot mSnapshot;
         private final Consumer<LowResSnapshotSupplier> mLowResSnapshotConsumer;
         private TaskSnapshot mKnownLowResSnapshot;
+        // DiamaneOS: the SHA-256 of the image bytes written, kept in the proto (SnapshotImageFiles).
+        private String mHighResSha256 = "";
+        private String mLowResSha256 = "";
 
         StoreWriteQueueItem(int id, int userId, TaskSnapshot snapshot,
                 PersistInfoProvider provider,
@@ -470,10 +473,11 @@ class SnapshotPersistQueue {
                         + mPersistInfoProvider.getDirectory(mUserId));
             }
             boolean failed = false;
-            if (!writeProto()) {
+            // DiamaneOS: the images first, so the proto records their hashes (SnapshotImageFiles).
+            if (!writeBuffer()) {
                 failed = true;
             }
-            if (!writeBuffer()) {
+            if (!writeProto()) {
                 failed = true;
             }
             if (failed) {
@@ -505,6 +509,8 @@ class SnapshotPersistQueue {
             proto.uiMode = mSnapshot.getUiMode();
             proto.id = mSnapshot.getId();
             proto.densityDpi = mSnapshot.getDensityDpi();
+            proto.diamaneosHighResSha256 = mHighResSha256; // DiamaneOS: SnapshotImageFiles
+            proto.diamaneosLowResSha256 = mLowResSha256;
             final byte[] bytes = TaskSnapshotProto.toByteArray(proto);
             final File file = mPersistInfoProvider.getProtoFile(mId, mUserId);
             final AtomicFile atomicFile = new AtomicFile(file);
@@ -598,12 +604,15 @@ class SnapshotPersistQueue {
             final File bitmapFile = highRes
                     ? mPersistInfoProvider.getHighResolutionBitmapFile(mId, mUserId)
                     : mPersistInfoProvider.getLowResolutionBitmapFile(mId, mUserId);
-            try (FileOutputStream fos = new FileOutputStream(bitmapFile)) {
+            try {
+                // DiamaneOS: encoded in memory, the SHA-256 of the bytes written kept for the proto.
+                final String sha256 = SnapshotImageFiles.write(swBitmap,
+                        highRes && Flags.onlyCacheLowResTaskSnapshot() ? PNG : JPEG,
+                        COMPRESS_QUALITY, bitmapFile);
                 if (highRes) {
-                    swBitmap.compress(Flags.onlyCacheLowResTaskSnapshot() ? PNG : JPEG,
-                            COMPRESS_QUALITY, fos);
+                    mHighResSha256 = sha256;
                 } else {
-                    swBitmap.compress(JPEG, COMPRESS_QUALITY, fos);
+                    mLowResSha256 = sha256;
                 }
             } catch (IOException e) {
                 Slog.e(TAG, "Unable to open " + bitmapFile + " for persisting.", e);

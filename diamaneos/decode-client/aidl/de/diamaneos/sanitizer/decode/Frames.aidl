@@ -17,7 +17,7 @@
 package de.diamaneos.sanitizer.decode;
 
 /**
- * A decoded animation (GIF or WebP) held by the service: every frame as it is shown, composed onto the whole canvas,
+ * A decoded animation held by the service: every frame as it is shown, composed onto the whole canvas,
  * all of the same size. The pixels come in stripes through readStripe(handle, index) as one tall image: frame f is
  * rows [f * height, (f + 1) * height). Stripe i holds rows [i * stripeRows, min(frameCount * height, (i + 1) *
  * stripeRows)), each row width * 4 bytes of premultiplied RGBA. The caller checks every stripe as for a Thumbnail.
@@ -47,4 +47,16 @@ parcelable Frames {
 
     /** For readStripe and release. Valid until release or IDecodeService.HANDLE_TIMEOUT_MILLIS. */
     long handle;
+    /** Exactly 16 checked XYZ D50 and transfer values for COLOR_SPACE_CUSTOM, empty for named tags. */
+    float[] colorDescription;
+
+    /**
+     * A window (DecodeRequest.frameWindow): its first frame, the requested one, and the animation's frame count,
+     * frameCount being the window's. Both 0 for every frame.
+     */
+    int firstFrame = 0;
+    int totalFrames = 0;
+
+    /** A band (DecodeRequest.frameBand): the whole frame's height, height being the band's. 0 otherwise. */
+    int frameHeight = 0;
 }

@@ -448,8 +448,8 @@ public class RebaseGuardDeviceTest {
             assertFalse("the platform's visitor found none of the links", before.isEmpty());
             final NotificationImageGate gate = gate();
             final Notification copy = onImageThread(() -> gate.sanitizedCopy(original));
-            // The bubble icon is not the gate's: bubbles are made from the original notification, and the Shell's
-            // Bubble.withoutAppImage drops a URI, data or app resource icon there before anything loads it.
+            // The bubble icon is not the gate's: bubbles are made from the original notification, and the Shell
+            // loads its icon through the decode gate and the VM icon loader.
             final Uri bubble = original.getBubbleMetadata().getIcon().getUri();
             final Set<Uri> left = new TreeSet<>(java.util.Comparator.comparing(Uri::toString));
             copy.visitUris(uri -> {

@@ -91,10 +91,10 @@ public final class WidgetImages {
     // The latest update when its images were left out for the decode service, to check again once it answers, and how
     // often it was checked again. Guarded by mLock.
     private Runnable mCheckAgain;
-    private int mRecoveryChecks;
+    private boolean mWaitForCapacity;
     static final int MAX_RECOVERY_CHECKS = 3;
-    // The hosts with an update to check again, weakly.
-    private static final java.util.Set<WidgetImages> sLeftOut =
+    private static final RetryTurns<WidgetImages> sLeftOut = new RetryTurns<>(MAX_RECOVERY_CHECKS);
+    private static final java.util.Set<WidgetImages> sCapacity =
             java.util.Collections.synchronizedSet(java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>()));
     private static final AtomicBoolean sRecoveryListening = new AtomicBoolean();
 
@@ -173,7 +173,13 @@ public final class WidgetImages {
     }
 
     private void cancelLocked() {
+        cancelLocked(false);
+    }
+
+    private void cancelLocked(boolean keepTurns) {
         mCheckAgain = null;
+        if (!keepTurns) sLeftOut.done(this);
+        sCapacity.remove(this);
         mCancelled.set(true);
         if (mTask != null) {
             mTask.cancel();
@@ -187,20 +193,21 @@ public final class WidgetImages {
      * never delivers.
      */
     public void prepare(RemoteViews views, Executor executor, Consumer<RemoteViews> done) {
-        synchronized (mLock) {
-            mRecoveryChecks = 0;
-        }
-        prepareChecked(views, executor, done);
+        prepareChecked(views, executor, done, null);
     }
 
-    private void prepareChecked(RemoteViews views, Executor executor, Consumer<RemoteViews> done) {
+    private void prepareChecked(RemoteViews views, Executor executor, Consumer<RemoteViews> done,
+            AtomicBoolean expected) {
         final String owner;
         final int userId;
         final AppResourceImages gate;
         final ApplicationInfo appInfo;
         final AtomicBoolean cancelled = new AtomicBoolean();
         synchronized (mLock) {
-            cancelLocked();
+            if (expected != null && (mCancelled != expected || expected.get())) {
+                return;
+            }
+            cancelLocked(expected != null);
             mCancelled = cancelled;
             owner = mOwner;
             userId = mUserId;
@@ -208,9 +215,11 @@ public final class WidgetImages {
             appInfo = mAppInfo;
         }
         if (views == null || gate == null) {
-            executor.execute(() -> done.accept(null));
+            deliver(cancelled, executor, done, null);
             return;
         }
+        final long capacity = ImageCapacity.version();
+        final Runnable retry = () -> prepareChecked(views, executor, done, cancelled);
         final ImageThreads.Task task = ImageThreads.execute(owner, () -> {
             if (cancelled.get()) {
                 return;
@@ -227,15 +236,13 @@ public final class WidgetImages {
             }
             final RemoteViews result = checked;
             if (VmDecode.unavailableCount() != unavailable) {
-                leftOut(cancelled, () -> prepareChecked(views, executor, done));
+                leftOut(cancelled, false, capacity, retry);
+            } else {
+                synchronized (mLock) {
+                    if (mCancelled == cancelled && !cancelled.get()) sLeftOut.done(this);
+                }
             }
-            if (!cancelled.get()) {
-                executor.execute(() -> {
-                    if (!cancelled.get()) {
-                        done.accept(result);
-                    }
-                });
-            }
+            deliver(cancelled, executor, done, result);
         }, () -> sStrip.execute(() -> {
             // Gave way to another app's task: shown without the app's images, never unchecked. The copy is made on a
             // thread of its own, not on the main thread the drop is told on.
@@ -243,15 +250,13 @@ public final class WidgetImages {
                 return;
             }
             final RemoteViews stripped = NoImageViews.withoutImages(views);
-            executor.execute(() -> {
-                if (!cancelled.get()) {
-                    done.accept(stripped);
-                }
-            });
+            leftOut(cancelled, true, capacity, retry);
+            deliver(cancelled, executor, done, stripped);
         }));
         if (task == null) {
-            // Too many image tasks are waiting: this update is not shown, the next one is.
             Log.w(TAG, "widget update not checked now: too many image tasks of " + owner);
+            leftOut(cancelled, true, capacity, retry);
+            deliver(cancelled, executor, done, null);
             return;
         }
         synchronized (mLock) {
@@ -263,36 +268,59 @@ public final class WidgetImages {
         }
     }
 
-    // The update of {@code cancelled} left images out for the decode service: checked again once it answers, while it
-    // is still the latest update.
-    private void leftOut(AtomicBoolean cancelled, Runnable checkAgain) {
+    private void deliver(AtomicBoolean token, Executor executor, Consumer<RemoteViews> done, RemoteViews result) {
+        executor.execute(() -> {
+            synchronized (mLock) {
+                if (mCancelled == token && !token.get()) {
+                    done.accept(result);
+                }
+            }
+        });
+    }
+
+    // Retry only the generation that registered the missing result.
+    private void leftOut(AtomicBoolean token, boolean capacity, long observed, Runnable checkAgain) {
         synchronized (mLock) {
-            if (mCancelled != cancelled || cancelled.get() || mRecoveryChecks >= MAX_RECOVERY_CHECKS) {
+            if (mCancelled != token || token.get()) {
                 return;
             }
             mCheckAgain = checkAgain;
+            mWaitForCapacity = capacity;
+            if (capacity) {
+                sCapacity.add(this);
+                sLeftOut.done(this);
+            } else {
+                sCapacity.remove(this);
+                sLeftOut.leftOut(this, VmDecode.wakes(), VmDecode.capacityWakes());
+            }
         }
-        sLeftOut.add(this);
         if (sRecoveryListening.compareAndSet(false, true)) {
-            VmDecode.addRecoveryListener(WidgetImages::checkLeftOutAgain);
+            VmDecode.addRecoveryListener(() -> checkLeftOutAgain(false));
+            ImageCapacity.listen(() -> checkLeftOutAgain(true));
+        }
+        if (capacity) {
+            ImageCapacity.wakeSince(observed);
         }
     }
 
-    // The decode service answers again: every host's latest update with images left out is checked again.
-    private static void checkLeftOutAgain() {
+    private static void checkLeftOutAgain(boolean capacity) {
         final java.util.List<WidgetImages> hosts;
-        synchronized (sLeftOut) {
-            hosts = new java.util.ArrayList<>(sLeftOut);
-            sLeftOut.clear();
+        if (capacity) {
+            synchronized (sCapacity) {
+                hosts = new java.util.ArrayList<>(sCapacity);
+            }
+        } else {
+            hosts = sLeftOut.due(VmDecode.wakes());
         }
         for (WidgetImages host : hosts) {
             final Runnable again;
             synchronized (host.mLock) {
+                if (host.mWaitForCapacity != capacity) {
+                    continue;
+                }
                 again = host.mCheckAgain;
                 host.mCheckAgain = null;
-                if (again != null) {
-                    host.mRecoveryChecks++;
-                }
+                sCapacity.remove(host);
             }
             if (again != null) {
                 again.run();

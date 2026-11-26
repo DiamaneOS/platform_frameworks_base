@@ -27,7 +27,6 @@ import android.graphics.Color;
 import android.graphics.drawable.AdaptiveIconDrawable;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
-import android.graphics.drawable.DrawableWrapper;
 import android.graphics.drawable.Icon;
 import android.net.Uri;
 import android.os.SystemClock;
@@ -95,15 +94,11 @@ public class VmIconLoadsDeviceTest {
         return out.toByteArray();
     }
 
+    // The pixels the drawable shows when drawn (ShownPixels).
     private static Bitmap bitmapOf(Drawable drawable) {
-        if (drawable instanceof AdaptiveIconDrawable) {
-            drawable = ((AdaptiveIconDrawable) drawable).getForeground();
-        }
-        if (drawable instanceof DrawableWrapper) {
-            drawable = ((DrawableWrapper) drawable).getDrawable();
-        }
-        assertTrue("a bitmap drawable: " + drawable, drawable instanceof BitmapDrawable);
-        return ((BitmapDrawable) drawable).getBitmap();
+        final Bitmap shown = ShownPixels.of(drawable);
+        assertNotNull("draws no bitmap: " + drawable, shown);
+        return shown;
     }
 
     private static void assertPicture(int color, Drawable drawable) {
@@ -266,6 +261,46 @@ public class VmIconLoadsDeviceTest {
         assertPicture(color, filling);
     }
 
+    /**
+     * A list on the main thread (the notification log): many URI icons of one provider and data icons, loaded without
+     * any wait, and every one fills in. URI opens over the per-provider limit wait in the queue instead of failing.
+     */
+    @Test
+    public void listOnTheMainThread_noWait_everyIconFillsIn() {
+        final int n = 12;
+        final int[] colors = new int[n];
+        final Icon[] icons = new Icon[n];
+        for (int i = 0; i < n; i++) {
+            colors[i] = freshColor();
+            icons[i] = i % 3 == 0 ? Icon.createWithData(png(colors[i]), 0, png(colors[i]).length)
+                    : Icon.createWithContentUri(probeIcon("icon", colors[i]));
+        }
+        final Drawable[] drawn = new Drawable[n];
+        final AtomicLong took = new AtomicLong();
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> {
+            final long start = SystemClock.uptimeMillis();
+            for (int i = 0; i < n; i++) {
+                drawn[i] = VmIconLoads.loadAsUserNoWait(icons[i], mContext, mContext.getUserId());
+            }
+            took.set(SystemClock.uptimeMillis() - start);
+        });
+        Log.i(TAG, "main thread, " + n + " icons without waiting: " + took.get() + " ms");
+        assertTrue("the main thread waited " + took.get() + " ms for " + n + " icons", took.get() <= MARGIN_MS);
+        final long until = SystemClock.uptimeMillis() + VmIconLoads.LOAD_MS + MARGIN_MS;
+        for (int i = 0; i < n; i++) {
+            assertNotNull("icon " + i, drawn[i]);
+            while (SystemClock.uptimeMillis() < until && bitmapOf(drawn[i]).getWidth() == 1) {
+                SystemClock.sleep(50);
+                InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+            }
+            assertPicture(colors[i], drawn[i]);
+        }
+        // Icons that need no VM load as Icon loads them.
+        final Icon framework = Icon.createWithResource("android", android.R.drawable.ic_menu_add);
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(() ->
+                assertNotNull(VmIconLoads.loadAsUserNoWait(framework, mContext, mContext.getUserId())));
+    }
+
     @Test
     public void mainThreadTimeWithTheVmUp() {
         final long[] times = new long[5];
@@ -321,5 +356,198 @@ public class VmIconLoadsDeviceTest {
                 mainTook.get() <= VmIconLoads.SHORT_WAIT_MS + MARGIN_MS);
         assertBlank(loaded.get());
         assertEquals("nothing was made, here or in the VM", made, VmIconLoads.madeForTest());
+    }
+
+    // Two PNGs of one length: c1's bytes, and c2's padded after its end (decoders stop at IEND).
+    private static byte[][] sameLength(int c1, int c2) {
+        final byte[] a = png(c1);
+        final byte[] b = png(c2);
+        final int n = Math.max(a.length, b.length);
+        return new byte[][] {java.util.Arrays.copyOf(a, n), java.util.Arrays.copyOf(b, n)};
+    }
+
+    @Test
+    public void aDataIconsBytes_areHashedAndSentAsOneCopy() throws Exception {
+        final int first = freshColor();
+        final int second = freshColor();
+        final byte[][] pngs = sameLength(first, second);
+        final byte[] data = pngs[0].clone();
+        // The app's array changes after the icon was keyed by it, before its bytes are sent.
+        VmIconLoads.setBeforeSendForTest(() -> System.arraycopy(pngs[1], 0, data, 0, data.length));
+        try {
+            final Bitmap made = VmIconLoads.bitmap(Icon.createWithData(data, 0, data.length),
+                    mContext.getContentResolver());
+            assertNotNull("made", made);
+            assertPicture(first, new BitmapDrawable(mContext.getResources(), made));
+        } finally {
+            VmIconLoads.setBeforeSendForTest(null);
+        }
+        // What is kept under the first bytes' key is the first picture.
+        final Drawable again = Icon.createWithData(pngs[0], 0, pngs[0].length).loadDrawable(mContext);
+        assertPicture(first, again);
+    }
+
+    @Test
+    public void aPlaceholderLeftOutForNow_isFilledInWhenThePixelsCome() throws Exception {
+        final int color = freshColor();
+        final byte[] data = png(color);
+        // The send waits past the load's end (LOAD_MS): the load ends without pixels, for now.
+        VmIconLoads.setBeforeSendForTest(() -> SystemClock.sleep(VmIconLoads.LOAD_MS + 500));
+        final AtomicReference<Drawable> drawable = new AtomicReference<>();
+        try {
+            InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> drawable.set(
+                    VmIconLoads.loadAsUserNoWait(Icon.createWithData(data, 0, data.length), mContext,
+                            mContext.getUserId())));
+            SystemClock.sleep(VmIconLoads.LOAD_MS + 200);
+            assertBlank(drawable.get());
+        } finally {
+            VmIconLoads.setBeforeSendForTest(null);
+        }
+        // The late answer, or the refill's next load, fills it in.
+        final long end = SystemClock.uptimeMillis() + 15_000;
+        while (SystemClock.uptimeMillis() < end) {
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+            final Bitmap b = bitmapOf(drawable.get());
+            if (b != null && b.getWidth() == SIDE) {
+                break;
+            }
+            SystemClock.sleep(100);
+        }
+        assertPicture(color, drawable.get());
+    }
+
+    @Test
+    public void aUriIconWhoseOpenEndsAfterItsLoad_fillsIn() throws Exception {
+        final int color = freshColor();
+        ProbeProvider.ICONS.put("late", png(color));
+        final Icon icon = Icon.createWithContentUri(
+                Uri.parse("content://" + ProbeProvider.AUTHORITY + "/icon-late/late"));
+        final AtomicReference<Drawable> drawable = new AtomicReference<>();
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> drawable.set(
+                VmIconLoads.loadAsUserNoWait(icon, mContext, mContext.getUserId())));
+        SystemClock.sleep(VmIconLoads.LOAD_MS + 200);
+        assertBlank(drawable.get());
+        // The open ends after the load's end: its bytes are still sent, and their pixels fill the icon in.
+        final long end = SystemClock.uptimeMillis() + 15_000;
+        while (SystemClock.uptimeMillis() < end) {
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+            final Bitmap b = bitmapOf(drawable.get());
+            if (b != null && b.getWidth() == SIDE) {
+                break;
+            }
+            SystemClock.sleep(100);
+        }
+        assertPicture(color, drawable.get());
+    }
+
+    @Test
+    public void anImmediateQueueRefusal_keepsTheDrawableWaiting() throws Exception {
+        final java.lang.reflect.Method workers = VmIconLoads.class.getDeclaredMethod("workers");
+        workers.setAccessible(true);
+        final java.util.concurrent.ThreadPoolExecutor original =
+                (java.util.concurrent.ThreadPoolExecutor) workers.invoke(null);
+        final java.lang.reflect.Field field = VmIconLoads.class.getDeclaredField("sWorkers");
+        field.setAccessible(true);
+        final java.util.concurrent.ThreadPoolExecutor reject = new java.util.concurrent.ThreadPoolExecutor(
+                1, 1, 1, java.util.concurrent.TimeUnit.SECONDS,
+                new java.util.concurrent.LinkedBlockingQueue<>()) {
+            @Override public void execute(Runnable task) {
+                throw new java.util.concurrent.RejectedExecutionException("test queue full");
+            }
+        };
+        final int color = freshColor();
+        final byte[] bytes = png(color);
+        final AtomicReference<Drawable> drawn = new AtomicReference<>();
+        try {
+            field.set(null, reject);
+            InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> drawn.set(
+                    VmIconLoads.loadAsUserNoWait(Icon.createWithData(bytes, 0, bytes.length), mContext,
+                            mContext.getUserId())));
+            assertNotNull(drawn.get());
+            assertBlank(drawn.get());
+        } finally {
+            field.set(null, original);
+            reject.shutdownNow();
+        }
+        awaitPicture(color, drawn.get());
+    }
+
+    @Test
+    public void aProviderThatWasUnavailable_fillsTheSameDrawable() {
+        recoveredOpen("icon");
+    }
+
+    @Test
+    public void aProviderWhosePermissionChanges_fillsTheSameDrawable() {
+        recoveredOpen("icon-denied");
+    }
+
+    private void recoveredOpen(String folder) {
+        final int color = freshColor();
+        final Uri uri = probeIcon(folder, color);
+        final byte[] bytes = ProbeProvider.ICONS.remove(Integer.toHexString(color));
+        final AtomicReference<Drawable> drawn = new AtomicReference<>();
+        final int opens = ProbeProvider.OPENS.get();
+        InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> drawn.set(
+                VmIconLoads.loadAsUserNoWait(Icon.createWithContentUri(uri), mContext, mContext.getUserId())));
+        final long end = SystemClock.uptimeMillis() + 2_000;
+        while (ProbeProvider.OPENS.get() == opens && SystemClock.uptimeMillis() < end) {
+            SystemClock.sleep(10);
+        }
+        SystemClock.sleep(100);
+        ProbeProvider.ICONS.put(Integer.toHexString(color), bytes);
+        assertNotNull("a transient open keeps a drawable", drawn.get());
+        awaitPicture(color, drawn.get());
+    }
+
+    private void awaitPicture(int color, Drawable drawable) {
+        final long end = SystemClock.uptimeMillis() + 15_000;
+        while (SystemClock.uptimeMillis() < end) {
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync();
+            if (bitmapOf(drawable).getWidth() == SIDE) break;
+            SystemClock.sleep(100);
+        }
+        assertPicture(color, drawable);
+    }
+
+    @Test
+    public void aSupersededUriCannotPublishWhileItsReplacementWaits() throws Exception {
+        final int older = freshColor();
+        final int newer = freshColor();
+        final Uri uri = Uri.parse("content://" + ProbeProvider.AUTHORITY + "/icon/superseded");
+        ProbeProvider.ICONS.put("superseded", png(older));
+        final java.util.concurrent.CountDownLatch first = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch replacement = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch releaseOld = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.CountDownLatch releaseNew = new java.util.concurrent.CountDownLatch(1);
+        final java.util.concurrent.atomic.AtomicInteger sends = new java.util.concurrent.atomic.AtomicInteger();
+        VmIconLoads.setBeforeSendForTest(() -> {
+            final int send = sends.incrementAndGet();
+            if (send == 1) first.countDown();
+            else replacement.countDown();
+            try {
+                (send == 1 ? releaseOld : releaseNew).await(30, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        });
+        final AtomicReference<Drawable> shown = new AtomicReference<>();
+        try {
+            InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> shown.set(
+                    VmIconLoads.loadAsUserNoWait(Icon.createWithContentUri(uri), mContext, mContext.getUserId())));
+            assertTrue(first.await(5, java.util.concurrent.TimeUnit.SECONDS));
+            ProbeProvider.ICONS.put("superseded", png(newer));
+            assertTrue("replacement was not demanded", replacement.await(VmIconLoads.LOAD_MS + 6000,
+                    java.util.concurrent.TimeUnit.MILLISECONDS));
+            releaseOld.countDown();
+            SystemClock.sleep(2000);
+            InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> assertBlank(shown.get()));
+            releaseNew.countDown();
+            final long until = SystemClock.uptimeMillis() + 15000;
+            while (SystemClock.uptimeMillis() < until && bitmapOf(shown.get()).getWidth() == 1) SystemClock.sleep(50);
+            InstrumentationRegistry.getInstrumentation().runOnMainSync(() -> assertPicture(newer, shown.get()));
+        } finally {
+            releaseOld.countDown();
+            releaseNew.countDown();
+            VmIconLoads.setBeforeSendForTest(null);
+        }
     }
 }

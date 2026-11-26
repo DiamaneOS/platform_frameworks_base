@@ -99,6 +99,32 @@ public class ContentProviderClient implements ContentInterface, AutoCloseable {
     private final AtomicBoolean mClosed = new AtomicBoolean();
     private final CloseGuard mCloseGuard = CloseGuard.get();
 
+    /** @hide */
+    public int getThumbnailUserId() {
+        // DiamaneOS: retain the acquired provider user for an unqualified thumbnail URI.
+        return getThumbnailUserId(this);
+    }
+
+    /** @hide */
+    public boolean hasSameThumbnailTransport(ContentProviderClient acquired) {
+        return hasSameThumbnailTransport(this, acquired);
+    }
+
+    /** @hide */
+    public static boolean hasSameThumbnailTransport(ContentProviderClient source,
+            ContentProviderClient acquired) {
+        // DiamaneOS: compare the actual dispatch interfaces without an instance override.
+        return source != null && acquired != null
+                && source.mContentProvider == acquired.mContentProvider;
+    }
+
+    /** @hide */
+    public static int getThumbnailUserId(ContentProviderClient source) {
+        // DiamaneOS: bind an unqualified client to its immutable acquisition context.
+        return ContentProvider.getUserIdFromAuthority(source.mAuthority,
+                ContentResolver.getThumbnailSourceUser(source.mContentResolver));
+    }
+
     /**
      * Fixed timeout (in ms) for remote {@link ContentProvider} calls. If the call does not finish
      * in the specified time, the remote provider process is terminated with ANR.

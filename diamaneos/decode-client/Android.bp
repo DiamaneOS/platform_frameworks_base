@@ -51,6 +51,13 @@ filegroup {
     visibility: ["//packages/apps/DiamaneOSSanitizer"],
 }
 
+// The checked serializer is shared with the framework's immediate clean-icon path.
+filegroup {
+    name: "diamaneos-ninepatch-source",
+    srcs: ["java/de/diamaneos/decode/client/NinePatchChunk.java"],
+    visibility: ["//frameworks/base/diamaneos/clean-copies"],
+}
+
 java_library {
     name: "diamaneos-decode-client",
     srcs: [
@@ -58,6 +65,7 @@ java_library {
         "aidl/**/*.aidl",
         ":diamaneos-remote-adapter-conversion-check",
     ],
+    exclude_srcs: ["java/de/diamaneos/decode/client/NinePatchChunk.java"],
     aidl: {
         local_include_dirs: ["aidl"],
     },
@@ -74,22 +82,43 @@ java_library {
 }
 
 // The reply checks, the nine-patch chunk reader, the decode plan, the image caps, the per-app
-// quota and pixel pool, the calls in flight per owner, the retry waits, the runs after late and "no room now" answers
-// and the wallpaper box are plain Java, tested on the host.
+// quota and pixel pool, the calls in flight per owner, the retry waits, the runs after late and "no room now" answers,
+// the wallpaper box, the open and pump threads, the stuck calls, the health probes, the askers waiting for images,
+// the decode gate's callers, the clean copy maker's queue, the turns of what waits for images and the recovery
+// watch's waits are plain Java, tested on the host.
 java_test_host {
     name: "diamaneos-decode-client-tests",
     srcs: [
         "tests/src/**/*.java",
         "java/de/diamaneos/decode/client/Backoff.java",
         "java/de/diamaneos/decode/client/CallPool.java",
+        "java/de/diamaneos/decode/client/CapacityDemand.java",
+        "java/de/diamaneos/decode/client/CapacityLanes.java",
+        "java/de/diamaneos/decode/client/GateCallers.java",
+        "java/de/diamaneos/decode/client/HealthProbes.java",
         "java/de/diamaneos/decode/client/ImageBudget.java",
         "java/de/diamaneos/decode/client/ImagePlan.java",
         "java/de/diamaneos/decode/client/LateRuns.java",
+        "java/de/diamaneos/decode/client/MakeQueue.java",
+        "java/de/diamaneos/decode/client/CopyPackages.java",
+        "java/de/diamaneos/decode/client/CopyIsolation.java",
+        "java/de/diamaneos/decode/client/CopyRequests.java",
+        "java/de/diamaneos/decode/client/CopyNotices.java",
+        "java/de/diamaneos/decode/client/CopyGenerations.java",
+        "java/de/diamaneos/decode/client/BoundedImageInput.java",
+        "java/de/diamaneos/decode/client/WallpaperSets.java",
+        "java/de/diamaneos/decode/client/FreshWallpaperInput.java",
+        "java/de/diamaneos/decode/client/WallpaperMigrations.java",
         "java/de/diamaneos/decode/client/NinePatchChunk.java",
         "java/de/diamaneos/decode/client/OwnerPixels.java",
         "java/de/diamaneos/decode/client/OwnerQuota.java",
         "java/de/diamaneos/decode/client/OwnerSlots.java",
+        "java/de/diamaneos/decode/client/RecoveryWaits.java",
+        "java/de/diamaneos/decode/client/RetryTurns.java",
+        "java/de/diamaneos/decode/client/RunSlots.java",
         "java/de/diamaneos/decode/client/StripeValidator.java",
+        "java/de/diamaneos/decode/client/StuckCalls.java",
+        "java/de/diamaneos/decode/client/Waiters.java",
         "java/de/diamaneos/decode/client/WallpaperBox.java",
     ],
     static_libs: ["junit"],
@@ -116,4 +145,32 @@ android_test {
     platform_apis: true,
     certificate: "platform",
     test_suites: ["device-tests"],
+}
+
+android_test {
+    name: "DiamaneOSDecodePeerTests",
+    srcs: ["tests/peer/src/**/*.java"],
+    manifest: "tests/peer/AndroidManifest.xml",
+    static_libs: ["diamaneos-decode-client", "androidx.test.runner", "androidx.test.ext.junit", "junit"],
+    platform_apis: true,
+    certificate: "platform",
+    test_suites: ["device-tests"],
+}
+
+android_test_helper_app {
+    name: "DiamaneOSArchiveIconFixture",
+    srcs: ["tests/archive/src/**/*.java"],
+    manifest: "tests/archive/AndroidManifest.xml",
+    resource_dirs: ["tests/archive/res"],
+    platform_apis: true,
+    test_suites: ["device-tests"],
+}
+
+// A work-only installed APK for the provider's second-caller ownership checks.
+android_test_helper_app {
+    name: "DiamaneOSCopyWorkFixture",
+    manifest: "tests/device/work-fixture/AndroidManifest.xml",
+    resource_dirs: ["tests/device/work-fixture/res"],
+    sdk_version: "current",
+    certificate: "platform",
 }

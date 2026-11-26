@@ -49,6 +49,13 @@ public final class StripeValidator {
      */
     public static int checkHeader(int width, int height, int stripeRows, int rotation, int maxWidth, int maxHeight)
             throws BadReplyException {
+        return checkHeader(width, height, stripeRows, rotation, maxWidth, maxHeight, 0);
+    }
+
+    public static int checkHeader(int width, int height, int stripeRows, int rotation, int maxWidth, int maxHeight,
+            int pixelFormat) throws BadReplyException {
+        final int bytes = pixelFormat < 0 || pixelFormat > 3 ? 0 : (pixelFormat & 1) == 0 ? 4 : 8;
+        if (bytes == 0) throw new BadReplyException("pixel format");
         if (maxWidth < 1 || maxHeight < 1) {
             throw new BadReplyException("bad box " + maxWidth + "x" + maxHeight);
         }
@@ -62,10 +69,10 @@ public final class StripeValidator {
         if (width > (turned ? maxHeight : maxWidth) || height > (turned ? maxWidth : maxHeight)) {
             throw new BadReplyException("bigger than asked: " + width + "x" + height);
         }
-        if ((long) width * height > MAX_PIXELS) {
+        if ((long) width * height > ((pixelFormat & 1) != 0 ? MAX_PIXELS / 2 : MAX_PIXELS)) {
             throw new BadReplyException("too many pixels: " + width + "x" + height);
         }
-        if (stripeRows < 1 || stripeRows > height || (long) stripeRows * width * 4 > MAX_STRIPE_BYTES) {
+        if (stripeRows < 1 || stripeRows > height || (long) stripeRows * width * bytes > MAX_STRIPE_BYTES) {
             throw new BadReplyException("bad stripe rows " + stripeRows);
         }
         return (height + stripeRows - 1) / stripeRows;
@@ -73,6 +80,13 @@ public final class StripeValidator {
 
     /** The exact length stripe {@code index} must have. */
     public static int stripeLength(int width, int height, int stripeRows, int index) throws BadReplyException {
+        return stripeLength(width, height, stripeRows, index, 0);
+    }
+
+    public static int stripeLength(int width, int height, int stripeRows, int index, int pixelFormat)
+            throws BadReplyException {
+        final int bytes = pixelFormat < 0 || pixelFormat > 3 ? 0 : (pixelFormat & 1) == 0 ? 4 : 8;
+        if (bytes == 0) throw new BadReplyException("pixel format");
         if (index < 0) {
             throw new BadReplyException("bad stripe index " + index);
         }
@@ -81,31 +95,48 @@ public final class StripeValidator {
             throw new BadReplyException("stripe index past the end " + index);
         }
         final long rows = Math.min(stripeRows, height - first);
-        return (int) (rows * width * 4);
+        return (int) (rows * width * bytes);
     }
 
     /**
-     * Copies stripe {@code index} into {@code frame} (width * height * 4 bytes of premultiplied RGBA) after checking its
-     * exact length and that no colour channel is above alpha. A stripe that breaks either is refused, as the contract's
-     * own check (DecodeChecks) refuses it: the whole image is then a placeholder.
+     * Checks stripe {@code index} of a width x height image of premultiplied RGBA: its exact length and that no colour
+     * channel is above alpha. Returns its length. A stripe that breaks either is refused, as the contract's own check
+     * (DecodeChecks) refuses it: the whole image is then a placeholder.
      */
-    public static void putStripe(byte[] frame, int width, int height, int stripeRows, int index, byte[] stripe)
+    public static int checkStripe(int width, int height, int stripeRows, int index, byte[] stripe)
             throws BadReplyException {
-        if (frame == null || frame.length != width * height * 4) {
-            throw new BadReplyException("bad frame");
-        }
-        final int expected = stripeLength(width, height, stripeRows, index);
+        return checkStripe(width, height, stripeRows, index, stripe, 0);
+    }
+
+    public static int checkStripe(int width, int height, int stripeRows, int index, byte[] stripe, int pixelFormat)
+            throws BadReplyException {
+        final int expected = stripeLength(width, height, stripeRows, index, pixelFormat);
         if (stripe == null || stripe.length != expected) {
             throw new BadReplyException("stripe " + index + " has " + (stripe == null ? -1 : stripe.length)
                     + " bytes, expected " + expected);
         }
+        if ((pixelFormat & 1) != 0) {
+            for (int at = 0; at < expected; at += 8) {
+                final int alpha = halfWord(stripe, at + 6);
+                if (alpha > 0x3c00) throw new BadReplyException("wide alpha");
+                for (int channel = 0; channel < 3; channel++) {
+                    if (halfWord(stripe, at + channel * 2) > ((pixelFormat & 2) != 0 ? 0x3c00 : alpha)) throw new BadReplyException("wide colour");
+                }
+            }
+            return expected;
+        }
+        if ((pixelFormat & 2) != 0) return expected;
         for (int i = 0; i < expected; i += 4) {
             final int a = stripe[i + 3] & 0xff;
             if ((stripe[i] & 0xff) > a || (stripe[i + 1] & 0xff) > a || (stripe[i + 2] & 0xff) > a) {
                 throw new BadReplyException("stripe " + index + ": colour above alpha at byte " + i);
             }
         }
-        System.arraycopy(stripe, 0, frame, index * stripeRows * width * 4, expected);
+        return expected;
+    }
+
+    private static int halfWord(byte[] stripe, int at) {
+        return (stripe[at] & 255) | ((stripe[at + 1] & 255) << 8);
     }
 
     /** Checks a probe result. */

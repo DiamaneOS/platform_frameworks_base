@@ -83,6 +83,44 @@ public class SplashImagesDeviceTest {
         mTempStore.delete();
     }
 
+    /** Observes the real producer without changing its exact, fallback or publication decisions. */
+    private static final class TracedCopies implements CleanCopies {
+        private static final java.util.concurrent.atomic.AtomicInteger ids = new java.util.concurrent.atomic.AtomicInteger();
+        private final int id = ids.incrementAndGet();
+        private final CleanImages source;
+        TracedCopies(Context context) { source = CleanImages.get(context); }
+        @Override public Entry load(String key) {
+            final Entry entry = source.load(key);
+            android.util.Log.i("SplashProvenance", "store=" + id + " backend=CleanImages exact=" + (entry != null)
+                    + " key=" + Integer.toHexString(key.hashCode()));
+            return entry;
+        }
+        @Override public Entry fallback(String apk, String file, int density, int w, int h, String resource, int user) {
+            final Entry entry = source.fallback(apk, file, density, w, h, resource, user);
+            android.util.Log.i("SplashProvenance", "store=" + id + " fallback=" + (entry != null)
+                    + " resource=" + resource + " user=" + user);
+            return entry;
+        }
+        @Override public void missed(String key, String apk, String file, int density, int w, int h,
+                String resource, int user) {
+            android.util.Log.i("SplashProvenance", "store=" + id + " request=" + resource + " user=" + user);
+            source.missed(key, apk, file, density, w, h, resource, user);
+        }
+    }
+
+    /** Holds both exact and fallback copies absent, independently of the real store's prior contents. */
+    private static final class EmptyCopies implements CleanCopies {
+        final java.util.Set<String> requested = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+        @Override public Entry load(String key) { return null; }
+        @Override public Entry fallback(String apk, String file, int density, int w, int h,
+                String resource, int user) { return null; }
+        @Override public void missed(String key, String apk, String file, int density, int w, int h,
+                String resource, int user) {
+            requested.add(resource);
+        }
+    }
+
     private static <T> T onThread(Callable<T> callable) throws Exception {
         final FutureTask<T> task = new FutureTask<>(callable);
         final Thread thread = new Thread(task, "splash-test");
@@ -91,10 +129,15 @@ public class SplashImagesDeviceTest {
     }
 
     private Context splashContext(int theme) throws Exception {
+        return splashContext(theme, new TracedCopies(mContext));
+    }
+
+    private Context splashContext(int theme, CleanCopies copies) throws Exception {
         final Context packageContext = mContext.createPackageContextAsUser(mPackage, Context.CONTEXT_RESTRICTED,
                 UserHandle.of(mUser));
         final Context gated = SplashImages.gate(mContext, packageContext, mPackage, mUser);
         assertNotNull("no gated splash context", gated);
+        ((AppResourceImages) gated.getResources().getImageFileGate()).setStore(copies);
         gated.setTheme(theme);
         return gated;
     }
@@ -102,7 +145,11 @@ public class SplashImagesDeviceTest {
     private static Drawable attr(Context context, int index) {
         final TypedArray a = context.obtainStyledAttributes(com.android.internal.R.styleable.Window);
         try {
-            return SplashImages.complete(() -> a.getDrawable(index));
+            final Drawable drawable = SplashImages.complete(() -> a.getDrawable(index));
+            android.util.Log.i("SplashProvenance", "lookup=" + index + " touched=" + AppResourceImages.touchedAppFile()
+                    + " missed=" + AppResourceImages.missed() + " result="
+                    + (drawable == null ? "null" : drawable.getClass().getSimpleName()));
+            return drawable;
         } finally {
             a.recycle();
         }
@@ -125,7 +172,8 @@ public class SplashImagesDeviceTest {
     /** Without clean copies: the bitmap images are left out at once, without the VM. */
     @Test
     public void noCopies_leftOut_noVmWait() throws Exception {
-        final Context context = splashContext(R.style.VmTestSplash);
+        final EmptyCopies copies = new EmptyCopies();
+        final Context context = splashContext(R.style.VmTestSplash, copies);
         final long start = SystemClock.elapsedRealtime();
         final Object[] result = splashImages(context);
         final long took = SystemClock.elapsedRealtime() - start;
@@ -134,6 +182,8 @@ public class SplashImagesDeviceTest {
         assertNull("background (layer list) left out", result[2]);
         assertTrue("splash missed", (Boolean) result[3]);
         assertTrue("took " + took + " ms: the start waited", took < 1_000);
+        assertEquals(java.util.Set.of(mPackage + ":drawable/vm_test_red", mPackage + ":drawable/vm_test_green",
+                mPackage + ":drawable/vm_test_blue"), copies.requested);
     }
 
     /** The files a splash missed are made by the system server in the VM, and a later splash takes them. */
@@ -177,7 +227,7 @@ public class SplashImagesDeviceTest {
     public void foreignApk_refused() throws Exception {
         final ApplicationInfo other = mContext.getPackageManager().getApplicationInfo("com.android.settings", 0);
         final String file = "res/drawable/x.png";
-        final String key = AppResourceImages.keyOf(other.sourceDir, file, 160, 100, 100);
+        final String key = AppResourceImages.keyOf(other.sourceDir, file, 160, 100, 100, mContext.getUserId());
         final Bundle extras = new Bundle();
         extras.putString(CleanCopyClient.EXTRA_APK, other.sourceDir);
         extras.putString(CleanCopyClient.EXTRA_FILE, file);
@@ -241,10 +291,10 @@ public class SplashImagesDeviceTest {
     @Test
     public void store_standInCopies() throws Exception {
         final CleanImageStore store = new CleanImageStore(mTempStore);
-        final String identity = "res:p.app/p.app:mipmap/ic//100x100";
-        final String old480 = "rfile:/data/app/old/base.apk:1:2:res/a.png:480:100x100";
-        final String old320 = "rfile:/data/app/old/base.apk:1:2:res/b.png:320:100x100";
-        final String new480 = "rfile:/data/app/new/base.apk:3:4:res/a.png:480:100x100";
+        final String identity = "res:p.app/p.app:mipmap/ic//100x100:u0";
+        final String old480 = "rfile:/data/app/old/base.apk:1:2:res/a.png:480:100x100:u0";
+        final String old320 = "rfile:/data/app/old/base.apk:1:2:res/b.png:320:100x100:u0";
+        final String new480 = "rfile:/data/app/new/base.apk:3:4:res/a.png:480:100x100:u0";
         final String[] got = onThread(() -> {
             final Bitmap b480 = solid(4, 4, 0xff111111);
             b480.setDensity(480);
@@ -270,7 +320,7 @@ public class SplashImagesDeviceTest {
     /** What is saved is loaded with its pixels and density, only under its own key, and a damaged file is removed. */
     @Test
     public void store_roundTrip_keyAndDamage() throws Exception {
-        final String key = "rfile:" + mContext.getApplicationInfo().sourceDir + ":1:2:res/x.png:480:100x100";
+        final String key = "rfile:" + mContext.getApplicationInfo().sourceDir + ":1:2:res/x.png:480:100x100:u0";
         final Bitmap bitmap = solid(9, 5, 0xff336699);
         bitmap.setDensity(480);
         final CleanImageStore store = new CleanImageStore(mTempStore);
@@ -303,7 +353,7 @@ public class SplashImagesDeviceTest {
     public void store_keepsNinePatch() throws Exception {
         final NinePatchChunk chunk = NinePatchChunk.fromChunks(ninePatchData(9, 5), null, 9, 5);
         assertNotNull(chunk);
-        final String key = "rfile:" + mContext.getApplicationInfo().sourceDir + ":1:2:res/n.9.png:160:100x100";
+        final String key = "rfile:" + mContext.getApplicationInfo().sourceDir + ":1:2:res/n.9.png:160:100x100:u0";
         final CleanImageStore store = new CleanImageStore(mTempStore);
         final CleanCopies.Entry got = onThread(() -> {
             store.save(key, solid(9, 5, 0xff00ff00), chunk);

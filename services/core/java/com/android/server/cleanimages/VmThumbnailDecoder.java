@@ -87,8 +87,11 @@ final class VmThumbnailDecoder {
         return sInstance;
     }
 
-    /** The reply to {@link VmThumbnails#METHOD_THUMBNAIL} from the system process {@code callingUid}. */
-    Bundle thumbnail(Bundle extras, int callingUid) {
+    /**
+     * The reply to {@link VmThumbnails#METHOD_THUMBNAIL} from the system process {@code callingUid}, of
+     * {@code ownerUser}: the user the authority names, which the caller may act for (CleanImageProvider).
+     */
+    Bundle thumbnail(Bundle extras, int callingUid, int ownerUser) {
         final ParcelFileDescriptor fd = extras.getParcelable(CleanCopyClient.EXTRA_FD, ParcelFileDescriptor.class);
         final Bundle reply = new Bundle();
         try {
@@ -99,13 +102,22 @@ final class VmThumbnailDecoder {
                 return reply;
             }
             final String authority = extras.getString(VmThumbnails.EXTRA_AUTHORITY);
+            final int sourceUser = MediaThumbnailUsers.of(mContext, authority, ownerUser, callingUid,
+                    extras.getInt(VmThumbnails.EXTRA_MEDIA_USER, -1));
+            if (sourceUser < 0) {
+                reply.putString(VmThumbnails.EXTRA_ERROR, "unverified media source user");
+                return reply;
+            }
             final String owner = owner(authority, UserHandle.getUserId(callingUid));
             // The thumbnail is an image of the user of the provider it came from (VmDecode OWNER_USER): the user the
-            // authority names, else the calling process's.
-            final int ownerUser = authority == null ? UserHandle.getUserId(callingUid)
-                    : ContentProvider.getUserIdFromAuthority(authority, UserHandle.getUserId(callingUid));
-            final Bitmap bitmap = decode(fd, owner, ownerUser, callingUid, Math.min(width, MAX_SIDE),
-                    Math.min(height, MAX_SIDE), reply);
+            // DiamaneOS: retain the independently verified provider user and captured delegate.
+            final int delegate = callingUid == android.os.Process.SYSTEM_UID
+                    && Binder.getCallingPid() == android.os.Process.myPid()
+                    ? extras.getInt(VmThumbnails.EXTRA_DELEGATE, callingUid) : callingUid;
+            final long end = Math.min(SystemClock.uptimeMillis() + THUMBNAIL_MS,
+                    extras.getLong(VmThumbnails.EXTRA_DEADLINE, Long.MAX_VALUE));
+            final Bitmap bitmap = decode(fd, owner, sourceUser, delegate, Math.min(width, MAX_SIDE),
+                    Math.min(height, MAX_SIDE), end, reply);
             if (bitmap != null) {
                 reply.putParcelable(CleanCopyClient.EXTRA_BITMAP, bitmap);
                 if (Log.isLoggable(TAG, Log.DEBUG)) {
@@ -148,7 +160,7 @@ final class VmThumbnailDecoder {
     // forUid: the process the thumbnail is for (VmDecode.forApp): the decode service decides from it whether it is
     // per-user content or shared.
     private Bitmap decode(ParcelFileDescriptor fd, String owner, int ownerUser, int forUid, int width, int height,
-            Bundle reply) {
+            long end, Bundle reply) {
         final ParcelFileDescriptor own;
         try {
             own = fd.dup();
@@ -156,7 +168,6 @@ final class VmThumbnailDecoder {
             reply.putString(VmThumbnails.EXTRA_ERROR, "no descriptor");
             return null;
         }
-        final long end = SystemClock.uptimeMillis() + THUMBNAIL_MS;
         // Whoever sets it first closes the descriptor: the task when it runs, this thread when the task never ran.
         final AtomicBoolean taken = new AtomicBoolean();
         final Future<Bitmap> task;
@@ -185,6 +196,7 @@ final class VmThumbnailDecoder {
         } catch (RejectedExecutionException e) {
             closeQuietly(own);
             reply.putString(VmThumbnails.EXTRA_ERROR, "busy");
+            reply.putBoolean(VmThumbnails.EXTRA_LATER, true);
             return null;
         }
         try {
@@ -204,8 +216,7 @@ final class VmThumbnailDecoder {
             if (cause instanceof VmDecode.UnavailableException) {
                 reply.putString(VmThumbnails.EXTRA_ERROR, "VM unavailable: " + cause.getMessage());
                 // Only an outage the client is checking, or no room now, ends with an answer the caller can wait for.
-                reply.putBoolean(VmThumbnails.EXTRA_LATER, VmDecode.isSuspect()
-                        || ((VmDecode.UnavailableException) cause).isNoRoom());
+                reply.putBoolean(VmThumbnails.EXTRA_LATER, true);
             } else if (cause instanceof VmDecode.RejectedException) {
                 reply.putString(VmThumbnails.EXTRA_ERROR, "refused by the VM: " + cause.getMessage());
             } else {

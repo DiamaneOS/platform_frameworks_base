@@ -20,6 +20,7 @@ import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.util.Log;
+import de.diamaneos.decode.client.VmDecode;
 
 import java.util.Set;
 import java.util.concurrent.CancellationException;
@@ -27,6 +28,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.IntSupplier;
 
 /**
  * A cache for inline images of image messages.
@@ -48,15 +50,25 @@ public class NotificationInlineImageCache implements NotificationInlineImageReso
 
     @Override
     public boolean hasEntry(Uri uri) {
-        return mCache.containsKey(uri);
+        // DiamaneOS: a load that ended without its image for a reason that passes is loaded again.
+        final PreloadImageTask task = mCache.get(uri);
+        return task != null && !task.endedForNow();
     }
 
     @Override
     public void preload(Uri uri) {
-        PreloadImageTask newTask = new PreloadImageTask(mResolver);
-        // DiamaneOS: on an image thread of the posting app, where the VM is waited for.
+        // DiamaneOS: a rebind for another image cannot retry an unchanged blocked lane.
+        final PreloadImageTask newTask;
+        final PreloadImageTask old;
+        synchronized (mCache) {
+            final PreloadImageTask existing = mCache.get(uri);
+            if (existing != null && existing.capacityBlocked()) return;
+            newTask = new PreloadImageTask(mResolver, uri);
+            old = mCache.put(uri, newTask);
+        }
+        // DiamaneOS: wait for the VM on an image thread of the posting app.
+        if (old != null) old.cancel(true);
         newTask.executeOnExecutor(mResolver.preloadExecutor(), uri);
-        mCache.put(uri, newTask);
     }
 
     @Override
@@ -74,7 +86,10 @@ public class NotificationInlineImageCache implements NotificationInlineImageReso
     @Override
     public void purge() {
         Set<Uri> wantedSet = mResolver.getWantedUriSet();
-        mCache.entrySet().removeIf(entry -> !wantedSet.contains(entry.getKey()));
+        synchronized (mCache) {
+            mCache.entrySet().removeIf(entry -> !wantedSet.contains(entry.getKey()));
+            mResolver.outcomes().retain(wantedSet); // DiamaneOS
+        }
     }
 
     @Override
@@ -86,17 +101,59 @@ public class NotificationInlineImageCache implements NotificationInlineImageReso
         });
     }
 
-    private static class PreloadImageTask extends AsyncTask<Uri, Void, Drawable> {
+    private class PreloadImageTask extends AsyncTask<Uri, Void, Drawable> {
         private final NotificationInlineImageResolver mResolver;
+        private final Uri mUri; // DiamaneOS
+        // DiamaneOS: ended without its image for a reason that passes (not refused by the VM).
+        private volatile boolean mEndedForNow;
+        private boolean mRefused;
+        private IntSupplier mCapacity;
+        private int mCapacitySeen;
 
-        PreloadImageTask(NotificationInlineImageResolver resolver) {
+        PreloadImageTask(NotificationInlineImageResolver resolver, Uri uri) {
             mResolver = resolver;
+            mUri = uri;
         }
 
         @Override
         protected Drawable doInBackground(Uri... uris) {
             Uri target = uris[0];
-            return mResolver.resolveImage(target);
+            final Drawable image = mResolver.resolveImage(target, () -> mRefused = true);
+            // DiamaneOS: publish before the completion flag and before the image task clears its lanes.
+            mCapacity = VmDecode.capacityWakes();
+            mCapacitySeen = mCapacity != null ? mCapacity.getAsInt() : 0;
+            mEndedForNow = image == null && !mRefused && !mResolver.outcomes().wasRefused(target);
+            return image;
+        }
+
+        // DiamaneOS: a cancelled load, or one that ended for now, is no entry.
+        boolean endedForNow() {
+            return isCancelled() || (mEndedForNow && !capacityBlocked());
+        }
+
+        boolean capacityBlocked() {
+            return !isCancelled() && mEndedForNow && mCapacity != null && mCapacity.getAsInt() == mCapacitySeen;
+        }
+
+        // DiamaneOS: the row is inflated again for an image that can still come.
+        @Override
+        protected void onPostExecute(Drawable image) {
+            ended(image != null);
+        }
+
+        @Override
+        protected void onCancelled(Drawable image) {
+            ended(false);
+        }
+
+        private void ended(boolean made) {
+            synchronized (mCache) {
+                if (mCache.get(mUri) != this) return;
+                final Set<Uri> wanted = mResolver.getWantedUriSet();
+                if (mRefused && !isCancelled()) mResolver.outcomes().refused(mUri);
+                mResolver.outcomes().ended(mUri, made, wanted != null && wanted.contains(mUri),
+                        mCapacity, mCapacitySeen);
+            }
         }
     }
 }

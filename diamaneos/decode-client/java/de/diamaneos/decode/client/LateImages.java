@@ -54,9 +54,8 @@ import java.util.List;
  * stays empty.
  *
  * <p>In the system server the app's bitmap files come from its clean copy store first ({@link #setStore}): a file
- * with a kept copy (one an earlier show made) shows at once, without any VM work, and what the image thread makes is
- * kept there. A file without a copy takes the late path above, never a decode on the showing thread. URI and data
- * images always take the late path.
+ * with a maker copy shows at once, without VM work. A file without a copy takes the late path above, and the image
+ * made there stays with the presentation. URI and data images always take the late path.
  */
 public final class LateImages {
     private static final String TAG = "VmDecode";
@@ -103,7 +102,7 @@ public final class LateImages {
 
     /**
      * The store of clean copies every LateImages takes an app's bitmap files from before the late path (the system
-     * server's clean icon cache, set once at its start), and keeps the files its image thread makes in. Null: none.
+     * server's clean icon cache, set once at its start). Null means there is no store.
      */
     public static void setStore(CleanCopies store) {
         sStore = store;
@@ -300,12 +299,13 @@ public final class LateImages {
     private Icon[] make(Icon[] originals, RemoteViews[] views, int[] resources) {
         final Icon[] made = new Icon[originals.length];
         NotificationImageGate gate = null;
+        VmIcons.localCacheWrites(true);
         try {
             gate = NotificationImageGate.forNotification(mContext, mOwner, mUserId, mIconPx, mPictureWidth,
                     mPictureHeight);
             final CleanCopies store = sStore;
             if (store != null) {
-                // What this thread makes in the VM is kept, so the next show takes it at once.
+                // This worker may read the maker copies.
                 gate.resourceImages().setStore(store);
             }
             final ApplicationInfo ai = mContext.getPackageManager().getApplicationInfoAsUser(mOwner, 0, mUserId);
@@ -330,6 +330,7 @@ public final class LateImages {
         } catch (Throwable e) {
             Log.w(TAG, "images of " + mOwner + " not made, they stay empty: " + e);
         } finally {
+            VmIcons.localCacheWrites(false);
             if (gate != null) {
                 gate.finish(false);
             }
@@ -364,7 +365,12 @@ public final class LateImages {
         for (Waiting w : waiting) {
             try {
                 if (w.mXmlId != 0) {
-                    w.fill(w.reloaded());
+                    mShownGate.useRound(worker);
+                    try {
+                        w.fill(w.reloaded());
+                    } finally {
+                        mShownGate.useRound(null);
+                    }
                 } else if (w.mKey != null) {
                     w.fill(worker != null ? worker.madeDrawable(w.mRes, w.mKey)
                             : AppResourceImages.cachedDrawable(w.mRes, w.mKey));

@@ -34,6 +34,8 @@ import android.content.res.ImageFileGates;
 import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.DecodeGate;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
@@ -42,6 +44,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.util.TypedValue;
+import android.util.Log;
 import android.widget.ImageView;
 import android.widget.RemoteViews;
 
@@ -82,6 +85,8 @@ public class CleanCopyGateDeviceTest {
     public void noProcessGate() {
         ImageFileGates.setProcessDefault(null);
         CleanCopyGate.setModeForTest(-1);
+        DecodeGate.setForcedForTest(null);
+        DecodeGate.resetForTest();
     }
 
     /** A source of copies made here: what it holds, and what it was asked for. */
@@ -134,6 +139,12 @@ public class CleanCopyGateDeviceTest {
         return res;
     }
 
+    /** How a copy key for this test's own user ends: the user serial, then the user. */
+    private String userSuffix() {
+        final int user = mContext.getUserId();
+        return ":s" + CleanCopyClient.userSerial(mContext, user) + ":u" + user;
+    }
+
     private static <T> T onThread(Callable<T> callable) throws Exception {
         final FutureTask<T> task = new FutureTask<>(callable);
         new Thread(task, "gate-test").start();
@@ -155,7 +166,7 @@ public class CleanCopyGateDeviceTest {
         assertEquals(mContext.getPackageName() + ":drawable/vm_test_red", source.resources.get(0));
         final int[] box = CleanCopyClient.box(mContext);
         assertTrue(source.requests.get(0).startsWith("rfile:" + mContext.getApplicationInfo().sourceDir + ":"));
-        assertTrue(source.requests.get(0).endsWith(":" + box[0] + "x" + box[1]));
+        assertTrue(source.requests.get(0).endsWith(":" + box[0] + "x" + box[1] + userSuffix()));
     }
 
     @Test
@@ -206,6 +217,48 @@ public class CleanCopyGateDeviceTest {
         });
         assertTrue("any load: from copies", out[0] instanceof ColorDrawable);
         assertTrue("an icon load: from copies", out[1] instanceof ColorDrawable);
+    }
+
+    private static Bitmap rendered(Drawable drawable) {
+        final Bitmap bitmap = Bitmap.createBitmap(83, 61, Bitmap.Config.ARGB_8888);
+        drawable.setBounds(0, 0, 83, 61);
+        drawable.draw(new Canvas(bitmap));
+        return bitmap;
+    }
+
+    @Test
+    public void launcherFirstLoad_hasVmPixelsWithoutACopy() throws Exception {
+        final TypedValue value = new TypedValue();
+        mContext.getResources().getValue(R.drawable.vm_test_large, value, true);
+        try (java.util.zip.ZipFile apk = new java.util.zip.ZipFile(mContext.getApplicationInfo().sourceDir)) {
+            assertTrue("positive icon above 1 MiB", apk.getEntry(value.string.toString()).getSize() > 1024 * 1024);
+        }
+        for (int id : new int[] {R.drawable.vm_test_red, R.drawable.vm_test_adaptive,
+                R.drawable.vm_test_large, R.drawable.vm_test_patch}) {
+            DecodeGate.setForcedForTest(false);
+            final Bitmap stock = rendered(onThread(() -> mContext.getResources().getDrawable(id, null)));
+            final FakeSource source = new FakeSource();
+            final Resources res = gated(CleanCopyGate.forTest(mContext, source, true, "com.android.launcher3"));
+            DecodeGate.setForcedForTest(true);
+            DecodeGate.resetForTest();
+            final int[] before = DecodeGate.countsForTest();
+            final long start = SystemClock.elapsedRealtime();
+            final Drawable first = onThread(() -> CleanCopyGate.iconLoad(() -> res.getDrawable(id, null)));
+            Log.i("CleanCopyGateTest", "first icon " + id + " ms=" + (SystemClock.elapsedRealtime() - start));
+            assertTrue("checked first-load geometry and pixels " + id, stock.sameAs(rendered(first)));
+            assertTrue("VM answered " + id, DecodeGate.countsForTest()[0] > before[0]);
+            assertTrue("no copy requested for " + id, source.requests.isEmpty());
+        }
+    }
+
+    @Test
+    public void launcherInactiveGate_doesNotDecodeFirstLoad() throws Exception {
+        DecodeGate.setForcedForTest(false);
+        final FakeSource source = new FakeSource();
+        final Resources res = gated(CleanCopyGate.forTest(mContext, source, true, "com.android.launcher3"));
+        final Drawable first = onThread(() -> CleanCopyGate.iconLoad(() -> res.getDrawable(R.drawable.vm_test_red, null)));
+        assertTrue("inactive gate remains empty", first instanceof ColorDrawable);
+        assertTrue("VM refusal uses refill", source.requests.isEmpty());
     }
 
     // A widget provider of this test APK, as the system gives it (the package comes from here, not from views).
@@ -435,7 +488,7 @@ public class CleanCopyGateDeviceTest {
         final int[] box = CleanCopyClient.box(mContext);
         assertEquals(1, source.requests.size());
         assertTrue(source.requests.get(0), source.requests.get(0).endsWith(
-                ":" + expected + ":" + box[0] + "x" + box[1]));
+                ":" + expected + ":" + box[0] + "x" + box[1] + userSuffix()));
     }
 
     /** With the process gate, the package manager gives null (the caller's default) for an icon without a copy. */
@@ -453,5 +506,30 @@ public class CleanCopyGateDeviceTest {
         assertTrue("then the copy", made instanceof BitmapDrawable);
         assertEquals(0xff0000ff, ((BitmapDrawable) made).getBitmap().getPixel(4, 2));
         assertFalse(source.requests.isEmpty());
+    }
+
+    @Test
+    public void ownAssetsAreTheBaseAndSplitsOnly() {
+        // An app whose base and split are its own, which also loads a shared library, a resource directory and an
+        // overlay from outside the system image.
+        final android.content.pm.ApplicationInfo app = new android.content.pm.ApplicationInfo();
+        app.packageName = "de.diamaneos.example";
+        app.sourceDir = "/data/app/~~x/de.diamaneos.example-1/base.apk";
+        app.publicSourceDir = app.sourceDir;
+        app.splitSourceDirs = new String[] {"/data/app/~~x/de.diamaneos.example-1/split_more.apk"};
+        app.splitPublicSourceDirs = app.splitSourceDirs;
+        app.sharedLibraryFiles = new String[] {"/data/app/~~y/com.example.library-2/base.apk"};
+        app.resourceDirs = new String[] {"/data/resource-cache/de.diamaneos.example.resources.apk"};
+        app.overlayPaths = new String[] {"/data/resource-cache/de.diamaneos.example.overlay.frro"};
+        final List<String> extra = java.util.Arrays.asList(app.sharedLibraryFiles[0], app.resourceDirs[0],
+                app.overlayPaths[0]);
+        // What the exemption took before: every path the app loads.
+        assertTrue(java.util.Arrays.asList(app.getAllApkPaths()).containsAll(extra));
+        assertTrue(CleanCopyGate.apkDecodesHere(app, app.sourceDir));
+        assertTrue(CleanCopyGate.apkDecodesHere(app, app.splitSourceDirs[0]));
+        for (String path : extra) {
+            assertFalse(path, CleanCopyGate.apkDecodesHere(app, path));
+        }
+        assertTrue(CleanCopyGate.apkDecodesHere(app, "/system/framework/framework-res.apk"));
     }
 }

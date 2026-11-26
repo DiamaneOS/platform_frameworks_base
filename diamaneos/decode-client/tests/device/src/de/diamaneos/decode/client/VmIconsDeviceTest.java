@@ -72,24 +72,6 @@ public class VmIconsDeviceTest {
     }
 
     @Test
-    public void withoutAppImage_everyIconType() {
-        final Icon bitmap = Icon.createWithBitmap(bitmap());
-        final Icon adaptive = Icon.createWithAdaptiveBitmap(bitmap());
-        final Icon framework = Icon.createWithResource("android", android.R.drawable.ic_menu_add);
-        final Icon uri = Icon.createWithContentUri(URI);
-        final Icon adaptiveUri = Icon.createWithAdaptiveBitmapContentUri(URI);
-        assertNull(VmIcons.withoutAppImage(null));
-        assertSame(bitmap, VmIcons.withoutAppImage(bitmap));
-        assertSame(adaptive, VmIcons.withoutAppImage(adaptive));
-        assertSame(framework, VmIcons.withoutAppImage(framework));
-        assertSame(uri, VmIcons.withoutAppImage(uri));
-        assertSame(adaptiveUri, VmIcons.withoutAppImage(adaptiveUri));
-        assertNull(VmIcons.withoutAppImage(Icon.createWithData(DATA, 0, DATA.length)));
-        assertNull(VmIcons.withoutAppImage(
-                Icon.createWithResource(mContext.getPackageName(), android.R.drawable.ic_menu_add)));
-    }
-
-    @Test
     public void withoutVmIcon_everyIconType() {
         final Icon placeholder = Icon.createWithResource("android", android.R.drawable.ic_dialog_info);
         final Icon bitmap = Icon.createWithBitmap(bitmap());

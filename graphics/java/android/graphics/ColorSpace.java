@@ -3086,6 +3086,30 @@ public abstract class ColorSpace {
                 float max,
                 @Nullable TransferParameters transferParameters,
                 @IntRange(from = MIN_ID, to = MAX_ID) int id) {
+            this(name, primaries, whitePoint, transform, oetf, eotf, min, max,
+                    transferParameters, id, null);
+        }
+
+        // DiamaneOS: checked VM metadata already describes its native D50 profile.
+        Rgb(String name, float[] toXYZ, TransferParameters function, boolean nativeD50) {
+            this(name, isGray(toXYZ) ? GRAY_PRIMARIES : computePrimaries(toXYZ),
+                    computeWhitePoint(toXYZ), isGray(toXYZ) ? toXYZ : null,
+                    generateOETF(function), generateEOTF(function), 0.0f, 1.0f,
+                    function, MIN_ID, nativeD50 ? toXYZ : null);
+        }
+
+        private Rgb(
+                @NonNull @Size(min = 1) String name,
+                @NonNull @Size(min = 6, max = 9) float[] primaries,
+                @NonNull @Size(min = 2, max = 3) float[] whitePoint,
+                @Nullable @Size(9) float[] transform,
+                @NonNull DoubleUnaryOperator oetf,
+                @NonNull DoubleUnaryOperator eotf,
+                float min,
+                float max,
+                @Nullable TransferParameters transferParameters,
+                @IntRange(from = MIN_ID, to = MAX_ID) int id,
+                @Nullable @Size(9) float[] nativeD50) {
 
             super(name, Model.RGB, id);
 
@@ -3150,6 +3174,10 @@ public abstract class ColorSpace {
 
                 // This mimics the old code that was in native.
                 float[] nativeTransform = adaptToIlluminantD50(mWhitePoint, mTransform);
+                // DiamaneOS: preserve the validated source profile when creating native pixels.
+                if (nativeD50 != null) {
+                    nativeTransform = GateColorSpaces.checkedNativeTransform(nativeTransform, nativeD50);
+                }
                 mNativePtr = Native.nativeCreate((float) mTransferParameters.a,
                                           (float) mTransferParameters.b,
                                           (float) mTransferParameters.c,

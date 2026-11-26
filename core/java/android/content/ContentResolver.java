@@ -4153,6 +4153,24 @@ public abstract class ContentResolver implements ContentInterface {
     }
 
     /** @hide */
+    public ContentInterface getThumbnailSource() {
+        // DiamaneOS: retain the provider capability behind a wrapped resolver.
+        return getThumbnailSource(this);
+    }
+
+    /** @hide */
+    public static ContentInterface getThumbnailSource(ContentResolver resolver) {
+        // DiamaneOS: inspect the actual immutable wrapper without virtual dispatch.
+        return resolver.mWrapped != null ? resolver.mWrapped : resolver;
+    }
+
+    /** @hide */
+    public static int getThumbnailSourceUser(ContentResolver resolver) {
+        // DiamaneOS: use the context captured at acquisition instead of a resolver override.
+        return resolver.mContext == null ? -1 : resolver.mContext.getUserId();
+    }
+
+    /** @hide */
     @Deprecated
     public Drawable getTypeDrawable(String mimeType) {
         return getTypeInfo(mimeType).getIcon().loadDrawable(mContext);

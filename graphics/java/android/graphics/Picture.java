@@ -205,6 +205,10 @@ public class Picture {
      */
     @Deprecated
     public static Picture createFromStream(@NonNull InputStream stream) {
+        if (DecodeGate.gates()) {
+            // DiamaneOS: its reader decodes the images in the stream here, so a gated process reads none (DecodeGate).
+            throw new IllegalArgumentException("pictures are not read from streams in this process");
+        }
         return new Picture(nativeCreateFromStream(stream, new byte[WORKING_STREAM_STORAGE]));
     }
 

@@ -49,27 +49,48 @@ public final class DecodeChecks {
 
     public static String check(ImageInfo i) {
         if (i == null || !status(i.status)) return "status";
+        if (i.sourceError != 0 && !(i.status == IDecodeService.STATUS_INVALID && i.sourceError == 2)) {
+            return "sourceError";
+        }
+        if (i.plainJpegHeader && (i.status != IDecodeService.STATUS_OK || i.format != IDecodeService.FORMAT_JPEG
+                || i.bitDepth != 8 || i.hasAlpha || i.sourceError != 0)) return "plainJpegHeader";
         if (i.status != IDecodeService.STATUS_OK) return null;
         if (!format(i.format)) return "format";
         if (!size(i.width, i.height, IDecodeService.MAX_DIMENSION, IDecodeService.MAX_DIMENSION)) return "size";
+        if (!isColorSpace(i.colorSpace, i.colorDescription)) return "colorSpace";
         if (i.animated && !mayBeAnimated(i.format)) return "animated";
+        if (!isBitDepth(i.bitDepth)) return "bitDepth";
         return null;
     }
 
     /** maxWidth x maxHeight is the box as shown: turned by 90 or 270 degrees, the stored image fits it turned. */
     public static String check(Thumbnail t, int maxWidth, int maxHeight) {
+        return check(t, maxWidth, maxHeight, false);
+    }
+
+    public static String check(Thumbnail t, int maxWidth, int maxHeight, boolean gainmapOnly) {
         if (t == null || !status(t.status)) return "status";
-        if (t.status != IDecodeService.STATUS_OK) return null;
+        if (t.sourceError != 0 && t.sourceError != 2 && t.sourceError != 3) return "sourceError";
+        if (t.status != IDecodeService.STATUS_OK) return t.sourceError == 0 ? null : "sourceError";
+        if (t.gainmapOnly != gainmapOnly) return "reply mode";
+        if (t.gainmapMono && !gainmapOnly) return "grey gain mode";
+        if (gainmapOnly && (t.rotation != 0 || t.mirrored || t.pixelFormat != 0
+                || t.gainmapWidth != 0 || t.gainmapHeight != 0 || t.sourceError != 0
+                || t.colorSpace != IDecodeService.COLOR_SPACE_SRGB)) return "gain pixels";
+        final int pixelBytes = bytesPerPixel(t.pixelFormat);
+        if (pixelBytes == 0) return "pixelFormat";
+        if ((t.pixelFormat & 2) != 0 && (t.rotation != 0 || t.mirrored
+                || t.gainmapWidth != 0 || t.gainmapHeight != 0)) return "straight geometry";
         boolean turned = t.rotation == 90 || t.rotation == 270;
         if (!turned && t.rotation != 0 && t.rotation != 180) return "rotation";
         if (!size(t.width, t.height, turned ? maxHeight : maxWidth, turned ? maxWidth : maxHeight)) return "size";
-        if ((long) t.width * t.height > IDecodeService.MAX_PIXELS) return "pixels";
+        if ((long) t.width * t.height > (pixelBytes == 8 ? IDecodeService.MAX_HIGH_PRECISION_PIXELS : IDecodeService.MAX_PIXELS)) return "pixels";
         if (t.stripeRows < 1 || t.stripeRows > t.height
-                || (long) t.stripeRows * t.width * 4 > IDecodeService.MAX_STRIPE_BYTES) {
+                || (long) t.stripeRows * t.width * pixelBytes > IDecodeService.MAX_STRIPE_BYTES) {
             return "stripeRows";
         }
         if (t.handle == 0) return "handle";
-        if (t.colorSpace != IDecodeService.COLOR_SPACE_SRGB && t.colorSpace != IDecodeService.COLOR_SPACE_DISPLAY_P3) {
+        if (!isColorSpace(t.colorSpace, t.colorDescription)) {
             return "colorSpace";
         }
         if (t.gainmapWidth == 0 && t.gainmapHeight == 0) {
@@ -149,7 +170,7 @@ public final class DecodeChecks {
         for (int d : f.durations) {
             if (d < 0 || d > IDecodeService.MAX_FRAME_MILLIS) return "duration";
         }
-        if (f.colorSpace != IDecodeService.COLOR_SPACE_SRGB && f.colorSpace != IDecodeService.COLOR_SPACE_DISPLAY_P3) {
+        if (!isColorSpace(f.colorSpace, f.colorDescription)) {
             return "colorSpace";
         }
         long rows = (long) f.frameCount * f.height;
@@ -159,6 +180,56 @@ public final class DecodeChecks {
         }
         if (f.handle == 0) return "handle";
         return null;
+    }
+
+    /**
+     * As above for a request of the window frameWindow from firstFrame (0, 0: every frame): the first frame echoed,
+     * the animation's count within MAX_FRAMES, and exactly the frames framesWindowCount gives.
+     */
+    public static String check(Frames f, int maxWidth, int maxHeight, int firstFrame, int frameWindow) {
+        return check(f, maxWidth, maxHeight, firstFrame, frameWindow, 0);
+    }
+
+    /**
+     * As above with frameBand (a band's top row + 1, 0 for whole frames): one frame, the whole frame's height within
+     * the box, exactly the band's rows from that top.
+     */
+    public static String check(Frames f, int maxWidth, int maxHeight, int firstFrame, int frameWindow, int frameBand) {
+        final String broken = check(f, maxWidth, maxHeight);
+        if (broken != null || f.status != IDecodeService.STATUS_OK) return broken;
+        if (frameWindow == 0) {
+            return f.firstFrame == 0 && f.totalFrames == 0 && f.frameHeight == 0 && frameBand == 0 ? null
+                    : "frame window";
+        }
+        if (f.firstFrame != firstFrame || f.totalFrames < 1 || f.totalFrames > IDecodeService.MAX_TIMELINE_FRAMES
+                || firstFrame >= f.totalFrames) {
+            return "frame window";
+        }
+        if (frameBand != 0) {
+            final int top = frameBand - 1;
+            return frameWindow == 1 && f.frameCount == 1 && f.frameHeight >= 1 && f.frameHeight <= maxHeight
+                    && top < f.frameHeight && f.height == Math.min(framesBandRows(f.width), f.frameHeight - top)
+                    ? null : "frame band";
+        }
+        if (f.frameHeight != 0) return "frame band";
+        final int descriptionBytes = f.colorSpace == IDecodeService.COLOR_SPACE_CUSTOM ? 64 : 0;
+        return f.frameCount == framesWindowCount(firstFrame, frameWindow, f.totalFrames,
+                (long) f.width * f.height * 4, descriptionBytes) ? null : "window frame count";
+    }
+
+    /** The rows a frame band of this width holds: its pixels, headers and a colour description fit MAX_FRAMES_BYTES. */
+    public static int framesBandRows(int width) {
+        return width < 1 ? 0 : Math.max(1, (IDecodeService.MAX_FRAMES_BYTES - 16 - 4 - 64) / 4 / width);
+    }
+
+    /** The frames a window holds: the window, at most the frames left, at most what fits MAX_FRAMES_BYTES. */
+    public static int framesWindowCount(int first, int window, int total, long frameBytes, int descriptionBytes) {
+        if (first < 0 || first >= total || window < 1
+                || descriptionBytes + 12 + 4 + frameBytes > IDecodeService.MAX_FRAMES_BYTES) {
+            return 0;
+        }
+        return (int) Math.min(Math.min(window, total - first),
+                (IDecodeService.MAX_FRAMES_BYTES - descriptionBytes - 12) / (4 + frameBytes));
     }
 
     /** Stripe index of f's tall image: exactly its rows, premultiplied (no colour channel above alpha). */
@@ -179,26 +250,113 @@ public final class DecodeChecks {
 
     /** The android.graphics.ColorSpace checked frames are built in. */
     public static android.graphics.ColorSpace colorSpaceOf(Frames f) {
-        return android.graphics.ColorSpace.get(f.colorSpace == IDecodeService.COLOR_SPACE_DISPLAY_P3
-                ? android.graphics.ColorSpace.Named.DISPLAY_P3 : android.graphics.ColorSpace.Named.SRGB);
+        return colorSpaceOf(f.colorSpace, f.colorDescription);
     }
 
     /** The android.graphics.ColorSpace a checked thumbnail's Bitmap is built in. */
     public static android.graphics.ColorSpace colorSpaceOf(Thumbnail t) {
-        return android.graphics.ColorSpace.get(t.colorSpace == IDecodeService.COLOR_SPACE_DISPLAY_P3
-                ? android.graphics.ColorSpace.Named.DISPLAY_P3 : android.graphics.ColorSpace.Named.SRGB);
+        return colorSpaceOf(t.colorSpace, t.colorDescription);
+    }
+
+    /** Only the complete named colour tag set is accepted. */
+    public static boolean isColorSpace(int value) {
+        return value >= IDecodeService.COLOR_SPACE_SRGB && value <= IDecodeService.COLOR_SPACE_LINEAR_SRGB;
+    }
+
+    /** A custom tag requires exactly the checked matrix and transfer values. */
+    public static boolean isColorSpace(int value, float[] description) {
+        return value == IDecodeService.COLOR_SPACE_CUSTOM ? isColorDescription(description)
+                : isColorSpace(value) && (description == null || description.length == 0);
+    }
+
+    public static boolean isColorDescription(float[] p) {
+        if (p == null || p.length != 16) return false;
+        for (float value : p) if (!Float.isFinite(value) || Math.abs(value) > 65536.0f) return false;
+        final double det = (double)p[0] * ((double)p[4]*p[8] - (double)p[7]*p[5])
+                - (double)p[3] * ((double)p[1]*p[8] - (double)p[7]*p[2])
+                + (double)p[6] * ((double)p[1]*p[5] - (double)p[4]*p[2]);
+        if (!Double.isFinite(det) || Math.abs(det) < 1e-12) return false;
+        for (int i=0; i<9; i+=3) if (Math.abs((double)p[i]+p[i+1]+p[i+2]) < 1e-12) return false;
+        final double a=p[9], c=p[11], d=p[12], g=p[15];
+        return d >= 0 && d <= 1.00000011920928955078125 && a >= 0 && c >= 0 && g >= 0
+                && !(d == 0 && (a == 0 || g == 0)) && !(d >= 1 && c == 0)
+                && !((a == 0 || g == 0) && c == 0) && p[9]*p[12]+p[10] >= 0;
+    }
+
+    /** Build only from checked scalar values produced inside the VM. */
+    public static android.graphics.ColorSpace colorSpaceOf(int value, float[] description) {
+        if (!isColorSpace(value, description)) throw new IllegalArgumentException("unchecked colour description");
+        if (value != IDecodeService.COLOR_SPACE_CUSTOM) return colorSpaceOf(value);
+        final float[] xyz = java.util.Arrays.copyOf(description, 9);
+        final android.graphics.ColorSpace.Rgb.TransferParameters transfer = new android.graphics.ColorSpace.Rgb.TransferParameters(
+                description[9], description[10], description[11], description[12], description[13], description[14], description[15]);
+        final android.graphics.ColorSpace matched = android.graphics.ColorSpace.match(xyz, transfer);
+        return matched != null ? matched : new android.graphics.ColorSpace.Rgb("Unknown", xyz, transfer);
+    }
+
+    /** Build a colour space only after checking its scalar tag. */
+    public static android.graphics.ColorSpace colorSpaceOf(int value) {
+        final android.graphics.ColorSpace.Named named;
+        switch (value) {
+            case IDecodeService.COLOR_SPACE_SRGB: named = android.graphics.ColorSpace.Named.SRGB; break;
+            case IDecodeService.COLOR_SPACE_DISPLAY_P3: named = android.graphics.ColorSpace.Named.DISPLAY_P3; break;
+            case IDecodeService.COLOR_SPACE_ADOBE_RGB: named = android.graphics.ColorSpace.Named.ADOBE_RGB; break;
+            case IDecodeService.COLOR_SPACE_PRO_PHOTO_RGB: named = android.graphics.ColorSpace.Named.PRO_PHOTO_RGB; break;
+            case IDecodeService.COLOR_SPACE_BT2020: named = android.graphics.ColorSpace.Named.BT2020; break;
+            case IDecodeService.COLOR_SPACE_BT2020_HLG: named = android.graphics.ColorSpace.Named.BT2020_HLG; break;
+            case IDecodeService.COLOR_SPACE_BT2020_PQ: named = android.graphics.ColorSpace.Named.BT2020_PQ; break;
+            case IDecodeService.COLOR_SPACE_LINEAR_SRGB: named = android.graphics.ColorSpace.Named.LINEAR_SRGB; break;
+            default: throw new IllegalArgumentException("unchecked colour space");
+        }
+        return android.graphics.ColorSpace.get(named);
+    }
+
+    /** Bytes per pixel only for the complete explicit storage format set, zero for an unknown value. */
+    public static int bytesPerPixel(int format) {
+        if (format == IDecodeService.PIXEL_FORMAT_RGBA_8888
+                || format == IDecodeService.PIXEL_FORMAT_STRAIGHT_RGBA_8888) return 4;
+        if (format == IDecodeService.PIXEL_FORMAT_RGBA_F16
+                || format == IDecodeService.PIXEL_FORMAT_STRAIGHT_RGBA_F16) return 8;
+        return 0;
+    }
+
+    /** Source depths that the image contract can represent. */
+    public static boolean isBitDepth(int depth) {
+        return depth == 1 || depth == 2 || depth == 4 || depth == 8 || depth == 10 || depth == 12 || depth == 16;
+    }
+
+    private static int halfAt(byte[] bytes, int offset) {
+        return (bytes[offset] & 255) | ((bytes[offset + 1] & 255) << 8);
     }
 
     /** Stripe index of t: exactly its rows, premultiplied (no colour channel above alpha). */
     public static String check(Thumbnail t, int index, byte[] stripe) {
+        final int pixelBytes = bytesPerPixel(t.pixelFormat);
+        if (pixelBytes == 0) return "pixelFormat";
         long first = (long) index * t.stripeRows;
         if (index < 0 || first >= t.height) return "index";
         long rows = Math.min(t.stripeRows, t.height - first);
-        if (stripe == null || stripe.length != rows * t.width * 4) return "stripe length";
-        for (int i = 0; i < stripe.length; i += 4) {
-            int a = stripe[i + 3] & 0xff;
-            if ((stripe[i] & 0xff) > a || (stripe[i + 1] & 0xff) > a || (stripe[i + 2] & 0xff) > a) {
-                return "colour above alpha";
+        if (stripe == null || stripe.length != rows * t.width * pixelBytes) return "stripe length";
+        if (pixelBytes == 8) {
+            for (int i = 0; i < stripe.length; i += 8) {
+                final int alpha = halfAt(stripe, i + 6);
+                // Positive half values sort like their bits, 0x3c00 is one and excludes every NaN and infinity.
+                if (alpha > 0x3c00) return "half alpha";
+                for (int channel = 0; channel < 3; channel++) {
+                    final int value = halfAt(stripe, i + channel * 2);
+                    if (value > ((t.pixelFormat & 2) != 0 ? 0x3c00 : alpha)) return "half colour above alpha";
+                }
+            }
+        } else if ((t.pixelFormat & 2) == 0) {
+            for (int i = 0; i < stripe.length; i += 4) {
+                int alpha = stripe[i + 3] & 255;
+                if (t.gainmapOnly && alpha != 255) return "gain pixels alpha";
+                if (t.gainmapMono && (stripe[i] != stripe[i + 1] || stripe[i] != stripe[i + 2])) {
+                    return "grey gain pixels";
+                }
+                if ((stripe[i] & 255) > alpha || (stripe[i + 1] & 255) > alpha || (stripe[i + 2] & 255) > alpha) {
+                    return "colour above alpha";
+                }
             }
         }
         return null;

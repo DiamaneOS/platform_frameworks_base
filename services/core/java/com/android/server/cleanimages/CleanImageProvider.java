@@ -43,16 +43,15 @@ import java.io.OutputStream;
 import java.util.List;
 
 /**
- * DiamaneOS: the clean copies of apps' image files, served to system processes (see {@code CleanCopyClient} in
- * the framework). A copy is opened read-only by its file name, a file without a copy can be asked for (the system
- * server then makes it in the VM, {@link CleanImageMaker}), and a shortcut's icon picture can be decoded in the VM from
- * a descriptor the caller opened. Callers are the system uid, the phone uid and the processes of system apps whose
- * images come from clean copies ({@code CleanCopyGate.gatedApp}), and on debuggable builds root and the decode client's
- * tests. Apps, the shell and native services get nothing. Only allowed callers are remembered.
+ * DiamaneOS clean-copy readback and resource requests for admitted system processes. Direct reads are local to a
+ * user. Cross-profile resource reads require an item grant, a current rendering role and a visible profile.
+ * Shortcut input comes from the actual LauncherApps operation, never an attested caller-supplied descriptor.
  */
+
 public final class CleanImageProvider extends ContentProvider {
     private static final String CLIENT_TESTS = "de.diamaneos.decode.client.tests";
     private final SparseBooleanArray mAllowed = new SparseBooleanArray(); // allowed uids, guarded by itself
+    private int mAllowedGeneration; // the packages generation mAllowed was made in, guarded by mAllowed
 
     @Override
     public boolean onCreate() {
@@ -65,18 +64,40 @@ public final class CleanImageProvider extends ContentProvider {
         if (appId == Process.SYSTEM_UID || appId == Process.PHONE_UID) {
             return;
         }
-        if (Build.IS_DEBUGGABLE && appId == Process.ROOT_UID) {
+        if (Build.IS_DEBUGGABLE && uid == Process.ROOT_UID) {
             return; // adb root, for the phone checks.
         }
+        final int generation = CleanImageMaker.get(getContext()).packagesGeneration();
         synchronized (mAllowed) {
+            if (mAllowedGeneration != generation) {
+                // Packages changed: a uid may now run another package.
+                mAllowed.clear();
+                mAllowedGeneration = generation;
+            }
             if (mAllowed.get(uid)) {
                 return;
             }
         }
+        final boolean allowed = admitted(getContext(), uid);
+        if (!allowed) {
+            throw new SecurityException("clean images are for system processes only");
+        }
+        synchronized (mAllowed) {
+            if (mAllowedGeneration == generation) {
+                mAllowed.put(uid, true);
+            }
+        }
+    }
+
+    static boolean admitted(android.content.Context context, int uid) {
+        final int appId = UserHandle.getAppId(uid);
+        if (appId == Process.SYSTEM_UID || appId == Process.PHONE_UID || (Build.IS_DEBUGGABLE && uid == 0)) {
+            return true;
+        }
         boolean allowed = false;
         final long identity = Binder.clearCallingIdentity();
         try {
-            final PackageManager pm = getContext().getPackageManager();
+            final PackageManager pm = context.getPackageManager();
             final String[] packages = pm.getPackagesForUid(uid);
             if (packages != null) {
                 for (String name : packages) {
@@ -89,15 +110,12 @@ public final class CleanImageProvider extends ContentProvider {
                     }
                 }
             }
+        } catch (RuntimeException e) {
+            return false;
         } finally {
             Binder.restoreCallingIdentity(identity);
         }
-        if (!allowed) {
-            throw new SecurityException("clean images are for system processes only");
-        }
-        synchronized (mAllowed) {
-            mAllowed.put(uid, true);
-        }
+        return allowed;
     }
 
     @Override
@@ -107,16 +125,25 @@ public final class CleanImageProvider extends ContentProvider {
             throw new SecurityException("clean images are read-only");
         }
         final List<String> path = uri.getPathSegments();
-        final CleanImageStore store = CleanImageMaker.get(getContext()).store();
+        final CleanImageMaker maker = CleanImageMaker.get(getContext());
+        final CleanImageStore store = maker.store();
         final File file = path.size() == 1 ? store.fileNamed(path.get(0)) : null;
-        if (file == null || !file.isFile()) {
+        // Only a copy of a user the caller may see: never another profile's, whatever name it asks for.
+        if (file == null || !file.isFile()
+                || !maker.mayRead(Binder.getCallingUid(), Binder.getCallingPid(), file.getName())) {
             throw new FileNotFoundException("no clean copy");
         }
+        final int callerUid = Binder.getCallingUid();
+        final int callerPid = Binder.getCallingPid();
         store.touch(file.getName());
         // Handed out through a pipe the system server writes (as the text classifier's icon provider does), so the
         // caller needs no access to the system server's files.
         try {
             return openPipeHelper(uri, "application/octet-stream", null, file, (out, u, type, opts, f) -> {
+                if (!admitted(getContext(), callerUid) || !maker.mayRead(callerUid, callerPid, f.getName())) {
+                    closeQuietly(out);
+                    return;
+                }
                 try (FileInputStream in = new FileInputStream(f);
                         OutputStream os = new ParcelFileDescriptor.AutoCloseOutputStream(out)) {
                     final byte[] buffer = new byte[64 * 1024];
@@ -140,44 +167,72 @@ public final class CleanImageProvider extends ContentProvider {
             return null;
         }
         final CleanImageMaker maker = CleanImageMaker.get(getContext());
+        final int uid = Binder.getCallingUid();
+        // The user a copy is asked for: only one the caller may see.
+        final int user = extras.getInt(CleanCopyClient.EXTRA_USER, -1);
         if (CleanCopyClient.METHOD_REQUEST.equals(method)) {
-            maker.request(extras.getString(CleanCopyClient.EXTRA_APK), extras.getString(CleanCopyClient.EXTRA_FILE),
-                    extras.getInt(CleanCopyClient.EXTRA_DENSITY), extras.getInt(CleanCopyClient.EXTRA_WIDTH),
-                    extras.getInt(CleanCopyClient.EXTRA_HEIGHT), extras.getString(CleanCopyClient.EXTRA_RESOURCE),
-                    extras.getInt(CleanCopyClient.EXTRA_USER), true, 0);
-        } else if (CleanCopyClient.METHOD_FALLBACK.equals(method)) {
-            final Bundle reply = new Bundle();
-            reply.putString(CleanCopyClient.EXTRA_KEY, maker.fallbackKey(
+            if (maker.authorizeRequest(uid, Binder.getCallingPid(),
                     extras.getString(CleanCopyClient.EXTRA_APK), extras.getString(CleanCopyClient.EXTRA_FILE),
                     extras.getInt(CleanCopyClient.EXTRA_DENSITY), extras.getInt(CleanCopyClient.EXTRA_WIDTH),
-                    extras.getInt(CleanCopyClient.EXTRA_HEIGHT), extras.getString(CleanCopyClient.EXTRA_RESOURCE),
-                    extras.getInt(CleanCopyClient.EXTRA_USER)));
+                    extras.getInt(CleanCopyClient.EXTRA_HEIGHT), user)) {
+                maker.request(extras.getString(CleanCopyClient.EXTRA_APK),
+                        extras.getString(CleanCopyClient.EXTRA_FILE), extras.getInt(CleanCopyClient.EXTRA_DENSITY),
+                        extras.getInt(CleanCopyClient.EXTRA_WIDTH), extras.getInt(CleanCopyClient.EXTRA_HEIGHT),
+                        extras.getString(CleanCopyClient.EXTRA_RESOURCE), user, true, 0);
+            }
+        } else if (CleanCopyClient.METHOD_FALLBACK.equals(method)) {
+            final Bundle reply = new Bundle();
+            final String apk = extras.getString(CleanCopyClient.EXTRA_APK);
+            final String member = extras.getString(CleanCopyClient.EXTRA_FILE);
+            final int density = extras.getInt(CleanCopyClient.EXTRA_DENSITY);
+            final int width = extras.getInt(CleanCopyClient.EXTRA_WIDTH);
+            final int height = extras.getInt(CleanCopyClient.EXTRA_HEIGHT);
+            final String fallback = maker.authorizeRequest(uid, Binder.getCallingPid(), apk, member,
+                    density, width, height, user) ? maker.fallbackKey(apk, member, density, width, height,
+                    extras.getString(CleanCopyClient.EXTRA_RESOURCE), user) : null;
+            maker.grantFallback(uid, apk, user, fallback);
+            reply.putString(CleanCopyClient.EXTRA_KEY, fallback);
             return reply;
         } else if (CleanCopyClient.METHOD_WATCH.equals(method)) {
             final Bundle reply = new Bundle();
             reply.putBoolean(CleanCopyClient.METHOD_WATCH,
-                    maker.watch(extras.getBinder(CleanCopyClient.EXTRA_CALLBACK)));
+                    maker.watch(extras.getBinder(CleanCopyClient.EXTRA_CALLBACK), uid, Binder.getCallingPid()));
             return reply;
         } else if (CleanCopyClient.METHOD_SHORTCUT.equals(method)) {
-            // The caller opened the icon's URI with its own grant (LauncherApps checked it may): only the decode
-            // happens here, in the VM, and only for the home app, the share sheet and SystemUI.
-            final ParcelFileDescriptor fd = extras.getParcelable(CleanCopyClient.EXTRA_FD,
-                    ParcelFileDescriptor.class);
-            if (!maker.shortcutCaller(Binder.getCallingUid())) {
-                closeQuietly(fd);
-                throw new SecurityException("shortcut icons are for the home app, the share sheet and SystemUI");
-            }
-            try {
-                final Bundle reply = new Bundle();
-                reply.putParcelable(CleanCopyClient.EXTRA_BITMAP, maker.shortcutIcon(fd,
-                        extras.getString(CleanCopyClient.EXTRA_PACKAGE), extras.getInt(CleanCopyClient.EXTRA_USER)));
-                return reply;
-            } finally {
-                closeQuietly(fd);
+            // The caller's own copy of the icon is not used: ShortcutAccess opens the shortcut's input itself.
+            try (ParcelFileDescriptor supplied = extras.getParcelable(CleanCopyClient.EXTRA_FD,
+                    ParcelFileDescriptor.class)) {
+                if (!maker.shortcutCaller(uid)) {
+                    throw new SecurityException("shortcut icons are for the home app, the share sheet and SystemUI");
+                }
+                try (ShortcutAccess input = ShortcutAccess.resolve(getContext(), uid,
+                        extras.getString("callingPackage"), extras.getString(CleanCopyClient.EXTRA_PACKAGE),
+                        extras.getString("shortcutId"), user)) {
+                    final Bundle reply = new Bundle();
+                    if (input != null) {
+                        reply.putParcelable(CleanCopyClient.EXTRA_BITMAP, maker.shortcutIcon(input, uid));
+                    }
+                    return reply;
+                }
+            } catch (IOException e) {
+                return new Bundle();
             }
         } else if (com.android.internal.diamaneos.cleancopies.VmThumbnails.METHOD_THUMBNAIL.equals(method)) {
             // A provider's thumbnail for the system process that loads it, decoded in the VM (VmThumbnailDecoder).
-            return VmThumbnailDecoder.get(getContext()).thumbnail(extras, Binder.getCallingUid());
+            // The user the authority names is the image's: the caller may name it only when it may act for it.
+            final String authority = extras.getString(
+                    com.android.internal.diamaneos.cleancopies.VmThumbnails.EXTRA_AUTHORITY);
+            final int named = authority == null ? -1
+                    : android.content.ContentProvider.getUserIdFromAuthority(authority, UserHandle.getUserId(uid));
+            final int owner = OwnerUsers.of(getContext(), uid, named);
+            if (owner < 0) {
+                closeQuietly(extras.getParcelable(CleanCopyClient.EXTRA_FD, ParcelFileDescriptor.class));
+                final Bundle reply = new Bundle();
+                reply.putString(com.android.internal.diamaneos.cleancopies.VmThumbnails.EXTRA_ERROR,
+                        "may not name user " + named);
+                return reply;
+            }
+            return VmThumbnailDecoder.get(getContext()).thumbnail(extras, uid, owner);
         } else if (CleanCopyClient.METHOD_FORGET.equals(method)) {
             // Tests only: a user build keeps every copy.
             if (!Build.IS_DEBUGGABLE) {
@@ -190,7 +245,7 @@ public final class CleanImageProvider extends ContentProvider {
                 keys = keys.subList(0, 1024);
             }
             final Bundle reply = new Bundle();
-            reply.putInt(CleanCopyClient.EXTRA_OPEN, keys == null ? 0 : maker.open(keys));
+            reply.putInt(CleanCopyClient.EXTRA_OPEN, keys == null ? 0 : maker.open(keys, uid, Binder.getCallingPid()));
             return reply;
         }
         return null;

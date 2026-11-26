@@ -61,14 +61,22 @@ interface IDecodeService {
     const int FORMAT_ICO = 9;
     const int FORMAT_WBMP = 10;
 
-    /** Thumbnail.colorSpace: android.graphics.ColorSpace.Named.SRGB and DISPLAY_P3. */
+    /** Checked colour tags for ImageInfo, Thumbnail and Frames. */
     const int COLOR_SPACE_SRGB = 0;
     const int COLOR_SPACE_DISPLAY_P3 = 1;
+    const int COLOR_SPACE_ADOBE_RGB = 2;
+    const int COLOR_SPACE_PRO_PHOTO_RGB = 3;
+    const int COLOR_SPACE_BT2020 = 4;
+    const int COLOR_SPACE_BT2020_HLG = 5;
+    const int COLOR_SPACE_BT2020_PQ = 6;
+    const int COLOR_SPACE_LINEAR_SRGB = 7;
+    const int COLOR_SPACE_CUSTOM = 8;
 
     /**
      * Thumbnails: a longer input is refused (STATUS_INVALID). A regular file the service can read without
      * stalling (not on FUSE) longer than MAX_BUFFERED_BYTES is streamed to the VM, never held whole, and is decoded
-     * when it is a JPEG or PNG. Any other format above MAX_BUFFERED_BYTES is refused.
+     * as JPEG or PNG pixels without a full input buffer. Random-access formats and explicit gain previews use one
+     * guest memory file when the input and the existing worker reserves fit the available guest memory.
      */
     const int MAX_INPUT_BYTES = 268435456;
     /** Inputs the service holds in memory while they are decoded: a pipe, a file on FUSE, or any non-JPEG/PNG file. */
@@ -77,13 +85,23 @@ interface IDecodeService {
     const int MAX_PROBE_BYTES = 1048576;
     const int MAX_DIMENSION = 65535;
     const int MAX_PIXELS = 8388608;
+    /** Explicit raw pixel storage, with an unchanged 32 MiB base-pixel budget. */
+    const int PIXEL_FORMAT_RGBA_8888 = 0;
+    const int PIXEL_FORMAT_RGBA_F16 = 1;
+    const int PIXEL_FORMAT_STRAIGHT_RGBA_8888 = 2;
+    const int PIXEL_FORMAT_STRAIGHT_RGBA_F16 = 3;
+    const int MAX_HIGH_PRECISION_PIXELS = 4194304;
     const int MAX_STRIPE_BYTES = 262144;
     const int HANDLE_TIMEOUT_MILLIS = 30000;
 
-    /** Frames: at most this many frames, each at most this long, all pixels together at most this many bytes. */
-    const int MAX_FRAMES = 1024;
+    /** Frames: bounded object storage, frame count, delays and total pixel payload. */
+    const int FRAME_OBJECT_BYTES = 4096;
+    const int MAX_FRAME_OBJECT_BYTES = 33554432;
+    const int MAX_FRAMES = 8192;
     const int MAX_FRAME_MILLIS = 16777215;
     const int MAX_FRAMES_BYTES = 33554432;
+    /** A window's animation (DecodeRequest.frameWindow): at most this many frames, 4 bytes of timeline each. */
+    const int MAX_TIMELINE_FRAMES = 1048576;
 
     /** decodeRegion: the largest sample size. */
     const int MAX_REGION_SAMPLE = 64;
@@ -116,9 +134,10 @@ interface IDecodeService {
     void release(long handle);
 
     /**
-     * An animation (GIF or WebP), every frame fitting maxWidth x maxHeight with its aspect ratio kept, scaled down
+     * A supported animation, every frame fitting maxWidth x maxHeight with its aspect ratio kept, scaled down
      * further when all frames would exceed MAX_FRAMES_BYTES, and at most MAX_FRAMES of them. STATUS_UNSUPPORTED for
-     * another format. Last, so callers built before it keep their transaction numbers.
+     * another format. With DecodeRequest.frameWindow only that window, every frame at the size it has in any window
+     * of the animation. Last, so callers built before it keep their transaction numbers.
      */
     Frames decodeFrames(in DecodeRequest request, int maxWidth, int maxHeight);
 

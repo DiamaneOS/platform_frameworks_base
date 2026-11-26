@@ -18,18 +18,19 @@ package de.diamaneos.sanitizer.decode;
 
 /**
  * A decoded, scaled image held by the service. The pixels come in stripes through readStripe(handle, index): stripe i
- * holds rows [i * stripeRows, min(height, (i + 1) * stripeRows)), each row width * 4 bytes of premultiplied RGBA.
+ * holds rows [i * stripeRows, min(height, (i + 1) * stripeRows)). RGBA8888 uses four bytes per pixel.
+ * RGBAF16 uses eight bytes, four little-endian half values in [0, 1]. Explicit straight requests retain RGB above alpha.
  * The caller checks every stripe's exact length and that no colour channel exceeds alpha.
  */
 parcelable Thumbnail {
     /** IDecodeService.STATUS_*. The other fields are only meaningful with STATUS_OK. */
     int status;
 
-    /** Decoded size: within the requested box, width * height at most IDecodeService.MAX_PIXELS. */
+    /** Decoded size: within the requested box, width * height at most MAX_PIXELS, or MAX_HIGH_PRECISION_PIXELS for F16. */
     int width;
     int height;
 
-    /** Rows per stripe, so that stripeRows * width * 4 is at most IDecodeService.MAX_STRIPE_BYTES. */
+    /** Rows per stripe, so that stripeRows * width * bytesPerPixel(pixelFormat) is at most IDecodeService.MAX_STRIPE_BYTES. */
     int stripeRows;
 
     /** Orientation from the file, applied by the caller: 0, 90, 180 or 270. */
@@ -39,9 +40,8 @@ parcelable Thumbnail {
     long handle;
 
     /**
-     * The pixels' colour space, IDecodeService.COLOR_SPACE_*: the file's own when it is sRGB or Display P3, as
-     * Android's decode keeps it, otherwise the nearest of the two that holds its gamut. The caller builds its Bitmap
-     * in it. Last, so a caller built before it reads sRGB.
+     * The checked pixels' colour space, IDecodeService.COLOR_SPACE_*. A custom scalar tag requires the complete
+     * colorDescription. The caller builds its Bitmap in that checked space.
      */
     int colorSpace;
 
@@ -67,4 +67,18 @@ parcelable Thumbnail {
      * false.
      */
     boolean mirrored;
+
+    /** IDecodeService.PIXEL_FORMAT_*, checked before any stripe is allocated or copied. */
+    int pixelFormat = 0;
+
+    /** Zero for complete data, 2 for incomplete source data, 3 for malformed source data. */
+    int sourceError = 0;
+    /** Exactly 16 checked XYZ D50 and transfer values for COLOR_SPACE_CUSTOM, empty for named tags. */
+    float[] colorDescription;
+
+    /** True only for the explicitly requested independent gain pixels. */
+    boolean gainmapOnly = false;
+
+    /** Gain pixels only: the gain image is greyscale, every pixel has R = G = B, and the caller hands it out as ALPHA_8. */
+    boolean gainmapMono = false;
 }

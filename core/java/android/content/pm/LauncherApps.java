@@ -1898,7 +1898,7 @@ public class LauncherApps {
             // the capped resource API to apply downsampling protection and prevent OOMs.
             // DiamaneOS: from clean copies (CleanCopyGate), none while one is missing.
             final int misses = CleanCopyGate.misses();
-            final Drawable icon = CleanCopyGate.iconLoad(() ->
+            final Drawable icon = CleanCopyGate.iconLoad(user.getIdentifier(), () ->
                     res.getDrawableForDensityCapped(resId, density, /* theme= */ null));
             return CleanCopyGate.misses() != misses ? null : icon;
         } catch (NameNotFoundException | Resources.NotFoundException e) {
