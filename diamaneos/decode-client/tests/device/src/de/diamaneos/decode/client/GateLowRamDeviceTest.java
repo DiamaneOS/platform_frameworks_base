@@ -49,6 +49,18 @@ public class GateLowRamDeviceTest {
         compareAll(encoded(Bitmap.CompressFormat.WEBP_LOSSLESS, true));
     }
 
+    // A 10-bit AVIF (CTS avif_yuv_420_10bit): stock gives N32 under low RAM, RGBA_1010102 otherwise.
+    @Test public void tenBitAvifMatchesStock() throws Exception {
+        compareAll(raw(de.diamaneos.decode.client.tests.R.raw.vm_avif_10bit));
+    }
+
+    private static byte[] raw(int resource) throws Exception {
+        try (java.io.InputStream input = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+                .getTargetContext().getResources().openRawResource(resource)) {
+            return input.readAllBytes();
+        }
+    }
+
     private static byte[] encoded(Bitmap.CompressFormat format) {
         return encoded(format, false);
     }
