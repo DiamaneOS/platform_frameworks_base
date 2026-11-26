@@ -21,7 +21,8 @@ final class GateGainmaps {
      */
     static void attach(DecodeGate.Op op, DecodeGate.Bytes bytes, Bitmap target, boolean stored,
             int storedWidth, int storedHeight) throws DecodeGate.Failure {
-        final DecodeGate.Decoded preview = DecodeGate.decode(op, bytes, PREVIEW_BOX, PREVIEW_BOX);
+        final DecodeGate.Decoded preview = largeJpeg(bytes) ? DecodeGate.gainPreview(op, bytes)
+                : DecodeGate.decode(op, bytes, PREVIEW_BOX, PREVIEW_BOX);
         final Gainmap params;
         try {
             final Gainmap map = preview.bitmap.getGainmap();
@@ -44,12 +45,19 @@ final class GateGainmaps {
     static void replace(DecodeGate.Op op, DecodeGate.Bytes bytes, Bitmap target, int rotation, boolean mirrored,
             int storedWidth, int storedHeight) throws DecodeGate.Failure {
         final Gainmap map = target.getGainmap();
-        if (map == null) return;
+        if (map == null) {
+            if (largeJpeg(bytes)) attach(op, bytes, target, false, storedWidth, storedHeight);
+            return;
+        }
         final Bitmap embedded = map.getGainmapContents();
         final Gainmap params = parameters(map);
         target.setGainmap(null);
         DecodeMemory.recycle(embedded, null);
         fill(op, bytes, target, params, rotation, mirrored, storedWidth, storedHeight, false);
+    }
+
+    private static boolean largeJpeg(DecodeGate.Bytes bytes) {
+        return bytes.reserved() > 32L * 1024 * 1024 && "image/jpeg".equals(DecodeGate.mimeType(bytes.head()));
     }
 
     // The parameters of {@code map} on a one-pixel placeholder, so its pixels can go before the gain stage.

@@ -75,7 +75,8 @@ interface IDecodeService {
     /**
      * Thumbnails: a longer input is refused (STATUS_INVALID). A regular file the service can read without
      * stalling (not on FUSE) longer than MAX_BUFFERED_BYTES is streamed to the VM, never held whole, and is decoded
-     * when it is a JPEG or PNG. Any other format above MAX_BUFFERED_BYTES is refused.
+     * as JPEG or PNG pixels without a full input buffer. Random-access formats and explicit gain previews use one
+     * guest memory file when the input and the existing worker reserves fit the available guest memory.
      */
     const int MAX_INPUT_BYTES = 268435456;
     /** Inputs the service holds in memory while they are decoded: a pipe, a file on FUSE, or any non-JPEG/PNG file. */

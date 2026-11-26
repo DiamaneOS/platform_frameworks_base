@@ -44,7 +44,7 @@ final class GatedDecodes {
     /** A decode makes at most this many pixels, the stored stripes it is made from included. */
     static final long MAX_OUTPUT_PIXELS = 8L * DecodeGate.MAX_VM_PIXELS;
     /** An animation with a post-processor is drawn at its size: all its frames at most this many bytes. */
-    static final long MAX_ANIMATION_BYTES = DecodeGate.MAX_BYTES;
+    static final long MAX_ANIMATION_BYTES = 32L * 1024 * 1024;
 
     private GatedDecodes() {
     }

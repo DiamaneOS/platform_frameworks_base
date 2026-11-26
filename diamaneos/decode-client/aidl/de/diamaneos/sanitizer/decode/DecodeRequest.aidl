@@ -24,7 +24,8 @@ parcelable DecodeRequest {
      * The bytes, opened read-only by the caller. A regular file, a memory file or a pipe, possibly from another app.
      * The service reads it under its own deadline (a pipe that stalls or never ends cannot hold anyone up), at most
      * IDecodeService.MAX_BUFFERED_BYTES into memory (MAX_PROBE_BYTES for a probe), and hands the bytes to the VM
-     * unopened. A larger regular file not on FUSE, up to MAX_INPUT_BYTES, is streamed to the VM instead. It never
+     * unopened. A larger sealed memory file or regular file on a bounded local filesystem, up to MAX_INPUT_BYTES,
+     * is transported from its descriptor instead. It never
      * parses them itself.
      */
     ParcelFileDescriptor file;
@@ -66,6 +67,9 @@ parcelable DecodeRequest {
      * stored-base size, in decodeRegion a region of the gain image in its own stored pixels, clipped to it.
      */
     boolean gainmapOnly = false;
+
+    /** Internal RGBA JPEG gain metadata preview, at most 64 x 64. Ordinary thumbnails keep streaming. */
+    boolean gainmapPreview = false;
 
     /**
      * decodeFrames: a window of frameWindow frames from firstFrame on (Frames.firstFrame, Frames.totalFrames), as

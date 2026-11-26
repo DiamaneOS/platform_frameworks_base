@@ -10,7 +10,7 @@ final class CopyMiss {
     /** SystemUI's existing direct-input ceiling. */
     static final int DIRECT_MAX_BYTES = 1024 * 1024;
     /** The current gate input ceiling for guarded background Launcher icon loads. */
-    static final int LAUNCHER_MAX_BYTES = 32 * 1024 * 1024;
+    static final int LAUNCHER_MAX_BYTES = 256 * 1024 * 1024;
 
     /** What became of a file decoded at once. */
     enum Way {

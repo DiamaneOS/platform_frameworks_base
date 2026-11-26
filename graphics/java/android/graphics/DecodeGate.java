@@ -91,6 +91,7 @@ public final class DecodeGate {
     /** Decodes the bytes to fit a box: EXTRA_BITMAP (upright) and EXTRA_ROTATION come back. */
     public static final String METHOD_DECODE = "decode";
     public static final String METHOD_GAINMAP = "gainmap-pixels";
+    public static final String METHOD_GAIN_PREVIEW = "gainmap-preview";
     /** A region of an Ultra HDR JPEG's gain image in its stored pixels, clipped to it in the VM. */
     public static final String METHOD_GAIN_REGION = "gainmap-region";
     /** Reads the header: the stored size (EXTRA_WIDTH, EXTRA_HEIGHT), EXTRA_FORMAT and EXTRA_ANIMATED. */
@@ -173,8 +174,8 @@ public final class DecodeGate {
     /** In the method's own reply: true when the call was taken and the callback will be called. */
     public static final String EXTRA_TAKEN = "taken";
 
-    /** The decode service's limit for bytes it holds in memory (IDecodeService.MAX_BUFFERED_BYTES). */
-    public static final int MAX_BYTES = 32 * 1024 * 1024;
+    /** The decode service's wire input ceiling (IDecodeService.MAX_INPUT_BYTES). */
+    public static final int MAX_BYTES = 256 * 1024 * 1024;
     /** The decode service's pixel limit for one image (IDecodeService.MAX_PIXELS). */
     public static final int MAX_VM_PIXELS = 8 * 1024 * 1024;
     /** The largest box a decode asks for (IDecodeService.MAX_DIMENSION). */
@@ -969,9 +970,17 @@ public final class DecodeGate {
 
     /** {@code bytes} decoded in the VM to fit {@code maxWidth} x {@code maxHeight}, upright. */
     static Decoded decode(Op op, Bytes bytes, int maxWidth, int maxHeight) throws Failure {
+        return decode(op, bytes, maxWidth, maxHeight, METHOD_DECODE);
+    }
+
+    static Decoded gainPreview(Op op, Bytes bytes) throws Failure {
+        return decode(op, bytes, 64, 64, METHOD_GAIN_PREVIEW);
+    }
+
+    private static Decoded decode(Op op, Bytes bytes, int maxWidth, int maxHeight, String method) throws Failure {
         final int boxW = Math.max(1, Math.min(MAX_BOX, maxWidth));
         final int boxH = Math.max(1, Math.min(MAX_BOX, maxHeight));
-        final Bundle r = request(op, METHOD_DECODE, bytes, boxW, boxH);
+        final Bundle r = request(op, method, bytes, boxW, boxH);
         final Bitmap bitmap = r.getParcelable(EXTRA_BITMAP, Bitmap.class);
         final int rotation = r.getInt(EXTRA_ROTATION);
         if (bitmap == null || !quarterTurn(rotation) || bitmap.getWidth() > boxW || bitmap.getHeight() > boxH) {

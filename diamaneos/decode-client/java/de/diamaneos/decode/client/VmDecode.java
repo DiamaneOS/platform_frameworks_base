@@ -512,19 +512,25 @@ public final class VmDecode {
             int priority, int maxWidth, int maxHeight, long deadline, boolean allowPartial, int pixelFormat)
             throws UnavailableException, RejectedException {
         return decode(context, fd, ownerPackage, ownerUser, priority, maxWidth, maxHeight,
-                deadline, allowPartial, pixelFormat, false);
+                deadline, allowPartial, pixelFormat, false, false);
     }
 
     public static Decoded decodeGainmap(Context context, ParcelFileDescriptor fd, String ownerPackage,
             int ownerUser, int priority, int baseWidth, int baseHeight, long deadline)
             throws UnavailableException, RejectedException {
         return decode(context, fd, ownerPackage, ownerUser, priority, baseWidth, baseHeight,
-                deadline, false, 0, true);
+                deadline, false, 0, true, false);
+    }
+
+    /** The bounded internal JPEG preview that also discovers gain metadata in a large source. */
+    public static Decoded decodeGainPreview(Context context, ParcelFileDescriptor fd, String ownerPackage,
+            int ownerUser, int priority, long deadline) throws UnavailableException, RejectedException {
+        return decode(context, fd, ownerPackage, ownerUser, priority, 64, 64, deadline, false, 0, false, true);
     }
 
     private static Decoded decode(Context context, ParcelFileDescriptor fd, String ownerPackage, int ownerUser,
             int priority, int maxWidth, int maxHeight, long deadline, boolean allowPartial, int pixelFormat,
-            boolean gainmapOnly) throws UnavailableException, RejectedException {
+            boolean gainmapOnly, boolean gainmapPreview) throws UnavailableException, RejectedException {
         checkNotMainThread();
         if ((pixelFormat != 0 && pixelFormat != 2) || maxWidth < 1 || maxHeight < 1) {
             throw new RejectedException("bad box or pixel format");
@@ -532,6 +538,7 @@ public final class VmDecode {
         final DecodeRequest request = request(fd, ownerPackage, ownerUser, priority);
         request.pixelFormat = pixelFormat;
         request.gainmapOnly = gainmapOnly;
+        request.gainmapPreview = gainmapPreview;
         return client(context).call(priority, deadline, request.ownerPackage, capacityLane(request),
                 Math.min((long) maxWidth * maxHeight, IDecodeService.MAX_PIXELS) * 5, service -> {
             final Thumbnail thumbnail = service.decodeThumbnail(request, maxWidth, maxHeight);
