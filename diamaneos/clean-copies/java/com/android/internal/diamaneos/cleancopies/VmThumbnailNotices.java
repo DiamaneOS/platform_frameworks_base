@@ -83,7 +83,7 @@ public final class VmThumbnailNotices {
             return;
         }
         final Runnable send = () -> send(app.getContentResolver(),
-                notices(due, uri -> document(app, uri)));
+                notices(due, uri -> matches(app, uri, DocumentsContract::isDocumentUri)));
         if (handler != null) {
             handler.post(send);
         } else {
@@ -95,17 +95,15 @@ public final class VmThumbnailNotices {
     static ArrayList<Uri> notices(ArrayList<Uri> due, Predicate<Uri> document) {
         final LinkedHashSet<Uri> all = new LinkedHashSet<>(due);
         for (Uri uri : due) {
-            if (document.test(uri)) all.add(android.content.ContentProvider.maybeAddUserId(
-                    DocumentsContract.buildRootsUri(android.content.ContentProvider.getUriWithoutUserId(uri).getAuthority()),
-                    android.content.ContentProvider.getUserIdFromUri(uri)));
+            if (document.test(uri)) all.add(uri.buildUpon().path("/root").clearQuery().fragment(null).build());
         }
         return new ArrayList<>(all);
     }
 
-    private static boolean document(Context context, Uri uri) {
+    private static boolean matches(Context context, Uri uri, java.util.function.BiPredicate<Context, Uri> test) {
         try {
             final int user = android.content.ContentProvider.getUserIdFromUri(uri);
-            return DocumentsContract.isDocumentUri(context.createContextAsUser(android.os.UserHandle.of(user), 0),
+            return test.test(context.createContextAsUser(android.os.UserHandle.of(user), 0),
                     android.content.ContentProvider.getUriWithoutUserId(uri));
         } catch (RuntimeException e) { return false; }
     }
@@ -113,24 +111,25 @@ public final class VmThumbnailNotices {
     /** A live directory observes recovery roots without observing its own file-change notices twice. */
     public static Runnable directoryRecovery(Context context, Uri directory, Runnable changed) {
         final ContentResolver resolver = context.getContentResolver();
-        final java.util.concurrent.atomic.AtomicBoolean closed = new java.util.concurrent.atomic.AtomicBoolean();
+        final android.os.CancellationSignal closed = new android.os.CancellationSignal();
         final android.database.ContentObserver observer = new android.database.ContentObserver(null) {
-            @Override public void onChange(boolean self) { if (!closed.get()) changed.run(); }
+            @Override public void onChange(boolean self) { if (!closed.isCanceled()) changed.run(); }
         };
-        final Runnable stop = () -> {
-            if (!closed.getAndSet(true)) {
-                try { resolver.unregisterContentObserver(observer); } catch (RuntimeException ignored) { }
-            }
-        };
+        closed.setOnCancelListener(() -> {
+            try { resolver.unregisterContentObserver(observer); } catch (RuntimeException ignored) { }
+        });
         try { resolver.registerContentObserver(DocumentsContract.buildRootsUri(directory.getAuthority()), false, observer); }
-        catch (RuntimeException e) { stop.run(); }
-        return stop;
+        catch (RuntimeException e) { closed.cancel(); }
+        return closed::cancel;
     }
 
     static void send(ContentResolver resolver, ArrayList<Uri> due) {
         for (Uri uri : due) {
             try {
-                resolver.notifyChange(uri, null, 0);
+                // A background provider can hold the live cursor for a foreground Files window.
+                final boolean roots = "/root".equals(uri.getEncodedPath())
+                        && matches(resolver.getContext(), uri, DocumentsContract::isRootsUri);
+                resolver.notifyChange(uri, null, roots ? ContentResolver.NOTIFY_NO_DELAY : 0);
             } catch (RuntimeException e) {
                 // A provider this process may no longer reach (uninstalled, another user): no notice for it.
                 Log.w(TAG, "no change notice for a thumbnail: " + e.getClass().getSimpleName());
