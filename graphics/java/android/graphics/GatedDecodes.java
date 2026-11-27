@@ -161,14 +161,17 @@ final class GatedDecodes {
                 ? opts.inPreferredColorSpace : null;
         // As BitmapFactory: the sample size as given, the size its codec samples to, or with the density's scale the
         // size rounded down and scaled.
+        final boolean packedAvif = info.bitDepth == 10 && "image/avif".equals(info.mimeType)
+                && opts != null && !opts.inPremultiplied && opts.inPreferredConfig != Bitmap.Config.RGBA_F16
+                && (info.hasAlpha || opts.inPreferredConfig != Bitmap.Config.RGB_565);
         final int sample = opts != null && opts.inSampleSize > 1 ? opts.inSampleSize : 1;
-        int width = codecSampled(info.mimeType, info.width, sample);
-        int height = codecSampled(info.mimeType, info.height, sample);
+        int width = packedAvif ? Math.max(1, Math.round(info.width * (1.0f / sample))) : codecSampled(info.mimeType, info.width, sample);
+        int height = packedAvif ? Math.max(1, Math.round(info.height * (1.0f / sample))) : codecSampled(info.mimeType, info.height, sample);
         if (opts != null && opts.inScaled && opts.inDensity != 0 && opts.inTargetDensity != 0
                 && opts.inDensity != opts.inTargetDensity && opts.inDensity != opts.inScreenDensity) {
             final float scale = (float) opts.inTargetDensity / opts.inDensity;
-            width = Math.max(1, (int) (info.width / sample * scale + 0.5f));
-            height = Math.max(1, (int) (info.height / sample * scale + 0.5f));
+            width = Math.max(1, (int) ((packedAvif ? width : info.width / sample) * scale + 0.5f));
+            height = Math.max(1, (int) ((packedAvif ? height : info.height / sample) * scale + 0.5f));
         }
         if (opts != null) {
             opts.outWidth = width;
@@ -196,10 +199,10 @@ final class GatedDecodes {
         Bitmap bitmap = null;
         Bitmap result = null;
         try {
-            if (wide && info.hasAlpha && opts != null && !opts.inPremultiplied) {
+            if (wide && opts != null && !opts.inPremultiplied && (info.hasAlpha || packedAvif)) {
                 bitmap = GateFactoryStraight.decode(new Header(op, bytes, info, true), storedSample,
-                        codecSampled(info.mimeType, info.width, storedSample),
-                        codecSampled(info.mimeType, info.height, storedSample), width, height,
+                        packedAvif ? Math.max(1, Math.round(info.width * (1.0f / storedSample))) : codecSampled(info.mimeType, info.width, storedSample),
+                        packedAvif ? Math.max(1, Math.round(info.height * (1.0f / storedSample))) : codecSampled(info.mimeType, info.height, storedSample), width, height,
                         requestedColor, info.colorSpace, factoryConfig(info, null, bytes), opts);
                 if (bitmap == null) return null;
                 GatePartialImages.bitmapFactory(op.sourceError);
@@ -647,6 +650,7 @@ final class GatedDecodes {
         final int bitDepth;
         final boolean hasAlpha;
         final boolean plainJpegHeader;
+        boolean packedAvif;
 
         Header(DecodeGate.Op op, DecodeGate.Bytes bytes, DecodeGate.Info info) {
             this(op, bytes, info, false);

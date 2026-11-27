@@ -106,6 +106,7 @@ public final class DecodeGate {
     public static final String METHOD_REGION_WIDE = "region-f16";
     public static final String METHOD_REGION_STRAIGHT = "region-straight";
     public static final String METHOD_REGION_STRAIGHT_WIDE = "region-straight-f16";
+    public static final String METHOD_REGION_PACKED_AVIF = "region-straight-avif10";
     public static final String METHOD_STRAIGHT_WEBP = "straight-webp";
     public static final String EXTRA_LEFT = "left";
     public static final String EXTRA_TOP = "top";
@@ -1045,7 +1046,7 @@ public final class DecodeGate {
 
     static Bitmap region(Op op, Bytes bytes, int left, int top, int width, int height, int sample, int pixelFormat)
             throws Failure {
-        if (pixelFormat < 0 || pixelFormat > 3) throw failed(true, "pixel format");
+        if (pixelFormat < 0 || (pixelFormat > 3 && pixelFormat != 7)) throw failed(true, "pixel format");
         final int outW = (int) (((long) width + sample - 1) / sample);
         final int outH = (int) (((long) height + sample - 1) / sample);
         if (left < 0 || top < 0 || width < 1 || height < 1 || sample < 1 || sample > MAX_REGION_SAMPLE
@@ -1054,6 +1055,7 @@ public final class DecodeGate {
             throw failed(true, "region out of bounds");
         }
         final String method = pixelFormat == 3 ? METHOD_REGION_STRAIGHT_WIDE
+                : pixelFormat == 7 ? METHOD_REGION_PACKED_AVIF
                 : pixelFormat == 2 ? METHOD_REGION_STRAIGHT
                 : pixelFormat == 1 ? METHOD_REGION_WIDE : METHOD_REGION;
         final Bundle r = request(op, method, bytes, width, height, left, top, sample);
@@ -1592,6 +1594,7 @@ public final class DecodeGate {
         extras.putInt(EXTRA_HEIGHT, height);
         if (METHOD_REGION.equals(method) || METHOD_REGION_WIDE.equals(method)
                 || METHOD_REGION_STRAIGHT.equals(method) || METHOD_REGION_STRAIGHT_WIDE.equals(method)
+                || METHOD_REGION_PACKED_AVIF.equals(method)
                 || METHOD_GAIN_REGION.equals(method) || METHOD_FRAME_WINDOW.equals(method)) {
             extras.putInt(EXTRA_LEFT, left);
             extras.putInt(EXTRA_TOP, top);
