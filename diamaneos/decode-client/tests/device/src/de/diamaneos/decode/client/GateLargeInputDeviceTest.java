@@ -98,7 +98,11 @@ public class GateLargeInputDeviceTest {
     private static void pair(File file, boolean hdr, boolean factory, int targetWidth, int targetHeight)
             throws Exception {
         DecodeGate.setForcedForTest(false);
+        final long stockStarted = android.os.SystemClock.elapsedRealtimeNanos();
         final Bitmap stock = decode(file, factory, targetWidth, targetHeight);
+        final long stockNanos = android.os.SystemClock.elapsedRealtimeNanos() - stockStarted;
+        Log.i("LargeInputProof", "stock api=" + (factory ? "BitmapFactory" : "ImageDecoder")
+                + " bytes=" + file.length() + " elapsedNs=" + stockNanos + " hdr=" + hdr);
         assertNotNull("stock positive", stock);
         final int width = stock.getWidth(), height = stock.getHeight();
         final int[] base = samples(stock);

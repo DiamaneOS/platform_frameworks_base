@@ -93,6 +93,7 @@ public class NoRoomDeviceTest {
         Bitmap bitmap;
         Exception failure;
         long at;
+        long taskEnd;
         boolean counted;
 
         boolean noRoom() {
@@ -171,44 +172,58 @@ public class NoRoomDeviceTest {
         fail("no \"no room now\" answer in " + ATTEMPTS + " attempts of two large images at once");
     }
 
+    private Runnable imageTask(byte[] input, CountDownLatch ready, CountDownLatch done,
+            Outcome[] results, int index) {
+        return () -> {
+            try {
+                ready.countDown();
+                if (!ready.await(10, TimeUnit.SECONDS)) return;
+                Outcome result = decode(input);
+                results[index] = result;
+                if (result.noRoom()) {
+                    // Keep the refused task alive beyond the normal retry interval.
+                    SystemClock.sleep(LateRuns.GAP_MS + LateRuns.QUIET_MS);
+                }
+                result.taskEnd = SystemClock.uptimeMillis();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                done.countDown();
+            }
+        };
+    }
+
     @Test
     public void onAnImageThreadTheRetryWaitsForTheTaskEnd() throws Exception {
         assumeService();
         VmDecode.addRecoveryListener(() -> mRuns.add(SystemClock.uptimeMillis()));
+        final String owner = mContext.getPackageName();
         for (int attempt = 0; attempt < ATTEMPTS; attempt++) {
             SystemClock.sleep(LateRuns.GAP_MS + 500);
-            final AtomicReference<Outcome> other = new AtomicReference<>();
-            final AtomicReference<Outcome> own = new AtomicReference<>();
-            final long[] taskEnd = {0};
-            final CountDownLatch done = new CountDownLatch(1);
-            assertNotNull(ImageThreads.execute(mContext.getPackageName(), () -> {
-                try {
-                    // Another thread's large image first, then this thread's: this one is the likely refusal.
-                    final Thread t = inThread(largePng(), other);
-                    SystemClock.sleep(30);
-                    own.set(decode(largePng()));
-                    t.join(30_000);
-                    // Longer than the quiet time: a retry before the end of the task would show.
-                    SystemClock.sleep(LateRuns.QUIET_MS * 3);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                } finally {
-                    taskEnd[0] = SystemClock.uptimeMillis();
-                    done.countDown();
-                }
-            }));
-            assertTrue(done.await(60, TimeUnit.SECONDS));
-            if (!own.get().noRoom() || other.get().noRoom()) {
-                continue; // not the refusal this test needs: the image thread's alone
-            }
-            final long refusedAt = own.get().at;
+            final byte[] first = largePng();
+            final byte[] second = largePng();
+            final CountDownLatch ready = new CountDownLatch(2);
+            final CountDownLatch done = new CountDownLatch(2);
+            final Outcome[] results = new Outcome[2];
+            // Separate image executors can run the same owner's calls concurrently.
+            assertNotNull(ImageThreads.execute(owner, imageTask(first, ready, done, results, 0)));
+            assertNotNull(ImageThreads.executeUrgent(owner, imageTask(second, ready, done, results, 1)));
+            assertTrue("image tasks did not finish", done.await(60, TimeUnit.SECONDS));
+            assertNotNull("normal image task missed the start", results[0]);
+            assertNotNull("urgent image task missed the start", results[1]);
+            if (results[0].noRoom() == results[1].noRoom()) continue;
+            final Outcome refused = results[0].noRoom() ? results[0] : results[1];
+            final Outcome served = results[0].noRoom() ? results[1] : results[0];
+            assertNotNull("the competing image was not served: " + served.failure, served.bitmap);
+            served.bitmap.recycle();
+            assertTrue("the service refusal was not counted on its image thread", refused.counted);
             for (long at : mRuns) {
-                assertFalse("the listeners ran before the task ended", at > refusedAt && at < taskEnd[0]);
+                assertFalse("the listeners ran before the task ended", at > refused.at && at < refused.taskEnd);
             }
-            assertTrue("the recovery listeners did not run after the task", runAfter(taskEnd[0] - 1,
-                    LateRuns.GAP_MS + 1_000) > 0);
+            assertTrue("the recovery listeners did not run after the task",
+                    runAfter(refused.taskEnd - 1, LateRuns.GAP_MS + 1_000) > 0);
             return;
         }
-        fail("the image thread's large image was never the one refused in " + ATTEMPTS + " attempts");
+        fail("expected one image task to receive a real service capacity refusal in " + ATTEMPTS + " attempts");
     }
 }
