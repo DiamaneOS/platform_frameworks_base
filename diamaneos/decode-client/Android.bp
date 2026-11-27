@@ -52,7 +52,7 @@ filegroup {
 }
 
 // The checked serializer is shared with the framework's immediate clean-icon path.
-java_genrule {
+genrule {
     name: "diamaneos-ninepatch-framework-source",
     srcs: ["java/de/diamaneos/decode/client/NinePatchChunk.java"],
     out: ["NinePatchChunk.java"],
