@@ -95,20 +95,22 @@ public final class VmThumbnails {
      */
     public static @NonNull Bitmap load(@NonNull ContentInterface content, @NonNull Uri uri, @NonNull Size size,
             @Nullable CancellationSignal signal, int allocator) throws IOException {
+        final long end = android.os.SystemClock.uptimeMillis() + ATTEMPT_MS;
+        uri = sourceUri(content, uri);
+        final int mark = CleanCopyGate.decodeAnswersMark();
         try {
-            final Bitmap bitmap = loadOnce(content, uri, size, signal, allocator,
-                    android.os.SystemClock.uptimeMillis() + ATTEMPT_MS);
+            final Bitmap bitmap = loadOnce(content, uri, size, signal, allocator, end);
             VmThumbnailNotices.loaded(uri);
             return bitmap;
         } catch (LaterException e) {
             // The decode service did not answer: the caller is told of the item once it answers again.
-            VmThumbnailNotices.failed(uri);
+            VmThumbnailNotices.failed(uri, mark);
             throw e;
         }
     }
 
     /** No thumbnail because the decode service did not answer: worth asking once more when it does. */
-    static final class LaterException extends IOException {
+    public static final class LaterException extends IOException {
         LaterException(String message) {
             super(message);
         }
@@ -118,9 +120,8 @@ public final class VmThumbnails {
         MissingException() { super("Thumbnail item no longer exists"); }
     }
 
-    private static @NonNull Bitmap loadOnce(@NonNull ContentInterface content, @NonNull Uri uri,
+    private static @NonNull Bitmap loadOnce(@NonNull ContentInterface content, @NonNull Uri sourceUri,
             @NonNull Size size, @Nullable CancellationSignal signal, int allocator, long end) throws IOException {
-        final Uri sourceUri = sourceUri(content, uri);
         final Bundle opts = new Bundle();
         opts.putParcelable(ContentResolver.EXTRA_SIZE, new Point(size.getWidth(), size.getHeight()));
         final int delegate = android.app.ActivityThread.isSystem()

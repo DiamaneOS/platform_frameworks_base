@@ -1115,6 +1115,7 @@ public abstract class FileSystemProvider extends DocumentsProvider {
 
     private class DirectoryCursor extends MatrixCursor {
         private final File mFile;
+        private final Runnable mStopRecovery;
 
         public DirectoryCursor(String[] columnNames, String docId, File file) {
             super(columnNames);
@@ -1124,6 +1125,9 @@ public abstract class FileSystemProvider extends DocumentsProvider {
             setNotificationUris(getContext().getContentResolver(), Arrays.asList(notifyUri),
                     getContext().getContentResolver().getUserId(), registerSelfObserver);
 
+            // DiamaneOS: recovery roots also invalidate the live directory cursor.
+            mStopRecovery = com.android.internal.diamaneos.cleancopies.VmThumbnailNotices.directoryRecovery(
+                    getContext(), notifyUri, this::notifyChanged);
             mFile = file;
             startObserving(mFile, notifyUri, this);
         }
@@ -1134,6 +1138,7 @@ public abstract class FileSystemProvider extends DocumentsProvider {
 
         @Override
         public void close() {
+            mStopRecovery.run();
             super.close();
             stopObserving(mFile, this);
         }
