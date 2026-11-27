@@ -126,6 +126,19 @@ public class GateLargeInputDeviceTest {
             assertEquals(width, gated.getWidth());
             assertEquals(height, gated.getHeight());
             samePixels(base, gated);
+            if ("true".equals(InstrumentationRegistry.getArguments().getString("ownedDigest"))) {
+                final MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                final int[] row = new int[width];
+                final byte[] encoded = new byte[width * 4];
+                for (int y = 0; y < height; y++) {
+                    gated.getPixels(row, 0, width, 0, y, width, 1);
+                    for (int x = 0; x < width; x++) for (int c = 0; c < 4; c++)
+                        encoded[x * 4 + c] = (byte) (row[x] >>> (c * 8));
+                    digest.update(encoded);
+                }
+                Log.i("LargeInputProof", "gated fullPixels=" + ((long) width * height)
+                        + " sha256=" + java.util.HexFormat.of().formatHex(digest.digest()));
+            }
             assertEquals(hdr, gated.hasGainmap());
             if (hdr) {
                 final Gainmap map = gated.getGainmap();
@@ -196,6 +209,59 @@ public class GateLargeInputDeviceTest {
             pair(file, false, true, 0, 0);
             pair(file, false, false, 0, 0);
         } finally { assertTrue(file.delete()); }
+    }
+
+    private static File ownedDiagnosticImage() throws Exception {
+        final File directory = InstrumentationRegistry.getInstrumentation().getTargetContext().getExternalFilesDir(null);
+        assertNotNull(directory);
+        final String path = InstrumentationRegistry.getArguments().getString("ownedImage");
+        assumeTrue("owned diagnostic input supplied", path != null);
+        final File file = new File(path);
+        assertTrue(file.getCanonicalPath().startsWith(directory.getCanonicalPath() + File.separator));
+        assertTrue(file.length() > 0 && file.length() <= DecodeGate.MAX_BYTES);
+        final MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        try (FileInputStream input = new FileInputStream(file)) {
+            final byte[] block = new byte[65536];
+            for (int n; (n = input.read(block)) != -1;) digest.update(block, 0, n);
+        }
+        assertEquals(InstrumentationRegistry.getArguments().getString("ownedSha256"),
+                java.util.HexFormat.of().formatHex(digest.digest()));
+        return file;
+    }
+
+    @Test public void ownedColdLargePairUsesProductionDeadlines() throws Exception {
+        final File file = ownedDiagnosticImage();
+        pair(file, false, !"ImageDecoder".equals(InstrumentationRegistry.getArguments().getString("api")), 0, 0);
+    }
+
+    @Test public void ownedLargeCallerCancellationIsObserved() throws Exception {
+        final File file = ownedDiagnosticImage();
+        final android.content.Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
+        final java.util.concurrent.CountDownLatch cancelled = new java.util.concurrent.CountDownLatch(1);
+        DecodeGate.setForcedForTest(true);
+        DecodeGate.setWaitForTest(null);
+        final Thread worker = new Thread(() -> {
+            Bitmap bitmap = null;
+            try { bitmap = BitmapFactory.decodeFile(file.getPath()); }
+            catch (Throwable result) { Log.i("LargeInputProof", "cancelled worker result=" + result.getClass().getName()); }
+            finally { if (bitmap != null) bitmap.recycle(); }
+            Log.i("LargeInputProof", "cancelled worker endedNs=" + android.os.SystemClock.elapsedRealtimeNanos());
+        }, "owned-cancelled-image");
+        final android.content.BroadcastReceiver receiver = new android.content.BroadcastReceiver() {
+            @Override public void onReceive(android.content.Context ignored, android.content.Intent intent) {
+                Log.i("LargeInputProof", "caller cancellationNs=" + android.os.SystemClock.elapsedRealtimeNanos());
+                worker.interrupt();
+                cancelled.countDown();
+            }
+        };
+        context.registerReceiver(receiver, new android.content.IntentFilter("de.diamaneos.decode.client.tests.ADpfCancel"),
+                "android.permission.DUMP", null, android.content.Context.RECEIVER_EXPORTED);
+        try {
+            worker.start();
+            assertTrue("controlled cancellation requested", cancelled.await(30, java.util.concurrent.TimeUnit.SECONDS));
+            worker.join(30000);
+            assertFalse("owned caller ended", worker.isAlive());
+        } finally { context.unregisterReceiver(receiver); worker.interrupt(); }
     }
 
     @Test public void largeUltraHdrDiscoversAndKeepsItsGainmap() throws Exception {
