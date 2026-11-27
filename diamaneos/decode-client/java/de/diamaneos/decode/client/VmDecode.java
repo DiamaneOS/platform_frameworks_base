@@ -1348,7 +1348,7 @@ public final class VmDecode {
         if (gainmapOnly && pixelFormat != IDecodeService.PIXEL_FORMAT_RGBA_8888) {
             throw new RejectedException("gain pixel format");
         }
-        if (DecodeChecks.bytesPerPixel(pixelFormat) == 0) throw new RejectedException("pixel format");
+        if (pixelFormat != 7 && DecodeChecks.bytesPerPixel(pixelFormat) == 0) throw new RejectedException("pixel format");
         if (left < 0 || top < 0 || width < 1 || height < 1 || sampleSize < 1
                 || sampleSize > IDecodeService.MAX_REGION_SAMPLE) {
             throw new RejectedException("bad region");
@@ -1361,14 +1361,14 @@ public final class VmDecode {
         return client(context).call(priority, deadline, request.ownerPackage, capacityLane(request),
                 Math.min((long) maxWidth * maxHeight, (pixelFormat & 1) != 0
                         ? IDecodeService.MAX_HIGH_PRECISION_PIXELS : IDecodeService.MAX_PIXELS)
-                        * (DecodeChecks.bytesPerPixel(pixelFormat) + 1), service -> {
+                        * (DecodeChecks.bytesPerPixel(pixelFormat & 3) + 1), service -> {
             final Thumbnail thumbnail = service.decodeRegion(request, left, top, width, height, sampleSize);
             if (thumbnail == null) {
                 throw new RejectedException("no reply");
             }
             checkStatus(thumbnail.status);
             try {
-                if (thumbnail.rotation != 0 || thumbnail.mirrored || thumbnail.pixelFormat != pixelFormat
+                if (thumbnail.rotation != 0 || thumbnail.mirrored || thumbnail.pixelFormat != (pixelFormat & 3)
                         || thumbnail.gainmapOnly != gainmapOnly) {
                     throw new RejectedException("a turned region or another reply mode");
                 }

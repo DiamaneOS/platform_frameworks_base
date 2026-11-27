@@ -49,7 +49,7 @@ final class GateStraightPixels {
                     final int sourceBottom = Math.min(header.storedHeight, (top + tall) * sample);
                     tile = webp ? DecodeGate.straightWebp(header.op, header.bytes, storedWidth, storedHeight)
                             : DecodeGate.region(header.op, header.bytes, sourceLeft, sourceTop,
-                                    sourceRight - sourceLeft, sourceBottom - sourceTop, sample, sourceWide ? 3 : 2);
+                                    sourceRight - sourceLeft, sourceBottom - sourceTop, sample, sourceWide ? (header.packedAvif ? 7 : 3) : 2);
                     if (tile.getWidth() != widePixels || tile.getHeight() != tall
                             || tile.getRowBytes() != widePixels * sourceBytes
                             || (sourceWide ? tile.getConfig() != Bitmap.Config.RGBA_F16

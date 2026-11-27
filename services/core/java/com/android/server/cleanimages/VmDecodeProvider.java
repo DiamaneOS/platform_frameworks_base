@@ -441,6 +441,7 @@ public final class VmDecodeProvider extends ContentProvider {
         final boolean frames = DecodeGate.METHOD_FRAMES.equals(method)
                 || DecodeGate.METHOD_FRAME_WINDOW.equals(method);
         final boolean region = DecodeGate.METHOD_REGION.equals(method) || DecodeGate.METHOD_REGION_WIDE.equals(method) || DecodeGate.METHOD_REGION_STRAIGHT.equals(method)
+                || DecodeGate.METHOD_REGION_PACKED_AVIF.equals(method)
                 || DecodeGate.METHOD_REGION_STRAIGHT_WIDE.equals(method) || DecodeGate.METHOD_GAIN_REGION.equals(method);
         final ParcelFileDescriptor given = extras.getParcelable(DecodeGate.EXTRA_FD, ParcelFileDescriptor.class);
         if (!probe && !frames && !region && !DecodeGate.METHOD_DECODE.equals(method)
@@ -817,10 +818,12 @@ public final class VmDecodeProvider extends ContentProvider {
                         reply.putBoolean(DecodeGate.EXTRA_MIRROR, tiny.mirrored);
                     }
                 } else if (DecodeGate.METHOD_REGION.equals(method) || DecodeGate.METHOD_REGION_WIDE.equals(method) || DecodeGate.METHOD_REGION_STRAIGHT.equals(method)
+                || DecodeGate.METHOD_REGION_PACKED_AVIF.equals(method)
                 || DecodeGate.METHOD_REGION_STRAIGHT_WIDE.equals(method)) {
                     final VmDecode.Decoded region = VmDecode.decodeRegionReply(getContext(), fd, lane,
                             ownerUser, VmDecode.PRIORITY_USER_WAITING, regionLeft, regionTop, width, height, sample,
                             DecodeGate.METHOD_REGION_STRAIGHT_WIDE.equals(method) ? IDecodeService.PIXEL_FORMAT_STRAIGHT_RGBA_F16
+                                    : DecodeGate.METHOD_REGION_PACKED_AVIF.equals(method) ? (IDecodeService.PIXEL_FORMAT_STRAIGHT_RGBA_F16 | 4)
                                     : DecodeGate.METHOD_REGION_STRAIGHT.equals(method)
                                             ? IDecodeService.PIXEL_FORMAT_STRAIGHT_RGBA_8888
                                     : DecodeGate.METHOD_REGION_WIDE.equals(method) ? IDecodeService.PIXEL_FORMAT_RGBA_F16
