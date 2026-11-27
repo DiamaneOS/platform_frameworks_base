@@ -105,6 +105,7 @@ public class GateLargeInputDeviceTest {
                 + " bytes=" + file.length() + " elapsedNs=" + stockNanos + " hdr=" + hdr);
         assertNotNull("stock positive", stock);
         final int width = stock.getWidth(), height = stock.getHeight();
+        Log.i("LargeInputProof", "stock base=" + width + "x" + height + " config=" + stock.getConfig());
         final int[] base = samples(stock);
         assertEquals(hdr, stock.hasGainmap());
         final Gainmap stockMap = stock.getGainmap();
@@ -120,6 +121,8 @@ public class GateLargeInputDeviceTest {
         final long started = android.os.SystemClock.uptimeMillis();
         final Bitmap gated = decode(file, factory, targetWidth, targetHeight);
         final long elapsed = android.os.SystemClock.uptimeMillis() - started;
+        Log.i("LargeInputProof", "gated api=" + (factory ? "BitmapFactory" : "ImageDecoder")
+                + " bytes=" + file.length() + " elapsedMs=" + elapsed + " returned=" + (gated != null));
         assertNotNull("gated input", gated);
         try {
             assertTrue("production worker deadline, elapsed=" + elapsed, elapsed < 15_000L);
