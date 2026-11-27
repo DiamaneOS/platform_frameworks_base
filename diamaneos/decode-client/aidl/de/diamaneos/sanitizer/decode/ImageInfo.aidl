@@ -46,4 +46,6 @@ parcelable ImageInfo {
     float[] colorDescription;
     /** A complete, validated JFIF/ICC-only baseline JPEG header: no gain metadata or EXIF transform. */
     boolean plainJpegHeader = false;
+    /** Primary HEIF transform as 1 + clockwise quarter turns + 4 if mirrored first. Zero means unknown. */
+    int heifTransform = 0;
 }

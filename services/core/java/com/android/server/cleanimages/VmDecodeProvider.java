@@ -57,7 +57,7 @@ import java.util.concurrent.TimeUnit;
  * DiamaneOS: the decode gate's provider in the system server (authority {@link DecodeGate#AUTHORITY}): images that a
  * gated process (DecodeGate in the framework, and the icon loads of VmIconLoads) would have decoded are probed
  * ({@link DecodeGate#METHOD_PROBE}: stored size, format, animation, and with {@link DecodeGate#METHOD_HEADER} for
- * JPEG, HEIF and AVIF also the turn and the mirror the file asks for, read from a decode of at most 16 px), decoded
+ * JPEG, HEIF, AVIF and WebP also the turn and mirror from the header or a decode of at most 16 px), decoded
  * ({@link DecodeGate#METHOD_DECODE}), decoded frame by frame ({@link DecodeGate#METHOD_FRAMES}) or decoded as a
  * region at full detail ({@link DecodeGate#METHOD_REGION}) in the VM here.
  * The caller hands over the bytes as a descriptor and a callback, the call returns at once, and the callback gets the
@@ -805,7 +805,11 @@ public final class VmDecodeProvider extends ContentProvider {
                     reply.putBoolean(DecodeGate.EXTRA_HAS_ALPHA, info.hasAlpha);
                     reply.putBoolean(DecodeGate.EXTRA_PLAIN_JPEG_HEADER, info.plainJpegHeader);
                     // WebP too: stock's WebP codec reads the orientation of its EXIF chunk.
-                    if (DecodeGate.METHOD_HEADER.equals(method) && !info.plainJpegHeader
+                    if (info.heifTransform != 0 && DecodeGate.METHOD_HEADER.equals(method)) {
+                        final int transform = info.heifTransform - 1;
+                        reply.putInt(DecodeGate.EXTRA_ROTATION, (transform & 3) * 90);
+                        reply.putBoolean(DecodeGate.EXTRA_MIRROR, (transform & 4) != 0);
+                    } else if (DecodeGate.METHOD_HEADER.equals(method) && !info.plainJpegHeader
                             && (info.format == IDecodeService.FORMAT_JPEG
                             || info.format == IDecodeService.FORMAT_HEIF
                             || info.format == IDecodeService.FORMAT_AVIF
