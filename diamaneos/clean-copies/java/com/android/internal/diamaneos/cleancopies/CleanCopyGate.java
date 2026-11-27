@@ -42,8 +42,6 @@ import android.util.Log;
 import android.util.LruCache;
 import android.util.TypedValue;
 
-import de.diamaneos.decode.client.NinePatchChunk;
-
 import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
