@@ -225,9 +225,13 @@ public class ThumbnailsDeviceTest {
             holdVmDown(30);
             assertFailsClosed(failed);
             assertFailsClosed(failed);
-            assertTrue("the failed thumbnail is not remembered",
-                    VmThumbnailNotices.pendingForTest().contains(failed));
-            assertFalse("a refused thumbnail is remembered", VmThumbnailNotices.pendingForTest().contains(refused));
+            final int user = mContext.getUserId();
+            final java.util.List<Uri> pending = VmThumbnailNotices.pendingForTest();
+            assertTrue("the source user's failed thumbnail is not remembered",
+                    pending.contains(android.content.ContentProvider.maybeAddUserId(failed, user)));
+            assertFalse("a refused thumbnail is remembered",
+                    pending.contains(android.content.ContentProvider.maybeAddUserId(refused, user)));
+            assertFalse("a failed thumbnail lost its source user", pending.contains(failed));
             shell("setprop " + DOWN_UNTIL + " 0");
             CleanCopyGate.decodeAnswersForTest();
             for (long end = SystemClock.uptimeMillis() + 5_000; notices.get() == 0
