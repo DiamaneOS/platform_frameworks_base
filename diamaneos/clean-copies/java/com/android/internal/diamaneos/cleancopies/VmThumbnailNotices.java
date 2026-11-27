@@ -50,12 +50,12 @@ public final class VmThumbnailNotices {
     }
 
     /** The thumbnail of {@code uri} failed for an outage of the decode service. */
-    static void failed(Uri uri) {
+    static void failed(Uri uri, int mark) {
         synchronized (sLock) {
             if (sFailed.size() < MAX_URIS) sFailed.add(uri);
         }
         // The notice that the service answers again comes to processes that watch: this one watches from now on.
-        CleanCopyGate.decodeAnswersMark();
+        if (CleanCopyGate.decodeAnswersMark() != mark) answers(null, null);
     }
 
     /** The thumbnail of {@code uri} was made after all: no notice for it. */
@@ -83,7 +83,7 @@ public final class VmThumbnailNotices {
             return;
         }
         final Runnable send = () -> send(app.getContentResolver(),
-                notices(due, uri -> DocumentsContract.isDocumentUri(app, uri)));
+                notices(due, uri -> document(app, uri)));
         if (handler != null) {
             handler.post(send);
         } else {
@@ -95,9 +95,36 @@ public final class VmThumbnailNotices {
     static ArrayList<Uri> notices(ArrayList<Uri> due, Predicate<Uri> document) {
         final LinkedHashSet<Uri> all = new LinkedHashSet<>(due);
         for (Uri uri : due) {
-            if (document.test(uri)) all.add(DocumentsContract.buildRootsUri(uri.getAuthority()));
+            if (document.test(uri)) all.add(android.content.ContentProvider.maybeAddUserId(
+                    DocumentsContract.buildRootsUri(android.content.ContentProvider.getUriWithoutUserId(uri).getAuthority()),
+                    android.content.ContentProvider.getUserIdFromUri(uri)));
         }
         return new ArrayList<>(all);
+    }
+
+    private static boolean document(Context context, Uri uri) {
+        try {
+            final int user = android.content.ContentProvider.getUserIdFromUri(uri);
+            return DocumentsContract.isDocumentUri(context.createContextAsUser(android.os.UserHandle.of(user), 0),
+                    android.content.ContentProvider.getUriWithoutUserId(uri));
+        } catch (RuntimeException e) { return false; }
+    }
+
+    /** A live directory observes recovery roots without observing its own file-change notices twice. */
+    public static Runnable directoryRecovery(Context context, Uri directory, Runnable changed) {
+        final ContentResolver resolver = context.getContentResolver();
+        final java.util.concurrent.atomic.AtomicBoolean closed = new java.util.concurrent.atomic.AtomicBoolean();
+        final android.database.ContentObserver observer = new android.database.ContentObserver(null) {
+            @Override public void onChange(boolean self) { if (!closed.get()) changed.run(); }
+        };
+        final Runnable stop = () -> {
+            if (!closed.getAndSet(true)) {
+                try { resolver.unregisterContentObserver(observer); } catch (RuntimeException ignored) { }
+            }
+        };
+        try { resolver.registerContentObserver(DocumentsContract.buildRootsUri(directory.getAuthority()), false, observer); }
+        catch (RuntimeException e) { stop.run(); }
+        return stop;
     }
 
     static void send(ContentResolver resolver, ArrayList<Uri> due) {

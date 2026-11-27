@@ -425,6 +425,21 @@ public final class CleanCopyGate implements ImageFileGate {
         }
     }
 
+    /** A recovery-generation subscription with replay and explicit cancellation. */
+    public static Runnable whenDecodeAnswers(int mark, Runnable changed) {
+        final java.util.concurrent.atomic.AtomicInteger seen = new java.util.concurrent.atomic.AtomicInteger(mark);
+        final MadeListener listener = (name, user) -> {
+            synchronized (seen) {
+                final int now = decodeAnswersMark();
+                if (seen.getAndSet(now) != now) changed.run();
+            }
+        };
+        final Context app = sApp;
+        whenMade(listener, app == null ? null : app.getPackageName(), app == null ? -1 : app.getUserId());
+        listener.onMade(null, -1);
+        return () -> { synchronized (sWaiters) { sWaiters.removeIf(w -> w.target.get() == listener); } };
+    }
+
     /**
      * Waits on this (background) thread until the system server says its decode service answers again after {@code
      * mark}, at most {@code timeoutMs}, or until {@code cancelled} says so (checked at least every half second). True
