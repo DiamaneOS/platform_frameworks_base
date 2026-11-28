@@ -65,6 +65,28 @@ final class GateStraightPixels {
                     final ColorSpace.Connector connector = sameEncoding(source, destination) ? null
                             : ColorSpace.connect(source, destination);
                     final float[] rgb = new float[3];
+                    if (!drawn && connector == null && bytes == sourceBytes) {
+                        // Neither turned, mirrored, cropped nor converted: the tile's rows are the image's rows, copied
+                        // as they are (each pixel exactly as the loop below copies it), the whole tile at once when it
+                        // spans the width.
+                        final int row = widePixels * bytes;
+                        if (left == 0 && widePixels == storedWidth) {
+                            pixels.position(top * row);
+                            tile.copyPixelsToBuffer(pixels);
+                        } else {
+                            try (DecodeMemory.Reservation tileScratch = GatePixels.scratch(tile.getByteCount())) {
+                                final ByteBuffer raw = ByteBuffer.allocate(tile.getByteCount());
+                                tile.copyPixelsToBuffer(raw);
+                                for (int y = 0; y < tall; y++) {
+                                    System.arraycopy(raw.array(), y * row, pixels.array(),
+                                            ((top + y) * storedWidth + left) * bytes, row);
+                                }
+                            }
+                        }
+                        DecodeMemory.recycle(tile, null);
+                        tile = null;
+                        continue;
+                    }
                     try (DecodeMemory.Reservation tileScratch = GatePixels.scratch(tile.getByteCount())) {
                         final ByteBuffer raw = ByteBuffer.allocate(tile.getByteCount()).order(ByteOrder.LITTLE_ENDIAN);
                         tile.copyPixelsToBuffer(raw);
