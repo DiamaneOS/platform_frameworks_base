@@ -715,6 +715,7 @@ public final class CleanCopyGate implements ImageFileGate {
             Log.e(TAG, "no clean copy gate, other apps' images stay empty in " + name + ": " + e);
         }
         sActive = true;
+        android.graphics.DecodeGate.installed(); // the gate's timer thread starts here, outside any decode's time
     }
 
     /**
