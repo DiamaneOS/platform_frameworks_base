@@ -920,6 +920,20 @@ public final class DecodeGate {
         }
     }
 
+    /**
+     * As {@link #snapshot(android.content.res.AssetFileDescriptor)}, the copy ended at {@code end} (uptime): a source
+     * that never ends is let go then and nothing is kept.
+     */
+    public static Input snapshot(android.content.res.AssetFileDescriptor fd, long end) throws IOException {
+        snapshotThread();
+        try {
+            return snapshotInput(GateInput.copyUntil(fd.getFileDescriptor(), fd.getStartOffset(),
+                    fd.getDeclaredLength(), end));
+        } catch (Failure e) {
+            throw new IOException(e.getMessage(), e);
+        }
+    }
+
     public static Input snapshot(byte[] data) throws IOException {
         snapshotThread();
         try (Op op = new Op(0, false, null)) {

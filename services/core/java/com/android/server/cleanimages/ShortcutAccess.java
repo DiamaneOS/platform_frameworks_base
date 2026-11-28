@@ -120,8 +120,8 @@ final class ShortcutAccess implements AutoCloseable {
         }
         final android.os.CancellationSignal cancel = new android.os.CancellationSignal();
         final Object token = new Object();
-        com.android.internal.os.BackgroundThread.getHandler().postAtTime(cancel::cancel, token,
-                android.os.SystemClock.uptimeMillis() + OPEN_MS);
+        final long end = android.os.SystemClock.uptimeMillis() + OPEN_MS;
+        com.android.internal.os.BackgroundThread.getHandler().postAtTime(cancel::cancel, token, end);
         final long identity = Binder.clearCallingIdentity();
         try (android.content.res.AssetFileDescriptor afd = context.createContextAsUser(
                 android.os.UserHandle.of(sourceUser), 0).getContentResolver().openAssetFileDescriptor(
@@ -130,7 +130,7 @@ final class ShortcutAccess implements AutoCloseable {
                 return null;
             }
             holds.accept(afd);
-            try (android.graphics.DecodeGate.Input bytes = android.graphics.DecodeGate.snapshot(afd)) {
+            try (android.graphics.DecodeGate.Input bytes = android.graphics.DecodeGate.snapshot(afd, end)) {
                 return bytes.fd().dup();
             }
         } finally {

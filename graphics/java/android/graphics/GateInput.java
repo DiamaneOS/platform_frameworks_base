@@ -331,6 +331,37 @@ final class GateInput {
         return bytes;
     }
 
+    /**
+     * The bytes of {@code fd} as {@link #of(DecodeGate.Op, FileDescriptor, long, long)} reads them for a caller of no
+     * wait, on the caller's own worker thread, ended at {@code end} (uptime): the read takes a copy of the descriptor,
+     * closed with a signal at the end, which ends a read blocked on it. A source that never ends is let go then.
+     */
+    static DecodeGate.Bytes copyUntil(FileDescriptor fd, long offset, long length, long end)
+            throws DecodeGate.Failure {
+        DecodeGate.mayAsk();
+        if (SystemClock.uptimeMillis() >= end) throw DecodeGate.notNow("input not read in the call's time");
+        final ParcelFileDescriptor own;
+        try {
+            own = ParcelFileDescriptor.dup(fd);
+        } catch (IOException e) {
+            throw DecodeGate.notThisWay("descriptor not readable: " + e.getMessage());
+        }
+        final java.util.concurrent.atomic.AtomicBoolean stop = new java.util.concurrent.atomic.AtomicBoolean();
+        final Object token = new Object();
+        GateRefill.timerForGate().postAtTime(() -> {
+            if (stop.compareAndSet(false, true)) closeAndSignal(own);
+        }, token, end);
+        try {
+            return copyFd(own.getFileDescriptor(), offset, length, stop);
+        } catch (DecodeGate.Failure e) {
+            if (stop.get()) throw DecodeGate.notNow("input not read in the call's time");
+            throw e;
+        } finally {
+            GateRefill.timerForGate().removeCallbacksAndMessages(token);
+            if (stop.compareAndSet(false, true)) closeQuietly(own);
+        }
+    }
+
     static final class Acquired implements AutoCloseable {
         DecodeGate.Bytes bytes;
         FileInputStream stream;
