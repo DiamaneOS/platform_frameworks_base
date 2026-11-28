@@ -69,7 +69,8 @@ final class ReplyPixels {
         if (maxWidth < 1 || maxHeight < 1) {
             throw new VmDecode.RejectedException("bad box " + maxWidth + "x" + maxHeight);
         }
-        // The contract's own checks (DecodeChecks, the service's copy, compared at build time), then StripeValidator's.
+        // The contract's own checks (DecodeChecks, the service's copy, compared at build time), then StripeValidator's
+        // header check. Each stripe is checked once, by DecodeChecks, whose stripe check holds StripeValidator's.
         final String broken = DecodeChecks.check(t, maxWidth, maxHeight, gainmapOnly);
         if (broken != null) {
             throw new VmDecode.RejectedException("thumbnail breaks the contract: " + broken);
@@ -112,11 +113,6 @@ final class ReplyPixels {
                     final String bad = DecodeChecks.check(t, i, stripe);
                     if (bad != null) {
                         throw new VmDecode.RejectedException("stripe " + i + " breaks the contract: " + bad);
-                    }
-                    try {
-                        StripeValidator.checkStripe(width, height, t.stripeRows, i, stripe, t.pixelFormat);
-                    } catch (StripeValidator.BadReplyException e) {
-                        throw new VmDecode.RejectedException(e.getMessage());
                     }
                     rows.put(i * t.stripeRows, stripe);
                 }
