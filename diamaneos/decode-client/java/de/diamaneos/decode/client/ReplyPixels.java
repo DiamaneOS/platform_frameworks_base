@@ -239,7 +239,7 @@ final class ReplyPixels {
     // (same configuration and colour space, no blending). The stripes are made in the colour space object the target
     // was made in: one read back from the target (Bitmap.getColorSpace) has, for a custom profile, a native profile
     // adapted to D50 from its white point, and the copy would then convert the pixels.
-    private static final class Rows implements AutoCloseable {
+    static final class Rows implements AutoCloseable {
         private final Bitmap mTarget;
         private final ColorSpace mSpace;
         private final Canvas mCanvas;
@@ -312,7 +312,7 @@ final class ReplyPixels {
         }
     }
 
-    private static DecodeMemory.Reservation reserve(long bytes)
+    static DecodeMemory.Reservation reserve(long bytes)
             throws VmDecode.UnavailableException, VmDecode.RejectedException {
         try {
             return DecodeMemory.reserve(bytes);

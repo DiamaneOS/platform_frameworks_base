@@ -180,6 +180,8 @@ public final class VmDecodeProvider extends ContentProvider {
     private long mBytes; // guarded by mLock
     // Allowed uids with their packages and refused uids until when, forgotten when a package or user changes.
     private final GateCallers mCallers = new GateCallers();
+    // One-pass rows of large plain JPEGs (DecodeGate.METHOD_JPEG_ROWS), each bound to the caller that started it.
+    private final de.diamaneos.decode.client.JpegRowStreams mRows = new de.diamaneos.decode.client.JpegRowStreams();
     private final ThreadPoolExecutor mWorkers = new ThreadPoolExecutor(THREADS, THREADS, 30, TimeUnit.SECONDS,
             new LinkedBlockingQueue<>(TOTAL_MAX), r -> {
                 final Thread t = new Thread(() -> {
@@ -446,7 +448,7 @@ public final class VmDecodeProvider extends ContentProvider {
         final ParcelFileDescriptor given = extras.getParcelable(DecodeGate.EXTRA_FD, ParcelFileDescriptor.class);
         if (!probe && !frames && !region && !DecodeGate.METHOD_DECODE.equals(method)
                 && !DecodeGate.METHOD_STRAIGHT_WEBP.equals(method) && !DecodeGate.METHOD_GAINMAP.equals(method)
-                && !DecodeGate.METHOD_GAIN_PREVIEW.equals(method)) {
+                && !DecodeGate.METHOD_GAIN_PREVIEW.equals(method) && !DecodeGate.METHOD_JPEG_ROWS.equals(method)) {
             closeQuietly(given);
             return refusal("unknown method");
         }
@@ -473,6 +475,10 @@ public final class VmDecodeProvider extends ContentProvider {
         try {
         final long bytes = heldBytes(fd);
         if (bytes < 0) return refusal("an immutable staged input is required", true);
+        if (DecodeGate.METHOD_JPEG_ROWS.equals(method) && extras.getInt(DecodeGate.EXTRA_LEFT) == 0) {
+            mRows.end(fd, ownerUser, forUid, callingUid, Binder.getCallingPid(), extras); // an empty band: at once
+            return refusal("row stream ended");
+        }
         if (bytes > DecodeGate.MAX_BYTES) return refusal("the input exceeds the decode limit", true);
         final IRemoteCallback callback = IRemoteCallback.Stub.asInterface(binder);
         final long time = Math.max(1, Math.min(DecodeGate.SERVER_MS, extras.getLong(DecodeGate.EXTRA_TIME,
@@ -489,8 +495,11 @@ public final class VmDecodeProvider extends ContentProvider {
         final int left = extras.getInt(DecodeGate.EXTRA_LEFT);
         final int top = extras.getInt(DecodeGate.EXTRA_TOP);
         final int sample = extras.getInt(DecodeGate.EXTRA_SAMPLE, 1);
-        task = new Task(app, origin, fd, end,
-                () -> run(method, fd, lane, ownerUser, forUid, width, height, left, top, sample, end, callback), callback);
+        final int pid = Binder.getCallingPid();
+        task = new Task(app, origin, fd, end, DecodeGate.METHOD_JPEG_ROWS.equals(method)
+                ? () -> deliver(callback, mRows.take(getContext(), fd, lane, ownerUser, forUid, callingUid, pid, extras,
+                        end, binder))
+                : () -> run(method, fd, lane, ownerUser, forUid, width, height, left, top, sample, end, callback), callback);
         final String full = enqueue(task, bytes);
         if (full != null) {
             closeQuietly(fd);

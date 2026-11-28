@@ -84,4 +84,10 @@ parcelable DecodeRequest {
      * gives (Frames.frameHeight the whole frame's height).
      */
     int frameBand = 0;
+
+    /**
+     * decodeRegion of a whole large plain JPEG (0, 0, its stored size, sample 1) in one pass: readStripe takes each
+     * stripe once and in order, then at index stripes one byte, the sourceError of the cleanly ended decode.
+     */
+    boolean jpegRows = false;
 }
