@@ -441,7 +441,7 @@ public final class VmDecode {
         serviceAnswers(true);
     }
 
-    private static DecodeClient client(Context context) {
+    static DecodeClient client(Context context) {
         synchronized (sLock) {
             if (sClient == null) {
                 sClient = new DecodeClient(context);
@@ -1048,7 +1048,7 @@ public final class VmDecode {
     }
 
     // ownerUser: the Android user whose image this is (see OWNER_USER). Below 0 the service refuses the request.
-    private static DecodeRequest request(ParcelFileDescriptor fd, String ownerPackage, int ownerUser, int priority) {
+    static DecodeRequest request(ParcelFileDescriptor fd, String ownerPackage, int ownerUser, int priority) {
         final DecodeRequest request = new DecodeRequest();
         request.file = fd;
         request.ownerPackage = ownerPackage == null ? "" : ownerPackage;
@@ -1059,7 +1059,7 @@ public final class VmDecode {
         return request;
     }
 
-    private static void checkStatus(int status) throws UnavailableException, RejectedException {
+    static void checkStatus(int status) throws UnavailableException, RejectedException {
         switch (status) {
             case IDecodeService.STATUS_OK:
                 return;
