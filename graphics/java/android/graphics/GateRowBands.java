@@ -7,12 +7,14 @@ package android.graphics;
  * caller takes regions instead. A close before the last band ends the stream in the provider.
  */
 final class GateRowBands implements AutoCloseable {
-    private static final int COLUMNS = 2048; // a drawing's width, as GateLargeHardware's tiles
+    private static final int COLUMNS = 2048; // a drawing's width and pixels at most, as GateLargeHardware's tiles
+    private static final int DRAWING_PIXELS = 4 << 20;
     private final DecodeGate.Op mOp;
     private final DecodeGate.Bytes mBytes;
     private final int mWidth, mHeight;
     private long mStream;
     private int mBottom; // the last band's bottom so far
+    private boolean mDone; // the caller's last band came: the provider ended the stream
 
     /** A stream for a whole plain JPEG at sample 1 of the caller's own bytes, else null: regions. */
     static GateRowBands of(DecodeGate.Op op, DecodeGate.Bytes bytes, boolean plainJpeg, int sample, int width,
@@ -28,11 +30,12 @@ final class GateRowBands implements AutoCloseable {
         mStream = DecodeGate.rowStream();
     }
 
-    /** Rows top to bottom, or null when the first band failed: the stream ended, nothing came. */
-    Bitmap band(int top, int bottom) throws DecodeGate.Failure {
+    /** Rows top to bottom ({@code last}: the caller's last band), or null when the first band failed. */
+    Bitmap band(int top, int bottom, boolean last) throws DecodeGate.Failure {
         try {
-            final Bitmap band = DecodeGate.rows(mOp, mBytes, mStream, mWidth, mHeight, top, bottom);
+            final Bitmap band = DecodeGate.rows(mOp, mBytes, mStream, mWidth, mHeight, top, bottom, last);
             mBottom = bottom;
+            mDone = last;
             return band;
         } catch (DecodeGate.Failure e) {
             if (mBottom != 0) throw e;
@@ -42,8 +45,9 @@ final class GateRowBands implements AutoCloseable {
     }
 
     /**
-     * Every band at the stored size into {@code target} through drawings of at most COLUMNS columns, as
-     * GateLargeHardware writes its regions: the finished hardware bitmap, or null when the first band failed.
+     * Every band at the stored size into {@code target} through drawings of at most COLUMNS columns and
+     * DRAWING_PIXELS pixels, as GateLargeHardware writes its regions: the finished hardware bitmap, or null when the
+     * first band failed.
      */
     Bitmap hardware(GateWritablePixels target, ColorSpace targetColor) throws DecodeGate.Failure {
         final int mostRows = Math.max(1, DecodeGate.MAX_VM_PIXELS / mWidth - 2);
@@ -55,21 +59,24 @@ final class GateRowBands implements AutoCloseable {
         try {
             for (int made = 0; made < mHeight; ) {
                 final int rows = Math.min(mostRows, mHeight - made), before = made == 0 ? 0 : 1;
-                band = band(made - before, Math.min(mHeight, made + rows + 1));
+                band = band(made - before, Math.min(mHeight, made + rows + 1), made + rows == mHeight);
                 if (band == null) return null;
                 if (output == null) {
                     output = targetColor != null ? targetColor : band.getColorSpace();
                     alpha = band.hasAlpha();
                 }
-                for (int left = 0; left < mWidth; left += COLUMNS) {
-                    drawing = GatePixels.blank(Math.min(COLUMNS, mWidth - left), rows, Bitmap.Config.ARGB_8888, alpha,
-                            output);
-                    final Canvas canvas = new Canvas(drawing);
-                    canvas.drawBitmap(band, -left, -before, paint);
-                    canvas.setBitmap(null);
-                    target.write(drawing, left, made);
-                    DecodeMemory.recycle(drawing, null);
-                    drawing = null;
+                final int chunk = Math.max(1, DRAWING_PIXELS / Math.min(COLUMNS, mWidth));
+                for (int y = 0; y < rows; y += chunk) {
+                    for (int left = 0; left < mWidth; left += COLUMNS) {
+                        drawing = GatePixels.blank(Math.min(COLUMNS, mWidth - left), Math.min(chunk, rows - y),
+                                Bitmap.Config.ARGB_8888, alpha, output);
+                        final Canvas canvas = new Canvas(drawing);
+                        canvas.drawBitmap(band, -left, -before - y, paint);
+                        canvas.setBitmap(null);
+                        target.write(drawing, left, made + y);
+                        DecodeMemory.recycle(drawing, null);
+                        drawing = null;
+                    }
                 }
                 DecodeMemory.recycle(band, null);
                 band = null;
@@ -84,7 +91,7 @@ final class GateRowBands implements AutoCloseable {
 
     @Override
     public void close() {
-        if (mStream != 0 && mBottom != mHeight) DecodeGate.closeRows(mOp, mBytes, mStream, mWidth, mHeight);
+        if (mStream != 0 && !mDone) DecodeGate.closeRows(mOp, mBytes, mStream, mWidth, mHeight);
         mStream = 0;
     }
 }
