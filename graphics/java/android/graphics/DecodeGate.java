@@ -110,7 +110,8 @@ public final class DecodeGate {
     public static final String METHOD_STRAIGHT_WEBP = "straight-webp";
     /**
      * One pass over a large plain JPEG, kept by the provider under the caller's EXTRA_STREAM: each band of the
-     * EXTRA_WIDTH x EXTRA_HEIGHT image asks its rows from EXTRA_TOP to EXTRA_LEFT, in order. An empty band ends it.
+     * EXTRA_WIDTH x EXTRA_HEIGHT image asks its rows from EXTRA_TOP to EXTRA_LEFT, in order, EXTRA_SAMPLE 1, or 2 for
+     * the caller's last band. An empty band ends it.
      */
     public static final String METHOD_JPEG_ROWS = "jpeg-rows";
     public static final String EXTRA_STREAM = "stream";
@@ -1050,8 +1051,9 @@ public final class DecodeGate {
     }
 
     /** Rows {@code top} to {@code bottom} of the stream's image, after the band before them. */
-    static Bitmap rows(Op op, Bytes bytes, long stream, int width, int height, int top, int bottom) throws Failure {
-        final Bundle r = request(op, METHOD_JPEG_ROWS, bytes, width, height, bottom, top, 1, stream);
+    static Bitmap rows(Op op, Bytes bytes, long stream, int width, int height, int top, int bottom, boolean last)
+            throws Failure {
+        final Bundle r = request(op, METHOD_JPEG_ROWS, bytes, width, height, bottom, top, last ? 2 : 1, stream);
         final Bitmap bitmap = r.getParcelable(EXTRA_BITMAP, Bitmap.class);
         if (bitmap == null || bitmap.getWidth() != width || bitmap.getHeight() != bottom - top) {
             DecodeMemory.recycle(bitmap, null);

@@ -184,6 +184,16 @@ public final class VmDecodeProvider extends ContentProvider {
     // One-pass rows of large plain JPEGs (DecodeGate.METHOD_JPEG_ROWS), each bound to the caller that started it.
     private final de.diamaneos.decode.client.JpegRowStreams mRows = new de.diamaneos.decode.client.JpegRowStreams();
     private final java.util.HashMap<String, Task> mRowTasks = new java.util.HashMap<>(); // guarded by mLock
+    // A running stream's next bands: outside the queue and its caps, so starts that wait behind it never hold them.
+    private final ThreadPoolExecutor mRowBands = new ThreadPoolExecutor(0, THREADS * 2, 30, TimeUnit.SECONDS,
+            new java.util.concurrent.SynchronousQueue<>(), r -> {
+                final Thread t = new Thread(() -> {
+                    DecodeGate.markGateThread();
+                    r.run();
+                }, "VmDecodeRows");
+                t.setDaemon(true);
+                return t;
+            });
     private final ThreadPoolExecutor mWorkers = new ThreadPoolExecutor(THREADS, THREADS, 30, TimeUnit.SECONDS,
             new LinkedBlockingQueue<>(TOTAL_MAX), r -> {
                 final Thread t = new Thread(() -> {
@@ -479,6 +489,7 @@ public final class VmDecodeProvider extends ContentProvider {
         if (bytes < 0) return refusal("an immutable staged input is required", true);
         final String rows = DecodeGate.METHOD_JPEG_ROWS.equals(method) ? de.diamaneos.decode.client.JpegRowStreams
                 .key(fd, ownerUser, forUid, callingUid, Binder.getCallingPid(), extras) : null;
+        if (DecodeGate.METHOD_JPEG_ROWS.equals(method) && rows == null) return refusal("no row stream descriptor");
         if (rows != null && extras.getInt(DecodeGate.EXTRA_LEFT) == 0) {
             mRows.end(rows); // an empty band: at once, and the stream's band request gives its charge back
             releaseRows(rows);
@@ -489,6 +500,17 @@ public final class VmDecodeProvider extends ContentProvider {
         final long time = Math.max(1, Math.min(DecodeGate.SERVER_MS, extras.getLong(DecodeGate.EXTRA_TIME,
                 DecodeGate.SERVER_MS)));
         final long end = SystemClock.uptimeMillis() + time;
+        if (rows != null && mRows.continues(rows)) {
+            try {
+                mRowBands.execute(() -> deliver(callback, mRows.take(getContext(), null, rows, null, ownerUser, forUid,
+                        extras, end, binder)));
+            } catch (RejectedExecutionException e) {
+                return refusal("too many row streams");
+            }
+            final Bundle reply = new Bundle();
+            reply.putBoolean(DecodeGate.EXTRA_TAKEN, true);
+            return reply;
+        }
         // The principal is the full uid. Its name: the transport's package (the system server's own: "android"), the
         // uid's only package, else the uid. The origin only orders work within the principal's own lane.
         final String app = GateCallers.principal(callingUid);
@@ -500,10 +522,8 @@ public final class VmDecodeProvider extends ContentProvider {
         final int left = extras.getInt(DecodeGate.EXTRA_LEFT);
         final int top = extras.getInt(DecodeGate.EXTRA_TOP);
         final int sample = extras.getInt(DecodeGate.EXTRA_SAMPLE, 1);
-        final int pid = Binder.getCallingPid();
-        task = new Task(app, origin, fd, end, DecodeGate.METHOD_JPEG_ROWS.equals(method)
-                ? () -> deliver(callback, mRows.take(getContext(), fd, lane, ownerUser, forUid, callingUid, pid, extras,
-                        end, binder))
+        task = new Task(app, origin, fd, end, rows != null
+                ? () -> deliver(callback, mRows.take(getContext(), fd, rows, lane, ownerUser, forUid, extras, end, binder))
                 : () -> run(method, fd, lane, ownerUser, forUid, width, height, left, top, sample, end, callback), callback);
         task.rows = rows;
         final String full = enqueue(task, bytes);

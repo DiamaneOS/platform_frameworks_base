@@ -59,7 +59,7 @@ final class GateLargePixels {
                 final int before = made == 0 ? 0 : 1;
                 final int askTop = (made - before) * sample;
                 final int askBottom = Math.min(storedHeight, (made + rows + 1) * sample);
-                tile = bands != null ? bands.band(askTop, askBottom)
+                tile = bands != null ? bands.band(askTop, askBottom, made + rows == sampledHeight)
                         : region(op, bytes, left, top + askTop, storedWidth, askBottom - askTop, sample, gain);
                 if (tile == null) {
                     bands = null; // no pixel came yet: regions follow within the operation's own time
