@@ -58,6 +58,7 @@ public final class JpegRowStreams {
             final int width = extras.getInt(DecodeGate.EXTRA_WIDTH), height = extras.getInt(DecodeGate.EXTRA_HEIGHT);
             final int top = extras.getInt(DecodeGate.EXTRA_TOP), bottom = extras.getInt(DecodeGate.EXTRA_LEFT);
             final String key = key(fd, user, forUid, uid, pid, extras);
+            if (key == null) throw new VmDecode.RejectedException("no row stream descriptor");
             final boolean taken;
             synchronized (mStreams) {
                 s = mStreams.get(key);
@@ -86,35 +87,35 @@ public final class JpegRowStreams {
             close(s);
             reply.putBoolean(DecodeGate.EXTRA_REFUSED, true);
             reply.putString(DecodeGate.EXTRA_ERROR, "refused: " + e.getMessage());
-        } catch (VmDecode.UnavailableException | RemoteException | android.system.ErrnoException
-                | RuntimeException | OutOfMemoryError e) {
+        } catch (VmDecode.UnavailableException | RemoteException | RuntimeException | OutOfMemoryError e) {
             close(s);
             reply.putString(DecodeGate.EXTRA_ERROR, "rows unavailable: " + e);
         }
         return reply;
     }
 
-    /** An empty band, outside the provider's queue and its byte charge: the caller's stream ends now. */
-    public void end(ParcelFileDescriptor fd, int user, int forUid, int uid, int pid, Bundle extras) {
-        Stream s;
-        try {
-            final String key = key(fd, user, forUid, uid, pid, extras);
-            synchronized (mStreams) {
-                s = mStreams.get(key);
-            }
-        } catch (android.system.ErrnoException e) {
-            return;
+    /** An empty band, outside the provider's queue and its byte charge: the stream {@code key} ends now. */
+    public void end(String key) {
+        final Stream s;
+        synchronized (mStreams) {
+            s = mStreams.get(key);
         }
         close(s);
     }
 
-    // The stream's binding: the caller, the app decoded for, the owner user, the sealed file, the size and its number.
-    private static String key(ParcelFileDescriptor fd, int user, int forUid, int uid, int pid, Bundle extras)
-            throws android.system.ErrnoException {
-        final android.system.StructStat file = android.system.Os.fstat(fd.getFileDescriptor());
-        return uid + "/" + pid + "/" + forUid + "/" + user + "/" + file.st_dev + "/" + file.st_ino + "/"
-                + extras.getInt(DecodeGate.EXTRA_WIDTH) + "x" + extras.getInt(DecodeGate.EXTRA_HEIGHT) + "#"
-                + extras.getLong(DecodeGate.EXTRA_STREAM);
+    /**
+     * A stream's binding: the caller, the app decoded for, the owner user, the sealed file, the size and the caller's
+     * number. Null when the descriptor cannot be read.
+     */
+    public static String key(ParcelFileDescriptor fd, int user, int forUid, int uid, int pid, Bundle extras) {
+        try {
+            final android.system.StructStat file = android.system.Os.fstat(fd.getFileDescriptor());
+            return uid + "/" + pid + "/" + forUid + "/" + user + "/" + file.st_dev + "/" + file.st_ino + "/"
+                    + extras.getInt(DecodeGate.EXTRA_WIDTH) + "x" + extras.getInt(DecodeGate.EXTRA_HEIGHT) + "#"
+                    + extras.getLong(DecodeGate.EXTRA_STREAM);
+        } catch (android.system.ErrnoException e) {
+            return null;
+        }
     }
 
     // The service's handle of the whole image, checked, then the stream's end at the operation's end and its death.
@@ -132,6 +133,14 @@ public final class JpegRowStreams {
             return t;
         });
         final Thumbnail t = s.reply;
+        final boolean ended;
+        synchronized (mStreams) {
+            ended = s.closed; // an empty band came while it started: its handle goes here
+        }
+        if (ended) {
+            s.service.release(t.handle);
+            throw new VmDecode.UnavailableException("the stream ended while it started");
+        }
         if (t.width != width || t.height != height || t.stripeRows != IDecodeService.MAX_STRIPE_BYTES / (width * 4)
                 || t.rotation != 0 || t.mirrored || t.pixelFormat != 0 || t.gainmapWidth != 0 || t.gainmapHeight != 0
                 || t.gainmapOnly || t.sourceError != 0 || !DecodeChecks.isColorSpace(t.colorSpace, t.colorDescription)) {
