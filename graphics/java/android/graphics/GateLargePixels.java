@@ -18,13 +18,19 @@ final class GateLargePixels {
             int storedWidth, int storedHeight, int sample, int width, int height,
             int rotation, boolean mirrored, ColorSpace targetColor) throws DecodeGate.Failure {
         return decode(op, bytes, left, top, storedWidth, storedHeight, sample, width, height, rotation, mirrored,
-                targetColor, false);
+                targetColor, false, false);
     }
 
-    /** As above, from regions of the gain image when {@code gain}: opaque RGBA or ALPHA_8, as its replies are. */
+    /**
+     * As above, from regions of the gain image when {@code gain}: opaque RGBA or ALPHA_8, as its replies are. A whole
+     * plain JPEG ({@code plainJpeg}) at sample 1 takes its bands from one pass, or regions when that does not start.
+     */
     static Bitmap decode(DecodeGate.Op op, DecodeGate.Bytes bytes, int left, int top,
             int storedWidth, int storedHeight, int sample, int width, int height,
-            int rotation, boolean mirrored, ColorSpace targetColor, boolean gain) throws DecodeGate.Failure {
+            int rotation, boolean mirrored, ColorSpace targetColor, boolean gain, boolean plainJpeg)
+            throws DecodeGate.Failure {
+        long stream = plainJpeg && !gain && sample == 1 && left == 0 && top == 0 && op.owner.source == null
+                ? DecodeGate.rowStream() : 0;
         Bitmap tile = null;
         Bitmap result = null;
         Canvas canvas = null;
@@ -53,7 +59,16 @@ final class GateLargePixels {
                 final int before = made == 0 ? 0 : 1;
                 final int askTop = (made - before) * sample;
                 final int askBottom = Math.min(storedHeight, (made + rows + 1) * sample);
-                tile = region(op, bytes, left, top + askTop, storedWidth, askBottom - askTop, sample, gain);
+                try {
+                    tile = stream != 0 ? DecodeGate.rows(op, bytes, stream, storedWidth, storedHeight, askTop, askBottom)
+                            : region(op, bytes, left, top + askTop, storedWidth, askBottom - askTop, sample, gain);
+                } catch (DecodeGate.Failure e) {
+                    if (stream == 0 || made != 0) throw e;
+                    // No pixel came yet: the stream ends, and regions follow within the operation's own time.
+                    DecodeGate.closeRows(op, bytes, stream, storedWidth, storedHeight);
+                    stream = 0;
+                    continue;
+                }
                 if (result == null) {
                     sampledWidth = tile.getWidth();
                     sourceColor = tile.getColorSpace();
@@ -90,8 +105,10 @@ final class GateLargePixels {
                 made += rows;
             }
             complete = true;
+            stream = 0; // its last band ended it
             return result;
         } finally {
+            if (stream != 0) DecodeGate.closeRows(op, bytes, stream, storedWidth, storedHeight);
             if (canvas != null) canvas.setBitmap(null);
             DecodeMemory.recycle(tile, null);
             if (!complete) DecodeMemory.recycle(result, null);

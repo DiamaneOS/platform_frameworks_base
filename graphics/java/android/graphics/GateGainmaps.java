@@ -128,7 +128,7 @@ final class GateGainmaps {
         op.checkFit(bytes.reserved() + targetBytes + (long) width * height * 4
                 + 2L * Math.min((long) width * height, DecodeGate.MAX_VM_PIXELS) * 4);
         return GateLargePixels.decode(op, bytes, 0, 0, gainWidth, gainHeight, sample,
-                turned ? height : width, turned ? width : height, rotation, mirrored, null, true);
+                turned ? height : width, turned ? width : height, rotation, mirrored, null, true, false);
     }
 
     private static int edge(DecodeGate.Op op, DecodeGate.Bytes bytes, int stored, boolean row)

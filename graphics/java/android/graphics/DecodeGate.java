@@ -108,6 +108,14 @@ public final class DecodeGate {
     public static final String METHOD_REGION_STRAIGHT_WIDE = "region-straight-f16";
     public static final String METHOD_REGION_PACKED_AVIF = "region-straight-avif10";
     public static final String METHOD_STRAIGHT_WEBP = "straight-webp";
+    /**
+     * One pass over a large plain JPEG, kept by the provider under the caller's EXTRA_STREAM: each band of the
+     * EXTRA_WIDTH x EXTRA_HEIGHT image asks its rows from EXTRA_TOP to EXTRA_LEFT, in order. An empty band ends it.
+     */
+    public static final String METHOD_JPEG_ROWS = "jpeg-rows";
+    public static final String EXTRA_STREAM = "stream";
+    /** A row stream's request: the milliseconds its whole operation has left. */
+    public static final String EXTRA_OPERATION_TIME = "operationTime";
     public static final String EXTRA_LEFT = "left";
     public static final String EXTRA_TOP = "top";
     public static final String EXTRA_SAMPLE = "sample";
@@ -1034,6 +1042,31 @@ public final class DecodeGate {
         return bitmap;
     }
 
+    private static final java.util.concurrent.atomic.AtomicLong sRowStreams = new java.util.concurrent.atomic.AtomicLong();
+
+    /** A new stream number of this process, for {@link #rows}. */
+    static long rowStream() {
+        return sRowStreams.incrementAndGet();
+    }
+
+    /** Rows {@code top} to {@code bottom} of the stream's image, after the band before them. */
+    static Bitmap rows(Op op, Bytes bytes, long stream, int width, int height, int top, int bottom) throws Failure {
+        final Bundle r = request(op, METHOD_JPEG_ROWS, bytes, width, height, bottom, top, 1, stream);
+        final Bitmap bitmap = r.getParcelable(EXTRA_BITMAP, Bitmap.class);
+        if (bitmap == null || bitmap.getWidth() != width || bitmap.getHeight() != bottom - top) {
+            DecodeMemory.recycle(bitmap, null);
+            throw failed(false, "bad row band");
+        }
+        op.sourceError = Math.max(op.sourceError, r.getInt(EXTRA_SOURCE_ERROR));
+        return bitmap;
+    }
+
+    /** The caller stopped before the stream's end: an empty band, which the provider refuses, and so ends it. */
+    static void closeRows(Op op, Bytes bytes, long stream, int width, int height) {
+        send(METHOD_JPEG_ROWS, bytes, width, height, 0, 0, 1, op.owner,
+                new Call("rows-end#" + stream, SystemClock.uptimeMillis() + SERVER_MS + 500), stream, op.end);
+    }
+
     /**
      * The region {@code left}, {@code top}, {@code width} x {@code height} of the stored image decoded in the VM at full
      * detail and sampled by {@code sample} as Android's region decoder samples it (at most ceil(width / sample) x
@@ -1378,12 +1411,18 @@ public final class DecodeGate {
     // As above, with a region's left, top and sample size (0 for other methods), all of them in the cache key.
     private static Bundle request(Op op, String method, Bytes bytes, int width, int height, int left, int top,
             int sample) throws Failure {
+        return request(op, method, bytes, width, height, left, top, sample, 0);
+    }
+
+    // A row stream's requests (stream not 0) are never shared with another call.
+    private static Bundle request(Op op, String method, Bytes bytes, int width, int height, int left, int top,
+            int sample, long stream) throws Failure {
         mayAsk();
         // Whose image this is, taken here on the calling thread: part of the key, so an answer made for one owner is
         // never given to another, and sent with the request.
         final GateOwner owner = op.owner;
         final String key = owner.key() + ':' + method + ':' + width + 'x' + height + '@' + left + ',' + top + '/'
-                + sample + ':' + bytes.digest();
+                + sample + ':' + bytes.digest() + (stream != 0 ? "#" + stream : "");
         Answer cached;
         synchronized (sAnswers) {
             cached = sAnswers.get(key);
@@ -1409,7 +1448,7 @@ public final class DecodeGate {
                 expired = null;
             } else {
                 expired = dropExpiredCallsLocked(now);
-                call = new Call(key, now + SERVER_MS + 500);
+                call = new Call(key, stream != 0 ? Math.min(op.end, now + SERVER_MS + 500) : now + SERVER_MS + 500);
                 sCalls.put(key, call);
                 send = true;
             }
@@ -1433,7 +1472,7 @@ public final class DecodeGate {
                     }
                     if (pending) finish(started, error("no answer in time"));
                 }, call.end);
-                send(method, bytes, width, height, left, top, sample, owner, call);
+                send(method, bytes, width, height, left, top, sample, owner, call, stream, op.end);
             }
             long wait = op.left();
             Bundle answer;
@@ -1537,7 +1576,7 @@ public final class DecodeGate {
     // Hands the request to the system server on a sender thread, whose callback answers {@code call} and fills the
     // cache. The caller's bytes are its own until it returns, so the descriptor is copied here.
     private static void send(String method, Bytes bytes, int width, int height, int left, int top, int sample,
-            GateOwner owner, Call call) {
+            GateOwner owner, Call call, long stream, long opEnd) {
         final java.util.concurrent.atomic.AtomicInteger dispatch = new java.util.concurrent.atomic.AtomicInteger();
         final String caller = ActivityThread.currentPackageName();
         final ParcelFileDescriptor fd;
@@ -1552,7 +1591,7 @@ public final class DecodeGate {
             senders().execute(() -> {
                 if (!dispatch.compareAndSet(0, 1)) return;
                 try {
-                    sendNow(method, fd, width, height, left, top, sample, caller, owner, call);
+                    sendNow(method, fd, width, height, left, top, sample, caller, owner, call, stream, opEnd);
                 } finally {
                     if (dispatch.compareAndSet(1, 2)) {
                         bytes.release();
@@ -1587,20 +1626,24 @@ public final class DecodeGate {
     }
 
     private static void sendNow(String method, ParcelFileDescriptor fd, int width, int height, int left, int top,
-            int sample, String caller, GateOwner owner, Call call) {
+            int sample, String caller, GateOwner owner, Call call, long stream, long opEnd) {
         final Bundle extras = new Bundle();
         extras.putParcelable(EXTRA_FD, fd);
         extras.putInt(EXTRA_WIDTH, width);
         extras.putInt(EXTRA_HEIGHT, height);
         if (METHOD_REGION.equals(method) || METHOD_REGION_WIDE.equals(method)
                 || METHOD_REGION_STRAIGHT.equals(method) || METHOD_REGION_STRAIGHT_WIDE.equals(method)
-                || METHOD_REGION_PACKED_AVIF.equals(method)
+                || METHOD_REGION_PACKED_AVIF.equals(method) || METHOD_JPEG_ROWS.equals(method)
                 || METHOD_GAIN_REGION.equals(method) || METHOD_FRAME_WINDOW.equals(method)) {
             extras.putInt(EXTRA_LEFT, left);
             extras.putInt(EXTRA_TOP, top);
             extras.putInt(EXTRA_SAMPLE, sample);
         }
         extras.putLong(EXTRA_TIME, Math.max(1, Math.min(SERVER_MS, call.end - 500 - SystemClock.uptimeMillis())));
+        if (stream != 0) {
+            extras.putLong(EXTRA_STREAM, stream);
+            extras.putLong(EXTRA_OPERATION_TIME, opEnd - SystemClock.uptimeMillis());
+        }
         if (caller != null) {
             extras.putString(EXTRA_CALLER, caller);
         }
