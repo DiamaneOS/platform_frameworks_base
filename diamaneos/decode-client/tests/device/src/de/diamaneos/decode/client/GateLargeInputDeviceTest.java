@@ -118,6 +118,7 @@ public class GateLargeInputDeviceTest {
         DecodeGate.setForcedForTest(true);
         DecodeGate.resetForTest();
         DecodeGate.setWaitForTest(null);
+        Log.i("LargeInputProof", "gated start api=" + (factory ? "BitmapFactory" : "ImageDecoder"));
         final long started = android.os.SystemClock.uptimeMillis();
         final Bitmap gated = decode(file, factory, targetWidth, targetHeight);
         final long elapsed = android.os.SystemClock.uptimeMillis() - started;
@@ -266,6 +267,7 @@ public class GateLargeInputDeviceTest {
         DecodeGate.setForcedForTest(true);
         DecodeGate.resetForTest();
         DecodeGate.setWaitForTest(null);
+        Log.i("LargeInputProof", "gated start api=" + api);
         final long started = android.os.SystemClock.uptimeMillis();
         final Bitmap gated = hardware(file, factory);
         final long elapsed = android.os.SystemClock.uptimeMillis() - started;
@@ -303,6 +305,7 @@ public class GateLargeInputDeviceTest {
             Bitmap bitmap = null;
             // -e hardware true: the HARDWARE route (BitmapFactory inPreferredConfig HARDWARE) is cancelled instead.
             try {
+                Log.i("LargeInputProof", "gated start api=cancelled");
                 bitmap = "true".equals(InstrumentationRegistry.getArguments().getString("hardware"))
                         ? hardware(file, true) : BitmapFactory.decodeFile(file.getPath());
             }
