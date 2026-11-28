@@ -18,6 +18,16 @@ final class GateLargeHardware {
         return hardwareBytes + Math.max(regions + drawing, gain);
     }
 
+    /**
+     * DiamaneOS: the peak of the row stream route: the hardware buffer, a band of at most
+     * GateRowBands.HARDWARE_BAND_PIXELS twice (the reply and its copy) and one drawing.
+     */
+    static long streamPeakBytes(long hardwareBytes, int width, int height) {
+        final long pixels = (long) width * height;
+        return hardwareBytes + 2 * Math.min(pixels, GateRowBands.HARDWARE_BAND_PIXELS) * 4
+                + Math.min(pixels, TILE_PIXELS) * 4;
+    }
+
     static Bitmap decode(DecodeGate.Op op, DecodeGate.Bytes bytes, int storedWidth, int storedHeight,
             int sample, int width, int height, int rotation, boolean mirrored, ColorSpace targetColor,
             boolean hdr, boolean storedGainmap, boolean required, boolean plainJpeg) throws DecodeGate.Failure {
@@ -27,7 +37,11 @@ final class GateLargeHardware {
             if (required) throw unavailable;
             return null;
         }
-        op.checkFit(bytes.reserved() + peakBytes(allocation, width, height, hdr));
+        // DiamaneOS: a whole plain JPEG at its stored size takes one row stream, regions when it does not start.
+        final boolean stream = rotation == 0 && !mirrored && !hdr && width == storedWidth && height == storedHeight
+                && GateRowBands.eligible(op, plainJpeg, sample);
+        op.checkFit(bytes.reserved() + (stream ? streamPeakBytes(allocation, width, height)
+                : peakBytes(allocation, width, height, hdr)));
         GateWritablePixels writable;
         try { writable = GateWritablePixels.create(width, height, allocation); }
         catch (DecodeGate.Failure unavailable) {
@@ -38,14 +52,15 @@ final class GateLargeHardware {
         Bitmap result = null;
         boolean complete = false;
         try (GateWritablePixels target = writable) {
-            // DiamaneOS: a whole plain JPEG at its stored size takes one row stream, regions when it does not start.
-            try (GateRowBands bands = rotation == 0 && !mirrored && !hdr && width == storedWidth
-                    && height == storedHeight ? GateRowBands.of(op, bytes, plainJpeg, sample, width, height) : null) {
-                result = bands != null ? bands.hardware(target, targetColor) : null;
-                if (result != null) {
-                    complete = true;
-                    return result;
+            if (stream) {
+                try (GateRowBands bands = GateRowBands.of(op, bytes, plainJpeg, sample, width, height)) {
+                    result = bands.hardware(target, targetColor);
+                    if (result != null) {
+                        complete = true;
+                        return result;
+                    }
                 }
+                op.checkFit(bytes.reserved() + peakBytes(allocation, width, height, hdr));
             }
             probe = DecodeGate.region(op, bytes, 0, 0, Math.min(sample, storedWidth), storedHeight, sample);
             final int sampledHeight = probe.getHeight();

@@ -9,6 +9,8 @@ package android.graphics;
 final class GateRowBands implements AutoCloseable {
     private static final int COLUMNS = 2048; // a drawing's width and pixels at most, as GateLargeHardware's tiles
     private static final int DRAWING_PIXELS = 4 << 20;
+    /** The hardware route's bands: half the VM's pixels, so the hardware buffer, a band twice and a drawing fit. */
+    static final int HARDWARE_BAND_PIXELS = DecodeGate.MAX_VM_PIXELS / 2;
     private final DecodeGate.Op mOp;
     private final DecodeGate.Bytes mBytes;
     private final int mWidth, mHeight;
@@ -19,7 +21,11 @@ final class GateRowBands implements AutoCloseable {
     /** A stream for a whole plain JPEG at sample 1 of the caller's own bytes, else null: regions. */
     static GateRowBands of(DecodeGate.Op op, DecodeGate.Bytes bytes, boolean plainJpeg, int sample, int width,
             int height) {
-        return plainJpeg && sample == 1 && op.owner.source == null ? new GateRowBands(op, bytes, width, height) : null;
+        return eligible(op, plainJpeg, sample) ? new GateRowBands(op, bytes, width, height) : null;
+    }
+
+    static boolean eligible(DecodeGate.Op op, boolean plainJpeg, int sample) {
+        return plainJpeg && sample == 1 && op.owner.source == null;
     }
 
     private GateRowBands(DecodeGate.Op op, DecodeGate.Bytes bytes, int width, int height) {
@@ -50,7 +56,7 @@ final class GateRowBands implements AutoCloseable {
      * first band failed.
      */
     Bitmap hardware(GateWritablePixels target, ColorSpace targetColor) throws DecodeGate.Failure {
-        final int mostRows = Math.max(1, DecodeGate.MAX_VM_PIXELS / mWidth - 2);
+        final int mostRows = Math.max(1, HARDWARE_BAND_PIXELS / mWidth - 2);
         final Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
         paint.setBlendMode(BlendMode.SRC);
         ColorSpace output = null;
