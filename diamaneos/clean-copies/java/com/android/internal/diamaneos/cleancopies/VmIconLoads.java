@@ -861,7 +861,8 @@ public final class VmIconLoads {
         }
         final DecodeGate.Input input;
         try {
-            input = afd != null ? DecodeGate.snapshot(afd) : DecodeGate.snapshot(request.snapshot());
+            // A descriptor is copied by the load's end: a provider pipe that never ends frees this thread then.
+            input = afd != null ? DecodeGate.snapshot(afd, pending.end) : DecodeGate.snapshot(request.snapshot());
         } catch (IOException | android.graphics.DecodeMemory.NoRoomException | OutOfMemoryError e) {
             pending.finish(null, true, false, "bytes not handed over: " + e.getClass().getSimpleName());
             return;
