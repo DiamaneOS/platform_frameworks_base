@@ -415,8 +415,8 @@ public final class CleanCopyGate implements ImageFileGate {
     }
 
     /**
-     * A mark to pass to {@link #awaitDecodeAnswers}, taken before a request to the system server's decode work: an
-     * answer sent after it ends the wait at once. Starts the watch of this process if it has not started.
+     * A mark to pass to {@link #whenDecodeAnswers}, taken before a request to the system server's decode work: an
+     * answer sent after it is told at once. Starts the watch of this process if it has not started.
      */
     public static int decodeAnswersMark() {
         watching();
@@ -438,34 +438,6 @@ public final class CleanCopyGate implements ImageFileGate {
         whenMade(listener, app == null ? null : app.getPackageName(), app == null ? -1 : app.getUserId());
         listener.onMade(null, -1);
         return () -> { synchronized (sWaiters) { sWaiters.removeIf(w -> w.target.get() == listener); } };
-    }
-
-    /**
-     * Waits on this (background) thread until the system server says its decode service answers again after {@code
-     * mark}, at most {@code timeoutMs}, or until {@code cancelled} says so (checked at least every half second). True
-     * when it answers. Never on the main thread or on a binder call: false there at once.
-     */
-    public static boolean awaitDecodeAnswers(int mark, long timeoutMs, java.util.function.BooleanSupplier cancelled) {
-        if (Looper.myLooper() == Looper.getMainLooper() || android.os.Binder.isDirectlyHandlingTransaction()
-                || sApp == null) {
-            return false;
-        }
-        final long end = SystemClock.uptimeMillis() + timeoutMs;
-        synchronized (sAnswersLock) {
-            while (sAnswers == mark) {
-                final long left = end - SystemClock.uptimeMillis();
-                if (left <= 0 || (cancelled != null && cancelled.getAsBoolean())) {
-                    return false;
-                }
-                try {
-                    sAnswersLock.wait(Math.min(left, 500));
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    return false;
-                }
-            }
-            return true;
-        }
     }
 
     /** Told (on a background thread) when copies of an app's images were made, see {@link #whenMade}. */
