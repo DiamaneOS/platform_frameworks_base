@@ -20,7 +20,7 @@ final class GateLargeHardware {
 
     static Bitmap decode(DecodeGate.Op op, DecodeGate.Bytes bytes, int storedWidth, int storedHeight,
             int sample, int width, int height, int rotation, boolean mirrored, ColorSpace targetColor,
-            boolean hdr, boolean storedGainmap, boolean required) throws DecodeGate.Failure {
+            boolean hdr, boolean storedGainmap, boolean required, boolean plainJpeg) throws DecodeGate.Failure {
         final long allocation;
         try { allocation = GateWritablePixels.allocationBytes(width, height); }
         catch (DecodeGate.Failure unavailable) {
@@ -38,6 +38,15 @@ final class GateLargeHardware {
         Bitmap result = null;
         boolean complete = false;
         try (GateWritablePixels target = writable) {
+            // DiamaneOS: a whole plain JPEG at its stored size takes one row stream, regions when it does not start.
+            try (GateRowBands bands = rotation == 0 && !mirrored && !hdr && width == storedWidth
+                    && height == storedHeight ? GateRowBands.of(op, bytes, plainJpeg, sample, width, height) : null) {
+                result = bands != null ? bands.hardware(target, targetColor) : null;
+                if (result != null) {
+                    complete = true;
+                    return result;
+                }
+            }
             probe = DecodeGate.region(op, bytes, 0, 0, Math.min(sample, storedWidth), storedHeight, sample);
             final int sampledHeight = probe.getHeight();
             final ColorSpace sourceColor = probe.getColorSpace();

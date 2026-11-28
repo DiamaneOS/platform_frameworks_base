@@ -237,6 +237,62 @@ public class GateLargeInputDeviceTest {
         pair(file, false, !"ImageDecoder".equals(InstrumentationRegistry.getArguments().getString("api")), 0, 0);
     }
 
+    // The hardware routes most apps take: BitmapFactory with HARDWARE, ImageDecoder with its default allocator.
+    private static Bitmap hardware(File file, boolean factory) throws Exception {
+        if (!factory) return ImageDecoder.decodeBitmap(ImageDecoder.createSource(file));
+        final BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inPreferredConfig = Bitmap.Config.HARDWARE;
+        return BitmapFactory.decodeFile(file.getPath(), options);
+    }
+
+    // A HARDWARE bitmap read back into software pixels, the original recycled.
+    private static Bitmap readBack(Bitmap hardware) {
+        assertEquals(Bitmap.Config.HARDWARE, hardware.getConfig());
+        final Bitmap soft = hardware.copy(Bitmap.Config.ARGB_8888, false);
+        hardware.recycle();
+        assertNotNull("hardware pixels read back", soft);
+        return soft;
+    }
+
+    @Test public void ownedColdLargeHardwareUsesProductionDeadlines() throws Exception {
+        final File file = ownedDiagnosticImage();
+        final boolean factory = !"ImageDecoder".equals(InstrumentationRegistry.getArguments().getString("api"));
+        final String api = factory ? "BitmapFactoryHardware" : "ImageDecoderDefault";
+        DecodeGate.setForcedForTest(false);
+        final Bitmap stock = readBack(hardware(file, factory));
+        final int width = stock.getWidth(), height = stock.getHeight();
+        final int[] base = samples(stock);
+        stock.recycle();
+        DecodeGate.setForcedForTest(true);
+        DecodeGate.resetForTest();
+        DecodeGate.setWaitForTest(null);
+        final long started = android.os.SystemClock.uptimeMillis();
+        final Bitmap gated = hardware(file, factory);
+        final long elapsed = android.os.SystemClock.uptimeMillis() - started;
+        Log.i("LargeInputProof", "gated api=" + api + " bytes=" + file.length() + " elapsedMs=" + elapsed
+                + " returned=" + (gated != null));
+        assertNotNull("gated input", gated);
+        final Bitmap soft = readBack(gated);
+        try {
+            assertTrue("production worker deadline, elapsed=" + elapsed, elapsed < 15_000L);
+            assertEquals(width, soft.getWidth());
+            assertEquals(height, soft.getHeight());
+            samePixels(base, soft);
+            final MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            final int[] row = new int[width];
+            final byte[] encoded = new byte[width * 4];
+            for (int y = 0; y < height; y++) {
+                soft.getPixels(row, 0, width, 0, y, width, 1);
+                for (int x = 0; x < width; x++) for (int c = 0; c < 4; c++) encoded[x * 4 + c] = (byte) (row[x] >>> (c * 8));
+                digest.update(encoded);
+            }
+            Log.i("LargeInputProof", "gated " + api + " fullPixels=" + ((long) width * height) + " sha256="
+                    + java.util.HexFormat.of().formatHex(digest.digest()));
+        } finally {
+            soft.recycle();
+        }
+    }
+
     @Test public void ownedLargeCallerCancellationIsObserved() throws Exception {
         final File file = ownedDiagnosticImage();
         final android.content.Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
@@ -245,7 +301,11 @@ public class GateLargeInputDeviceTest {
         DecodeGate.setWaitForTest(null);
         final Thread worker = new Thread(() -> {
             Bitmap bitmap = null;
-            try { bitmap = BitmapFactory.decodeFile(file.getPath()); }
+            // -e hardware true: the HARDWARE route (BitmapFactory inPreferredConfig HARDWARE) is cancelled instead.
+            try {
+                bitmap = "true".equals(InstrumentationRegistry.getArguments().getString("hardware"))
+                        ? hardware(file, true) : BitmapFactory.decodeFile(file.getPath());
+            }
             catch (Throwable result) { Log.i("LargeInputProof", "cancelled worker result=" + result.getClass().getName()); }
             finally { if (bitmap != null) bitmap.recycle(); }
             Log.i("LargeInputProof", "cancelled worker endedNs=" + android.os.SystemClock.elapsedRealtimeNanos());

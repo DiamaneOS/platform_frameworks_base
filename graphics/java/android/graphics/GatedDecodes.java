@@ -215,7 +215,7 @@ final class GatedDecodes {
                     && opts.inPreferredConfig == Bitmap.Config.HARDWARE && opts.inBitmap == null
                     && !opts.inMutable && GateLargeHardware.supportsColor(requestedColor)) {
                 bitmap = GateLargeHardware.decode(op, bytes, info.width, info.height, storedSample,
-                        width, height, 0, false, requestedColor, !info.plainJpegHeader, true, false);
+                        width, height, 0, false, requestedColor, !info.plainJpegHeader, true, false, info.plainJpegHeader);
                 if (bitmap != null) {
                     GatePartialImages.bitmapFactory(op.sourceError);
                     if (outPadding != null) outPadding.set(-1, -1, -1, -1);
@@ -936,7 +936,7 @@ final class GatedDecodes {
                 bitmap = GateLargeHardware.decode(header.op, header.bytes, header.storedWidth,
                         header.storedHeight, largeSample(header, width, height), width, height,
                         header.rotation, header.mirrored, colorSpace, !conserveMemory && !header.plainJpegHeader, false,
-                        allocator == ImageDecoder.ALLOCATOR_HARDWARE);
+                        allocator == ImageDecoder.ALLOCATOR_HARDWARE, header.plainJpegHeader);
                 if (bitmap != null) {
                     GatePartialImages.imageDecoder(header.op.sourceError, partialListener, source);
                     return result = bitmap;

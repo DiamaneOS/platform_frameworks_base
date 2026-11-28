@@ -29,8 +29,8 @@ final class GateLargePixels {
             int storedWidth, int storedHeight, int sample, int width, int height,
             int rotation, boolean mirrored, ColorSpace targetColor, boolean gain, boolean plainJpeg)
             throws DecodeGate.Failure {
-        long stream = plainJpeg && !gain && sample == 1 && left == 0 && top == 0 && op.owner.source == null
-                ? DecodeGate.rowStream() : 0;
+        GateRowBands bands = !gain && left == 0 && top == 0
+                ? GateRowBands.of(op, bytes, plainJpeg, sample, storedWidth, storedHeight) : null;
         Bitmap tile = null;
         Bitmap result = null;
         Canvas canvas = null;
@@ -59,14 +59,10 @@ final class GateLargePixels {
                 final int before = made == 0 ? 0 : 1;
                 final int askTop = (made - before) * sample;
                 final int askBottom = Math.min(storedHeight, (made + rows + 1) * sample);
-                try {
-                    tile = stream != 0 ? DecodeGate.rows(op, bytes, stream, storedWidth, storedHeight, askTop, askBottom)
-                            : region(op, bytes, left, top + askTop, storedWidth, askBottom - askTop, sample, gain);
-                } catch (DecodeGate.Failure e) {
-                    if (stream == 0 || made != 0) throw e;
-                    // No pixel came yet: the stream ends, and regions follow within the operation's own time.
-                    DecodeGate.closeRows(op, bytes, stream, storedWidth, storedHeight);
-                    stream = 0;
+                tile = bands != null ? bands.band(askTop, askBottom)
+                        : region(op, bytes, left, top + askTop, storedWidth, askBottom - askTop, sample, gain);
+                if (tile == null) {
+                    bands = null; // no pixel came yet: regions follow within the operation's own time
                     continue;
                 }
                 if (result == null) {
@@ -105,10 +101,9 @@ final class GateLargePixels {
                 made += rows;
             }
             complete = true;
-            stream = 0; // its last band ended it
             return result;
         } finally {
-            if (stream != 0) DecodeGate.closeRows(op, bytes, stream, storedWidth, storedHeight);
+            if (bands != null) bands.close();
             if (canvas != null) canvas.setBitmap(null);
             DecodeMemory.recycle(tile, null);
             if (!complete) DecodeMemory.recycle(result, null);
