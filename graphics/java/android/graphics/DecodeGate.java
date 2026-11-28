@@ -436,6 +436,15 @@ public final class DecodeGate {
         return android.os.UserHandle.getAppId(uid) == Process.SYSTEM_UID || uid == Process.myUid();
     }
 
+    /** This process gates (CleanCopyGate installed it): what the first decode would start, it starts now. */
+    public static void installed() {
+        try {
+            GateRefill.start();
+        } catch (RuntimeException | OutOfMemoryError e) {
+            // The first decode starts it then.
+        }
+    }
+
     /** The system server: its provider takes calls directly. */
     public static void setLocal(Local local) {
         sLocal = local;
@@ -1234,8 +1243,9 @@ public final class DecodeGate {
         private Answer mAnswer; // guarded by this
         private int mReaders; // request callers, guarded by this
         private boolean mSettled;
-        // Refill registrations of callers that were not answered in time. Guarded by this.
-        private java.util.ArrayList<GateRefill> mRefills;
+        // Refill registrations of callers that were not answered in time, each with the generation it waits in.
+        // Guarded by this.
+        private java.util.LinkedHashMap<GateRefill, Long> mRefills;
 
         Call(String key, long end) {
             this.key = key;
@@ -1258,14 +1268,14 @@ public final class DecodeGate {
         }
 
         // Null means already answered. Otherwise the returned refills receive the producer's answer.
-        synchronized java.util.List<GateRefill> answer(Answer answer) {
+        synchronized java.util.Map<GateRefill, Long> answer(Answer answer) {
             if (mSettled) return null;
             mSettled = true;
             if (mReaders != 0) mAnswer = answer.retain();
             notifyAll();
-            final java.util.List<GateRefill> refills = mRefills;
+            final java.util.Map<GateRefill, Long> refills = mRefills;
             mRefills = null;
-            return refills != null ? refills : java.util.Collections.emptyList();
+            return refills != null ? refills : java.util.Collections.emptyMap();
         }
 
         // A refill waits for this call's answer: null, or the answer when it came already.
@@ -1274,11 +1284,10 @@ public final class DecodeGate {
                 return mAnswer.bundle;
             }
             if (mRefills == null) {
-                mRefills = new java.util.ArrayList<>(1);
+                mRefills = new java.util.LinkedHashMap<>(2);
             }
-            if (!mRefills.contains(refill)) {
-                mRefills.add(refill);
-                refill.waitsFor();
+            if (!mRefills.containsKey(refill)) {
+                mRefills.put(refill, refill.waitsFor());
             }
             return null;
         }
@@ -1747,7 +1756,7 @@ public final class DecodeGate {
             throw e;
         }
         try {
-            final java.util.List<GateRefill> refills;
+            final java.util.Map<GateRefill, Long> refills;
             synchronized (sCalls) {
                 synchronized (call) {
                     if (call.mSettled) return;
@@ -1769,7 +1778,9 @@ public final class DecodeGate {
                 }
             }
             if (refills == null) return;
-            for (GateRefill refill : refills) refill.answered(call.key, shared);
+            for (java.util.Map.Entry<GateRefill, Long> refill : refills.entrySet()) {
+                refill.getKey().answered(call.key, shared, refill.getValue());
+            }
         } finally { shared.release(); }
     }
 

@@ -133,6 +133,7 @@ public final class GateRefill {
                 mSuspended = false;
                 mStart = SystemClock.uptimeMillis();
                 mGeneration++;
+                mWaitingCalls = 0; // the calls of the older generation no longer count (answered drops them)
                 mRounds = 0;
                 mRetries = 0;
                 mReloadDue = false;
@@ -302,15 +303,22 @@ public final class GateRefill {
         }
     }
 
+    /** The gate was installed in this process: the timer's thread starts now, not inside a first decode's time. */
+    static void start() {
+        timer();
+    }
+
     // The timer of the refills, for GateInput's background reads too.
     static android.os.Handler timerForGate() {
         return timer();
     }
 
-    // The gate: a call of this load was not answered in time, its answer comes to answered().
-    void waitsFor() {
+    // The gate: a call of this load was not answered in time, its answer comes to answered() with the generation
+    // this returns.
+    long waitsFor() {
         synchronized (mLock) {
             mWaitingCalls++;
+            return mGeneration;
         }
     }
 
@@ -325,12 +333,13 @@ public final class GateRefill {
         }
     }
 
-    // The gate: a call this registration waits for got its answer (pixels, sizes, or an error).
-    void answered(String key, DecodeGate.Answer shared) {
+    // The gate: a call this registration waits for got its answer (pixels, sizes, or an error). {@code generation}
+    // is the one waitsFor gave: an answer of an older generation is dropped.
+    void answered(String key, DecodeGate.Answer shared, long generation) {
         final android.os.Bundle answer = shared.bundle;
         final boolean reload;
         synchronized (mLock) {
-            if (endedLocked() || mSuspended) {
+            if (endedLocked() || mSuspended || mGeneration != generation) {
                 return;
             }
             mWaitingCalls = Math.max(0, mWaitingCalls - 1);
