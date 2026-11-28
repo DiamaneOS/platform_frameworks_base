@@ -551,6 +551,7 @@ final class GateInput {
         private DecodeGate.Failure mFailure; // guarded by this
         private boolean mKeep; // guarded by this
         private GateRefill mKeepFor; // guarded by this
+        private long mKeepGeneration; // the refill's generation the read is kept in, guarded by this
         private String mSource; // guarded by this
 
         Read(Job<T> job, String owner, String caller, GateRefill registration, Runnable onLeave) {
@@ -581,10 +582,12 @@ final class GateInput {
             final boolean keep;
             final GateRefill keepFor;
             final String source;
+            final long generation;
             synchronized (this) {
                 taken = !stop.get() && !mKeep;
                 keep = mKeep;
                 keepFor = mKeepFor;
+                generation = mKeepGeneration;
                 source = mSource;
                 mDone = true;
                 mResult = result;
@@ -599,7 +602,7 @@ final class GateInput {
                         : (DecodeGate.Bytes) result;
                 if (result instanceof Acquired) ((Acquired) result).close();
                 if (keepFor != null) {
-                    keepFor.inputRead(source, bytes, failure);
+                    keepFor.inputRead(source, bytes, failure, generation);
                 } else if (bytes != null) {
                     bytes.close();
                 }
@@ -629,7 +632,7 @@ final class GateInput {
                     mKeepFor = keepFor;
                     mSource = source;
                     if (keepFor != null) {
-                        keepFor.waitsFor();
+                        mKeepGeneration = keepFor.waitsFor();
                     }
                     GateRefill.timerForGate().postDelayed(this::tooLong, BACKGROUND_MS);
                 } else {
@@ -647,8 +650,10 @@ final class GateInput {
             final boolean removed;
             final GateRefill refill;
             final String source;
+            final long generation;
             synchronized (this) {
                 if (mDone) return;
+                generation = mKeepGeneration;
                 stop.set(true);
                 synchronized (sLock) {
                     removed = sReaders != null && sReaders.remove(this);
@@ -662,7 +667,9 @@ final class GateInput {
                 }
             }
             if (onLeave != null) cancelLater(onLeave);
-            if (removed && refill != null) refill.inputRead(source, null, DecodeGate.notNow("queued input expired"));
+            if (removed && refill != null) {
+                refill.inputRead(source, null, DecodeGate.notNow("queued input expired"), generation);
+            }
         }
     }
 

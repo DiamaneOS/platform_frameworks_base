@@ -259,13 +259,14 @@ public final class GateRefill {
     }
 
     // GateInput: the input of {@code source} was read after its caller left (null: it could not be). The read was
-    // waited for (waitsFor) and the load runs again.
-    void inputRead(String source, DecodeGate.Bytes bytes) {
-        inputRead(source, bytes, null);
-    }
-
-    void inputRead(String source, DecodeGate.Bytes bytes, DecodeGate.Failure failure) {
+    // waited for (waitsFor, which gave {@code generation}) and the load runs again. A read of an older generation is
+    // dropped, as answered drops an older answer.
+    void inputRead(String source, DecodeGate.Bytes bytes, DecodeGate.Failure failure, long generation) {
         synchronized (mLock) {
+            if (mGeneration != generation) {
+                if (bytes != null) bytes.close();
+                return;
+            }
             mWaitingCalls = Math.max(0, mWaitingCalls - 1);
             if (bytes == null || endedLocked() || mSuspended || mInputs.size() >= MAX_HELD) {
                 if (bytes != null) {
