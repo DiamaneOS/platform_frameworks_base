@@ -156,7 +156,7 @@ final class ForeignSources {
                     if (afd == null) {
                         reply = refusal("no image behind the source", true);
                     } else {
-                        try (DecodeGate.Input input = DecodeGate.snapshot(afd)) {
+                        try (DecodeGate.Input input = DecodeGate.snapshot(afd, end)) {
                             request.putParcelable(DecodeGate.EXTRA_FD, input.fd());
                             request.putLong(DecodeGate.EXTRA_TIME, Math.max(1, end - SystemClock.uptimeMillis()));
                             reply = taker.take(method, request, uid, named, uid, attributed);
