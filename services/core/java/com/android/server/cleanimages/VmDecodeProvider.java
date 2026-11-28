@@ -121,6 +121,7 @@ public final class VmDecodeProvider extends ContentProvider {
         final long end;
         final java.util.concurrent.atomic.AtomicInteger dispatch = new java.util.concurrent.atomic.AtomicInteger();
         boolean admitted;
+        String rows; // a row stream's binding (JpegRowStreams.key): its charge goes back when the stream ends
         boolean refusedForever;
         long bytes;
         android.graphics.DecodeMemory.Reservation memory;
@@ -182,6 +183,7 @@ public final class VmDecodeProvider extends ContentProvider {
     private final GateCallers mCallers = new GateCallers();
     // One-pass rows of large plain JPEGs (DecodeGate.METHOD_JPEG_ROWS), each bound to the caller that started it.
     private final de.diamaneos.decode.client.JpegRowStreams mRows = new de.diamaneos.decode.client.JpegRowStreams();
+    private final java.util.HashMap<String, Task> mRowTasks = new java.util.HashMap<>(); // guarded by mLock
     private final ThreadPoolExecutor mWorkers = new ThreadPoolExecutor(THREADS, THREADS, 30, TimeUnit.SECONDS,
             new LinkedBlockingQueue<>(TOTAL_MAX), r -> {
                 final Thread t = new Thread(() -> {
@@ -475,8 +477,11 @@ public final class VmDecodeProvider extends ContentProvider {
         try {
         final long bytes = heldBytes(fd);
         if (bytes < 0) return refusal("an immutable staged input is required", true);
-        if (DecodeGate.METHOD_JPEG_ROWS.equals(method) && extras.getInt(DecodeGate.EXTRA_LEFT) == 0) {
-            mRows.end(fd, ownerUser, forUid, callingUid, Binder.getCallingPid(), extras); // an empty band: at once
+        final String rows = DecodeGate.METHOD_JPEG_ROWS.equals(method) ? de.diamaneos.decode.client.JpegRowStreams
+                .key(fd, ownerUser, forUid, callingUid, Binder.getCallingPid(), extras) : null;
+        if (rows != null && extras.getInt(DecodeGate.EXTRA_LEFT) == 0) {
+            mRows.end(rows); // an empty band: at once, and the stream's band request gives its charge back
+            releaseRows(rows);
             return refusal("row stream ended");
         }
         if (bytes > DecodeGate.MAX_BYTES) return refusal("the input exceeds the decode limit", true);
@@ -500,6 +505,7 @@ public final class VmDecodeProvider extends ContentProvider {
                 ? () -> deliver(callback, mRows.take(getContext(), fd, lane, ownerUser, forUid, callingUid, pid, extras,
                         end, binder))
                 : () -> run(method, fd, lane, ownerUser, forUid, width, height, left, top, sample, end, callback), callback);
+        task.rows = rows;
         final String full = enqueue(task, bytes);
         if (full != null) {
             closeQuietly(fd);
@@ -590,6 +596,7 @@ public final class VmDecodeProvider extends ContentProvider {
             mHeld--;
             mBytes -= task.bytes;
             task.admitted = false;
+            if (task.rows != null) mRowTasks.remove(task.rows, task);
             pruneLocked(app);
             return true;
         }
@@ -657,6 +664,7 @@ public final class VmDecodeProvider extends ContentProvider {
             task.bytes = bytes;
             task.memory = memory;
             task.admitted = true;
+            if (task.rows != null) mRowTasks.put(task.rows, task);
             mApps = apps;
         }
         return null;
@@ -748,6 +756,7 @@ public final class VmDecodeProvider extends ContentProvider {
         com.android.internal.os.BackgroundThread.getHandler().removeCallbacksAndMessages(task);
         try {
             synchronized (mLock) {
+                if (task.rows != null) mRowTasks.remove(task.rows, task);
                 mRunning--;
                 mHeld--;
                 final Lane app = mApps.get(task.app);
@@ -763,6 +772,28 @@ public final class VmDecodeProvider extends ContentProvider {
         if (again) {
             try { pump(); } catch (OutOfMemoryError ignored) { }
         }
+    }
+
+    // A row stream its caller ended: its band request gives its byte charge back at once, so the regions that follow
+    // have room. A waiting one leaves the queue and is answered, a running one ends as its stripes stop.
+    private void releaseRows(String key) {
+        final Task task;
+        synchronized (mLock) {
+            task = mRowTasks.remove(key);
+            if (task != null) {
+                final Lane app = mApps.get(task.app);
+                if (app != null) app.bytes -= task.bytes;
+                mBytes -= task.bytes;
+                task.bytes = 0;
+            }
+        }
+        if (task == null) return;
+        if (withdraw(task)) {
+            task.work = null;
+            closeQuietly(task.fd);
+            deliver(task.callback, refusal("row stream ended"));
+        }
+        task.memory.close();
     }
 
     private void run(String method, ParcelFileDescriptor fd, String lane, int ownerUser, int forUid, int width,
