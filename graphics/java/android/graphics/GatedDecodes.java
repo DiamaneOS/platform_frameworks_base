@@ -237,7 +237,7 @@ final class GatedDecodes {
                     : peakBytes(storedPixels, (long) width * height, finalBytesPerPixel(opts))
                             + (hdrFormat ? GateGainmaps.extraBytes(width, height) : 0)));
             bitmap = large ? GateLargePixels.decode(op, bytes, 0, 0, info.width, info.height,
-                    storedSample, width, height, 0, false, requestedColor)
+                    storedSample, width, height, 0, false, requestedColor, false, info.plainJpegHeader)
                     : exactly(stored(op, bytes, info.width, info.height, storedSample), width, height);
             }
             // DiamaneOS: regions carry stored base pixels, the whole-image reply supplies the checked gain map.
@@ -973,7 +973,7 @@ final class GatedDecodes {
             } else {
                 bitmap = GateLargePixels.decode(header.op, header.bytes, 0, 0,
                         header.storedWidth, header.storedHeight, largeSample(header, width, height),
-                        width, height, header.rotation, header.mirrored, colorSpace);
+                        width, height, header.rotation, header.mirrored, colorSpace, false, header.plainJpegHeader);
                 // DiamaneOS: the region-built base keeps the whole-image reply's upright gain map.
                 try {
                     if (gainmap && !header.plainJpegHeader) {
