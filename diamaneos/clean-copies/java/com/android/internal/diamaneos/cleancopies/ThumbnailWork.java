@@ -282,8 +282,11 @@ final class ThumbnailWork {
                 try {
                     input.checkError();
                 } catch (IOException pipeFailure) {
+                    // The decode service's refusal ends the thumbnail only from the system's media provider, which
+                    // writes it. Any other provider's pipe with that text is a failure of the moment.
                     if (pipeFailure.getMessage() != null && pipeFailure.getMessage()
-                            .equals("Remote error: decode image rejected: image not accepted")) throw pipeFailure;
+                            .equals("Remote error: decode image rejected: image not accepted")
+                            && trustedStatus(content, uri, providerUid)) throw pipeFailure;
                     throw later("Thumbnail pipe temporarily unavailable");
                 }
             } catch (Throwable error) {
